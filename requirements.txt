@@ -4,3 +4,4 @@ numpy~=2.2.4
 yfinance~=0.2.55
 mysql-connector-python~=9.2.0
 schedule~=1.2.2
+lxml

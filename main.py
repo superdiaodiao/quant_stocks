@@ -1,3 +1,6 @@
+import random
+from typing import List
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -6,6 +9,8 @@ import mysql.connector
 from mysql.connector import pooling
 import schedule
 import time
+
+from pandas import DataFrame
 from tqdm import tqdm
 import warnings
 
@@ -31,10 +36,11 @@ HISTORICAL_YEARS = 5  # 初始下载多少年的历史数据
 UPDATE_DAYS = 2  # 每次更新获取最近几天数据
 MIN_MARKET_CAP = 1e9  # 最小市值(10亿美元)
 MIN_AVG_VOLUME = 1e6  # 最小日均成交量(100万股)
-MAX_STOCKS = 1000  # 最大分析股票数量
+MAX_STOCKS = 5  # 最大分析股票数量
 SHORT_MA = 5
 LONG_MA = 20
-BATCH_SIZE = 100  # 批量处理大小
+WEB_SEARCH_BATCH_SIZE = 1  # 批量网页查询处理大小
+INSERT_BATCH_SIZE = 10  # 批量写入处理大小
 
 
 def get_db_connection():
@@ -42,7 +48,7 @@ def get_db_connection():
     return db_pool.get_connection()
 
 
-def init_database():
+def init_database() -> None:
     """初始化MySQL数据库和表结构"""
     try:
         conn = get_db_connection()
@@ -111,7 +117,7 @@ def init_database():
             conn.close()
 
 
-def get_sp500_tickers():
+def get_sp500_tickers() -> List[str]:
     """获取S&P 500成分股(示例)"""
     try:
         table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
@@ -122,7 +128,7 @@ def get_sp500_tickers():
         return ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA', 'NVDA', 'JPM', 'V', 'WMT']
 
 
-def save_stock_info(conn, ticker, info):
+def save_stock_info(conn, ticker, info) -> None:
     """保存股票基本信息到MySQL"""
     try:
         cursor = conn.cursor()
@@ -155,7 +161,7 @@ def save_stock_info(conn, ticker, info):
         cursor.close()
 
 
-def batch_insert_data(conn, ticker, data):
+def batch_insert_data(conn, ticker, data) -> None:
     """批量插入股票价格数据到MySQL"""
     if data.empty:
         return
@@ -192,8 +198,8 @@ def batch_insert_data(conn, ticker, data):
         '''
 
         # 分批执行防止数据包过大
-        for i in range(0, len(records), BATCH_SIZE):
-            batch = records[i:i + BATCH_SIZE]
+        for i in range(0, len(records), INSERT_BATCH_SIZE):
+            batch = records[i:i + INSERT_BATCH_SIZE]
             cursor.executemany(insert_query, batch)
             conn.commit()
 
@@ -204,7 +210,7 @@ def batch_insert_data(conn, ticker, data):
         cursor.close()
 
 
-def download_historical_data(tickers):
+def download_historical_data(tickers) -> None:
     """下载历史数据并存入MySQL"""
     conn = get_db_connection()
 
@@ -213,6 +219,7 @@ def download_historical_data(tickers):
         valid_tickers = []
         for ticker in tqdm(tickers, desc="获取股票信息"):
             try:
+                print("Begin to process historical data for {}".format(ticker))
                 stock = yf.Ticker(ticker)
                 info = stock.info
 
@@ -220,15 +227,18 @@ def download_historical_data(tickers):
                 avg_volume = info.get('averageVolume', 0)
 
                 if market_cap >= MIN_MARKET_CAP and avg_volume >= MIN_AVG_VOLUME:
+                    print("We can save data for {}".format(ticker))
                     save_stock_info(conn, ticker, info)
                     valid_tickers.append(ticker)
+                else:
+                    print("We can not save data for {}".format(ticker))
             except Exception as e:
                 print(f"处理股票{ticker}时出错: {e}")
                 continue
 
         # 分批下载历史价格数据
-        for i in tqdm(range(0, len(valid_tickers), BATCH_SIZE), desc="下载历史数据"):
-            batch = valid_tickers[i:i + BATCH_SIZE]
+        for i in tqdm(range(0, len(valid_tickers), WEB_SEARCH_BATCH_SIZE), desc="下载历史数据"):
+            batch = valid_tickers[i:i + WEB_SEARCH_BATCH_SIZE]
             try:
                 data = yf.download(
                     batch,
@@ -244,15 +254,17 @@ def download_historical_data(tickers):
                         if not df.empty:
                             batch_insert_data(conn, ticker, df)
             except Exception as e:
-                print(f"下载批次{i}-{i + BATCH_SIZE}时出错: {e}")
+                print(f"下载批次{i}-{i + WEB_SEARCH_BATCH_SIZE}时出错: {e}")
                 continue
+            finally:
+                time.sleep(random.uniform(5, 15))  # 请求间隔
 
     finally:
         if conn.is_connected():
             conn.close()
 
 
-def update_recent_data():
+def update_recent_data() -> None:
     """更新最近几天的数据"""
     conn = get_db_connection()
 
@@ -287,8 +299,8 @@ def update_recent_data():
         print(f"更新数据从 {update_start} 到 {update_end}")
 
         # 分批更新
-        for i in tqdm(range(0, len(tickers), BATCH_SIZE), desc="更新数据"):
-            batch = tickers[i:i + BATCH_SIZE]
+        for i in tqdm(range(0, len(tickers), WEB_SEARCH_BATCH_SIZE), desc="更新数据"):
+            batch = tickers[i:i + WEB_SEARCH_BATCH_SIZE]
             try:
                 data = yf.download(
                     batch,
@@ -314,7 +326,7 @@ def update_recent_data():
                             conn.commit()
                             cursor.close()
             except Exception as e:
-                print(f"更新批次{i}-{i + BATCH_SIZE}时出错: {e}")
+                print(f"更新批次{i}-{i + WEB_SEARCH_BATCH_SIZE}时出错: {e}")
                 continue
 
     finally:
@@ -322,7 +334,7 @@ def update_recent_data():
             conn.close()
 
 
-def get_stock_data_from_db(ticker, days):
+def get_stock_data_from_db(ticker, days) -> DataFrame or None:
     """从MySQL获取股票数据"""
     conn = get_db_connection()
 
@@ -354,7 +366,7 @@ def get_stock_data_from_db(ticker, days):
             conn.close()
 
 
-def save_signal_to_db(signal_data):
+def save_signal_to_db(signal_data) -> None:
     """保存信号到MySQL"""
     conn = get_db_connection()
 
@@ -388,7 +400,7 @@ def save_signal_to_db(signal_data):
         conn.close()
 
 
-def analyze_stocks():
+def analyze_stocks() -> List:
     """分析股票生成信号"""
     conn = get_db_connection()
 
@@ -466,7 +478,7 @@ def analyze_stocks():
             conn.close()
 
 
-def daily_job():
+def daily_job() -> None:
     """每日执行的任务"""
     if datetime.now().weekday() >= 5:  # 周末不运行
         return
@@ -489,6 +501,7 @@ if __name__ == "__main__":
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM stock_list")
     count = cursor.fetchone()[0]
+    print("count: " + str(count))
     cursor.close()
     conn.close()
 
@@ -496,14 +509,16 @@ if __name__ == "__main__":
         print("首次运行，下载历史数据...")
         sp500_tickers = get_sp500_tickers()
         download_historical_data(sp500_tickers[:MAX_STOCKS])  # 限制数量
+    else:
+        update_recent_data()
 
     # 设置定时任务 (每个交易日收盘后运行)
-    schedule.every().weekday.at("16:00").do(daily_job)
+    # schedule.every().weekday.at("16:00").do(daily_job)
 
     # 立即运行一次
     daily_job()
 
-    # 保持程序运行
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    # # 保持程序运行
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(60)
