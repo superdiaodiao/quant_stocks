@@ -2,6 +2,5 @@ tqdm~=4.66.3
 pandas~=2.2.3
 numpy~=2.2.4
 yfinance~=0.2.55
-mysql~=8.4.0
 mysql-connector-python~=9.2.0
 schedule~=1.2.2

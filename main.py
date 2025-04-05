@@ -14,8 +14,8 @@ warnings.filterwarnings('ignore')
 # MySQL配置
 DB_CONFIG = {
     'host': 'localhost',
-    'user': 'your_username',
-    'password': 'your_password',
+    'user': 'quant_user',
+    'password': 'secure_password',
     'database': 'quant_trading'
 }
 
