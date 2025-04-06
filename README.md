@@ -1,3 +1,5 @@
+# Resource
+get history data at https://stooq.com/db/h/
 
 # Prepare
 
