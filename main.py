@@ -39,7 +39,7 @@ MIN_AVG_VOLUME = 1e6  # 最小日均成交量(100万股)
 MAX_STOCKS = 5  # 最大分析股票数量
 SHORT_MA = 5
 LONG_MA = 20
-WEB_SEARCH_BATCH_SIZE = 1  # 批量网页查询处理大小
+WEB_SEARCH_BATCH_SIZE = 2  # 批量查询、下载股票的个数
 INSERT_BATCH_SIZE = 10  # 批量写入处理大小
 
 
@@ -79,7 +79,6 @@ def init_database() -> None:
             high FLOAT,
             low FLOAT,
             close FLOAT,
-            adj_close FLOAT,
             volume FLOAT,
             UNIQUE KEY uniq_ticker_date (ticker, date),
             INDEX idx_ticker (ticker),
@@ -165,6 +164,10 @@ def batch_insert_data(conn, ticker, data) -> None:
     """批量插入股票价格数据到MySQL"""
     if data.empty:
         return
+    else:
+        required_columns = {'Open', 'High', 'Low', 'Close', 'Volume'}
+        if not required_columns.issubset(data.columns):
+            raise ValueError(f"Data is missing required columns: {required_columns - set(data.columns)}")
 
     try:
         cursor = conn.cursor()
@@ -179,21 +182,19 @@ def batch_insert_data(conn, ticker, data) -> None:
                 row['High'],
                 row['Low'],
                 row['Close'],
-                row['Adj Close'],
                 row['Volume']
             ))
 
         # 使用批量插入语句
         insert_query = '''
         INSERT INTO stock_data 
-        (ticker, date, open, high, low, close, adj_close, volume)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        (ticker, date, open, high, low, close, volume)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             open = VALUES(open),
             high = VALUES(high),
             low = VALUES(low),
             close = VALUES(close),
-            adj_close = VALUES(adj_close),
             volume = VALUES(volume)
         '''
 
@@ -227,7 +228,7 @@ def download_historical_data(tickers) -> None:
                 avg_volume = info.get('averageVolume', 0)
 
                 if market_cap >= MIN_MARKET_CAP and avg_volume >= MIN_AVG_VOLUME:
-                    print("We can save data for {}".format(ticker))
+                    print("We can get the info of {}".format(ticker))
                     save_stock_info(conn, ticker, info)
                     valid_tickers.append(ticker)
                 else:
@@ -246,15 +247,17 @@ def download_historical_data(tickers) -> None:
                     group_by='ticker',
                     progress=False
                 )
+                print(f"\nWe have saved data of {batch}")
 
                 # 存入数据库
                 for ticker in batch:
                     if ticker in data:
                         df = data[ticker]
                         if not df.empty:
+                            print(df.head())
                             batch_insert_data(conn, ticker, df)
             except Exception as e:
-                print(f"下载批次{i}-{i + WEB_SEARCH_BATCH_SIZE}时出错: {e}")
+                print(f"下载、插入批次{i}-{i + WEB_SEARCH_BATCH_SIZE}时出错: {e}")
                 continue
             finally:
                 time.sleep(random.uniform(5, 15))  # 请求间隔
@@ -343,7 +346,7 @@ def get_stock_data_from_db(ticker, days) -> DataFrame or None:
         start_date = end_date - timedelta(days=days)
 
         query = '''
-        SELECT date, open, high, low, close, adj_close, volume 
+        SELECT date, open, high, low, close, volume 
         FROM stock_data 
         WHERE ticker = %s AND date BETWEEN %s AND %s
         ORDER BY date
@@ -425,9 +428,9 @@ def analyze_stocks() -> List:
                 if df is None or len(df) < LONG_MA:
                     continue
 
-                # 计算指标
-                df['short_ma'] = df['adj_close'].rolling(window=SHORT_MA).mean()
-                df['long_ma'] = df['adj_close'].rolling(window=LONG_MA).mean()
+                # 计算指标，用close而不是adj_close
+                df['short_ma'] = df['close'].rolling(window=SHORT_MA).mean()
+                df['long_ma'] = df['close'].rolling(window=LONG_MA).mean()
                 df['signal'] = np.where(df['short_ma'] > df['long_ma'], 1, 0)
                 df['position'] = df['signal'].diff()
 
@@ -436,13 +439,13 @@ def analyze_stocks() -> List:
 
                 # 只关注买入信号
                 if last_row['position'] == 1:
-                    daily_returns = df['adj_close'].pct_change().dropna()
+                    daily_returns = df['close'].pct_change().dropna()
                     volatility = daily_returns.std() * np.sqrt(252)
                     sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
 
                     signal_data = {
                         'ticker': ticker,
-                        'price': last_row['adj_close'],
+                        'price': last_row['close'],
                         'short_ma': last_row['short_ma'],
                         'long_ma': last_row['long_ma'],
                         'signal_strength': (last_row['short_ma'] - last_row['long_ma']) / last_row['long_ma'] * 100,

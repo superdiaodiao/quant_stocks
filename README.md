@@ -1,4 +1,4 @@
-# Resource
+# Historical Data Resource
 get history data at https://stooq.com/db/h/
 
 # Prepare
@@ -17,3 +17,6 @@ CREATE USER 'quant_user'@'%' IDENTIFIED BY 'secure_password';
 GRANT ALL PRIVILEGES ON quant_trading.* TO 'quant_user'@'%';
 FLUSH PRIVILEGES;
 ```
+
+# Check
+run `test_get_stocks.py`, make sure the IP is not blocked.

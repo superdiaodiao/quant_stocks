@@ -13,6 +13,7 @@ for ticker in tickers:
             data = yf.download(ticker, period="7d", group_by="ticker", progress=False)
             if not data.empty:  # 如果数据不是空的
                 print(f"{ticker} 下载成功")
+                print(data.head())
                 valid_tickers.append(ticker)
             else:
                 print(f"{ticker} 数据为空，跳过")
