@@ -1,7 +1,9 @@
 from itertools import product
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
+
 from src.read_data import load_stocks_data, get_stock_list
 
 
@@ -91,6 +93,7 @@ def backtest_strategy(tickers, short_ma, long_ma):
         "annual_return": np.mean(annual_returns),
         "max_drawdown": np.min(max_drawdowns)
     }
+
 
 def calculate_max_drawdown(cumulative_returns):
     """计算最大回撤"""

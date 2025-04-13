@@ -22,7 +22,7 @@ def analyze_stocks():
         df["short_ma"] = df["close"].rolling(SHORT_MA).mean()
         df["long_ma"] = df["close"].rolling(LONG_MA).mean()
         df["signal"] = np.where(df["short_ma"] > df["long_ma"], 1, 0)
-        df["position"] = df["signal"].diff().fillna(0) #信号变化点
+        df["position"] = df["signal"].diff().fillna(0)  # 信号变化点
 
         if df.iloc[-1]["position"] == 1 or df.iloc[-1]["position"] == -1:  # 买入/卖出信号
             print(df[["close", "short_ma", "long_ma", "signal", "position"]].tail())
@@ -30,7 +30,7 @@ def analyze_stocks():
             volatility = daily_returns.std() * np.sqrt(252)
             sharpe_ratio = round(daily_returns.mean() / daily_returns.std() * np.sqrt(252), 4)
 
-            action = "buy" if(df.iloc[-1]["position"] == 1) else "sell"
+            action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 
             recommendations.append({
                 "imp_date": date.today(),

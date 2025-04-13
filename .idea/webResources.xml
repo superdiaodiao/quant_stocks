@@ -6,6 +6,10 @@
         <entryData>
           <resourceRoots>
             <path value="file://$PROJECT_DIR$/his_data" />
+            <path value="file://$PROJECT_DIR$/stock_data" />
+            <path value="file://$PROJECT_DIR$/stocks_list_dir" />
+            <path value="file://$PROJECT_DIR$/cleaned_stocks_data" />
+            <path value="file://$PROJECT_DIR$/logs" />
           </resourceRoots>
         </entryData>
       </entry>

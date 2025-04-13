@@ -1,7 +1,5 @@
-tqdm~=4.66.3
+tqdm~=4.67.1
 pandas~=2.2.3
-numpy~=2.2.4
+numpy~=1.26.4
 yfinance~=0.2.55
-mysql-connector-python~=9.2.0
-schedule~=1.2.2
-lxml
+matplotlib~=3.10.1

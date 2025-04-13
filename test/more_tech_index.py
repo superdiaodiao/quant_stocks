@@ -1,8 +1,21 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import talib
 from tqdm import tqdm
 
-from read_data import get_stock_list, load_stocks_data
+from read_data import load_stocks_data
+
+
+def plot_strategy_performance(df):
+    """绘制策略表现"""
+    df["portfolio"] = (1 + df["position"] * df["close"].pct_change()).cumprod()
+    plt.figure(figsize=(14, 7))
+    plt.plot(df["close"], label="Price")
+    plt.plot(df["short_ma"], label="Short MA")
+    plt.plot(df["long_ma"], label="Long MA")
+    plt.plot(df["portfolio"], label="Portfolio Value", linestyle="--")
+    plt.legend()
+    plt.show()
 
 
 def add_technical_indicators(df):
@@ -10,6 +23,7 @@ def add_technical_indicators(df):
     df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # RSI指标
     df["adx"] = talib.ADX(df["high"], df["low"], df["close"], timeperiod=14)  # ADX平均趋向指数
     return df
+
 
 def refined_strategy(df, short_ma, long_ma):
     """结合RSI和ADX改进均线策略"""
@@ -34,16 +48,4 @@ for ticker in tqdm(tickers, desc="分析股票"):
     df = refined_strategy(df, short_ma=5, long_ma=20)
     # 查看信号和仓位
     print(df[["close", "short_ma", "long_ma", "rsi", "adx", "signal", "position"]].tail())
-
-import matplotlib.pyplot as plt
-
-def plot_strategy_performance(df):
-    """绘制策略表现"""
-    df["portfolio"] = (1 + df["position"] * df["close"].pct_change()).cumprod()
-    plt.figure(figsize=(14, 7))
-    plt.plot(df["close"], label="Price")
-    plt.plot(df["short_ma"], label="Short MA")
-    plt.plot(df["long_ma"], label="Long MA")
-    plt.plot(df["portfolio"], label="Portfolio Value", linestyle="--")
-    plt.legend()
-    plt.show()
+    plot_strategy_performance(df)
