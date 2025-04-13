@@ -2,13 +2,13 @@ import os
 
 import pandas as pd
 
-from src.conf import HISTORICAL_DATA_DIR, SIGNAL_FILE
+from src.conf import CLEANED_DATA_DIR, SIGNAL_FILE
 from src.read_data import load_csv
 
 
 def save_stocks_data(ticker, data):
     """保存股票历史价格数据为 CSV 文件"""
-    file_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}.csv")
+    file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
     if os.path.exists(file_path):
         existing_data = pd.read_csv(file_path, index_col="date", parse_dates=True)
         data = pd.concat([existing_data, data]).drop_duplicates().sort_index()

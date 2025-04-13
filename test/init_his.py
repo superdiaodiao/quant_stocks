@@ -1,4 +1,4 @@
-from src.main import init_historical_data
+from main import init_historical_data
 
 SOURCE_DIR = "/data/quant_stocks/his_data/us/nasdaq stocks"
 STOCK_LIST_FILE = "stock_list.csv"  # 保存股票基本信息的文件

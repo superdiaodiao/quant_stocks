@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from src.conf import STOCK_LIST_FILE, HISTORICAL_DATA_DIR
+from src.conf import STOCK_LIST_FILE, CLEANED_DATA_DIR
 from src.read_data import get_stock_list
 from src.save_files import save_stocks_data
 
@@ -22,7 +22,7 @@ def init_historical_data(source_dir: str):
     :param source_dir: 历史数据的根目录
     """
     # 确保目标存储目录存在
-    os.makedirs(HISTORICAL_DATA_DIR, exist_ok=True)
+    os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
     tickers = get_stock_list()
 
     # 当前日期和时间

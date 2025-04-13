@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 
-from src.conf import HISTORICAL_DATA_DIR, STOCK_LIST_FILE
+from src.conf import CLEANED_DATA_DIR, STOCK_LIST_FILE
 
 
 def load_csv(file_path):
@@ -20,7 +20,7 @@ def load_csv(file_path):
 def load_stocks_data(ticker):
     """加载股票的历史价格数据"""
     ticker = ticker.lower()
-    file_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}.csv")
+    file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
     if os.path.exists(file_path):
         return pd.read_csv(file_path, index_col="date", parse_dates=True)
     return pd.DataFrame()

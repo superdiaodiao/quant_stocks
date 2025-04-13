@@ -1,11 +1,11 @@
 import os
 
 from src.analyze import analyze_stocks
-from src.conf import HISTORICAL_DATA_DIR, SOURCE_DIR
+from src.conf import CLEANED_DATA_DIR, SOURCE_DIR
 from src.init_data import init_stock_list, init_historical_data
 
 # 创建存储文件夹
-os.makedirs(HISTORICAL_DATA_DIR, exist_ok=True)
+os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
 
 if __name__ == "__main__":
 
@@ -13,7 +13,7 @@ if __name__ == "__main__":
     init_stock_list()
 
     # 如果尚无本地历史数据存储，则从目录导入数据
-    local_files = os.listdir(HISTORICAL_DATA_DIR)
+    local_files = os.listdir(CLEANED_DATA_DIR)
     if not local_files:
         print("历史数据文件为空，从目录初始化数据...")
         init_historical_data(SOURCE_DIR)
