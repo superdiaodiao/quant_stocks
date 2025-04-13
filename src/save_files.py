@@ -17,7 +17,7 @@ def save_stocks_data(ticker, data):
 
 def save_signals(recommendations):
     """保存交易信号到 CSV 文件"""
-    signal_columns = ["imp_date", "ticker", "price", "short_ma", "long_ma", "volatility", "sharpe_ratio"]
+    signal_columns = ["imp_date", "ticker", "action", "price", "short_ma", "long_ma", "volatility", "sharpe_ratio"]
 
     # 加载已有的信号数据
     signals = load_csv(SIGNAL_FILE)
@@ -34,7 +34,7 @@ def save_signals(recommendations):
     new_data["ticker"] = new_data["ticker"].str.strip()
 
     combined_signals = pd.concat([signals, new_data], ignore_index=True)
-    combined_signals = combined_signals.drop_duplicates(subset=["imp_date", "ticker"], keep="last")
+    combined_signals = combined_signals.drop_duplicates(subset=["imp_date", "ticker", "action"], keep="last")
 
     combined_signals = combined_signals.reindex(columns=signal_columns)
     combined_signals.to_csv(SIGNAL_FILE, index=False)
