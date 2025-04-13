@@ -18,11 +18,20 @@ def load_csv(file_path):
 
 
 def load_stocks_data(ticker):
-    """加载股票的历史价格数据"""
+    """加载股票的历史价格数据，并去除重复行"""
     ticker = ticker.lower()
     file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
     if os.path.exists(file_path):
-        return pd.read_csv(file_path, index_col="date", parse_dates=True)
+        # 加载数据
+        df = pd.read_csv(file_path, index_col="date", parse_dates=True)
+
+        # 去重处理：根据索引和列的值去重
+        df = df[~df.index.duplicated(keep='last')]  # 针对日期索引的去重
+        df = df.drop_duplicates()  # 针对整行数据去重
+
+        return df
+
+    # 如果文件不存在，返回空 DataFrame
     return pd.DataFrame()
 
 
