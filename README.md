@@ -10,13 +10,8 @@ cat ~/.ssh/id_rsa.pub
 ```
 paste it into `Setting-Security-Deploy keys` part
 
-## prepare for mysql
-```mysql
-CREATE DATABASE quant_trading;
-CREATE USER 'quant_user'@'%' IDENTIFIED BY 'secure_password';
-GRANT ALL PRIVILEGES ON quant_trading.* TO 'quant_user'@'%';
-FLUSH PRIVILEGES;
-```
+## prepare stock list
+download list from https://www.nasdaq.com/market-activity/stocks/screener?page=1&rows_per_page=25
 
 # Check
 run `test_get_stocks.py`, make sure the IP is not blocked.

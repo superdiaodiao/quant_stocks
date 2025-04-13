@@ -12,7 +12,7 @@ from tqdm import tqdm
 # 全局配置
 PROJECT_PATH = "/data/quant_stocks/"
 SOURCE_DIR = PROJECT_PATH + "his_data/us/nasdaq stocks"
-STOCK_LIST_FILE = PROJECT_PATH + "nasdaq_2B.csv"  # 保存股票基本信息的文件
+STOCK_LIST_FILE = PROJECT_PATH + "nasdaq_300M.csv"  # 保存股票基本信息的文件
 HISTORICAL_DATA_DIR = PROJECT_PATH + "stock_data"  # 保存历史数据的目录
 SIGNAL_FILE = PROJECT_PATH + "signals.csv"  # 保存交易信号的文件
 
@@ -171,16 +171,16 @@ def analyze_stocks():
         df["long_ma"] = df["close"].rolling(LONG_MA).mean()
         df["signal"] = np.where(df["short_ma"] > df["long_ma"], 1, 0)
         df["position"] = df["signal"].diff()
-        print(df.tail())
 
         if df.iloc[-1]["position"] == 1:  # 买入条件
+            print(df.tail())
             daily_returns = df["close"].pct_change().dropna()
             volatility = daily_returns.std() * np.sqrt(252)
             sharpe_ratio = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
 
             recommendations.append({
                 "ticker": ticker,
-                "price": df.iloc[-1]["Close"],
+                "price": df.iloc[-1]["close"],
                 "short_ma": df.iloc[-1]["short_ma"],
                 "long_ma": df.iloc[-1]["long_ma"],
                 "volatility": volatility,
