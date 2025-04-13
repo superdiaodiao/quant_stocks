@@ -1,0 +1,171 @@
+数据库表初始化完成
+count: 0
+首次运行，下载历史数据...
+获取股票信息:   0%|          | 0/20 [00:00<?, ?it/s]获取股票信息:   5%|▌         | 1/20 [00:00<00:08,  2.36it/s]获取股票信息:  10%|█         | 2/20 [00:00<00:05,  3.47it/s]获取股票信息:  15%|█▌        | 3/20 [00:00<00:04,  4.17it/s]获取股票信息:  20%|██        | 4/20 [00:00<00:03,  4.62it/s]获取股票信息:  25%|██▌       | 5/20 [00:01<00:03,  4.48it/s]获取股票信息:  30%|███       | 6/20 [00:01<00:02,  4.73it/s]获取股票信息:  35%|███▌      | 7/20 [00:01<00:02,  4.95it/s]获取股票信息:  40%|████      | 8/20 [00:01<00:02,  5.07it/s]获取股票信息:  45%|████▌     | 9/20 [00:01<00:02,  5.15it/s]获取股票信息:  50%|█████     | 10/20 [00:02<00:01,  5.23it/s]获取股票信息:  55%|█████▌    | 11/20 [00:02<00:01,  5.26it/s]获取股票信息:  60%|██████    | 12/20 [00:02<00:01,  5.25it/s]获取股票信息:  65%|██████▌   | 13/20 [00:02<00:01,  5.29it/s]获取股票信息:  70%|███████   | 14/20 [00:02<00:01,  5.26it/s]获取股票信息:  75%|███████▌  | 15/20 [00:03<00:00,  5.32it/s]获取股票信息:  80%|████████  | 16/20 [00:03<00:00,  5.36it/s]获取股票信息:  85%|████████▌ | 17/20 [00:03<00:00,  5.38it/s]获取股票信息:  90%|█████████ | 18/20 [00:03<00:00,  5.40it/s]获取股票信息:  95%|█████████▌| 19/20 [00:03<00:00,  5.44it/s]获取股票信息: 100%|██████████| 20/20 [00:04<00:00,  5.41it/s]获取股票信息: 100%|██████████| 20/20 [00:04<00:00,  4.99it/s]
+Begin to process historical data for MMM
+We can get the info of MMM
+Begin to process historical data for AOS
+We can get the info of AOS
+Begin to process historical data for ABT
+We can get the info of ABT
+Begin to process historical data for ABBV
+We can get the info of ABBV
+Begin to process historical data for ACN
+We can get the info of ACN
+Begin to process historical data for ADBE
+We can get the info of ADBE
+Begin to process historical data for AMD
+We can get the info of AMD
+Begin to process historical data for AES
+We can get the info of AES
+Begin to process historical data for AFL
+We can get the info of AFL
+Begin to process historical data for A
+We can get the info of A
+Begin to process historical data for APD
+We can get the info of APD
+Begin to process historical data for ABNB
+We can get the info of ABNB
+Begin to process historical data for AKAM
+We can get the info of AKAM
+Begin to process historical data for ALB
+We can get the info of ALB
+Begin to process historical data for ARE
+We can get the info of ARE
+Begin to process historical data for ALGN
+We can get the info of ALGN
+Begin to process historical data for ALLE
+We can get the info of ALLE
+Begin to process historical data for LNT
+We can get the info of LNT
+Begin to process historical data for ALL
+We can get the info of ALL
+Begin to process historical data for GOOGL
+We can get the info of GOOGL
+下载历史数据:   0%|          | 0/10 [00:00<?, ?it/s]下载历史数据:  10%|█         | 1/10 [00:13<02:02, 13.58s/it]下载历史数据:  20%|██        | 2/10 [00:28<01:56, 14.55s/it]下载历史数据:  30%|███       | 3/10 [00:39<01:30, 12.86s/it]下载历史数据:  40%|████      | 4/10 [00:47<01:05, 10.95s/it]下载历史数据:  50%|█████     | 5/10 [00:59<00:56, 11.21s/it]下载历史数据:  60%|██████    | 6/10 [01:12<00:47, 11.80s/it]YF.download() has changed argument auto_adjust default to True
+
+We have saved data of ['MMM', 'AOS']
+Price             Open        High         Low       Close   Volume
+Date                                                               
+2020-04-06   94.560804   96.886071   93.902324   96.508820  6745081
+2020-04-07  101.173097  103.326885   99.046748   99.183929  6573575
+2020-04-08   99.959001  102.695819   98.710631  102.195099  3673036
+2020-04-09  101.831564  102.702683  100.514603  101.365143  5721305
+2020-04-13  101.173074  101.913864   99.664054  100.418564  3160191
+批量插入MMM数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  33.815778  35.195826  33.377088  34.930786  3000700
+2020-04-07  35.643664  36.959736  35.104439  36.246864  3942200
+2020-04-08  36.457065  37.389284  36.054933  36.758667  1502100
+2020-04-09  37.032846  37.855390  36.228578  36.749523  1849300
+2020-04-13  36.530180  36.959730  35.725912  36.219440  1155800
+批量插入AOS数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['ABT', 'ABBV']
+Price            Open       High        Low      Close    Volume
+Date                                                            
+2020-04-06  74.236115  76.103921  72.890195  75.746841  12373800
+2020-04-07  76.406054  77.349118  74.867861  75.014359  10872100
+2020-04-08  75.536262  78.182319  74.208658  77.779457   9266400
+2020-04-09  77.825243  79.198629  75.948278  78.777458  10466800
+2020-04-13  79.033837  79.180335  76.470179  78.603508   6665800
+批量插入ABT数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price            Open       High        Low      Close    Volume
+Date                                                            
+2020-04-06  61.367580  62.599148  59.982070  61.359482  10266500
+2020-04-07  63.506612  63.668664  60.970563  61.083996  11591700
+2020-04-08  61.934749  63.992760  60.589748  63.652454  12218500
+2020-04-09  63.652451  64.884019  63.652451  64.616638   9425900
+2020-04-13  65.353950  65.896810  63.733471  65.062263   9293500
+批量插入ABBV数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['ACN', 'ADBE']
+Price             Open        High         Low       Close   Volume
+Date                                                               
+2020-04-06  148.289387  155.536898  146.479840  154.883972  3090000
+2020-04-07  159.575769  159.958202  152.906560  153.083786  3002500
+2020-04-08  155.378369  161.077504  153.969914  160.182053  2466200
+2020-04-09  161.581186  167.774680  160.909601  165.955811  3743700
+2020-04-13  164.332824  165.107013  158.157989  160.965591  1918500
+批量插入ACN数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price             Open        High         Low       Close   Volume
+Date                                                               
+2020-04-06  306.559998  320.510010  299.959991  319.130005  5145100
+2020-04-07  327.410004  328.320007  306.299988  308.929993  5422300
+2020-04-08  313.880005  317.720001  308.200012  317.179993  4002500
+2020-04-09  318.649994  320.779999  310.790009  318.700012  3290200
+2020-04-13  315.940002  320.899994  313.750000  320.649994  1839000
+批量插入ADBE数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['AMD', 'AES']
+Price            Open       High        Low      Close     Volume
+Date                                                             
+2020-04-06  44.299999  47.580002  44.060001  47.520000   82294000
+2020-04-07  48.959999  49.650002  46.680000  47.560001  102098700
+2020-04-08  48.070000  49.000000  47.610001  48.790001   64930800
+2020-04-09  49.650002  50.250000  47.720001  48.380001   80270100
+2020-04-13  48.470001  51.070000  48.230000  50.939999   64290100
+批量插入AMD数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  10.915736  11.660375  10.831118  11.524986  5157900
+2020-04-07  12.125779  12.362709  11.169593  11.194979  6269800
+2020-04-08  11.178055  12.075008  11.135746  11.956542  4545500
+2020-04-09  12.227317  12.684255  12.185008  12.455787  7452900
+2020-04-13  12.379629  12.379629  11.778840  12.007309  3747500
+批量插入AES数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['AFL', 'A']
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  30.556771  31.954968  30.158553  31.167377  5275800
+2020-04-07  32.910678  33.831010  31.547883  31.600977  4625500
+2020-04-08  31.866476  33.707140  31.636394  33.423962  4296900
+2020-04-09  34.069959  35.238071  33.211572  33.698288  7065600
+2020-04-13  33.760221  33.760221  32.326626  32.990326  2828200
+批量插入AFL数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  70.547175  72.500101  69.851080  71.891022  2312000
+2020-04-07  74.066314  74.984768  71.562306  71.571976  2458000
+2020-04-08  71.707314  74.607705  70.334465  74.143646  2703000
+2020-04-09  73.892257  76.106222  73.698901  75.729172  2399900
+2020-04-13  74.868752  75.400486  72.529098  73.679588  1533000
+批量插入A数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['APD', 'ABNB']
+Price             Open        High         Low       Close   Volume
+Date                                                               
+2020-04-06  172.806940  175.985694  169.246387  172.132126  2090400
+2020-04-07  176.349700  182.680571  176.030048  179.386383  1383800
+2020-04-08  180.664989  193.193535  178.533988  191.577515  1804000
+2020-04-09  191.018125  197.650885  191.018125  194.738510  1744000
+2020-04-13  193.744064  195.333448  189.579719  191.959351  1096700
+批量插入APD数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price       Open  High  Low  Close  Volume
+Date                                      
+2020-04-06   NaN   NaN  NaN    NaN     NaN
+2020-04-07   NaN   NaN  NaN    NaN     NaN
+2020-04-08   NaN   NaN  NaN    NaN     NaN
+2020-04-09   NaN   NaN  NaN    NaN     NaN
+2020-04-13   NaN   NaN  NaN    NaN     NaN
+批量插入ABNB数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+
+We have saved data of ['AKAM', 'ALB']
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  98.129997  98.400002  95.400002  97.790001  2191600
+2020-04-07  98.260002  99.430000  94.650002  95.230003  2308700
+2020-04-08  96.269997  97.769997  95.400002  97.370003  1477500
+2020-04-09  97.040001  97.790001  94.940002  95.389999  2036600
+2020-04-13  95.000000  95.370003  93.120003  95.190002  2018100
+批量插入AKAM数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type
+Price            Open       High        Low      Close   Volume
+Date                                                           
+2020-04-06  52.151955  54.564207  51.537066  53.854721  1725800
+2020-04-07  55.160181  57.089981  53.438495  53.920944  1952000
+2020-04-08  54.497998  59.057629  54.223662  58.480579  1706000
+2020-04-09  58.981952  63.607802  58.811675  63.399685  1775400
+2020-04-13  63.172648  63.711858  58.338682  59.890095  1678600
+批量插入ALB数据失败: Failed processing format-parameters; Python 'float64' cannot be converted to a MySQL type下载历史数据:  70%|███████   | 7/10 [01:18<00:30, 10.05s/it]下载历史数据:  80%|████████  | 8/10 [01:33<00:23, 11.59s/it]

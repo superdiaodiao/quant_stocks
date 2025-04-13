@@ -1,0 +1,101 @@
+Intel
+Microsoft
+Cisco
+Kraft Heinz
+Vertex
+Monster Beverage
+Cintas
+Autodesk
+Gilead
+Alphabet A
+Adobe
+Qualcomm
+Warner Bros Discovery
+Applied Materials
+Cadence Design
+Microchip
+Intuitive Surgical
+Paychex
+Apple
+Fastenal
+PACCAR
+Amazon.com
+Ross Stores
+Costco
+Lam Research
+Intuit
+Cognizant A
+KLA Corp
+Amgen
+Electronic Arts
+Biogen
+NVIDIA
+Starbucks
+Axon Enterprise
+Comcast
+Marvell
+Analog Devices
+Xcel Energy
+CSX
+Exelon
+Micron
+Marriott Int
+American Electric Power
+Texas Instruments
+Coca-Cola European
+Honeywell
+AMD
+Baker Hughes
+PepsiCo
+ADP
+Keurig Dr Pepper
+Netflix
+Booking
+O’Reilly Automotive
+Roper Technologies
+Broadcom
+NXP
+Tesla
+Take-Two
+ANSYS
+Charter Communications
+CoStar
+DexCom
+Fortinet
+IDEXX Labs
+MercadoLibre
+MicroStrategy
+ON Semiconductor
+T-Mobile US
+Meta Platforms
+Workday
+Mondelez
+Lululemon Athletica
+Regeneron Pharma
+AstraZeneca ADR
+ASML  ADR
+Copart
+Old Dominion Freight Line
+Synopsys
+Verisk
+Diamondback
+Palo Alto Networks
+CDW Corp
+Alphabet C
+PayPal
+Atlassian Corp Plc
+The Trade Desk
+MongoDB
+Zscaler
+PDD Holdings DRC
+CrowdStrike Holdings
+Datadog
+Palantir
+Airbnb
+DoorDash
+Applovin
+GlobalFoundries
+Constellation Energy
+GE HealthCare
+Arm
+Linde PLC
