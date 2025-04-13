@@ -1,6 +1,7 @@
-import yfinance as yf
-import time
 import random
+import time
+
+import yfinance as yf
 
 tickers = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META']
 failed_tickers = []
