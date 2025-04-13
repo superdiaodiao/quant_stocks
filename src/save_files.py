@@ -17,7 +17,8 @@ def save_stocks_data(ticker, data):
 
 def save_signals(recommendations):
     """保存交易信号到 CSV 文件"""
-    signal_columns = ["imp_date", "ticker", "action", "price", "short_ma", "long_ma", "volatility", "sharpe_ratio"]
+    signal_columns = ["imp_date", "ticker", "action", "price", "short_ma", "long_ma", "rsi", "adx", "volatility",
+                      "sharpe_ratio"]
 
     # 加载已有的信号数据
     signals = load_csv(SIGNAL_FILE)
