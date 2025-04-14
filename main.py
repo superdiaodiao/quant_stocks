@@ -3,6 +3,7 @@ import os
 from src.analyze import analyze_stocks
 from src.conf import CLEANED_DATA_DIR, SOURCE_DIR
 from src.init_data import init_stock_list, init_historical_data
+from src.update_data import update_recent_data
 
 # 创建存储文件夹
 os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
@@ -21,7 +22,7 @@ if __name__ == "__main__":
         print("历史数据已存在，无需初始化。")
 
     # 更新数据
-    # update_recent_data()
+    update_recent_data()
 
     # 分析股票并输出推荐信号
     recommendations = analyze_stocks()

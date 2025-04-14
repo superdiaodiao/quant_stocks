@@ -1,21 +1,42 @@
-import yfinance as yf
-from tqdm import tqdm
+import datetime
+import akshare as ak
+import pandas as pd
 
-from src.conf import WEB_SEARCH_BATCH_SIZE, UPDATE_DAYS
 from src.read_data import get_stock_list
 from src.save_files import save_stocks_data
 
+today = datetime.date.today()
+start_date = (today + datetime.timedelta(days=-3)).strftime('%Y%m%d')
+end_date = today.strftime('%Y%m%d')
 
 def update_recent_data():
     """更新最近几天的数据"""
     tickers = get_stock_list()
 
-    for i in tqdm(range(0, len(tickers), WEB_SEARCH_BATCH_SIZE), desc="更新数据"):
-        batch = tickers[i:i + WEB_SEARCH_BATCH_SIZE]
+    for ticker in tickers:
         try:
-            data = yf.download(batch, period=f"{UPDATE_DAYS}d", group_by="ticker", progress=False)
-            for ticker in batch:
-                if ticker in data:
-                    save_stocks_data(ticker, data[ticker])
+            symbol = '105.' + ticker
+            df = ak.stock_us_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date)
+            if df.empty:
+                print(f"{ticker} could not update")
+                continue
+
+            print(f"Successfully get the data of {ticker} from {start_date} to {end_date}")
+
+            df = df.rename(columns={
+                "日期": "date",
+                "开盘": "open",
+                "收盘": "close",
+                "最高": "high",
+                "最低": "low",
+                "成交量": "volume"
+            })
+            df["ticker"] = ticker
+            df = df[["date", "ticker", "open", "high", "low", "close", "volume"]]
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.set_index("date")
+
+            save_stocks_data(ticker.lower(), df)
+            print(f"Saved the latest data of {ticker}")
         except Exception as e:
-            print(f"批量更新失败: {e}")
+            print(f"{ticker}更新失败: {e}")

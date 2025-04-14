@@ -42,6 +42,7 @@ def analyze_stocks():
         if df.empty or len(df) < LONG_MA:
             continue
 
+        end_date = df.index[-1]
         df = refined_strategy(df)
 
         if df.iloc[-1]["position"] == 1 or df.iloc[-1]["position"] == -1:  # 买入/卖出信号
@@ -53,7 +54,7 @@ def analyze_stocks():
             action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 
             recommendations.append({
-                "imp_date": date.today(),
+                "imp_date": end_date,
                 "ticker": ticker,
                 "action": action,
                 "price": df.iloc[-1]["close"],

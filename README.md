@@ -1,4 +1,4 @@
-# python env
+# 1.python env
 ## conda
 ```shell
 # install miniconda
@@ -18,11 +18,11 @@ check https://github.com/TA-Lib/ta-lib-python
 conda install -c conda-forge ta-lib
 ```
 
-# Historical Data Resource
+# 2.Historical Data Resource
 
 get history data at https://stooq.com/db/h/
 
-# Prepare
+# 3.Git
 
 ## add pub key in github
 
@@ -38,6 +38,13 @@ paste it into `Setting-Security-Deploy keys` part
 
 download list from https://www.nasdaq.com/market-activity/stocks/screener?page=1&rows_per_page=25
 
-# Check
-
-run `test_get_stocks.py`, make sure the IP is not blocked.
+# 4.crontab
+```shell
+chmod 777 /data/quant_stocks/schedule_run.sh
+```
+```shell
+crontab -e
+```
+```shell
+0 9 * * * /data/quant_stocks/schedule_run.sh
+```

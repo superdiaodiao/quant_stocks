@@ -51,7 +51,8 @@ def init_historical_data(source_dir: str):
                             "volume": float  # 改为浮点类型，避免转换错误
                         }
                     )
-
+                    # ticker去掉后缀，如AAPL.US改为AAPL
+                    stock_data["ticker"] = stock_data["ticker"].str.split('.').str[0]
                     # 检查数据有效性，处理缺失值，确保 `volume` 为整数
                     stock_data["volume"] = stock_data["volume"].fillna(0).astype(int)
 
