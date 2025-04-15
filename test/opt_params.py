@@ -79,19 +79,30 @@ def backtest_strategy(tickers, short_ma, long_ma):
         df["daily_return"] = df["position"] * df["close"].pct_change()
         df.dropna(inplace=True)
 
-        # 核心回测指标
-        sharpe_ratio = round(df["daily_return"].mean() / df["daily_return"].std() * np.sqrt(252), 4)
+        # 计算指标（确保有效性）
+        try:
+            sharpe_ratio = round(df["daily_return"].mean() / df["daily_return"].std() * np.sqrt(252), 4)
+            if np.isnan(sharpe_ratio):
+                print(f"The sharpe ratio of {ticker} is nan.")
+                continue  # 跳过无效值
+        except ZeroDivisionError:
+            print(f"Zero Division Error happened to {ticker}.")
+            continue  # 避免除以 0 异常
+
         annual_return = (1 + df["daily_return"].mean()) ** 252 - 1
         max_drawdown = calculate_max_drawdown(df["daily_return"].cumsum())
 
-        sharpe_ratios.append(sharpe_ratio)
-        annual_returns.append(annual_return)
-        max_drawdowns.append(max_drawdown)
+        # 仅存储有效指标
+        if not np.isnan(sharpe_ratio):
+            sharpe_ratios.append(sharpe_ratio)
+            annual_returns.append(annual_return)
+            max_drawdowns.append(max_drawdown)
 
+    # 确保计算时忽略 NaN 值
     return {
-        "sharpe_ratio": np.mean(sharpe_ratios),
-        "annual_return": np.mean(annual_returns),
-        "max_drawdown": np.min(max_drawdowns)
+        "sharpe_ratio": np.nanmean(sharpe_ratios),  # 使用 np.nanmean 忽略 NaN
+        "annual_return": np.nanmean(annual_returns),
+        "max_drawdown": np.nanmin(max_drawdowns),
     }
 
 

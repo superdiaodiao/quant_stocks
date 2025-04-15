@@ -11,7 +11,8 @@ def save_stocks_data(ticker, data):
     file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
     if os.path.exists(file_path):
         existing_data = pd.read_csv(file_path, index_col="date", parse_dates=True)
-        data = pd.concat([existing_data, data]).drop_duplicates().sort_index()
+        data = pd.concat([existing_data, data])
+        data = data[~data.index.duplicated(keep='last')].sort_index()
     data.to_csv(file_path)
 
 

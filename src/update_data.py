@@ -2,11 +2,10 @@ import datetime
 import akshare as ak
 import pandas as pd
 
-from src.read_data import get_stock_list
+from src.read_data import get_stock_list, load_stocks_data
 from src.save_files import save_stocks_data
 
 today = datetime.date.today()
-start_date = (today + datetime.timedelta(days=-3)).strftime('%Y%m%d')
 end_date = today.strftime('%Y%m%d')
 
 def update_recent_data():
@@ -16,6 +15,7 @@ def update_recent_data():
     for ticker in tickers:
         try:
             symbol = '105.' + ticker
+            start_date = load_stocks_data(ticker).index[-1]
             df = ak.stock_us_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date)
             if df.empty:
                 print(f"{ticker} could not update")
