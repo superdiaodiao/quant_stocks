@@ -4176,3 +4176,3547 @@ date
 {'imp_date': Timestamp('2025-04-14 00:00:00'), 'ticker': 'KLTR', 'action': 'buy', 'price': 1.95, 'short_ma': 1.918, 'long_ma': 1.8969999999999998, 'rsi': 50.30104327117607, 'adx': 21.526654889460172, 'volatility': 0.7134427606944864, 'sharpe_ratio': -0.3163}
 {'imp_date': Timestamp('2025-04-14 00:00:00'), 'ticker': 'PLTK', 'action': 'buy', 'price': 5.04, 'short_ma': 4.888000000000003, 'long_ma': 4.839, 'rsi': 48.677842548171526, 'adx': 28.06762200942192, 'volatility': 0.5024007984260396, 'sharpe_ratio': -0.6116}
 Script ended at: Tue Apr 15 09:06:42 CST 2025
+Script started at: Wed Apr 16 09:00:01 CST 2025
+历史数据已存在，无需初始化。
+加载的数据总行数: 1556
+========= 股票列表文件内容 =========
+  Symbol  ...                                    Industry
+0    AAL  ...               Air Freight/Delivery Services
+1   AAOI  ...                              Semiconductors
+2   AAON  ...             Industrial Machinery/Components
+3   AAPG  ...  Biotechnology: Pharmaceutical Preparations
+4   AAPL  ...                      Computer Manufacturing
+
+[5 rows x 11 columns]
+Index(['Symbol', 'Name', 'Last Sale', 'Net Change', '% Change', 'Market Cap',
+       'Country', 'IPO Year', 'Volume', 'Sector', 'Industry'],
+      dtype='object')
+列名 'Symbol' 存在，提取数据...
+Successfully get the data of AAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AAL
+Successfully get the data of AAOI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AAOI
+Successfully get the data of AAON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AAON
+Successfully get the data of AAPG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AAPG
+Successfully get the data of AAPL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AAPL
+Successfully get the data of ABCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABCL
+Successfully get the data of ABL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABL
+Successfully get the data of ABLLL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABLLL
+Successfully get the data of ABNB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABNB
+Successfully get the data of ABSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABSI
+Successfully get the data of ABUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABUS
+Successfully get the data of ABVX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ABVX
+Successfully get the data of ACAD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACAD
+Successfully get the data of ACDC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACDC
+Successfully get the data of ACGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACGL
+Successfully get the data of ACGLN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACGLN
+Successfully get the data of ACGLO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACGLO
+Successfully get the data of ACHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACHC
+Successfully get the data of ACIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACIC
+Successfully get the data of ACIW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACIW
+Successfully get the data of ACLS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACLS
+Successfully get the data of ACLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACLX
+Successfully get the data of ACMR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACMR
+Successfully get the data of ACNB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACNB
+Successfully get the data of ACT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ACT
+Successfully get the data of ADAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADAP
+Successfully get the data of ADBE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADBE
+Successfully get the data of ADEA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADEA
+Successfully get the data of ADI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADI
+Successfully get the data of ADMA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADMA
+Successfully get the data of ADP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADP
+Successfully get the data of ADPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADPT
+Successfully get the data of ADSE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADSE
+Successfully get the data of ADSK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADSK
+Successfully get the data of ADTN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADTN
+Successfully get the data of ADUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADUS
+Successfully get the data of ADV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ADV
+Successfully get the data of AEIS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AEIS
+Successfully get the data of AEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AEP
+Successfully get the data of AEVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AEVA
+Successfully get the data of AFRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AFRM
+Successfully get the data of AFYA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AFYA
+Successfully get the data of AGIO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGIO
+Successfully get the data of AGNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNC
+Successfully get the data of AGNCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNCL
+Successfully get the data of AGNCM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNCM
+Successfully get the data of AGNCN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNCN
+Successfully get the data of AGNCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNCO
+Successfully get the data of AGNCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGNCP
+Successfully get the data of AGYS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AGYS
+Successfully get the data of AHCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AHCO
+Successfully get the data of AIOT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AIOT
+Successfully get the data of AKAM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AKAM
+Successfully get the data of AKBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AKBA
+Successfully get the data of AKRO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AKRO
+Successfully get the data of ALAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALAB
+Successfully get the data of ALGM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALGM
+Successfully get the data of ALGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALGN
+Successfully get the data of ALGT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALGT
+Successfully get the data of ALHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALHC
+Successfully get the data of ALKS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALKS
+Successfully get the data of ALKT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALKT
+Successfully get the data of ALLO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALLO
+Successfully get the data of ALMS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALMS
+Successfully get the data of ALNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALNT
+Successfully get the data of ALNY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALNY
+Successfully get the data of ALRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALRM
+Successfully get the data of ALRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALRS
+Successfully get the data of ALT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALT
+Successfully get the data of ALTI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALTI
+Successfully get the data of ALVO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALVO
+Successfully get the data of ALVOW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ALVOW
+Successfully get the data of AMAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMAL
+Successfully get the data of AMAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMAT
+Successfully get the data of AMBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMBA
+Successfully get the data of AMBR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMBR
+Successfully get the data of AMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMD
+Successfully get the data of AMED from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMED
+Successfully get the data of AMGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMGN
+Successfully get the data of AMKR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMKR
+Successfully get the data of AMLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMLX
+Successfully get the data of AMPH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMPH
+Successfully get the data of AMPL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMPL
+Successfully get the data of AMRK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMRK
+Successfully get the data of AMRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMRX
+Successfully get the data of AMSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMSC
+Successfully get the data of AMSF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMSF
+Successfully get the data of AMWD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMWD
+Successfully get the data of AMZN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AMZN
+Successfully get the data of ANAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANAB
+Successfully get the data of ANDE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANDE
+Successfully get the data of ANGI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANGI
+Successfully get the data of ANGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANGO
+Successfully get the data of ANIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANIP
+Successfully get the data of ANNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANNA
+Successfully get the data of ANSS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ANSS
+Successfully get the data of AOSL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AOSL
+Successfully get the data of APA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APA
+Successfully get the data of APEI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APEI
+Successfully get the data of APGE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APGE
+Successfully get the data of APLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APLD
+Successfully get the data of APLS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APLS
+Successfully get the data of APOG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APOG
+Successfully get the data of APP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APP
+Successfully get the data of APPF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APPF
+Successfully get the data of APPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of APPN
+Successfully get the data of ARBKL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARBKL
+Successfully get the data of ARCB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARCB
+Successfully get the data of ARCC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARCC
+Successfully get the data of ARDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARDX
+Successfully get the data of ARGX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARGX
+Successfully get the data of ARHS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARHS
+Successfully get the data of ARKO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARKO
+Successfully get the data of ARLP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARLP
+Successfully get the data of ARM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARM
+Successfully get the data of AROW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AROW
+Successfully get the data of ARQT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARQT
+Successfully get the data of ARRY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARRY
+Successfully get the data of ARTNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARTNA
+Successfully get the data of ARVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARVN
+Successfully get the data of ARWR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ARWR
+Successfully get the data of ASLE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASLE
+Successfully get the data of ASML from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASML
+Successfully get the data of ASND from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASND
+Successfully get the data of ASO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASO
+Successfully get the data of ASPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASPI
+Successfully get the data of ASTE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASTE
+Successfully get the data of ASTH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASTH
+Successfully get the data of ASTL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASTL
+Successfully get the data of ASTS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ASTS
+Successfully get the data of ATAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATAT
+Successfully get the data of ATCOL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATCOL
+Successfully get the data of ATEC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATEC
+Successfully get the data of ATEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATEX
+Successfully get the data of ATGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATGL
+Successfully get the data of ATLC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATLC
+Successfully get the data of ATLCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATLCL
+Successfully get the data of ATLCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATLCP
+Successfully get the data of ATLCZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATLCZ
+Successfully get the data of ATRC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATRC
+Successfully get the data of ATRO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ATRO
+Successfully get the data of AUPH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AUPH
+Successfully get the data of AUR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AUR
+Successfully get the data of AUROW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AUROW
+Successfully get the data of AUTL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AUTL
+Successfully get the data of AVAH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVAH
+Successfully get the data of AVAV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVAV
+Successfully get the data of AVBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVBP
+Successfully get the data of AVDL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVDL
+Successfully get the data of AVDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVDX
+Successfully get the data of AVGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVGO
+Successfully get the data of AVO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVO
+Successfully get the data of AVPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVPT
+Successfully get the data of AVPTW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVPTW
+Successfully get the data of AVT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVT
+Successfully get the data of AVXL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AVXL
+Successfully get the data of AXGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AXGN
+Successfully get the data of AXON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AXON
+Successfully get the data of AXSM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AXSM
+Successfully get the data of AZN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AZN
+Successfully get the data of AZTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of AZTA
+Successfully get the data of BAND from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BAND
+Successfully get the data of BANF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BANF
+Successfully get the data of BANFP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BANFP
+Successfully get the data of BANR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BANR
+Successfully get the data of BASE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BASE
+Successfully get the data of BATRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BATRA
+Successfully get the data of BATRK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BATRK
+Successfully get the data of BBCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BBCP
+Successfully get the data of BBIO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BBIO
+Successfully get the data of BBNX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BBNX
+Successfully get the data of BBSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BBSI
+Successfully get the data of BCAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BCAL
+Successfully get the data of BCAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BCAX
+Successfully get the data of BCPC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BCPC
+Successfully get the data of BCRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BCRX
+Successfully get the data of BCYC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BCYC
+Successfully get the data of BEAM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BEAM
+Successfully get the data of BECN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BECN
+Successfully get the data of BELFA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BELFA
+Successfully get the data of BELFB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BELFB
+Successfully get the data of BFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BFC
+Successfully get the data of BFST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BFST
+Successfully get the data of BGC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BGC
+Successfully get the data of BGM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BGM
+Successfully get the data of BHF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHF
+Successfully get the data of BHFAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHFAL
+Successfully get the data of BHFAM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHFAM
+Successfully get the data of BHFAN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHFAN
+Successfully get the data of BHFAO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHFAO
+Successfully get the data of BHFAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHFAP
+Successfully get the data of BHRB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BHRB
+Successfully get the data of BIDU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BIDU
+Successfully get the data of BIGC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BIGC
+Successfully get the data of BIIB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BIIB
+Successfully get the data of BILI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BILI
+Successfully get the data of BITF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BITF
+Successfully get the data of BJRI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BJRI
+Successfully get the data of BKNG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BKNG
+Successfully get the data of BKR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BKR
+Successfully get the data of BL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BL
+Successfully get the data of BLBD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLBD
+Successfully get the data of BLDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLDP
+Successfully get the data of BLFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLFS
+Successfully get the data of BLKB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLKB
+Successfully get the data of BLMN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLMN
+Successfully get the data of BLTE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BLTE
+Successfully get the data of BMBL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BMBL
+Successfully get the data of BMRC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BMRC
+Successfully get the data of BMRN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BMRN
+Successfully get the data of BNTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BNTX
+Successfully get the data of BOKF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BOKF
+Successfully get the data of BPMC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPMC
+Successfully get the data of BPOP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPOP
+Successfully get the data of BPOPM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPOPM
+Successfully get the data of BPYPM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPYPM
+Successfully get the data of BPYPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPYPN
+Successfully get the data of BPYPO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPYPO
+Successfully get the data of BPYPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BPYPP
+Successfully get the data of BRKL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BRKL
+Successfully get the data of BRKR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BRKR
+Successfully get the data of BRZE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BRZE
+Successfully get the data of BSRR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BSRR
+Successfully get the data of BSVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BSVN
+Successfully get the data of BSY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BSY
+Successfully get the data of BTBT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BTBT
+Successfully get the data of BTDR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BTDR
+Successfully get the data of BTSG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BTSG
+Successfully get the data of BTSGU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BTSGU
+Successfully get the data of BUSE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BUSE
+Successfully get the data of BVS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BVS
+Successfully get the data of BWB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BWB
+Successfully get the data of BWBBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BWBBP
+Successfully get the data of BWIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BWIN
+Successfully get the data of BWMN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BWMN
+Successfully get the data of BYRN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BYRN
+Successfully get the data of BZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of BZ
+Successfully get the data of CAC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CAC
+Successfully get the data of CACC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CACC
+Successfully get the data of CAKE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CAKE
+Successfully get the data of CALM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CALM
+Successfully get the data of CAMT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CAMT
+Successfully get the data of CAPR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CAPR
+Successfully get the data of CAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CAR
+Successfully get the data of CARE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CARE
+Successfully get the data of CARG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CARG
+Successfully get the data of CART from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CART
+Successfully get the data of CASH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CASH
+Successfully get the data of CASS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CASS
+Successfully get the data of CASY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CASY
+Successfully get the data of CATY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CATY
+Successfully get the data of CBLL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CBLL
+Successfully get the data of CBNK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CBNK
+Successfully get the data of CBRL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CBRL
+Successfully get the data of CBSH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CBSH
+Successfully get the data of CCAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCAP
+Successfully get the data of CCB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCB
+Successfully get the data of CCBG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCBG
+Successfully get the data of CCCS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCCS
+Successfully get the data of CCEC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCEC
+Successfully get the data of CCEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCEP
+Successfully get the data of CCLDO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCLDO
+Successfully get the data of CCNE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCNE
+Successfully get the data of CCNEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCNEP
+Successfully get the data of CCOI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCOI
+Successfully get the data of CCRN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCRN
+Successfully get the data of CCSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CCSI
+Successfully get the data of CDNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CDNA
+Successfully get the data of CDNS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CDNS
+Successfully get the data of CDRO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CDRO
+Successfully get the data of CDW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CDW
+Successfully get the data of CDZIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CDZIP
+Successfully get the data of CECO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CECO
+Successfully get the data of CEG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CEG
+Successfully get the data of CELC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CELC
+Successfully get the data of CELH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CELH
+Successfully get the data of CENT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CENT
+Successfully get the data of CENTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CENTA
+Successfully get the data of CENX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CENX
+Successfully get the data of CEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CEP
+Successfully get the data of CERT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CERT
+Successfully get the data of CEVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CEVA
+Successfully get the data of CFFN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CFFN
+Successfully get the data of CFLT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CFLT
+Successfully get the data of CG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CG
+Successfully get the data of CGABL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGABL
+Successfully get the data of CGBD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGBD
+Successfully get the data of CGBDL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGBDL
+Successfully get the data of CGEM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGEM
+Successfully get the data of CGNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGNT
+Successfully get the data of CGNX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGNX
+Successfully get the data of CGON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CGON
+Successfully get the data of CHCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHCO
+Successfully get the data of CHDN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHDN
+Successfully get the data of CHEF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHEF
+Successfully get the data of CHKP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHKP
+Successfully get the data of CHRD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHRD
+Successfully get the data of CHRW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHRW
+Successfully get the data of CHSCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHSCL
+Successfully get the data of CHSCN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHSCN
+Successfully get the data of CHSCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHSCO
+Successfully get the data of CHSCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHSCP
+Successfully get the data of CHTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHTR
+Successfully get the data of CHX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CHX
+Successfully get the data of CIFR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CIFR
+Successfully get the data of CIGI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CIGI
+Successfully get the data of CINF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CINF
+Successfully get the data of CKPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CKPT
+Successfully get the data of CLBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLBK
+Successfully get the data of CLBT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLBT
+Successfully get the data of CLDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLDX
+Successfully get the data of CLFD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLFD
+Successfully get the data of CLMB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLMB
+Successfully get the data of CLMT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLMT
+Successfully get the data of CLNE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLNE
+Successfully get the data of CLOV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLOV
+Successfully get the data of CLPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLPT
+Successfully get the data of CLSK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CLSK
+Successfully get the data of CMCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMCO
+Successfully get the data of CMCSA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMCSA
+Successfully get the data of CME from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CME
+Successfully get the data of CMPO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMPO
+Successfully get the data of CMPOW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMPOW
+Successfully get the data of CMPR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMPR
+Successfully get the data of CMRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CMRX
+Successfully get the data of CNCK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNCK
+Successfully get the data of CNDT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNDT
+Successfully get the data of CNOB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNOB
+Successfully get the data of CNOBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNOBP
+Successfully get the data of CNTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNTA
+Successfully get the data of CNXC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNXC
+Successfully get the data of CNXN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CNXN
+Successfully get the data of COCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COCO
+Successfully get the data of COGT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COGT
+Successfully get the data of COHU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COHU
+Successfully get the data of COIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COIN
+Successfully get the data of COKE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COKE
+Successfully get the data of COLB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COLB
+Successfully get the data of COLL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COLL
+Successfully get the data of COLM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COLM
+Successfully get the data of COMM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COMM
+Successfully get the data of COO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COO
+Successfully get the data of COOP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COOP
+Successfully get the data of CORT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CORT
+Successfully get the data of CORZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CORZ
+Successfully get the data of CORZW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CORZW
+Successfully get the data of CORZZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CORZZ
+Successfully get the data of COST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of COST
+Successfully get the data of CPB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CPB
+Successfully get the data of CPRT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CPRT
+Successfully get the data of CPRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CPRX
+Successfully get the data of CRAI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRAI
+Successfully get the data of CRCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRCT
+Successfully get the data of CRDO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRDO
+Successfully get the data of CRESW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRESW
+Successfully get the data of CRESY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRESY
+Successfully get the data of CRMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRMD
+Successfully get the data of CRMT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRMT
+Successfully get the data of CRNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRNC
+Successfully get the data of CRNX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRNX
+Successfully get the data of CRON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRON
+Successfully get the data of CROX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CROX
+Successfully get the data of CRSP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRSP
+Successfully get the data of CRSR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRSR
+Successfully get the data of CRTO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRTO
+Successfully get the data of CRUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRUS
+Successfully get the data of CRVL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRVL
+Successfully get the data of CRWD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRWD
+Successfully get the data of CRWV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CRWV
+Successfully get the data of CSCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSCO
+Successfully get the data of CSGP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSGP
+Successfully get the data of CSGS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSGS
+Successfully get the data of CSIQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSIQ
+Successfully get the data of CSQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSQ
+Successfully get the data of CSTL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSTL
+Successfully get the data of CSWC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSWC
+Successfully get the data of CSWCZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSWCZ
+Successfully get the data of CSWI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSWI
+Successfully get the data of CSX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CSX
+Successfully get the data of CTAS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CTAS
+Successfully get the data of CTBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CTBI
+Successfully get the data of CTKB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CTKB
+Successfully get the data of CTLP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CTLP
+Successfully get the data of CTSH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CTSH
+Successfully get the data of CUB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CUB
+Successfully get the data of CVAC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CVAC
+Successfully get the data of CVBF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CVBF
+Successfully get the data of CVCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CVCO
+Successfully get the data of CVGW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CVGW
+Successfully get the data of CVLT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CVLT
+Successfully get the data of CWBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CWBC
+Successfully get the data of CWCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CWCO
+Successfully get the data of CWST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CWST
+Successfully get the data of CYBR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CYBR
+Successfully get the data of CYTK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CYTK
+Successfully get the data of CZR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of CZR
+Successfully get the data of DADA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DADA
+Successfully get the data of DAKT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DAKT
+Successfully get the data of DASH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DASH
+Successfully get the data of DAVE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DAVE
+Successfully get the data of DAWN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DAWN
+Successfully get the data of DBX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DBX
+Successfully get the data of DCBO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DCBO
+Successfully get the data of DCOM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DCOM
+Successfully get the data of DCOMG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DCOMG
+Successfully get the data of DCOMP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DCOMP
+Successfully get the data of DCTH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DCTH
+Successfully get the data of DDI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DDI
+Successfully get the data of DDOG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DDOG
+Successfully get the data of DGICA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DGICA
+Successfully get the data of DGICB from 2025-04-10 00:00:00 to 20250416
+Saved the latest data of DGICB
+Successfully get the data of DGII from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DGII
+Successfully get the data of DGNX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DGNX
+Successfully get the data of DHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DHC
+Successfully get the data of DHCNI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DHCNI
+Successfully get the data of DHCNL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DHCNL
+Successfully get the data of DHIL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DHIL
+Successfully get the data of DIOD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DIOD
+Successfully get the data of DJCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DJCO
+Successfully get the data of DJT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DJT
+Successfully get the data of DJTWW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DJTWW
+Successfully get the data of DKNG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DKNG
+Successfully get the data of DLO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DLO
+Successfully get the data of DLTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DLTR
+Successfully get the data of DMLP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DMLP
+Successfully get the data of DNLI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DNLI
+Successfully get the data of DNTH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DNTH
+Successfully get the data of DNUT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DNUT
+Successfully get the data of DOCU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DOCU
+Successfully get the data of DOMO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DOMO
+Successfully get the data of DOOO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DOOO
+Successfully get the data of DORM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DORM
+Successfully get the data of DOX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DOX
+Successfully get the data of DPZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DPZ
+Successfully get the data of DRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DRS
+Successfully get the data of DRVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DRVN
+Successfully get the data of DSGR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DSGR
+Successfully get the data of DSGX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DSGX
+Successfully get the data of DSP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DSP
+Successfully get the data of DUOL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DUOL
+Successfully get the data of DVAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DVAX
+Successfully get the data of DXCM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DXCM
+Successfully get the data of DXPE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DXPE
+Successfully get the data of DYN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of DYN
+Successfully get the data of EA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EA
+Successfully get the data of EBAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EBAY
+Successfully get the data of EBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EBC
+Successfully get the data of EBTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EBTC
+Successfully get the data of ECPG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ECPG
+Successfully get the data of ECX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ECX
+Successfully get the data of EEFT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EEFT
+Successfully get the data of EFSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EFSC
+Successfully get the data of EFSCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EFSCP
+Successfully get the data of EGBN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EGBN
+Successfully get the data of EH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EH
+Successfully get the data of ELVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ELVN
+Successfully get the data of EMBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EMBC
+Successfully get the data of ENLT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ENLT
+Successfully get the data of ENPH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ENPH
+Successfully get the data of ENSG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ENSG
+Successfully get the data of ENTG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ENTG
+Successfully get the data of ENVX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ENVX
+Successfully get the data of EOLS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EOLS
+Successfully get the data of EOSE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EOSE
+Successfully get the data of EQIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EQIX
+Successfully get the data of ERAS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ERAS
+Successfully get the data of ERIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ERIC
+Successfully get the data of ERIE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ERIE
+Successfully get the data of ERII from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ERII
+Successfully get the data of ESGR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ESGR
+Successfully get the data of ESLT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ESLT
+Successfully get the data of ESQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ESQ
+Successfully get the data of ESTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ESTA
+Successfully get the data of ETNB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ETNB
+Successfully get the data of ETON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ETON
+Successfully get the data of ETSY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ETSY
+Successfully get the data of EVCM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVCM
+Successfully get the data of EVER from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVER
+Successfully get the data of EVGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVGO
+Successfully get the data of EVLV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVLV
+Successfully get the data of EVO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVO
+Successfully get the data of EVRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EVRG
+Successfully get the data of EWBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EWBC
+Successfully get the data of EWTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EWTX
+Successfully get the data of EXAS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXAS
+Successfully get the data of EXC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXC
+Successfully get the data of EXE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXE
+Successfully get the data of EXEEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXEEL
+Successfully get the data of EXEEZ from 2025-04-09 00:00:00 to 20250416
+Saved the latest data of EXEEZ
+Successfully get the data of EXEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXEL
+Successfully get the data of EXLS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXLS
+Successfully get the data of EXPE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXPE
+Successfully get the data of EXPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXPI
+Successfully get the data of EXPO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXPO
+Successfully get the data of EXTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EXTR
+Successfully get the data of EYE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EYE
+Successfully get the data of EYPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EYPT
+Successfully get the data of EZPW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of EZPW
+Successfully get the data of FA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FA
+Successfully get the data of FANG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FANG
+Successfully get the data of FARO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FARO
+Successfully get the data of FAST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FAST
+Successfully get the data of FBIZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FBIZ
+Successfully get the data of FBNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FBNC
+Successfully get the data of FBYD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FBYD
+Successfully get the data of FCBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FCBC
+Successfully get the data of FCFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FCFS
+Successfully get the data of FCNCA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FCNCA
+Successfully get the data of FDUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FDUS
+Successfully get the data of FELE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FELE
+Successfully get the data of FER from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FER
+Successfully get the data of FFBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FFBC
+Successfully get the data of FFIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FFIC
+Successfully get the data of FFIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FFIN
+Successfully get the data of FFIV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FFIV
+Successfully get the data of FHB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FHB
+Successfully get the data of FIBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FIBK
+Successfully get the data of FIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FIP
+Successfully get the data of FISI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FISI
+Successfully get the data of FITB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FITB
+Successfully get the data of FITBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FITBI
+Successfully get the data of FITBO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FITBO
+Successfully get the data of FITBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FITBP
+Successfully get the data of FIVE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FIVE
+Successfully get the data of FIVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FIVN
+Successfully get the data of FIZZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FIZZ
+Successfully get the data of FLEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FLEX
+Successfully get the data of FLGT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FLGT
+Successfully get the data of FLNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FLNC
+Successfully get the data of FLWS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FLWS
+Successfully get the data of FLYW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FLYW
+Successfully get the data of FMBH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FMBH
+Successfully get the data of FMNB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FMNB
+Successfully get the data of FOLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FOLD
+Successfully get the data of FORM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FORM
+Successfully get the data of FORTY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FORTY
+Successfully get the data of FOSLL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FOSLL
+Successfully get the data of FOX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FOX
+Successfully get the data of FOXA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FOXA
+Successfully get the data of FOXF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FOXF
+Successfully get the data of FRBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRBA
+Successfully get the data of FRHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRHC
+Successfully get the data of FRME from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRME
+Successfully get the data of FRMEP from 2025-04-10 00:00:00 to 20250416
+Saved the latest data of FRMEP
+Successfully get the data of FROG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FROG
+Successfully get the data of FRPH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRPH
+Successfully get the data of FRPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRPT
+Successfully get the data of FRSH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FRSH
+Successfully get the data of FSBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FSBC
+Successfully get the data of FSLR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FSLR
+Successfully get the data of FSUN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FSUN
+Successfully get the data of FSV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FSV
+Successfully get the data of FTAI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTAI
+Successfully get the data of FTAIM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTAIM
+Successfully get the data of FTAIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTAIN
+Successfully get the data of FTDR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTDR
+Successfully get the data of FTNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTNT
+Successfully get the data of FTRE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FTRE
+Successfully get the data of FUFU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FUFU
+Successfully get the data of FULT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FULT
+Successfully get the data of FULTP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FULTP
+Successfully get the data of FUTU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FUTU
+Successfully get the data of FWONA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FWONA
+Successfully get the data of FWONK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FWONK
+Successfully get the data of FWRD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FWRD
+Successfully get the data of FWRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FWRG
+Successfully get the data of FYBR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of FYBR
+Successfully get the data of GABC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GABC
+Successfully get the data of GAIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GAIN
+Successfully get the data of GAINL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GAINL
+Successfully get the data of GAINN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GAINN
+Successfully get the data of GAINZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GAINZ
+Successfully get the data of GAMB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GAMB
+Successfully get the data of GBDC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GBDC
+Successfully get the data of GCBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GCBC
+Successfully get the data of GCMG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GCMG
+Successfully get the data of GCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GCT
+Successfully get the data of GDEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GDEN
+Successfully get the data of GDRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GDRX
+Successfully get the data of GDS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GDS
+Successfully get the data of GDYN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GDYN
+Successfully get the data of GEGGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GEGGL
+Successfully get the data of GEHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GEHC
+Successfully get the data of GEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GEN
+Successfully get the data of GERN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GERN
+Successfully get the data of GFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GFS
+Successfully get the data of GGAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GGAL
+Successfully get the data of GH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GH
+Successfully get the data of GHRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GHRS
+Successfully get the data of GIII from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GIII
+Successfully get the data of GILD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GILD
+Successfully get the data of GILT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GILT
+Successfully get the data of GLAD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLAD
+Successfully get the data of GLADZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLADZ
+Successfully get the data of GLBE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLBE
+Successfully get the data of GLDD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLDD
+Successfully get the data of GLNG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLNG
+Successfully get the data of GLPG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLPG
+Successfully get the data of GLPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLPI
+Successfully get the data of GLRE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GLRE
+Successfully get the data of GMAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GMAB
+Successfully get the data of GNTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GNTX
+Successfully get the data of GO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GO
+Successfully get the data of GOGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOGL
+Successfully get the data of GOGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOGO
+Successfully get the data of GOOD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOOD
+Successfully get the data of GOODN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOODN
+Successfully get the data of GOODO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOODO
+Successfully get the data of GOOG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOOG
+Successfully get the data of GOOGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GOOGL
+Successfully get the data of GPCR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GPCR
+Successfully get the data of GRAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRAB
+Successfully get the data of GRABW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRABW
+Successfully get the data of GRAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRAL
+Successfully get the data of GRFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRFS
+Successfully get the data of GRPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRPN
+Successfully get the data of GRVY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GRVY
+Successfully get the data of GSAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GSAT
+Successfully get the data of GSBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GSBC
+Successfully get the data of GSHD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GSHD
+Successfully get the data of GSM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GSM
+Successfully get the data of GT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GT
+Successfully get the data of GTLB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GTLB
+Successfully get the data of GTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GTX
+Successfully get the data of GYRE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of GYRE
+Successfully get the data of HAFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HAFC
+Successfully get the data of HALO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HALO
+Successfully get the data of HAS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HAS
+Successfully get the data of HBAN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBAN
+Successfully get the data of HBANL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBANL
+Successfully get the data of HBANM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBANM
+Successfully get the data of HBANP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBANP
+Successfully get the data of HBCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBCP
+Successfully get the data of HBNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBNC
+Successfully get the data of HBT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HBT
+Successfully get the data of HCKT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HCKT
+Successfully get the data of HCM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HCM
+Successfully get the data of HCSG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HCSG
+Successfully get the data of HDL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HDL
+Successfully get the data of HEES from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HEES
+Successfully get the data of HELE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HELE
+Successfully get the data of HEPS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HEPS
+Successfully get the data of HFWA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HFWA
+Successfully get the data of HIFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HIFS
+Successfully get the data of HIMX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HIMX
+Successfully get the data of HLIT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HLIT
+Successfully get the data of HLMN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HLMN
+Successfully get the data of HLNE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HLNE
+Successfully get the data of HNRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HNRG
+Successfully get the data of HNST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HNST
+Successfully get the data of HOLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HOLX
+Successfully get the data of HON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HON
+Successfully get the data of HONE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HONE
+Successfully get the data of HOOD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HOOD
+Successfully get the data of HOPE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HOPE
+Successfully get the data of HPK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HPK
+Successfully get the data of HQY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HQY
+Successfully get the data of HRMY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HRMY
+Successfully get the data of HROW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HROW
+Successfully get the data of HROWL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HROWL
+Successfully get the data of HROWM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HROWM
+Successfully get the data of HRZN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HRZN
+Successfully get the data of HSAI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HSAI
+Successfully get the data of HSIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HSIC
+Successfully get the data of HSII from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HSII
+Successfully get the data of HST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HST
+Successfully get the data of HSTM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HSTM
+Successfully get the data of HTBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HTBK
+Successfully get the data of HTHT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HTHT
+Successfully get the data of HTLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HTLD
+Successfully get the data of HTZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HTZ
+Successfully get the data of HTZWW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HTZWW
+Successfully get the data of HUBG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HUBG
+Successfully get the data of HURN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HURN
+Successfully get the data of HUT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HUT
+Successfully get the data of HWC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HWC
+Successfully get the data of HWCPZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HWCPZ
+Successfully get the data of HWKN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of HWKN
+Successfully get the data of IAC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IAC
+Successfully get the data of IART from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IART
+Successfully get the data of IAS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IAS
+Successfully get the data of IBCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IBCP
+Successfully get the data of IBEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IBEX
+Successfully get the data of IBKR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IBKR
+Successfully get the data of IBOC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IBOC
+Successfully get the data of IBRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IBRX
+Successfully get the data of ICFI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ICFI
+Successfully get the data of ICHR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ICHR
+Successfully get the data of ICLR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ICLR
+Successfully get the data of ICUI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ICUI
+Successfully get the data of IDCC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IDCC
+Successfully get the data of IDXX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IDXX
+Successfully get the data of IDYA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IDYA
+Successfully get the data of IEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IEP
+Successfully get the data of IESC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IESC
+Successfully get the data of IGIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IGIC
+Successfully get the data of IIIV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IIIV
+Successfully get the data of ILMN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ILMN
+Successfully get the data of IMCR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMCR
+Successfully get the data of IMKTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMKTA
+Successfully get the data of IMNM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMNM
+Successfully get the data of IMOS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMOS
+Successfully get the data of IMPPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMPPP
+Successfully get the data of IMTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMTX
+Successfully get the data of IMVT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMVT
+Successfully get the data of IMXI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IMXI
+Successfully get the data of INCY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INCY
+Successfully get the data of INDB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INDB
+Successfully get the data of INDI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INDI
+Successfully get the data of INDV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INDV
+Successfully get the data of INMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INMD
+Successfully get the data of INNV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INNV
+Successfully get the data of INOD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INOD
+Successfully get the data of INSM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INSM
+Successfully get the data of INTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INTA
+Successfully get the data of INTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INTC
+Successfully get the data of INTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INTR
+Successfully get the data of INTU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INTU
+Successfully get the data of INVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of INVA
+Successfully get the data of IONS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IONS
+Successfully get the data of IOSP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IOSP
+Successfully get the data of IOVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IOVA
+Successfully get the data of IPAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IPAR
+Successfully get the data of IPGP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IPGP
+Successfully get the data of IPX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IPX
+Successfully get the data of IQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IQ
+Successfully get the data of IRDM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IRDM
+Successfully get the data of IREN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IREN
+Successfully get the data of IRMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IRMD
+Successfully get the data of IRON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IRON
+Successfully get the data of IRTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of IRTC
+Successfully get the data of ISRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ISRG
+Successfully get the data of ITIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ITIC
+Successfully get the data of ITRI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ITRI
+Successfully get the data of ITRN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ITRN
+Successfully get the data of JACK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JACK
+Successfully get the data of JAMF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JAMF
+Successfully get the data of JANX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JANX
+Successfully get the data of JAZZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JAZZ
+Successfully get the data of JBHT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JBHT
+Successfully get the data of JBLU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JBLU
+Successfully get the data of JBSS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JBSS
+Successfully get the data of JD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JD
+Successfully get the data of JFIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JFIN
+Successfully get the data of JJSF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JJSF
+Successfully get the data of JKHY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JKHY
+Successfully get the data of JOYY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JOYY
+Successfully get the data of JSM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of JSM
+Successfully get the data of KALU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KALU
+Successfully get the data of KALV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KALV
+Successfully get the data of KARO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KARO
+Successfully get the data of KC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KC
+Successfully get the data of KDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KDP
+Successfully get the data of KE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KE
+Successfully get the data of KELYA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KELYA
+Successfully get the data of KELYB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KELYB
+Successfully get the data of KHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KHC
+Successfully get the data of KIDS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KIDS
+Successfully get the data of KLAC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KLAC
+Successfully get the data of KLIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KLIC
+Successfully get the data of KLTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KLTR
+Successfully get the data of KMDA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KMDA
+Successfully get the data of KMTS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KMTS
+Successfully get the data of KNSA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KNSA
+Successfully get the data of KRNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KRNT
+Successfully get the data of KRNY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KRNY
+Successfully get the data of KROS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KROS
+Successfully get the data of KRT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KRT
+Successfully get the data of KRUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KRUS
+Successfully get the data of KRYS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KRYS
+Successfully get the data of KSPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KSPI
+Successfully get the data of KTOS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KTOS
+Successfully get the data of KURA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KURA
+Successfully get the data of KYMR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of KYMR
+Successfully get the data of LAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LAB
+Successfully get the data of LAMR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LAMR
+Successfully get the data of LANC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LANC
+Successfully get the data of LAND from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LAND
+Successfully get the data of LANDM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LANDM
+Successfully get the data of LANDO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LANDO
+Successfully get the data of LANDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LANDP
+Successfully get the data of LASR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LASR
+Successfully get the data of LAUR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LAUR
+Successfully get the data of LBRDA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LBRDA
+Successfully get the data of LBRDK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LBRDK
+Successfully get the data of LBRDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LBRDP
+Successfully get the data of LBTYA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LBTYA
+Successfully get the data of LBTYB from 2025-04-10 00:00:00 to 20250416
+Saved the latest data of LBTYB
+Successfully get the data of LBTYK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LBTYK
+Successfully get the data of LCID from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LCID
+Successfully get the data of LECO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LECO
+Successfully get the data of LEGH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LEGH
+Successfully get the data of LEGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LEGN
+Successfully get the data of LENZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LENZ
+Successfully get the data of LFMDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LFMDP
+Successfully get the data of LFST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LFST
+Successfully get the data of LFUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LFUS
+Successfully get the data of LGIH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LGIH
+Successfully get the data of LGND from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LGND
+Successfully get the data of LI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LI
+Successfully get the data of LIF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LIF
+Successfully get the data of LILA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LILA
+Successfully get the data of LILAK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LILAK
+LIN更新失败: index -1 is out of bounds for axis 0 with size 0
+Successfully get the data of LINC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LINC
+Successfully get the data of LIND from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LIND
+Successfully get the data of LINE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LINE
+Successfully get the data of LION from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LION
+Successfully get the data of LITE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LITE
+Successfully get the data of LIVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LIVN
+Successfully get the data of LKFN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LKFN
+Successfully get the data of LKQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LKQ
+Successfully get the data of LLYVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LLYVA
+Successfully get the data of LLYVK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LLYVK
+Successfully get the data of LMAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LMAT
+Successfully get the data of LMB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LMB
+Successfully get the data of LNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LNT
+Successfully get the data of LNTH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LNTH
+Successfully get the data of LNW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LNW
+Successfully get the data of LOGI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LOGI
+Successfully get the data of LOPE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LOPE
+Successfully get the data of LOT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LOT
+Successfully get the data of LPLA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LPLA
+Successfully get the data of LQDA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LQDA
+Successfully get the data of LQDT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LQDT
+Successfully get the data of LRCX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LRCX
+Successfully get the data of LSAK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LSAK
+Successfully get the data of LSCC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LSCC
+Successfully get the data of LSTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LSTR
+Successfully get the data of LULU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LULU
+Successfully get the data of LUNR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LUNR
+Successfully get the data of LVRO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LVRO
+Successfully get the data of LWAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LWAY
+Successfully get the data of LX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LX
+Successfully get the data of LYFT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LYFT
+Successfully get the data of LYTS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LYTS
+Successfully get the data of LZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LZ
+Successfully get the data of LZMH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of LZMH
+Successfully get the data of MANH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MANH
+Successfully get the data of MAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MAR
+Successfully get the data of MARA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MARA
+Successfully get the data of MASI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MASI
+Successfully get the data of MAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MAT
+Successfully get the data of MATW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MATW
+Successfully get the data of MAZE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MAZE
+Successfully get the data of MBIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBIN
+Successfully get the data of MBINL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBINL
+Successfully get the data of MBINM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBINM
+Successfully get the data of MBINN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBINN
+Successfully get the data of MBLY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBLY
+Successfully get the data of MBNKP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBNKP
+Successfully get the data of MBUU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBUU
+Successfully get the data of MBWM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MBWM
+Successfully get the data of MCBS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MCBS
+Successfully get the data of MCHP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MCHP
+Successfully get the data of MCHPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MCHPP
+Successfully get the data of MCRI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MCRI
+Successfully get the data of MCW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MCW
+Successfully get the data of MDB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MDB
+Successfully get the data of MDGL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MDGL
+Successfully get the data of MDLZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MDLZ
+Successfully get the data of MDXG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MDXG
+Successfully get the data of MEDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MEDP
+Successfully get the data of MELI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MELI
+Successfully get the data of MEOH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MEOH
+Successfully get the data of MERC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MERC
+Successfully get the data of MESO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MESO
+Successfully get the data of META from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of META
+Successfully get the data of METC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of METC
+Successfully get the data of METCB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of METCB
+Successfully get the data of METCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of METCL
+Successfully get the data of MFIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MFIC
+Successfully get the data of MFICL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MFICL
+Successfully get the data of MGEE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGEE
+Successfully get the data of MGIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGIC
+Successfully get the data of MGNI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGNI
+Successfully get the data of MGPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGPI
+Successfully get the data of MGRC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGRC
+Successfully get the data of MGTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MGTX
+Successfully get the data of MIDD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MIDD
+Successfully get the data of MIRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MIRM
+Successfully get the data of MITK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MITK
+Successfully get the data of MKSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MKSI
+Successfully get the data of MKTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MKTX
+Successfully get the data of MLAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MLAB
+Successfully get the data of MLCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MLCO
+Successfully get the data of MLKN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MLKN
+Successfully get the data of MLTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MLTX
+Successfully get the data of MLYS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MLYS
+Successfully get the data of MMSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MMSI
+Successfully get the data of MMYT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MMYT
+Successfully get the data of MNDY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MNDY
+Successfully get the data of MNKD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MNKD
+Successfully get the data of MNMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MNMD
+Successfully get the data of MNRO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MNRO
+Successfully get the data of MNST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MNST
+Successfully get the data of MOBBW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MOBBW
+Successfully get the data of MOFG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MOFG
+Successfully get the data of MOMO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MOMO
+Successfully get the data of MORN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MORN
+Successfully get the data of MPB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MPB
+Successfully get the data of MPWR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MPWR
+Successfully get the data of MQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MQ
+Successfully get the data of MRCY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRCY
+Successfully get the data of MREO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MREO
+Successfully get the data of MRNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRNA
+Successfully get the data of MRNO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRNO
+Successfully get the data of MRTN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRTN
+Successfully get the data of MRUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRUS
+Successfully get the data of MRVI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRVI
+Successfully get the data of MRVL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRVL
+Successfully get the data of MRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MRX
+Successfully get the data of MSBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MSBI
+Successfully get the data of MSBIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MSBIP
+Successfully get the data of MSEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MSEX
+Successfully get the data of MSFT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MSFT
+Successfully get the data of MSTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MSTR
+Successfully get the data of MTCH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MTCH
+Successfully get the data of MTSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MTSI
+Successfully get the data of MTSR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MTSR
+Successfully get the data of MU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MU
+Successfully get the data of MVST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MVST
+Successfully get the data of MXL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MXL
+Successfully get the data of MYGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MYGN
+Successfully get the data of MYRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of MYRG
+Successfully get the data of NAGE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NAGE
+Successfully get the data of NAMS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NAMS
+Successfully get the data of NAMSW from 2025-04-09 00:00:00 to 20250416
+Saved the latest data of NAMSW
+Successfully get the data of NATH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NATH
+Successfully get the data of NAVI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NAVI
+Successfully get the data of NBBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NBBK
+Successfully get the data of NBIS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NBIS
+Successfully get the data of NBIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NBIX
+Successfully get the data of NBN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NBN
+Successfully get the data of NBTB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NBTB
+Successfully get the data of NCMI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NCMI
+Successfully get the data of NCNO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NCNO
+Successfully get the data of NDAQ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NDAQ
+Successfully get the data of NDSN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NDSN
+Successfully get the data of NEO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEO
+Successfully get the data of NEOG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEOG
+Successfully get the data of NESR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NESR
+Successfully get the data of NEWTG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEWTG
+Successfully get the data of NEWTI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEWTI
+Successfully get the data of NEWTZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEWTZ
+Successfully get the data of NEXN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEXN
+Successfully get the data of NEXT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NEXT
+Successfully get the data of NFBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NFBK
+Successfully get the data of NFE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NFE
+Successfully get the data of NFLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NFLX
+Successfully get the data of NHPAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NHPAP
+Successfully get the data of NHPBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NHPBP
+Successfully get the data of NICE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NICE
+Successfully get the data of NMFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NMFC
+Successfully get the data of NMFCZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NMFCZ
+Successfully get the data of NMIH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NMIH
+Successfully get the data of NMRK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NMRK
+Successfully get the data of NN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NN
+Successfully get the data of NNAVW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NNAVW
+Successfully get the data of NNDM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NNDM
+Successfully get the data of NNE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NNE
+Successfully get the data of NNNN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NNNN
+Successfully get the data of NOVT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NOVT
+Successfully get the data of NPCE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NPCE
+Successfully get the data of NRDS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NRDS
+Successfully get the data of NRIM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NRIM
+Successfully get the data of NRIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NRIX
+Successfully get the data of NSIT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NSIT
+Successfully get the data of NSSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NSSC
+Successfully get the data of NTAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTAP
+Successfully get the data of NTCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTCT
+Successfully get the data of NTES from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTES
+Successfully get the data of NTGR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTGR
+Successfully get the data of NTLA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTLA
+Successfully get the data of NTNX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTNX
+Successfully get the data of NTRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTRA
+Successfully get the data of NTRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTRS
+Successfully get the data of NTRSO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NTRSO
+Successfully get the data of NUTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NUTX
+Successfully get the data of NUVL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NUVL
+Successfully get the data of NVAWW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVAWW
+Successfully get the data of NVAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVAX
+Successfully get the data of NVCR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVCR
+Successfully get the data of NVDA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVDA
+Successfully get the data of NVEE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVEE
+Successfully get the data of NVMI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVMI
+Successfully get the data of NVTS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NVTS
+Successfully get the data of NWBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWBI
+Successfully get the data of NWE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWE
+Successfully get the data of NWL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWL
+Successfully get the data of NWPX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWPX
+Successfully get the data of NWS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWS
+Successfully get the data of NWSA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NWSA
+Successfully get the data of NXPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NXPI
+Successfully get the data of NXST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NXST
+Successfully get the data of NXT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NXT
+Successfully get the data of NXXT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NXXT
+Successfully get the data of NYAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYAX
+Successfully get the data of NYMT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMT
+Successfully get the data of NYMTI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMTI
+Successfully get the data of NYMTL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMTL
+Successfully get the data of NYMTM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMTM
+Successfully get the data of NYMTN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMTN
+Successfully get the data of NYMTZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of NYMTZ
+Successfully get the data of OB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OB
+Successfully get the data of OCFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OCFC
+Successfully get the data of OCFCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OCFCP
+Successfully get the data of OCS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OCS
+Successfully get the data of OCSL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OCSL
+Successfully get the data of OCUL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OCUL
+Successfully get the data of ODD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ODD
+Successfully get the data of ODFL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ODFL
+Successfully get the data of ODP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ODP
+Successfully get the data of OFIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OFIX
+Successfully get the data of OFLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OFLX
+Successfully get the data of OKTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OKTA
+Successfully get the data of OLED from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OLED
+Successfully get the data of OLLI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OLLI
+Successfully get the data of OLPX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OLPX
+Successfully get the data of OMAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OMAB
+Successfully get the data of OMCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OMCL
+Successfully get the data of OMER from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OMER
+Successfully get the data of ON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ON
+Successfully get the data of ONB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ONB
+Successfully get the data of ONBPO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ONBPO
+Successfully get the data of ONBPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ONBPP
+Successfully get the data of ONC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ONC
+Successfully get the data of OPCH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OPCH
+Successfully get the data of OPEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OPEN
+Successfully get the data of OPINL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OPINL
+Successfully get the data of OPK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OPK
+Successfully get the data of OPRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OPRA
+Successfully get the data of ORGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ORGO
+Successfully get the data of ORIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ORIC
+Successfully get the data of ORLY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ORLY
+Successfully get the data of ORRF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ORRF
+Successfully get the data of OS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OS
+Successfully get the data of OSBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OSBC
+Successfully get the data of OSIS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OSIS
+Successfully get the data of OSPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OSPN
+Successfully get the data of OSW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OSW
+Successfully get the data of OTEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OTEX
+Successfully get the data of OTTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OTTR
+Successfully get the data of OUST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OUST
+Successfully get the data of OXLC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLC
+Successfully get the data of OXLCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLCL
+Successfully get the data of OXLCN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLCN
+Successfully get the data of OXLCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLCO
+Successfully get the data of OXLCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLCP
+Successfully get the data of OXLCZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXLCZ
+Successfully get the data of OXSQG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OXSQG
+Successfully get the data of OZK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OZK
+Successfully get the data of OZKAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of OZKAP
+Successfully get the data of PAA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAA
+Successfully get the data of PACB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PACB
+Successfully get the data of PAGP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAGP
+Successfully get the data of PAHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAHC
+Successfully get the data of PANW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PANW
+Successfully get the data of PARA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PARA
+Successfully get the data of PARAA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PARAA
+Successfully get the data of PATK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PATK
+Successfully get the data of PAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAX
+Successfully get the data of PAYO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAYO
+Successfully get the data of PAYX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PAYX
+Successfully get the data of PCAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCAR
+Successfully get the data of PCH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCH
+Successfully get the data of PCRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCRX
+Successfully get the data of PCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCT
+Successfully get the data of PCTY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCTY
+Successfully get the data of PCVX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PCVX
+Successfully get the data of PDCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PDCO
+Successfully get the data of PDD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PDD
+Successfully get the data of PDFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PDFS
+Successfully get the data of PEBO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PEBO
+Successfully get the data of PECO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PECO
+Successfully get the data of PEGA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PEGA
+Successfully get the data of PENG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PENG
+Successfully get the data of PENN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PENN
+Successfully get the data of PEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PEP
+Successfully get the data of PERI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PERI
+Successfully get the data of PFBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PFBC
+Successfully get the data of PFG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PFG
+Successfully get the data of PFIS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PFIS
+Successfully get the data of PGC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PGC
+Successfully get the data of PGEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PGEN
+Successfully get the data of PGNY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PGNY
+Successfully get the data of PGY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PGY
+Successfully get the data of PHAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PHAR
+Successfully get the data of PHAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PHAT
+Successfully get the data of PHH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PHH
+Successfully get the data of PHVS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PHVS
+Successfully get the data of PI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PI
+Successfully get the data of PINC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PINC
+Successfully get the data of PLAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLAB
+Successfully get the data of PLAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLAY
+Successfully get the data of PLMR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLMR
+Successfully get the data of PLPC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLPC
+Successfully get the data of PLSE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLSE
+Successfully get the data of PLTK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLTK
+Successfully get the data of PLTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLTR
+Successfully get the data of PLUG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLUG
+Successfully get the data of PLUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLUS
+Successfully get the data of PLXS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLXS
+Successfully get the data of PLYA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PLYA
+Successfully get the data of PNFP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PNFP
+Successfully get the data of PNFPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PNFPP
+Successfully get the data of PNRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PNRG
+Successfully get the data of PNTG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PNTG
+Successfully get the data of PODD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PODD
+Successfully get the data of PONY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PONY
+Successfully get the data of POOL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of POOL
+Successfully get the data of POWI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of POWI
+Successfully get the data of POWL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of POWL
+Successfully get the data of POWWP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of POWWP
+Successfully get the data of PPBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PPBI
+Successfully get the data of PPC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PPC
+Successfully get the data of PPTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PPTA
+Successfully get the data of PRAA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRAA
+Successfully get the data of PRAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRAX
+Successfully get the data of PRCH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRCH
+Successfully get the data of PRCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRCT
+Successfully get the data of PRDO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRDO
+Successfully get the data of PRGS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRGS
+Successfully get the data of PRTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRTA
+Successfully get the data of PRTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRTC
+Successfully get the data of PRTH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRTH
+Successfully get the data of PRVA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PRVA
+Successfully get the data of PSEC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PSEC
+Successfully get the data of PSIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PSIX
+Successfully get the data of PSMT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PSMT
+Successfully get the data of PSNY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PSNY
+Successfully get the data of PSNYW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PSNYW
+Successfully get the data of PTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTC
+Successfully get the data of PTCT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTCT
+Successfully get the data of PTEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTEN
+Successfully get the data of PTGX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTGX
+Successfully get the data of PTLO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTLO
+Successfully get the data of PTON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PTON
+Successfully get the data of PUBM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PUBM
+Successfully get the data of PWP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PWP
+Successfully get the data of PYCR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PYCR
+Successfully get the data of PYPL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PYPL
+Successfully get the data of PZZA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of PZZA
+Successfully get the data of QCOM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QCOM
+Successfully get the data of QCRH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QCRH
+Successfully get the data of QDEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QDEL
+Successfully get the data of QFIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QFIN
+Successfully get the data of QLYS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QLYS
+Successfully get the data of QNST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QNST
+Successfully get the data of QRVO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QRVO
+Successfully get the data of QUBT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QUBT
+Successfully get the data of QURE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QURE
+Successfully get the data of QVCGB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QVCGB
+Successfully get the data of QVCGP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of QVCGP
+Successfully get the data of RADX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RADX
+Successfully get the data of RAPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RAPP
+Successfully get the data of RARE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RARE
+Successfully get the data of RBBN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RBBN
+Successfully get the data of RBCAA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RBCAA
+Successfully get the data of RCAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RCAT
+Successfully get the data of RCKT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RCKT
+Successfully get the data of RDFN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RDFN
+Successfully get the data of RDNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RDNT
+Successfully get the data of RDUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RDUS
+Successfully get the data of RDVT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RDVT
+Successfully get the data of RDWR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RDWR
+Successfully get the data of REAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REAL
+Successfully get the data of REAX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REAX
+Successfully get the data of REG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REG
+Successfully get the data of REGCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REGCO
+Successfully get the data of REGCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REGCP
+Successfully get the data of REGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REGN
+Successfully get the data of RELY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RELY
+Successfully get the data of REPL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REPL
+Successfully get the data of REYN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of REYN
+Successfully get the data of RGC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RGC
+Successfully get the data of RGEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RGEN
+Successfully get the data of RGLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RGLD
+Successfully get the data of RGTI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RGTI
+Successfully get the data of RGTIW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RGTIW
+Successfully get the data of RICK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RICK
+Successfully get the data of RILYG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RILYG
+Successfully get the data of RILYK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RILYK
+Successfully get the data of RILYN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RILYN
+Successfully get the data of RIOT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RIOT
+Successfully get the data of RIVN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RIVN
+Successfully get the data of RKLB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RKLB
+Successfully get the data of RLAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RLAY
+Successfully get the data of RMBS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RMBS
+Successfully get the data of RMR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RMR
+Successfully get the data of RNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RNA
+Successfully get the data of RNW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RNW
+Successfully get the data of ROAD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROAD
+Successfully get the data of ROCK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROCK
+Successfully get the data of ROIV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROIV
+Successfully get the data of ROKU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROKU
+Successfully get the data of ROOT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROOT
+Successfully get the data of ROP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROP
+Successfully get the data of ROST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ROST
+Successfully get the data of RPAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RPAY
+Successfully get the data of RPD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RPD
+Successfully get the data of RPRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RPRX
+Successfully get the data of RRBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RRBI
+Successfully get the data of RRR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RRR
+Successfully get the data of RSVR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RSVR
+Successfully get the data of RUM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RUM
+Successfully get the data of RUMBW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RUMBW
+Successfully get the data of RUN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RUN
+Successfully get the data of RUSHA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RUSHA
+Successfully get the data of RUSHB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RUSHB
+Successfully get the data of RVMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RVMD
+Successfully get the data of RWAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RWAY
+Successfully get the data of RWAYL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RWAYL
+Successfully get the data of RWAYZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RWAYZ
+Successfully get the data of RXRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RXRX
+Successfully get the data of RXST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RXST
+Successfully get the data of RXT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RXT
+Successfully get the data of RYAAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RYAAY
+Successfully get the data of RYTM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of RYTM
+Successfully get the data of SABR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SABR
+Successfully get the data of SAFT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SAFT
+Successfully get the data of SAGE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SAGE
+Successfully get the data of SAIA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SAIA
+SAIC更新失败: index -1 is out of bounds for axis 0 with size 0
+Successfully get the data of SAIL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SAIL
+Successfully get the data of SANA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SANA
+Successfully get the data of SANM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SANM
+Successfully get the data of SATL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SATL
+Successfully get the data of SATS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SATS
+Successfully get the data of SBAC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBAC
+Successfully get the data of SBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBC
+Successfully get the data of SBCF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBCF
+Successfully get the data of SBGI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBGI
+Successfully get the data of SBLK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBLK
+Successfully get the data of SBRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBRA
+Successfully get the data of SBUX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SBUX
+Successfully get the data of SCHL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SCHL
+Successfully get the data of SCSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SCSC
+Successfully get the data of SCVL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SCVL
+Successfully get the data of SDGR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SDGR
+Successfully get the data of SEAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SEAT
+Successfully get the data of SEDG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SEDG
+Successfully get the data of SEIC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SEIC
+Successfully get the data of SENEA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SENEA
+Successfully get the data of SENEB from 2025-03-28 00:00:00 to 20250416
+Saved the latest data of SENEB
+Successfully get the data of SERV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SERV
+Successfully get the data of SEZL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SEZL
+Successfully get the data of SFD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SFD
+Successfully get the data of SFIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SFIX
+Successfully get the data of SFM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SFM
+Successfully get the data of SFNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SFNC
+Successfully get the data of SGML from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SGML
+Successfully get the data of SGRY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SGRY
+Successfully get the data of SHBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SHBI
+Successfully get the data of SHC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SHC
+Successfully get the data of SHEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SHEN
+Successfully get the data of SHLS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SHLS
+Successfully get the data of SHOO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SHOO
+SHOP更新失败: index -1 is out of bounds for axis 0 with size 0
+Successfully get the data of SIBN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIBN
+Successfully get the data of SIGA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIGA
+Successfully get the data of SIGI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIGI
+Successfully get the data of SIGIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIGIP
+Successfully get the data of SIMO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIMO
+Successfully get the data of SION from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SION
+Successfully get the data of SIRI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SIRI
+Successfully get the data of SITM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SITM
+Successfully get the data of SJW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SJW
+Successfully get the data of SKBL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SKBL
+Successfully get the data of SKWD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SKWD
+Successfully get the data of SKYT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SKYT
+Successfully get the data of SKYW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SKYW
+Successfully get the data of SLAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLAB
+Successfully get the data of SLM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLM
+Successfully get the data of SLMBP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLMBP
+Successfully get the data of SLNO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLNO
+Successfully get the data of SLP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLP
+Successfully get the data of SLRC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SLRC
+Successfully get the data of SMBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SMBC
+Successfully get the data of SMCI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SMCI
+Successfully get the data of SMPL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SMPL
+Successfully get the data of SMTC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SMTC
+Successfully get the data of SNCY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNCY
+Successfully get the data of SNDK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNDK
+Successfully get the data of SNDL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNDL
+Successfully get the data of SNDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNDX
+Successfully get the data of SNEX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNEX
+Successfully get the data of SNPS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNPS
+Successfully get the data of SNRE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNRE
+Successfully get the data of SNY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SNY
+Successfully get the data of SOFI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SOFI
+Successfully get the data of SOHOB from 2025-04-10 00:00:00 to 20250416
+Saved the latest data of SOHOB
+Successfully get the data of SOHON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SOHON
+Successfully get the data of SOHOO from 2025-04-10 00:00:00 to 20250416
+Saved the latest data of SOHOO
+Successfully get the data of SONO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SONO
+Successfully get the data of SOUN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SOUN
+Successfully get the data of SOUNW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SOUNW
+Successfully get the data of SPFI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPFI
+Successfully get the data of SPNS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPNS
+Successfully get the data of SPOK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPOK
+Successfully get the data of SPRY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPRY
+Successfully get the data of SPSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPSC
+Successfully get the data of SPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPT
+Successfully get the data of SPTN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SPTN
+Successfully get the data of SRAD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SRAD
+Successfully get the data of SRCE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SRCE
+Successfully get the data of SRDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SRDX
+Successfully get the data of SRPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SRPT
+Successfully get the data of SRRK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SRRK
+Successfully get the data of SSBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SSBK
+Successfully get the data of SSNC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SSNC
+Successfully get the data of SSRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SSRM
+Successfully get the data of SSSSL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SSSSL
+Successfully get the data of SSYS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SSYS
+Successfully get the data of STAA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STAA
+Successfully get the data of STBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STBA
+Successfully get the data of STEP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STEP
+Successfully get the data of STGW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STGW
+Successfully get the data of STKL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STKL
+Successfully get the data of STLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STLD
+Successfully get the data of STNE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STNE
+Successfully get the data of STOK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STOK
+Successfully get the data of STRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STRA
+Successfully get the data of STRF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STRF
+Successfully get the data of STRK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STRK
+Successfully get the data of STRL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STRL
+Successfully get the data of STX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of STX
+Successfully get the data of SUPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SUPN
+Successfully get the data of SVC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SVC
+Successfully get the data of SVRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SVRA
+Successfully get the data of SWBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SWBI
+Successfully get the data of SWIM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SWIM
+Successfully get the data of SWKHL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SWKHL
+Successfully get the data of SWKS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SWKS
+Successfully get the data of SWTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SWTX
+Successfully get the data of SYBT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SYBT
+Successfully get the data of SYM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SYM
+Successfully get the data of SYNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SYNA
+Successfully get the data of SYRE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of SYRE
+Successfully get the data of TALK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TALK
+Successfully get the data of TARS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TARS
+Successfully get the data of TASK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TASK
+Successfully get the data of TATT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TATT
+Successfully get the data of TBBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TBBK
+Successfully get the data of TBLA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TBLA
+Successfully get the data of TBLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TBLD
+Successfully get the data of TBPH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TBPH
+Successfully get the data of TBRG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TBRG
+Successfully get the data of TCBI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCBI
+Successfully get the data of TCBIO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCBIO
+Successfully get the data of TCBK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCBK
+Successfully get the data of TCBX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCBX
+Successfully get the data of TCMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCMD
+Successfully get the data of TCOM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCOM
+Successfully get the data of TCPC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TCPC
+Successfully get the data of TDUP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TDUP
+Successfully get the data of TEAM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TEAM
+Successfully get the data of TECH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TECH
+Successfully get the data of TECX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TECX
+Successfully get the data of TEM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TEM
+Successfully get the data of TENB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TENB
+Successfully get the data of TER from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TER
+Successfully get the data of TFIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TFIN
+Successfully get the data of TFINP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TFINP
+Successfully get the data of TFSL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TFSL
+Successfully get the data of TGTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TGTX
+Successfully get the data of TH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TH
+Successfully get the data of THFF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of THFF
+Successfully get the data of THRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of THRM
+Successfully get the data of THRY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of THRY
+Successfully get the data of TIGO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TIGO
+Successfully get the data of TIGR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TIGR
+Successfully get the data of TILE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TILE
+Successfully get the data of TIPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TIPT
+Successfully get the data of TITN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TITN
+Successfully get the data of TLN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TLN
+Successfully get the data of TLRY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TLRY
+Successfully get the data of TLX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TLX
+Successfully get the data of TMC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TMC
+Successfully get the data of TMCI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TMCI
+Successfully get the data of TMDX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TMDX
+Successfully get the data of TMUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TMUS
+Successfully get the data of TNDM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TNDM
+Successfully get the data of TOWN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TOWN
+Successfully get the data of TPG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TPG
+Successfully get the data of TPGXL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TPGXL
+Successfully get the data of TREE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TREE
+TRI更新失败: index -1 is out of bounds for axis 0 with size 0
+Successfully get the data of TRIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRIN
+Successfully get the data of TRINI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRINI
+Successfully get the data of TRINZ from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRINZ
+Successfully get the data of TRIP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRIP
+Successfully get the data of TRMB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRMB
+Successfully get the data of TRMD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRMD
+Successfully get the data of TRMK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRMK
+Successfully get the data of TRML from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRML
+Successfully get the data of TRNS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRNS
+Successfully get the data of TROW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TROW
+Successfully get the data of TRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRS
+Successfully get the data of TRST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRST
+Successfully get the data of TRUP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRUP
+Successfully get the data of TRVI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TRVI
+Successfully get the data of TSAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TSAT
+Successfully get the data of TSCO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TSCO
+Successfully get the data of TSEM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TSEM
+Successfully get the data of TSLA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TSLA
+Successfully get the data of TTAN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTAN
+Successfully get the data of TTD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTD
+Successfully get the data of TTEK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTEK
+Successfully get the data of TTGT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTGT
+Successfully get the data of TTMI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTMI
+Successfully get the data of TTWO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TTWO
+Successfully get the data of TVTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TVTX
+Successfully get the data of TW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TW
+Successfully get the data of TWFG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TWFG
+Successfully get the data of TWST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TWST
+Successfully get the data of TXG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TXG
+Successfully get the data of TXN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TXN
+Successfully get the data of TXRH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TXRH
+Successfully get the data of TYRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of TYRA
+Successfully get the data of UAL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UAL
+Successfully get the data of UBSI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UBSI
+Successfully get the data of UCTT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UCTT
+Successfully get the data of UDMY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UDMY
+Successfully get the data of UFCS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UFCS
+Successfully get the data of UFPI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UFPI
+Successfully get the data of UFPT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UFPT
+Successfully get the data of ULCC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ULCC
+Successfully get the data of ULH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ULH
+Successfully get the data of ULTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ULTA
+Successfully get the data of UMBF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UMBF
+Successfully get the data of UMBFP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UMBFP
+Successfully get the data of UNIT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UNIT
+Successfully get the data of UNTY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UNTY
+Successfully get the data of UPB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UPB
+Successfully get the data of UPBD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UPBD
+Successfully get the data of UPST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UPST
+Successfully get the data of UPWK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UPWK
+Successfully get the data of URBN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of URBN
+Successfully get the data of URGN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of URGN
+Successfully get the data of USAR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of USAR
+Successfully get the data of USCB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of USCB
+Successfully get the data of USLM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of USLM
+Successfully get the data of UTHR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UTHR
+Successfully get the data of UVSP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UVSP
+Successfully get the data of UXIN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of UXIN
+Successfully get the data of VALN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VALN
+Successfully get the data of VALU from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VALU
+Successfully get the data of VBTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VBTX
+Successfully get the data of VC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VC
+Successfully get the data of VCEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VCEL
+Successfully get the data of VCTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VCTR
+Successfully get the data of VCYT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VCYT
+Successfully get the data of VECO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VECO
+Successfully get the data of VEON from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VEON
+Successfully get the data of VERA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VERA
+Successfully get the data of VERX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VERX
+Successfully get the data of VFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VFS
+Successfully get the data of VFSWW from 2025-04-09 00:00:00 to 20250416
+Saved the latest data of VFSWW
+Successfully get the data of VIAV from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VIAV
+Successfully get the data of VICR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VICR
+Successfully get the data of VINP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VINP
+Successfully get the data of VIR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VIR
+Successfully get the data of VIRT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VIRT
+Successfully get the data of VITL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VITL
+Successfully get the data of VKTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VKTX
+Successfully get the data of VLGEA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VLGEA
+Successfully get the data of VLY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VLY
+Successfully get the data of VLYPN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VLYPN
+Successfully get the data of VLYPO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VLYPO
+Successfully get the data of VLYPP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VLYPP
+Successfully get the data of VMEO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VMEO
+Successfully get the data of VNET from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VNET
+Successfully get the data of VNOM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VNOM
+Successfully get the data of VOD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VOD
+Successfully get the data of VRDN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRDN
+Successfully get the data of VREX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VREX
+Successfully get the data of VRNA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRNA
+Successfully get the data of VRNS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRNS
+Successfully get the data of VRNT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRNT
+Successfully get the data of VRRM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRRM
+Successfully get the data of VRSK from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRSK
+Successfully get the data of VRSN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRSN
+Successfully get the data of VRTX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VRTX
+Successfully get the data of VSAT from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VSAT
+Successfully get the data of VSEC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VSEC
+Successfully get the data of VSTA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VSTA
+Successfully get the data of VTRS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of VTRS
+Successfully get the data of WABC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WABC
+Successfully get the data of WAFD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WAFD
+Successfully get the data of WAFDP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WAFDP
+Successfully get the data of WASH from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WASH
+Successfully get the data of WAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WAY
+Successfully get the data of WB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WB
+Successfully get the data of WBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WBA
+Successfully get the data of WBD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WBD
+Successfully get the data of WBTN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WBTN
+Successfully get the data of WDAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WDAY
+Successfully get the data of WDC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WDC
+Successfully get the data of WDFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WDFC
+Successfully get the data of WEN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WEN
+Successfully get the data of WERN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WERN
+Successfully get the data of WEST from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WEST
+Successfully get the data of WFRD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WFRD
+Successfully get the data of WGS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WGS
+Successfully get the data of WHFCL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WHFCL
+Successfully get the data of WINA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WINA
+Successfully get the data of WING from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WING
+Successfully get the data of WIX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WIX
+Successfully get the data of WLDN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WLDN
+Successfully get the data of WLFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WLFC
+Successfully get the data of WMG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WMG
+Successfully get the data of WOOF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WOOF
+Successfully get the data of WRD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WRD
+Successfully get the data of WRLD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WRLD
+Successfully get the data of WSBC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WSBC
+Successfully get the data of WSBCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WSBCP
+Successfully get the data of WSC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WSC
+Successfully get the data of WSFS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WSFS
+Successfully get the data of WTBA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTBA
+Successfully get the data of WTF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTF
+Successfully get the data of WTFC from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTFC
+Successfully get the data of WTFCM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTFCM
+Successfully get the data of WTFCP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTFCP
+Successfully get the data of WTW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WTW
+Successfully get the data of WULF from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WULF
+Successfully get the data of WVE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WVE
+Successfully get the data of WWD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WWD
+Successfully get the data of WYHG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WYHG
+Successfully get the data of WYNN from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of WYNN
+Successfully get the data of XEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XEL
+Successfully get the data of XENE from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XENE
+Successfully get the data of XERS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XERS
+Successfully get the data of XMTR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XMTR
+Successfully get the data of XNCR from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XNCR
+Successfully get the data of XOMAO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XOMAO
+Successfully get the data of XOMAP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XOMAP
+Successfully get the data of XP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XP
+Successfully get the data of XPEL from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XPEL
+Successfully get the data of XRAY from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XRAY
+Successfully get the data of XRX from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of XRX
+Successfully get the data of YORW from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of YORW
+Successfully get the data of Z from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of Z
+Successfully get the data of ZBIO from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZBIO
+Successfully get the data of ZBRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZBRA
+Successfully get the data of ZD from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZD
+Successfully get the data of ZEUS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZEUS
+Successfully get the data of ZG from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZG
+Successfully get the data of ZI from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZI
+Successfully get the data of ZION from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZION
+Successfully get the data of ZIONP from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZIONP
+Successfully get the data of ZLAB from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZLAB
+Successfully get the data of ZM from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZM
+Successfully get the data of ZS from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZS
+Successfully get the data of ZVRA from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZVRA
+Successfully get the data of ZYME from 2025-04-11 00:00:00 to 20250416
+Saved the latest data of ZYME
+加载的数据总行数: 1556
+========= 股票列表文件内容 =========
+  Symbol  ...                                    Industry
+0    AAL  ...               Air Freight/Delivery Services
+1   AAOI  ...                              Semiconductors
+2   AAON  ...             Industrial Machinery/Components
+3   AAPG  ...  Biotechnology: Pharmaceutical Preparations
+4   AAPL  ...                      Computer Manufacturing
+
+[5 rows x 11 columns]
+Index(['Symbol', 'Name', 'Last Sale', 'Net Change', '% Change', 'Market Cap',
+       'Country', 'IPO Year', 'Volume', 'Sector', 'Industry'],
+      dtype='object')
+列名 'Symbol' 存在，提取数据...
+分析股票:   0%|          | 0/1556 [00:00<?, ?it/s]分析股票:   1%|          | 18/1556 [00:00<00:08, 175.09it/s]分析股票:   2%|▏         | 38/1556 [00:00<00:08, 185.85it/s]分析股票:   4%|▎         | 58/1556 [00:00<00:08, 185.94it/s]分析股票:   5%|▍         | 77/1556 [00:00<00:07, 186.31it/s]分析股票:   6%|▌         | 96/1556 [00:00<00:07, 185.71it/s]分析股票:   7%|▋         | 115/1556 [00:00<00:07, 186.37it/s]分析股票:   9%|▊         | 135/1556 [00:00<00:07, 190.23it/s]分析股票:  10%|▉         | 155/1556 [00:00<00:07, 183.39it/s]分析股票:  11%|█         | 175/1556 [00:00<00:07, 188.14it/s]分析股票:  13%|█▎        | 195/1556 [00:01<00:07, 190.53it/s]分析股票:  14%|█▍        | 215/1556 [00:01<00:07, 187.77it/s]分析股票:  15%|█▌        | 236/1556 [00:01<00:06, 191.58it/s]分析股票:  16%|█▋        | 256/1556 [00:01<00:06, 189.82it/s]分析股票:  18%|█▊        | 276/1556 [00:01<00:06, 185.89it/s]分析股票:  19%|█▉        | 295/1556 [00:01<00:06, 186.92it/s]分析股票:  20%|██        | 315/1556 [00:01<00:06, 188.73it/s]分析股票:  21%|██▏       | 334/1556 [00:01<00:06, 188.25it/s]分析股票:  23%|██▎       | 353/1556 [00:01<00:06, 187.92it/s]分析股票:  24%|██▍       | 372/1556 [00:01<00:06, 187.10it/s]分析股票:  25%|██▌       | 391/1556 [00:02<00:06, 180.76it/s]分析股票:  26%|██▋       | 410/1556 [00:02<00:06, 182.34it/s]分析股票:  28%|██▊       | 430/1556 [00:02<00:06, 187.07it/s]            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   2.17     2.066   2.3050     0.0       0.0
+2025-04-10   2.07     2.062   2.2885     0.0       0.0
+2025-04-11   2.40     2.124   2.2825     0.0       0.0
+2025-04-14   2.44     2.202   2.2775     0.0       0.0
+2025-04-15   2.43     2.302   2.2815     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  2.580     2.337  2.73975     0.0       0.0
+2025-04-10  2.455     2.381  2.71500     0.0       0.0
+2025-04-11  3.020     2.529  2.71000     0.0       0.0
+2025-04-14  3.090     2.683  2.71950     0.0       0.0
+2025-04-15  3.120     2.853  2.71850     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  165.03   154.090  162.3045     0.0       0.0
+2025-04-10  160.14   155.270  162.2860     0.0       0.0
+2025-04-11  164.14   157.396  162.1830     0.0       0.0
+2025-04-14  165.62   159.850  161.9845     0.0       0.0
+2025-04-15  164.15   163.816  161.9655     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   2.98     2.902   2.9245     0.0       0.0
+2025-04-10   2.81     2.886   2.9135     0.0       0.0
+2025-04-11   3.00     2.898   2.9305     0.0       0.0
+2025-04-14   3.09     2.940   2.9590     0.0       0.0
+2025-04-15   3.31     3.038   2.9770     1.0       1.0
+            close  short_ma   long_ma  signal  position
+date                                                   
+2025-04-09  66.01    66.372  65.88175     1.0       0.0
+2025-04-10  65.12    65.738  66.06500     0.0      -1.0
+2025-04-11  68.12    65.858  66.34650     0.0       0.0
+2025-04-14  68.72    66.204  66.56500     0.0       0.0
+2025-04-15  69.55    67.504  66.83150     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   4.03     3.808   3.9810     0.0       0.0
+2025-04-10   3.96     3.840   3.9875     0.0       0.0
+2025-04-11   4.17     3.914   4.0010     0.0       0.0
+2025-04-14   4.12     3.986   4.0080     0.0       0.0
+2025-04-15   3.98     4.052   4.0155     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  185.15   159.124  177.5695     0.0       0.0
+2025-04-10  172.30   162.782  176.6165     0.0       0.0
+2025-04-11  181.94   169.912  175.9365     0.0       0.0
+2025-04-14  178.36   174.756  175.1295     0.0       0.0
+2025-04-15  178.95   179.340  174.6435     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  14.86    13.892  14.5945     0.0       0.0
+2025-04-10  14.40    13.916  14.6250     0.0       0.0
+2025-04-11  14.53    14.156  14.6185     0.0       0.0
+2025-04-14  14.50    14.348  14.6060     0.0       0.0
+2025-04-15  14.83    14.624  14.6205     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  4.7500   4.18800  4.388320     0.0       0.0
+2025-04-10  4.4187   4.20774  4.429755     0.0       0.0
+2025-04-11  4.5000   4.36374  4.459255     0.0       0.0
+2025-04-14  4.5000   4.48374  4.492255     0.0       0.0
+2025-04-15  4.6800   4.56974  4.509685     1.0       1.0
+              close  short_ma    long_ma  signal  position
+date                                                      
+2025-04-09  4616.32  4351.940  4548.7225     0.0       0.0
+2025-04-10  4494.64  4360.762  4558.6845     0.0       0.0
+2025-04-11  4586.53  4421.264  4564.7370     0.0       0.0
+2025-04-14  4556.84  4483.696  4564.4095     0.0       0.0
+2025-04-15  4612.44  4573.354  4571.4560     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  39.06    38.196   39.469     0.0       0.0
+2025-04-10  38.60    37.912   39.526     0.0       0.0
+2025-04-11  41.17    38.672   39.656     0.0       0.0
+2025-04-14  41.80    39.550   39.714     0.0       0.0
+2025-04-15  41.86    40.498   39.799     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   9.02     8.574   8.9830     0.0       0.0
+2025-04-10   8.81     8.618   8.9630     0.0       0.0
+2025-04-11   8.99     8.712   8.9465     0.0       0.0
+2025-04-14   8.93     8.806   8.9230     0.0       0.0
+2025-04-15   8.84     8.918   8.9020     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  215.45   188.276  208.3575     0.0       0.0
+2025-04-10  204.49   191.126  208.0885     0.0       0.0
+2025-04-11  208.25   198.584  207.6780     0.0       0.0
+2025-04-14  206.70   203.966  207.0860     0.0       0.0
+2025-04-15  208.42   208.662  206.9645     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  52.53    50.582  52.6180     0.0       0.0
+2025-04-10  51.54    50.518  52.5895     0.0       0.0
+2025-04-11  53.26    51.170  52.6295     0.0       0.0
+2025-04-14  54.41    52.164  52.7320     0.0       0.0
+2025-04-15  53.55    53.058  52.8085     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   3.63     3.430   3.6170     0.0       0.0
+2025-04-10   3.67     3.462   3.6275     0.0       0.0
+2025-04-11   3.68     3.532   3.6285     0.0       0.0
+2025-04-14   3.66     3.622   3.6265     0.0       0.0
+2025-04-15   3.72     3.672   3.6220     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  72.97    74.386  67.3795     1.0       0.0
+2025-04-10  67.73    72.058  68.0235     1.0       0.0
+2025-04-11  68.62    70.892  68.6540     1.0       0.0
+2025-04-14  67.43    69.448  69.1315     1.0       0.0
+2025-04-15  69.59    69.268  69.7860     0.0      -1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  34.89    32.770  37.7580     0.0       0.0
+2025-04-10  34.26    33.090  37.3715     0.0       0.0
+2025-04-11  39.30    34.420  37.2305     0.0       0.0
+2025-04-14  38.81    35.706  37.0300     0.0       0.0
+2025-04-15  38.95    37.242  36.9290     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  20.11    19.112  19.8595     0.0       0.0
+2025-04-10  19.30    19.134  19.8865     0.0       0.0
+2025-04-11  19.70    19.360  19.9070     0.0       0.0
+2025-04-14  19.89    19.520  19.9000     0.0       0.0
+2025-04-15  21.05    20.010  19.9280     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  288.11   268.110  287.8300     0.0       0.0
+2025-04-10  282.00   270.464  287.7415     0.0       0.0
+2025-04-11  300.61   277.828  288.2215     0.0       0.0
+2025-04-14  299.08   284.828  288.5335     0.0       0.0
+2025-04-15  297.68   293.496  289.1120     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   7.95     7.512   7.7160     0.0       0.0
+2025-04-10   7.61     7.508   7.7205     0.0       0.0
+2025-04-11   7.75     7.564   7.7225     0.0       0.0
+2025-04-14   7.66     7.642   7.7155     0.0       0.0
+2025-04-15   7.71     7.736   7.7205     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  30.38    28.244  29.5550     0.0       0.0
+2025-04-10  29.32    28.320  29.5755     0.0       0.0
+2025-04-11  29.78    28.732  29.5920     0.0       0.0
+2025-04-14  29.62    29.226  29.5945     0.0       0.0
+2025-04-15  29.40    29.700  29.5790     1.0       1.0
+分析股票:  29%|██▉       | 449/1556 [00:02<00:06, 183.37it/s]分析股票:  30%|███       | 469/1556 [00:02<00:05, 187.54it/s]分析股票:  31%|███▏      | 488/1556 [00:02<00:05, 186.83it/s]分析股票:  33%|███▎      | 507/1556 [00:02<00:05, 183.85it/s]分析股票:  34%|███▍      | 527/1556 [00:02<00:05, 187.07it/s]分析股票:  35%|███▌      | 547/1556 [00:02<00:05, 190.06it/s]分析股票:  37%|███▋      | 568/1556 [00:03<00:05, 193.95it/s]分析股票:  38%|███▊      | 588/1556 [00:03<00:05, 189.89it/s]分析股票:  39%|███▉      | 608/1556 [00:03<00:04, 191.54it/s]分析股票:  40%|████      | 628/1556 [00:03<00:04, 193.84it/s]分析股票:  42%|████▏     | 648/1556 [00:03<00:04, 195.28it/s]分析股票:  43%|████▎     | 668/1556 [00:03<00:04, 192.69it/s]分析股票:  44%|████▍     | 688/1556 [00:03<00:04, 190.19it/s]分析股票:  46%|████▌     | 708/1556 [00:03<00:04, 191.66it/s]分析股票:  47%|████▋     | 728/1556 [00:03<00:04, 193.77it/s]分析股票:  48%|████▊     | 748/1556 [00:03<00:04, 190.34it/s]分析股票:  49%|████▉     | 768/1556 [00:04<00:04, 189.09it/s]分析股票:  51%|█████     | 787/1556 [00:04<00:04, 184.79it/s]分析股票:  52%|█████▏    | 809/1556 [00:04<00:03, 192.73it/s]分析股票:  53%|█████▎    | 829/1556 [00:04<00:03, 194.16it/s]分析股票:  55%|█████▍    | 849/1556 [00:04<00:03, 193.85it/s]分析股票:  56%|█████▌    | 870/1556 [00:04<00:03, 196.56it/s]分析股票:  57%|█████▋    | 890/1556 [00:04<00:03, 193.39it/s]分析股票:  58%|█████▊    | 910/1556 [00:04<00:03, 191.72it/s]分析股票:  60%|█████▉    | 930/1556 [00:04<00:03, 191.15it/s]分析股票:  61%|██████    | 951/1556 [00:05<00:03, 195.64it/s]分析股票:  62%|██████▏   | 972/1556 [00:05<00:02, 197.67it/s]分析股票:  64%|██████▍   | 992/1556 [00:05<00:02, 190.82it/s]分析股票:  65%|██████▌   | 1013/1556 [00:05<00:02, 194.14it/s]分析股票:  66%|██████▋   | 1033/1556 [00:05<00:02, 194.72it/s]            close  short_ma   long_ma  signal  position
+date                                                   
+2025-04-09  37.30    35.382  36.60275     0.0       0.0
+2025-04-10  36.08    35.522  36.49675     0.0       0.0
+2025-04-11  36.65    35.780  36.40400     0.0       0.0
+2025-04-14  36.64    35.970  36.27200     0.0       0.0
+2025-04-15  34.16    36.166  36.02450     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  102.77    97.890  100.3635     0.0       0.0
+2025-04-10  100.75    97.906  100.5415     0.0       0.0
+2025-04-11  101.74    99.086  100.6590     0.0       0.0
+2025-04-14  101.58   100.198  100.7275     0.0       0.0
+2025-04-15  103.58   102.084  100.9490     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  45.50    43.294  44.3920     0.0       0.0
+2025-04-10  43.74    43.186  44.4270     0.0       0.0
+2025-04-11  44.45    43.566  44.3995     0.0       0.0
+2025-04-14  44.25    43.650  44.3530     0.0       0.0
+2025-04-15  43.67    44.322  44.2905     1.0       1.0
+               close  short_ma    long_ma  signal  position
+date                                                       
+2025-04-07   94.0201  99.75602  95.199005     1.0       0.0
+2025-04-09   94.4700  97.98402  95.198005     1.0       0.0
+2025-04-10   94.4700  96.21202  95.186505     1.0       0.0
+2025-04-11   94.4700  93.94402  95.123505     0.0      -1.0
+2025-04-14  107.0200  96.89002  95.667505     1.0       1.0
+             close  short_ma    long_ma  signal  position
+date                                                     
+2025-04-09  120.19   121.738  119.23625     1.0       0.0
+2025-04-10  119.37   120.150  119.55275     1.0       0.0
+2025-04-11  120.62   119.668  119.73675     0.0      -1.0
+2025-04-14  121.30   119.896  119.94825     0.0       0.0
+2025-04-15  120.97   120.490  120.14525     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  13.06    12.488  13.2225     0.0       0.0
+2025-04-10  12.70    12.368  13.2035     0.0       0.0
+2025-04-11  13.25    12.536  13.2065     0.0       0.0
+2025-04-14  13.46    12.848  13.2055     0.0       0.0
+2025-04-15  13.71    13.236  13.2120     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  52.17    49.002  54.9430     0.0       0.0
+2025-04-10  48.92    48.062  54.5320     0.0       0.0
+2025-04-11  53.87    49.188  54.2545     0.0       0.0
+2025-04-14  61.43    52.412  54.4110     0.0       0.0
+2025-04-15  59.53    55.184  54.6470     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  31.79    31.294  31.6415     0.0       0.0
+2025-04-10  31.34    31.184  31.6555     0.0       0.0
+2025-04-11  32.14    31.360  31.7095     0.0       0.0
+2025-04-14  32.38    31.710  31.7765     0.0       0.0
+2025-04-15  32.70    32.070  31.8430     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  170.72   153.518  167.5585     0.0       0.0
+2025-04-10  164.31   154.484  167.7225     0.0       0.0
+2025-04-11  171.35   159.538  167.8845     0.0       0.0
+2025-04-14  172.99   165.278  167.8140     0.0       0.0
+2025-04-15  173.43   170.560  167.8510     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  522.95   478.078  491.8280     0.0       0.0
+2025-04-10  489.52   477.060  492.4650     0.0       0.0
+2025-04-11  493.60   485.464  492.9230     0.0       0.0
+2025-04-14  490.13   490.766  492.9895     0.0       0.0
+2025-04-15  488.27   496.894  493.2055     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  23.85    23.144  23.6670     0.0       0.0
+2025-04-10  24.20    23.180  23.8565     0.0       0.0
+2025-04-11  24.28    23.382  24.0070     0.0       0.0
+2025-04-14  23.83    23.592  23.9595     0.0       0.0
+2025-04-15  24.13    24.058  24.0060     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  54.57    46.080  51.7860     0.0       0.0
+2025-04-10  50.91    46.778  51.8335     0.0       0.0
+2025-04-11  49.26    47.908  51.7690     0.0       0.0
+2025-04-14  51.92    49.624  51.7475     0.0       0.0
+2025-04-15  53.99    52.130  51.8480     1.0       1.0
+             close  short_ma    long_ma  signal  position
+date                                                     
+2025-04-09  113.68   107.078  111.57175     0.0       0.0
+2025-04-10  109.68   107.124  111.52325     0.0       0.0
+2025-04-11  113.01   108.720  111.59675     0.0       0.0
+2025-04-14  111.17   109.978  111.47675     0.0       0.0
+2025-04-15  109.36   111.380  111.22125     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   8.96     8.440   8.9995     0.0       0.0
+2025-04-10   8.55     8.482   8.7765     0.0       0.0
+2025-04-11   9.01     8.614   8.7655     0.0       0.0
+2025-04-14   8.71     8.686   8.6925     0.0       0.0
+2025-04-15   8.78     8.802   8.6535     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  203.19   209.294  213.7965     0.0       0.0
+2025-04-10  210.32   208.128  213.7120     0.0       0.0
+2025-04-11  221.81   209.902  214.1835     0.0       0.0
+2025-04-14  222.42   212.802  214.4380     0.0       0.0
+2025-04-15  223.98   216.344  214.7690     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  58.25    57.420  57.3665     1.0       0.0
+2025-04-10  57.77    57.044  57.5380     0.0      -1.0
+2025-04-11  58.15    57.258  57.6910     0.0       0.0
+2025-04-14  58.58    57.552  57.8095     0.0       0.0
+2025-04-15  58.64    58.278  57.9015     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  390.49   367.172  381.4320     0.0       0.0
+2025-04-10  381.35   368.820  381.5610     0.0       0.0
+2025-04-11  388.45   374.542  381.5555     0.0       0.0
+2025-04-14  387.81   380.532  381.5110     0.0       0.0
+2025-04-15  385.73   386.766  381.6215     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  114.33   100.876  111.8125     0.0       0.0
+2025-04-10  107.57   102.030  111.4120     0.0       0.0
+2025-04-11  110.93   105.354  110.8750     0.0       0.0
+2025-04-14  110.71   107.968  110.4340     0.0       0.0
+2025-04-15  112.20   111.148  110.2725     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  30.20    28.456   30.085     0.0       0.0
+2025-04-10  29.58    28.486   30.059     0.0       0.0
+2025-04-11  30.24    28.994   30.022     0.0       0.0
+2025-04-14  30.43    29.598   29.992     0.0       0.0
+2025-04-15  30.52    30.194   29.982     1.0       1.0
+              close  short_ma    long_ma  signal  position
+date                                                      
+2025-04-09  1348.45  1365.850  1369.3990     0.0      -1.0
+2025-04-10  1373.36  1352.144  1373.5925     0.0       0.0
+2025-04-11  1389.79  1352.128  1376.7115     0.0       0.0
+2025-04-14  1414.20  1368.200  1380.0220     0.0       0.0
+2025-04-15  1397.93  1384.746  1382.9810     1.0       1.0
+分析股票:  68%|██████▊   | 1053/1556 [00:05<00:02, 190.08it/s]分析股票:  69%|██████▉   | 1073/1556 [00:05<00:02, 187.66it/s]分析股票:  70%|███████   | 1093/1556 [00:05<00:02, 190.30it/s]分析股票:  72%|███████▏  | 1113/1556 [00:05<00:02, 192.83it/s]分析股票:  73%|███████▎  | 1134/1556 [00:05<00:02, 195.44it/s]分析股票:  74%|███████▍  | 1154/1556 [00:06<00:02, 196.05it/s]分析股票:  76%|███████▌  | 1175/1556 [00:06<00:01, 197.35it/s]分析股票:  77%|███████▋  | 1195/1556 [00:06<00:01, 197.84it/s]分析股票:  78%|███████▊  | 1215/1556 [00:06<00:01, 194.14it/s]分析股票:  79%|███████▉  | 1235/1556 [00:06<00:01, 194.79it/s]分析股票:  81%|████████  | 1256/1556 [00:06<00:01, 196.95it/s]分析股票:  82%|████████▏ | 1277/1556 [00:06<00:01, 200.73it/s]分析股票:  83%|████████▎ | 1298/1556 [00:06<00:01, 200.39it/s]分析股票:  85%|████████▍ | 1319/1556 [00:06<00:01, 192.28it/s]分析股票:  86%|████████▌ | 1340/1556 [00:07<00:01, 195.43it/s]分析股票:  87%|████████▋ | 1360/1556 [00:07<00:01, 195.65it/s]分析股票:  89%|████████▊ | 1380/1556 [00:07<00:00, 196.12it/s]分析股票:  90%|█████████ | 1401/1556 [00:07<00:00, 200.08it/s]分析股票:  91%|█████████▏| 1422/1556 [00:07<00:00, 199.12it/s]分析股票:  93%|█████████▎| 1442/1556 [00:07<00:00, 192.80it/s]分析股票:  94%|█████████▍| 1462/1556 [00:07<00:00, 190.82it/s]分析股票:  95%|█████████▌| 1482/1556 [00:07<00:00, 191.90it/s]分析股票:  97%|█████████▋| 1502/1556 [00:07<00:00, 193.61it/s]分析股票:  98%|█████████▊| 1523/1556 [00:07<00:00, 196.65it/s]分析股票:  99%|█████████▉| 1543/1556 [00:08<00:00, 197.27it/s]分析股票: 100%|██████████| 1556/1556 [00:08<00:00, 191.62it/s]
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  17.64    15.768  16.9045     0.0       0.0
+2025-04-10  16.63    15.940  16.9160     0.0       0.0
+2025-04-11  17.14    16.330  16.9250     0.0       0.0
+2025-04-14  17.21    16.724  16.9160     0.0       0.0
+2025-04-15  16.98    17.120  16.9275     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  22.78    22.548  22.6835     0.0       0.0
+2025-04-10  22.67    22.582  22.6820     0.0       0.0
+2025-04-11  22.55    22.592  22.6770     0.0       0.0
+2025-04-14  22.82    22.642  22.6855     0.0       0.0
+2025-04-15  22.60    22.684  22.6795     1.0       1.0
+            close  short_ma   long_ma  signal  position
+date                                                   
+2025-04-09  2.700   2.49666  2.573240     0.0       0.0
+2025-04-10  2.590   2.47864  2.577745     0.0       0.0
+2025-04-11  2.688   2.53424  2.574645     0.0       0.0
+2025-04-14  2.500   2.52560  2.561145     0.0       0.0
+2025-04-15  2.410   2.57760  2.550065     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   3.52     3.347  3.69850     0.0       0.0
+2025-04-10   3.78     3.446  3.71900     0.0       0.0
+2025-04-11   3.75     3.520  3.72775     0.0       0.0
+2025-04-14   4.47     3.712  3.74825     0.0       0.0
+2025-04-15   3.91     3.886  3.75075     1.0       1.0
+             close  short_ma   long_ma  signal  position
+date                                                    
+2025-04-09  135.84   127.652  130.7835     0.0       0.0
+2025-04-10  130.08   127.742  131.1350     0.0       0.0
+2025-04-11  131.69   128.500  131.2480     0.0       0.0
+2025-04-14  130.18   129.880  131.3115     0.0       0.0
+2025-04-15  130.75   131.708  131.4185     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  10.03     9.526  10.4520     0.0       0.0
+2025-04-10  10.18     9.546  10.4260     0.0       0.0
+2025-04-11  10.65     9.858  10.4225     0.0       0.0
+2025-04-14  10.87    10.200  10.4165     0.0       0.0
+2025-04-15  10.81    10.508  10.4050     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  26.67    24.720  26.2465     0.0       0.0
+2025-04-10  26.61    25.236  26.2790     0.0       0.0
+2025-04-11  26.01    25.496  26.2735     0.0       0.0
+2025-04-14  26.42    25.872  26.2630     0.0       0.0
+2025-04-15  25.91    26.324  26.2575     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09   6.53     6.272   7.4160     0.0       0.0
+2025-04-10   6.40     6.292   7.2830     0.0       0.0
+2025-04-11   7.37     6.546   7.1710     0.0       0.0
+2025-04-14   7.58     6.790   7.0565     0.0       0.0
+2025-04-15   7.77     7.130   6.9930     1.0       1.0
+            close  short_ma  long_ma  signal  position
+date                                                  
+2025-04-09  93.40    87.384  91.0870     0.0       0.0
+2025-04-10  89.94    87.968  91.0125     0.0       0.0
+2025-04-11  91.63    89.140  90.9330     0.0       0.0
+2025-04-14  93.10    90.710  90.9310     0.0       0.0
+2025-04-15  92.53    92.120  90.9855     1.0       1.0
+加载的数据总行数: 33
+保存后的信号记录数:  83
+
+=== 推荐的交易信号 ===
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CORT', 'action': 'sell', 'price': 69.59, 'short_ma': 69.268, 'long_ma': 69.786, 'rsi': 50.92951668514532, 'adx': 25.85768505646704, 'volatility': 0.7409580540186238, 'sharpe_ratio': 0.7556}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'LZMH', 'action': 'buy', 'price': 8.78, 'short_ma': 8.802000000000001, 'long_ma': 8.6535, 'rsi': 54.15889185725867, 'adx': 28.851861221875307, 'volatility': 3.1153438652253427, 'sharpe_ratio': 2.9375}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'KMTS', 'action': 'buy', 'price': 24.13, 'short_ma': 24.058, 'long_ma': 24.006, 'rsi': 54.46199339291478, 'adx': 34.09850180226981, 'volatility': 0.7935287085448081, 'sharpe_ratio': 1.5007}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'NVDA', 'action': 'buy', 'price': 112.2, 'short_ma': 111.148, 'long_ma': 110.2725, 'rsi': 50.35757944356234, 'adx': 26.56407981360398, 'volatility': 0.530416096562534, 'sharpe_ratio': 1.2989}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ORLY', 'action': 'buy', 'price': 1397.93, 'short_ma': 1384.746, 'long_ma': 1382.981, 'rsi': 54.88271573734186, 'adx': 22.451643563490737, 'volatility': 0.22661294642267238, 'sharpe_ratio': 1.284}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'AVGO', 'action': 'buy', 'price': 178.95, 'short_ma': 179.34, 'long_ma': 174.64350000000002, 'rsi': 49.686010150172685, 'adx': 24.23954247822736, 'volatility': 0.40686437608258585, 'sharpe_ratio': 1.2026}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CEG', 'action': 'buy', 'price': 208.42, 'short_ma': 208.66199999999998, 'long_ma': 206.9645, 'rsi': 47.613018705724556, 'adx': 26.576369338082078, 'volatility': 0.5018003202541483, 'sharpe_ratio': 1.2005}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'USLM', 'action': 'buy', 'price': 92.53, 'short_ma': 92.11999999999999, 'long_ma': 90.98549999999999, 'rsi': 50.81152991445366, 'adx': 22.51418207313754, 'volatility': 0.364821176621233, 'sharpe_ratio': 1.1111}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CSWI', 'action': 'buy', 'price': 297.68, 'short_ma': 293.496, 'long_ma': 289.11199999999997, 'rsi': 52.70232909643614, 'adx': 29.630643096505263, 'volatility': 0.31891575389015586, 'sharpe_ratio': 1.109}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'GGAL', 'action': 'buy', 'price': 59.53, 'short_ma': 55.18399999999999, 'long_ma': 54.647000000000006, 'rsi': 56.33281059752174, 'adx': 23.692810357002532, 'volatility': 0.5718363292377436, 'sharpe_ratio': 1.0368}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'IBKR', 'action': 'buy', 'price': 173.43, 'short_ma': 170.56, 'long_ma': 167.85100000000003, 'rsi': 50.69123889128232, 'adx': 27.08335529202709, 'volatility': 0.3337849469087664, 'sharpe_ratio': 0.9769}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'NWS', 'action': 'buy', 'price': 30.52, 'short_ma': 30.194, 'long_ma': 29.982, 'rsi': 51.92236413496529, 'adx': 27.580886571026902, 'volatility': 0.3088137439307338, 'sharpe_ratio': 0.9529}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'BKNG', 'action': 'buy', 'price': 4612.44, 'short_ma': 4573.354, 'long_ma': 4571.456, 'rsi': 51.14863795655037, 'adx': 22.480689016866386, 'volatility': 0.34870177097494753, 'sharpe_ratio': 0.8316}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'RUMBW', 'action': 'buy', 'price': 2.41, 'short_ma': 2.5776, 'long_ma': 2.550065, 'rsi': 43.42898066190995, 'adx': 24.573012444559108, 'volatility': 1.5554917377850186, 'sharpe_ratio': 0.8175}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'AVPTW', 'action': 'buy', 'price': 4.68, 'short_ma': 4.56974, 'long_ma': 4.509684999999999, 'rsi': 49.91529763603734, 'adx': 28.248147742784223, 'volatility': 1.0370914540481133, 'sharpe_ratio': 0.8164}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CHEF', 'action': 'buy', 'price': 53.55, 'short_ma': 53.05800000000001, 'long_ma': 52.8085, 'rsi': 49.807738292207596, 'adx': 31.785940449909116, 'volatility': 0.5461162788974154, 'sharpe_ratio': 0.8054}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'DSGX', 'action': 'buy', 'price': 103.58, 'short_ma': 102.084, 'long_ma': 100.949, 'rsi': 52.702811915905535, 'adx': 27.998781384982546, 'volatility': 0.29193409239640433, 'sharpe_ratio': 0.8044}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'KRUS', 'action': 'buy', 'price': 53.99, 'short_ma': 52.129999999999995, 'long_ma': 51.848, 'rsi': 50.381059452602116, 'adx': 24.617408027824894, 'volatility': 0.7591040320333413, 'sharpe_ratio': 0.8012}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'OSW', 'action': 'buy', 'price': 16.98, 'short_ma': 17.119999999999997, 'long_ma': 16.927500000000002, 'rsi': 48.391970961797256, 'adx': 24.978450665909808, 'volatility': 0.5246292639410335, 'sharpe_ratio': 0.7985}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ISRG', 'action': 'buy', 'price': 488.27, 'short_ma': 496.89400000000006, 'long_ma': 493.20550000000003, 'rsi': 46.29342333563465, 'adx': 24.265806808694077, 'volatility': 0.3361100713843489, 'sharpe_ratio': 0.7793}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'MSFT', 'action': 'buy', 'price': 385.73, 'short_ma': 386.766, 'long_ma': 381.6215, 'rsi': 50.88705468226027, 'adx': 23.61441157634548, 'volatility': 0.2707352744757275, 'sharpe_ratio': 0.7374}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'SPSC', 'action': 'buy', 'price': 130.75, 'short_ma': 131.70800000000003, 'long_ma': 131.4185, 'rsi': 46.89569224497648, 'adx': 24.196660195123815, 'volatility': 0.3629131620699395, 'sharpe_ratio': 0.7133}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'LAMR', 'action': 'buy', 'price': 109.36, 'short_ma': 111.38, 'long_ma': 111.22125000000001, 'rsi': 44.80408493240683, 'adx': 25.768053643655133, 'volatility': 0.32142992557556427, 'sharpe_ratio': 0.6888}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'MNST', 'action': 'buy', 'price': 58.64, 'short_ma': 58.278, 'long_ma': 57.9015, 'rsi': 58.70822296972828, 'adx': 35.405506944505866, 'volatility': 0.24398919576933376, 'sharpe_ratio': 0.6443}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'GAIN', 'action': 'buy', 'price': 13.71, 'short_ma': 13.236, 'long_ma': 13.212, 'rsi': 56.56340361477774, 'adx': 21.164778933166264, 'volatility': 0.24629310955764047, 'sharpe_ratio': 0.5694}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ULH', 'action': 'buy', 'price': 25.91, 'short_ma': 26.324, 'long_ma': 26.2575, 'rsi': 45.5196796806211, 'adx': 29.140476374047953, 'volatility': 0.46829299177932754, 'sharpe_ratio': 0.5631}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CART', 'action': 'buy', 'price': 41.86, 'short_ma': 40.498, 'long_ma': 39.799, 'rsi': 55.94612510319177, 'adx': 24.6628350801417, 'volatility': 0.47458026609420095, 'sharpe_ratio': 0.5313}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'DOOO', 'action': 'buy', 'price': 34.16, 'short_ma': 36.166, 'long_ma': 36.0245, 'rsi': 41.469685023922494, 'adx': 24.673039618951258, 'volatility': 0.43641107175912813, 'sharpe_ratio': 0.5113}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'FCFS', 'action': 'buy', 'price': 120.97, 'short_ma': 120.49000000000001, 'long_ma': 120.14524999999999, 'rsi': 55.149582119749574, 'adx': 23.380686574387255, 'volatility': 0.3161522649168283, 'sharpe_ratio': 0.4816}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ANIP', 'action': 'buy', 'price': 69.55, 'short_ma': 67.50399999999999, 'long_ma': 66.8315, 'rsi': 61.5318448143816, 'adx': 26.493090545135072, 'volatility': 0.49678067742497695, 'sharpe_ratio': 0.4311}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'AVPT', 'action': 'buy', 'price': 14.83, 'short_ma': 14.624, 'long_ma': 14.620499999999998, 'rsi': 50.10674937595443, 'adx': 24.960931060412413, 'volatility': 0.4718429806543264, 'sharpe_ratio': 0.41}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'SATL', 'action': 'buy', 'price': 3.91, 'short_ma': 3.886, 'long_ma': 3.75075, 'rsi': 53.39112124720388, 'adx': 21.58933438967872, 'volatility': 1.087899240703001, 'sharpe_ratio': 0.3939}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'PARAA', 'action': 'buy', 'price': 22.6, 'short_ma': 22.684000000000005, 'long_ma': 22.6795, 'rsi': 48.6751664846015, 'adx': 20.12547484439918, 'volatility': 0.5327718839711908, 'sharpe_ratio': 0.3913}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'HSTM', 'action': 'buy', 'price': 32.7, 'short_ma': 32.07, 'long_ma': 31.843, 'rsi': 57.18721413776434, 'adx': 38.16028332143615, 'volatility': 0.2777805809019022, 'sharpe_ratio': 0.3127}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CSTL', 'action': 'buy', 'price': 21.05, 'short_ma': 20.009999999999998, 'long_ma': 19.928, 'rsi': 53.5748554381973, 'adx': 29.081620117521418, 'volatility': 0.747357498556281, 'sharpe_ratio': 0.2884}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CTLP', 'action': 'buy', 'price': 7.71, 'short_ma': 7.736, 'long_ma': 7.7204999999999995, 'rsi': 45.247287498009314, 'adx': 28.113731811970677, 'volatility': 0.49393839717260013, 'sharpe_ratio': 0.221}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CRSP', 'action': 'buy', 'price': 38.95, 'short_ma': 37.242000000000004, 'long_ma': 36.929, 'rsi': 52.74612001424169, 'adx': 24.730609239820094, 'volatility': 0.6130279990560757, 'sharpe_ratio': 0.2113}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ALGN', 'action': 'buy', 'price': 164.15, 'short_ma': 163.81599999999997, 'long_ma': 161.9655, 'rsi': 48.36673672206516, 'adx': 24.844316526685585, 'volatility': 0.5089137107923506, 'sharpe_ratio': 0.1863}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'SSRM', 'action': 'buy', 'price': 10.81, 'short_ma': 10.508, 'long_ma': 10.405000000000001, 'rsi': 58.30207385581835, 'adx': 22.942915256836404, 'volatility': 0.5319643567305901, 'sharpe_ratio': 0.184}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CLOV', 'action': 'buy', 'price': 3.72, 'short_ma': 3.6719999999999997, 'long_ma': 3.622, 'rsi': 52.14461033656409, 'adx': 28.877666557465524, 'volatility': 0.8940545915556614, 'sharpe_ratio': 0.1731}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'EXAS', 'action': 'buy', 'price': 43.67, 'short_ma': 44.321999999999996, 'long_ma': 44.290499999999994, 'rsi': 46.00183272434373, 'adx': 36.16073358418953, 'volatility': 0.5738975476790272, 'sharpe_ratio': 0.0932}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'DCBO', 'action': 'buy', 'price': 29.4, 'short_ma': 29.7, 'long_ma': 29.578999999999997, 'rsi': 44.72680707350612, 'adx': 36.74136202895522, 'volatility': 0.5248156112370086, 'sharpe_ratio': 0.031}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ALTI', 'action': 'buy', 'price': 3.31, 'short_ma': 3.038, 'long_ma': 2.9770000000000003, 'rsi': 58.193401857136706, 'adx': 26.265569623875884, 'volatility': 0.799009398477879, 'sharpe_ratio': 0.0065}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'CCCS', 'action': 'buy', 'price': 8.84, 'short_ma': 8.918000000000001, 'long_ma': 8.902, 'rsi': 43.54706078262449, 'adx': 31.924037020962007, 'volatility': 0.33160929470688927, 'sharpe_ratio': -0.0264}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ABSI', 'action': 'buy', 'price': 3.12, 'short_ma': 2.853, 'long_ma': 2.7184999999999997, 'rsi': 54.66000436928384, 'adx': 28.45491765213494, 'volatility': 0.9868248210681935, 'sharpe_ratio': -0.0387}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'MKTX', 'action': 'buy', 'price': 223.98, 'short_ma': 216.344, 'long_ma': 214.769, 'rsi': 62.48504372775295, 'adx': 23.69570889784148, 'volatility': 0.34910613544949737, 'sharpe_ratio': -0.1872}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ARKO', 'action': 'buy', 'price': 3.98, 'short_ma': 4.052, 'long_ma': 4.0155, 'rsi': 42.322248116309986, 'adx': 26.364015424291985, 'volatility': 0.4472436827706465, 'sharpe_ratio': -0.2082}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'ABCL', 'action': 'buy', 'price': 2.43, 'short_ma': 2.302, 'long_ma': 2.2815, 'rsi': 53.00137439863334, 'adx': 24.413952909666822, 'volatility': 0.6811039681994602, 'sharpe_ratio': -0.7447}
+{'imp_date': Timestamp('2025-04-15 00:00:00'), 'ticker': 'UPB', 'action': 'buy', 'price': 7.77, 'short_ma': 7.13, 'long_ma': 6.992999999999999, 'rsi': 53.86603669223747, 'adx': 27.13649536422478, 'volatility': 0.9630155585569701, 'sharpe_ratio': -1.663}
+{'imp_date': Timestamp('2025-04-14 00:00:00'), 'ticker': 'EXEEZ', 'action': 'buy', 'price': 107.02, 'short_ma': 96.89002, 'long_ma': 95.667505, 'rsi': 65.33989092228704, 'adx': 23.173904427348255, 'volatility': 0.7700185940294689, 'sharpe_ratio': 3.243}
+Script ended at: Wed Apr 16 09:06:43 CST 2025

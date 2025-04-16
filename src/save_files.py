@@ -38,6 +38,9 @@ def save_signals(recommendations):
     combined_signals = pd.concat([signals, new_data], ignore_index=True)
     combined_signals = combined_signals.drop_duplicates(subset=["imp_date", "ticker", "action"], keep="last")
 
+    combined_signals = combined_signals.sort_values(by=["imp_date", "action", "sharpe_ratio"],
+                                                    ascending=[False, False, False])
     combined_signals = combined_signals.reindex(columns=signal_columns)
+
     combined_signals.to_csv(SIGNAL_FILE, index=False)
     print("保存后的信号记录数: ", len(combined_signals))

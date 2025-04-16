@@ -15,7 +15,7 @@ def update_recent_data():
     for ticker in tickers:
         try:
             symbol = '105.' + ticker
-            start_date = load_stocks_data(ticker).index[-1]
+            start_date = load_stocks_data(ticker).index[-1].strftime("%Y%m%d")
             df = ak.stock_us_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date)
             if df.empty:
                 print(f"{ticker} could not update")
