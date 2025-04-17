@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from analyze import refined_strategy, calculate_max_drawdown, calculate_sharpe_ratio
 from src.read_data import load_stocks_data, get_stock_list
 
 
@@ -48,7 +49,13 @@ def optimize_ma_params(start_ma_range, end_ma_range, tickers, metric="sharpe"):
     else:
         raise ValueError("Unsupported metric, choose from 'sharpe', 'return', or 'drawdown'.")
 
-    print("Optimal Parameters:", optimal_params)
+    print("Optimal Parameters:")
+    print(f"Short MA: {optimal_params['short_ma']}")
+    print(f"Long MA: {optimal_params['long_ma']}")
+    print(f"Sharpe Ratio: {optimal_params['sharpe']}")
+    print(f"Annual Return: {optimal_params['annual_return']}")
+    print(f"Max Drawdown: {optimal_params['max_drawdown']}")
+    results_df.to_csv("optimization_results.csv", index=False)
     return optimal_params, results_df
 
 
@@ -70,18 +77,14 @@ def backtest_strategy(tickers, short_ma, long_ma):
             continue
 
         # 策略逻辑
-        df["short_ma"] = df["close"].rolling(short_ma).mean()
-        df["long_ma"] = df["close"].rolling(long_ma).mean()
-        df["signal"] = np.where(df["short_ma"] > df["long_ma"], 1, 0)
-        df["position"] = df["signal"].shift(1).fillna(0)
+        df = refined_strategy(df, short_ma, long_ma)
 
-        # 计算每日收益
-        df["daily_return"] = df["position"] * df["close"].pct_change()
-        df.dropna(inplace=True)
+        if df.empty:
+            continue
 
         # 计算指标（确保有效性）
         try:
-            sharpe_ratio = round(df["daily_return"].mean() / df["daily_return"].std() * np.sqrt(252), 4)
+            sharpe_ratio = calculate_sharpe_ratio(df)
             if np.isnan(sharpe_ratio):
                 print(f"The sharpe ratio of {ticker} is nan.")
                 continue  # 跳过无效值
@@ -90,7 +93,7 @@ def backtest_strategy(tickers, short_ma, long_ma):
             continue  # 避免除以 0 异常
 
         annual_return = (1 + df["daily_return"].mean()) ** 252 - 1
-        max_drawdown = calculate_max_drawdown(df["daily_return"].cumsum())
+        max_drawdown = calculate_max_drawdown(df)
 
         # 仅存储有效指标
         if not np.isnan(sharpe_ratio):
@@ -104,13 +107,6 @@ def backtest_strategy(tickers, short_ma, long_ma):
         "annual_return": np.nanmean(annual_returns),
         "max_drawdown": np.nanmin(max_drawdowns),
     }
-
-
-def calculate_max_drawdown(cumulative_returns):
-    """计算最大回撤"""
-    peak = cumulative_returns.expanding(min_periods=1).max()
-    drawdown = cumulative_returns - peak
-    return drawdown.min()
 
 
 # 参数范围
