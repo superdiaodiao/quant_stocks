@@ -29,7 +29,19 @@ conda activate quant_stocks
 ## ta-lib
 check https://github.com/TA-Lib/ta-lib-python
 ```shell
-conda install -c conda-forge ta-lib
+cd /data/
+wget $ tar -xzf ta-lib-0.6.4-src.tar.gz
+$ cd ta-lib-0.6.4/
+$ ./configure --prefix=/usr
+$ make
+$ sudo make install
+$ tar -xzf ta-lib-0.6.4-src.tar.gz
+$ cd ta-lib-0.6.4/
+$ ./configure --prefix=/usr
+$ make
+$ sudo ma
+
+python -m pip install TA-Lib
 ```
 
 # 2.Historical Data Resource
