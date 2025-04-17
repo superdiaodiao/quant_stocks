@@ -40,6 +40,11 @@ sudo make install
 python -m pip install TA-Lib
 ```
 
+## packages
+```shell
+pip install -r requirements.txt
+```
+
 # 2.Historical Data Resource
 
 get history data at https://stooq.com/db/h/
