@@ -25,9 +25,16 @@ def refined_strategy(df):
 
     df["signal"] = np.where(
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20), 1,  # 买入信号
-        np.where((df["short_ma"] < df["long_ma"]) & (df["rsi"] > 30), 0, np.nan)  # 卖出信号
+        np.where(
+            (df["short_ma"] < df["long_ma"]) & (df["rsi"] > 70) & (df["adx"] < 25), 0,  # 卖出信号
+            np.nan  # 无信号
+        )
     )
-    df["position"] = df["signal"].diff().fillna(0)
+    # 仅捕捉信号从低到高 (0 → 1) 或高到低 (1 → 0) 的切换
+    df["position"] = np.where(
+        (df["signal"] == 1) & (df["signal"].shift(1) != 1), 1,  # 产生买入信号
+        np.where((df["signal"] == 0) & (df["signal"].shift(1) != 0), -1, 0)  # 产生卖出信号，否则无变化
+    )
     return df
 
 
