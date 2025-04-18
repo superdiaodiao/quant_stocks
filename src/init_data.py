@@ -18,16 +18,15 @@ def init_stock_list():
 
 def init_historical_data(source_dir: str):
     """
-    初始化历史数据存储：从指定目录中读取文件，并只保存最近五年的数据。
+    初始化历史数据存储：从指定目录中读取文件，并只保存指定日期的数据。
     :param source_dir: 历史数据的根目录
     """
     # 确保目标存储目录存在
     os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
     tickers = get_stock_list()
 
-    # 当前日期和时间
-    current_date = datetime.now()
-    five_years_ago = current_date - timedelta(days=5 * 365)  # 最近五年的起点日期
+    # 起点日期
+    start_date = datetime(2020, 1, 1)
 
     # 遍历指定目录及其子目录
     for root, dirs, files in os.walk(source_dir):
@@ -56,8 +55,8 @@ def init_historical_data(source_dir: str):
                     # 检查数据有效性，处理缺失值，确保 `volume` 为整数
                     stock_data["volume"] = stock_data["volume"].fillna(0).astype(int)
 
-                    # 筛选最近五年的数据
-                    stock_data = stock_data[stock_data["date"] >= five_years_ago]
+                    # 筛选历史的数据
+                    stock_data = stock_data[stock_data["date"] >= start_date]
 
                     # 去除重复数据，并按照日期排序
                     stock_data = stock_data.drop_duplicates(subset=["date"]).sort_values(by="date")
@@ -67,6 +66,6 @@ def init_historical_data(source_dir: str):
 
                     # 保存结构化数据
                     save_stocks_data(ticker, stock_data.set_index("date"))
-                    print(f"保存股票 {ticker} 的最近五年数据成功！")
+                    print(f"保存股票 {ticker} 的自从{start_date}以来的数据成功！")
                 except Exception as e:
                     print(f"处理文件 {file} 时出错：{e}")
