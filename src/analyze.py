@@ -46,10 +46,39 @@ def refined_strategy(df, short_ma = SHORT_MA, long_ma = LONG_MA):
         )
     )
 
-    df["position"] = np.where(
-        (df["signal"] == 1) & (df["signal"].shift(1) != 1), 1,  # 产生买入信号
-        np.where((df["signal"] == 0) & (df["signal"].shift(1) != 0), -1, 0)  # 产生卖出信号，否则无变化
-    )
+    # 初始化字段
+    df["holding"] = 0  # 是否持仓，1表示持仓，0表示空仓
+    df["entry_price"] = np.nan  # 持仓的买入价格
+    df["position"] = 0  # 持仓状态：1表示买入，-1表示卖出，0表示无操作
+    df["daily_return"] = 0  # 每日收益率
+
+    # 循环计算策略逻辑
+    for i in range(1, len(df)):  # 从第1天开始（0索引是不可用的）
+        # 累计收益率公式：当前价格涨幅 = (当前价格 - 买入价格) / 买入价格
+        if df.iloc[i - 1]["holding"] == 1:  # 如果上一天有持仓
+            current_return = (df.iloc[i]["close"] - df.iloc[i - 1]["entry_price"]) / df.iloc[i - 1]["entry_price"]
+
+            if current_return >= 0.10:
+                df.at[df.index[i], "position"] = -1  # 卖出
+                df.at[df.index[i], "holding"] = 0    # 清仓后不再持仓
+                df.at[df.index[i], "entry_price"] = np.nan  # 清空买入价格记录
+
+            elif df.iloc[i]["signal"] == 0 and current_return > 0:
+                df.at[df.index[i], "position"] = -1
+                df.at[df.index[i], "holding"] = 0
+                df.at[df.index[i], "entry_price"] = np.nan
+
+            else:
+                df.at[df.index[i], "position"] = 0  # 无操作
+        
+        # 开仓逻辑
+        elif df.iloc[i - 1]["holding"] == 0:  # 如果上一天未持仓
+            if df.iloc[i - 1]["signal"] == 1:  # 上一天出现买入信号
+                df.at[df.index[i], "position"] = 1  # 开仓买入
+                df.at[df.index[i], "holding"] = 1  # 更新状态为持仓
+                df.at[df.index[i], "entry_price"] = df.iloc[i]["close"]  # 记录当日买入价格
+            else:
+                df.at[df.index[i], "position"] = 0  # 未触发买入信号，无操作
 
     df["daily_return"] = df["position"] * df["close"].pct_change()
     df.dropna(inplace=True)
@@ -76,27 +105,29 @@ def analyze_stocks():
         if df.empty:
             continue
 
+        print(df[["close", "short_ma", "long_ma", "signal", "position", "holding", "daily_return"]].tail())
+
         if abs(df.iloc[-1]["position"]) == 1:  # 买入/卖出信号
-            print(df[["close", "short_ma", "long_ma", "signal", "position"]].tail())
             volatility = df["daily_return"].std() * np.sqrt(252)
             sharpe_ratio = calculate_sharpe_ratio(df)
             max_drawdown = calculate_max_drawdown(df)
+            
+            if sharpe_ratio >= 1.5 and max_drawdown >= -0.10: # 1.5的夏普比率和-10%的最大回撤
+                action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 
-            action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
-
-            recommendations.append({
-                "imp_date": end_date,
-                "ticker": ticker,
-                "action": action,
-                "price": df.iloc[-1]["close"],
-                "short_ma": df.iloc[-1]["short_ma"],
-                "long_ma": df.iloc[-1]["long_ma"],
-                "rsi": df.iloc[-1]["rsi"],
-                "adx": df.iloc[-1]["adx"],
-                "volatility": volatility,
-                "sharpe_ratio": sharpe_ratio,
-                "max_drawdown": max_drawdown,
-            })
+                recommendations.append({
+                    "imp_date": end_date,
+                    "ticker": ticker,
+                    "action": action,
+                    "price": df.iloc[-1]["close"],
+                    "short_ma": df.iloc[-1]["short_ma"],
+                    "long_ma": df.iloc[-1]["long_ma"],
+                    "rsi": df.iloc[-1]["rsi"],
+                    "adx": df.iloc[-1]["adx"],
+                    "volatility": volatility,
+                    "sharpe_ratio": sharpe_ratio,
+                    "max_drawdown": max_drawdown,
+                })
 
     recommendations.sort(key=lambda element: (element['imp_date'], element['action'], element['sharpe_ratio']),
                          reverse=True)
