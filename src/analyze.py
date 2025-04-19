@@ -12,9 +12,13 @@ def calculate_max_drawdown(df):
     """计算最大回撤"""
     if len(df) == 0 or df["daily_return"].isna().all():
         return None  # 返回 None 表示无法计算
-    cumulative_returns = (1 + df["daily_return"]).cumprod()  # 从每日收益率生成累计收益
+    # 从每日收益率生成累计收益
+    cumulative_returns = (1 + df["daily_return"]).cumprod()
+    # 记录历史最大累计收益
     peak = cumulative_returns.expanding(min_periods=1).max()
-    drawdown = cumulative_returns - peak
+    # 计算回撤比例
+    drawdown = (cumulative_returns - peak) / peak
+    # 返回最大回撤（最大负值）
     return drawdown.min()
 
 
@@ -26,8 +30,8 @@ def calculate_sharpe_ratio(df):
 
 def add_rsi_adx_index(df):
     """添加技术指标到DataFrame"""
-    df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # RSI指标
-    df["adx"] = talib.ADX(
+    df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # type: ignore # RSI指标
+    df["adx"] = talib.ADX( # type: ignore # ADX指标
         df["high"], df["low"], df["close"], timeperiod=14
     )  # ADX平均趋向指数
     return df
@@ -46,7 +50,7 @@ def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20),
         1,  # 买入信号
         np.where(
-            (df["short_ma"] < df["long_ma"]) & (df["rsi"] > 70) & (df["adx"] < 25),
+            (df["short_ma"] < df["long_ma"]) & (df["rsi"] > 65) & (df["adx"] < 30),
             0,  # 卖出信号
             np.nan,  # 无信号
         ),
@@ -66,7 +70,7 @@ def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
                 df.iloc[i]["close"] - df.iloc[i - 1]["entry_price"]
             ) / df.iloc[i - 1]["entry_price"]
 
-            if current_return >= 0.10:
+            if current_return >= 0.05:  # 如果当前收益率大于5%
                 df.at[df.index[i], "position"] = -1  # 卖出
                 df.at[df.index[i], "holding"] = 0  # 清仓后不再持仓
                 df.at[df.index[i], "entry_price"] = np.nan  # 清空买入价格记录
@@ -91,9 +95,9 @@ def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
                 df.at[df.index[i], "position"] = 0  # 未触发买入信号，无操作
 
     df["daily_return"] = df["position"] * df["close"].pct_change()
-    df.dropna(inplace=True)
+    # df.dropna(subset=["signal", "position"], inplace=True)
 
-    return df
+    return df.sort_index(ascending=True)
 
 
 def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
@@ -120,9 +124,13 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         if df.empty or len(df) < LONG_MA:
             continue
 
+        original_max_df_date = df.index[-1]
+        print(original_max_df_date)
+
         df = refined_strategy(df)
 
         if df.empty:
+            print(f"{ticker}没有满足策略条件的数据，跳过")
             continue
 
         print(
@@ -139,20 +147,21 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             ].tail()
         )
 
-        add_his_rec = add_his_rec or df.index[-1] == pd.to_datetime(end_date)
+        max_df_date = df.index[-1]
+        add_his_rec = add_his_rec or max_df_date == pd.to_datetime(end_date)
 
-        if abs(df.iloc[-1]["position"]) == 1 and add_his_rec:  # 买入/卖出信号
+        if abs(df.iloc[-1]["signal"]) == 1 and add_his_rec:  # 买入/卖出信号
             volatility = df["daily_return"].std() * np.sqrt(252)
             sharpe_ratio = calculate_sharpe_ratio(df)
             max_drawdown = calculate_max_drawdown(df)
             mean_volume = df["volume"].mean()
 
-            if sharpe_ratio >= 1.5 and max_drawdown >= -0.10 and mean_volume >= 100000:
+            if mean_volume >= 100000:
                 action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 
                 recommendations.append(
                     {
-                        "imp_date": end_date,
+                        "imp_date": max_df_date,
                         "ticker": ticker,
                         "action": action,
                         "price": df.iloc[-1]["close"],
