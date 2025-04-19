@@ -24,6 +24,7 @@ def load_stocks_data(ticker, end_date = None):
     if os.path.exists(file_path):
         # 加载数据
         df = pd.read_csv(file_path, index_col="date", parse_dates=True)
+        df = df.sort_index()  # 按照日期索引进行升序排序
 
         # 去重处理：根据索引和列的值去重
         df = df[~df.index.duplicated(keep='last')]  # 针对日期索引的去重

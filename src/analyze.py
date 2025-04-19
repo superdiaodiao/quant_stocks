@@ -111,8 +111,9 @@ def analyze_stocks(is_test=False, end_date="2025-04-16"):
             volatility = df["daily_return"].std() * np.sqrt(252)
             sharpe_ratio = calculate_sharpe_ratio(df)
             max_drawdown = calculate_max_drawdown(df)
+            mean_volume = df["volume"].mean()
             
-            if sharpe_ratio >= 1.5 and max_drawdown >= -0.10: # 1.5的夏普比率和-10%的最大回撤
+            if sharpe_ratio >= 1.5 and max_drawdown >= -0.10 and mean_volume >= 100000:
                 action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 
                 recommendations.append({

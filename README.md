@@ -10,6 +10,13 @@ cat ~/.ssh/id_rsa.pub
 
 paste it into `Setting-Security-Deploy keys` part
 
+## clone git repo
+```shell
+cd /data/
+git clone xxx.git
+```
+
+
 # 1.python env
 ## conda
 ```shell
@@ -26,6 +33,24 @@ conda init --all
 conda create -n quant_stocks python=3.10
 conda activate quant_stocks
 ```
+
+
+## set up python project path
+find current site-packages pyth by:
+```shell
+python -m site
+```
+you will find a path like:
+
+```shell
+/data/miniconda3/envs/quant_stocks/lib/python3.10/site-packages
+```
+creath a .pth file and echo:
+```shell
+echo "/data/quant_stocks" > /data/miniconda3/envs/quant_stocks/lib/python3.10/site-packages/quant_stocks.pth
+```
+
+
 
 ## ta-lib
 check https://github.com/TA-Lib/ta-lib-python
