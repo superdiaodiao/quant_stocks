@@ -30,27 +30,46 @@ def init_historical_data(source_dir: str):
     # 遍历指定目录及其子目录
     for root, dirs, files in os.walk(source_dir):
         for file in files:
-            if file.endswith(".txt") and str(file.split('.')[0]).upper() in tickers:
+            if file.endswith(".txt") and str(file.split(".")[0]).upper() in tickers:
                 file_path = os.path.join(root, file)
                 try:
                     # 读取 CSV 文件到 DataFrame
                     stock_data = pd.read_csv(
                         file_path,
                         header=0,  # 第一行为列名
-                        names=["ticker", "period", "date", "time", "open", "high", "low", "close", "volume", "openint"],
+                        names=[
+                            "ticker",
+                            "period",
+                            "date",
+                            "time",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "volume",
+                            "openint",
+                        ],
                         parse_dates=["date"],  # 将日期字段解析为 datetime 类型
-                        usecols=["ticker", "date", "open", "high", "low", "close", "volume"],  # 只保留需要的列
+                        usecols=[
+                            "ticker",
+                            "date",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "volume",
+                        ],  # 只保留需要的列
                         dtype={
                             "ticker": str,
                             "open": float,
                             "high": float,
                             "low": float,
                             "close": float,
-                            "volume": float  # 改为浮点类型，避免转换错误
-                        }
+                            "volume": float,  # 改为浮点类型，避免转换错误
+                        },
                     )
                     # ticker去掉后缀，如AAPL.US改为AAPL
-                    stock_data["ticker"] = stock_data["ticker"].str.split('.').str[0]
+                    stock_data["ticker"] = stock_data["ticker"].str.split(".").str[0]
                     # 检查数据有效性，处理缺失值，确保 `volume` 为整数
                     stock_data["volume"] = stock_data["volume"].fillna(0).astype(int)
 
@@ -58,10 +77,12 @@ def init_historical_data(source_dir: str):
                     stock_data = stock_data[stock_data["date"] >= start_date]
 
                     # 去除重复数据，并按照日期排序
-                    stock_data = stock_data.drop_duplicates(subset=["date"]).sort_values(by="date")
+                    stock_data = stock_data.drop_duplicates(
+                        subset=["date"]
+                    ).sort_values(by="date")
 
                     # 从文件名提取股票代码（假设文件名为 ticker.csv 或 ticker.txt）
-                    ticker = file.split('.')[0]
+                    ticker = file.split(".")[0]
 
                     # 保存结构化数据
                     save_stocks_data(ticker, stock_data.set_index("date"))

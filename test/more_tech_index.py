@@ -18,7 +18,7 @@ def plot_strategy_performance(df):
 
 
 # tickers = get_stock_list()
-tickers = ['NYAX']
+tickers = ["NYAX"]
 
 recommendations = []
 
@@ -26,5 +26,7 @@ for ticker in tqdm(tickers, desc="分析股票"):
     df = load_stocks_data(ticker)
     df = refined_strategy(df)
     # 查看信号和仓位
-    print(df[["close", "short_ma", "long_ma", "rsi", "adx", "signal", "position"]].tail())
+    print(
+        df[["close", "short_ma", "long_ma", "rsi", "adx", "signal", "position"]].tail()
+    )
     plot_strategy_performance(df)

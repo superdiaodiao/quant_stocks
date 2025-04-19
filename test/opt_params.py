@@ -23,19 +23,23 @@ def optimize_ma_params(start_ma_range, end_ma_range, tickers, metric="sharpe"):
     long_ma_range = range(end_ma_range[0], end_ma_range[1] + 1)
 
     # 遍历不同的SHORT_MA和LONG_MA参数组合
-    for short_ma, long_ma in tqdm(product(short_ma_range, long_ma_range), desc="优化参数"):
+    for short_ma, long_ma in tqdm(
+        product(short_ma_range, long_ma_range), desc="优化参数"
+    ):
         if short_ma >= long_ma:  # 短期均线必须小于长期均线
             continue
 
         # 统计不同参数组合的策略表现
         metrics = backtest_strategy(tickers, short_ma, long_ma)
-        results.append({
-            "short_ma": short_ma,
-            "long_ma": long_ma,
-            "sharpe": metrics["sharpe_ratio"],
-            "annual_return": metrics["annual_return"],
-            "max_drawdown": metrics["max_drawdown"]
-        })
+        results.append(
+            {
+                "short_ma": short_ma,
+                "long_ma": long_ma,
+                "sharpe": metrics["sharpe_ratio"],
+                "annual_return": metrics["annual_return"],
+                "max_drawdown": metrics["max_drawdown"],
+            }
+        )
 
     # 转换为DataFrame，按metric进行排序
     results_df = pd.DataFrame(results)
@@ -43,11 +47,17 @@ def optimize_ma_params(start_ma_range, end_ma_range, tickers, metric="sharpe"):
     if metric == "sharpe":
         optimal_params = results_df.sort_values(by="sharpe", ascending=False).iloc[0]
     elif metric == "return":
-        optimal_params = results_df.sort_values(by="annual_return", ascending=False).iloc[0]
+        optimal_params = results_df.sort_values(
+            by="annual_return", ascending=False
+        ).iloc[0]
     elif metric == "drawdown":
-        optimal_params = results_df.sort_values(by="max_drawdown", ascending=True).iloc[0]
+        optimal_params = results_df.sort_values(by="max_drawdown", ascending=True).iloc[
+            0
+        ]
     else:
-        raise ValueError("Unsupported metric, choose from 'sharpe', 'return', or 'drawdown'.")
+        raise ValueError(
+            "Unsupported metric, choose from 'sharpe', 'return', or 'drawdown'."
+        )
 
     print("Optimal Parameters:")
     print(f"Short MA: {optimal_params['short_ma']}")

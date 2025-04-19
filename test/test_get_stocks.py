@@ -3,7 +3,7 @@ import time
 
 import yfinance as yf
 
-tickers = ['AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META']
+tickers = ["AAPL", "MSFT", "AMZN", "GOOGL", "META"]
 failed_tickers = []
 valid_tickers = []
 

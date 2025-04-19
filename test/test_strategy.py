@@ -4,8 +4,10 @@ from src.analyze import analyze_stocks, refined_strategy
 from src.init_data import init_stock_list
 
 
-def test_strategy(test_mode='batch', ticker=None, end_date=DEFAULT_END_DATE):
-    if test_mode == 'single':
+def test_strategy(
+    test_mode="batch", ticker=None, end_date=DEFAULT_END_DATE, add_his_rec=False
+):
+    if test_mode == "single":
         if ticker is None:
             raise ValueError("Ticker must be provided in single test mode.")
         df = load_stocks_data(ticker, end_date=end_date)
@@ -16,15 +18,18 @@ def test_strategy(test_mode='batch', ticker=None, end_date=DEFAULT_END_DATE):
 
         print(df.sort_index().tail(10))
 
-    elif test_mode == 'batch':
+    elif test_mode == "batch":
         init_stock_list()
 
-        recommendations = analyze_stocks(is_test=True, end_date=end_date, add_his_rec=True)
+        recommendations = analyze_stocks(
+            is_test=True, end_date=end_date, add_his_rec=add_his_rec
+        )
         print("\n=== 推荐的交易信号 ===")
         for rec in recommendations:
             print(rec)
 
+
 if __name__ == "__main__":
 
-    # test_strategy(test_mode="batch", end_date="2025-04-16")
-    test_strategy(test_mode='single', ticker='AAPL')
+    test_strategy(test_mode="batch", end_date="2025-04-16", add_his_rec=True)
+    # test_strategy(test_mode='single', ticker='AAPL')

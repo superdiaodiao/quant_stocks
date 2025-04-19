@@ -12,7 +12,7 @@ def save_stocks_data(ticker, data):
     if os.path.exists(file_path):
         existing_data = pd.read_csv(file_path, index_col="date", parse_dates=True)
         data = pd.concat([existing_data, data])
-        data = data[~data.index.duplicated(keep='last')].sort_index()
+        data = data[~data.index.duplicated(keep="last")].sort_index()
     data.to_csv(file_path)
 
 
@@ -33,10 +33,13 @@ def save_signals(recommendations, signal_columns):
     new_data["ticker"] = new_data["ticker"].str.strip()
 
     combined_signals = pd.concat([signals, new_data], ignore_index=True)
-    combined_signals = combined_signals.drop_duplicates(subset=["imp_date", "ticker", "action"], keep="last")
+    combined_signals = combined_signals.drop_duplicates(
+        subset=["imp_date", "ticker", "action"], keep="last"
+    )
 
-    combined_signals = combined_signals.sort_values(by=["imp_date", "action", "sharpe_ratio"],
-                                                    ascending=[False, False, False])
+    combined_signals = combined_signals.sort_values(
+        by=["imp_date", "action", "sharpe_ratio"], ascending=[False, False, False]
+    )
     combined_signals = combined_signals.reindex(columns=signal_columns)
 
     combined_signals.to_csv(SIGNAL_FILE, index=False)
