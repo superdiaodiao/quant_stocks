@@ -1,10 +1,11 @@
 from datetime import date
 
 import numpy as np
+import pandas as pd
 import talib
 from tqdm import tqdm
 
-from src.conf import SHORT_MA, LONG_MA
+from src.conf import DEFAULT_END_DATE, SHORT_MA, LONG_MA
 from src.read_data import load_stocks_data, get_stock_list
 from src.save_files import save_signals
 
@@ -70,7 +71,7 @@ def refined_strategy(df, short_ma = SHORT_MA, long_ma = LONG_MA):
 
             else:
                 df.at[df.index[i], "position"] = 0  # 无操作
-        
+
         # 开仓逻辑
         elif df.iloc[i - 1]["holding"] == 0:  # 如果上一天未持仓
             if df.iloc[i - 1]["signal"] == 1:  # 上一天出现买入信号
@@ -86,7 +87,7 @@ def refined_strategy(df, short_ma = SHORT_MA, long_ma = LONG_MA):
     return df
 
 
-def analyze_stocks(is_test=False, end_date="2025-04-16"):
+def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
     """分析股票并生成交易信号"""
     tickers = get_stock_list()
 
@@ -99,7 +100,6 @@ def analyze_stocks(is_test=False, end_date="2025-04-16"):
         if df.empty or len(df) < LONG_MA:
             continue
 
-        end_date = df.index[-1]
         df = refined_strategy(df)
 
         if df.empty:
@@ -107,12 +107,14 @@ def analyze_stocks(is_test=False, end_date="2025-04-16"):
 
         print(df[["close", "short_ma", "long_ma", "signal", "position", "holding", "daily_return"]].tail())
 
-        if abs(df.iloc[-1]["position"]) == 1:  # 买入/卖出信号
+        add_his_rec = add_his_rec or df.index[-1] == pd.to_datetime(end_date)
+
+        if abs(df.iloc[-1]["position"]) == 1 and add_his_rec:  # 买入/卖出信号
             volatility = df["daily_return"].std() * np.sqrt(252)
             sharpe_ratio = calculate_sharpe_ratio(df)
             max_drawdown = calculate_max_drawdown(df)
             mean_volume = df["volume"].mean()
-            
+
             if sharpe_ratio >= 1.5 and max_drawdown >= -0.10 and mean_volume >= 100000:
                 action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
 

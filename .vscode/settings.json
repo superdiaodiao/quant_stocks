@@ -1,5 +1,8 @@
 {
     "python.envFile": "${workspaceFolder}/.env",
     "python.terminal.cwd": "${workspaceFolder}",
-    "files.autoSave": "afterDelay"
+    "files.autoSave": "afterDelay",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    }
 }

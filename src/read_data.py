@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 
-from src.conf import CLEANED_DATA_DIR, STOCK_LIST_FILE
+from src.conf import CLEANED_DATA_DIR, DEFAULT_END_DATE, STOCK_LIST_FILE
 
 
 def load_csv(file_path):
@@ -17,7 +17,7 @@ def load_csv(file_path):
     return pd.DataFrame()
 
 
-def load_stocks_data(ticker, end_date = None):
+def load_stocks_data(ticker, end_date=DEFAULT_END_DATE):
     """加载股票的历史价格数据，并去除重复行"""
     ticker = ticker.lower()
     file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
@@ -30,9 +30,7 @@ def load_stocks_data(ticker, end_date = None):
         df = df[~df.index.duplicated(keep='last')]  # 针对日期索引的去重
         df = df.drop_duplicates()  # 针对整行数据去重
 
-        if end_date:
-            end_date = pd.to_datetime(end_date)  # 确保 end_date 是 datetime 类型
-            df = df[df.index <= end_date]
+        df = df[df.index <= pd.to_datetime(end_date)]
 
         return df
 

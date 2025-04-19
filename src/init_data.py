@@ -1,9 +1,8 @@
 import os
-from datetime import datetime, timedelta
 
 import pandas as pd
 
-from src.conf import STOCK_LIST_FILE, CLEANED_DATA_DIR
+from src.conf import DEFAULT_START_DATE, STOCK_LIST_FILE, CLEANED_DATA_DIR
 from src.read_data import get_stock_list
 from src.save_files import save_stocks_data
 
@@ -26,7 +25,7 @@ def init_historical_data(source_dir: str):
     tickers = get_stock_list()
 
     # 起点日期
-    start_date = datetime(2020, 1, 1)
+    start_date = pd.to_datetime(DEFAULT_START_DATE)
 
     # 遍历指定目录及其子目录
     for root, dirs, files in os.walk(source_dir):
