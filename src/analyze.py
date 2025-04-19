@@ -86,7 +86,7 @@ def refined_strategy(df, short_ma = SHORT_MA, long_ma = LONG_MA):
     return df
 
 
-def analyze_stocks():
+def analyze_stocks(is_test=False, end_date="2025-04-16"):
     """分析股票并生成交易信号"""
     tickers = get_stock_list()
 
@@ -95,7 +95,7 @@ def analyze_stocks():
                       "sharpe_ratio", "max_drawdown"]
 
     for ticker in tqdm(tickers, desc="分析股票"):
-        df = load_stocks_data(ticker)
+        df = load_stocks_data(ticker, end_date)
         if df.empty or len(df) < LONG_MA:
             continue
 
@@ -131,6 +131,6 @@ def analyze_stocks():
 
     recommendations.sort(key=lambda element: (element['imp_date'], element['action'], element['sharpe_ratio']),
                          reverse=True)
-
-    save_signals(recommendations, signal_columns)
+    if not is_test:
+        save_signals(recommendations, signal_columns)
     return recommendations
