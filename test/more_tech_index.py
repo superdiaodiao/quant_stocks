@@ -18,7 +18,7 @@ def plot_strategy_performance(df):
 
 
 # tickers = get_stock_list()
-tickers = ["NYAX"]
+tickers = ["KROS"]
 
 recommendations = []
 

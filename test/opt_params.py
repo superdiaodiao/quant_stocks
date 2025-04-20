@@ -65,7 +65,7 @@ def optimize_ma_params(start_ma_range, end_ma_range, tickers, metric="sharpe"):
     print(f"Sharpe Ratio: {optimal_params['sharpe']}")
     print(f"Annual Return: {optimal_params['annual_return']}")
     print(f"Max Drawdown: {optimal_params['max_drawdown']}")
-    results_df.to_csv("optimization_results.csv", index=False)
+    results_df.to_csv("output/opt_params_results.csv", index=False)
     return optimal_params, results_df
 
 
@@ -120,8 +120,8 @@ def backtest_strategy(tickers, short_ma, long_ma):
 
 
 # 参数范围
-short_ma_range = (3, 10)  # 短期均线范围
-long_ma_range = (20, 50)  # 长期均线范围
+short_ma_range = (3, 4)  # 短期均线范围
+long_ma_range = (20, 21)  # 长期均线范围
 
 # 股票列表
 tickers = get_stock_list()

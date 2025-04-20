@@ -30,7 +30,7 @@ def save_signals(recommendations, signal_columns):
         signals["ticker"] = signals["ticker"].str.strip()
 
     new_data["imp_date"] = pd.to_datetime(new_data["imp_date"], errors="coerce")
-    new_data["ticker"] = new_data["ticker"].str.strip()
+    new_data["ticker"] = new_data["ticker"].astype(str).str.strip()
 
     combined_signals = pd.concat([signals, new_data], ignore_index=True)
     combined_signals = combined_signals.drop_duplicates(

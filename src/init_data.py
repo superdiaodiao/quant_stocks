@@ -2,17 +2,17 @@ import os
 
 import pandas as pd
 
-from src.conf import DEFAULT_START_DATE, STOCK_LIST_FILE, CLEANED_DATA_DIR
+from src.conf import DEFAULT_START_DATE, NASDAQ_300M_STOCK_LIST_FILE, CLEANED_DATA_DIR
 from src.read_data import get_stock_list
 from src.save_files import save_stocks_data
 
 
-def init_stock_list():
+def init_stock_list(list_file=NASDAQ_300M_STOCK_LIST_FILE):
     """初始化股票列表存储"""
     title_str = "Symbol,Name,Last Sale,Net Change,% Change,Market Cap,Country,IPO Year,Volume,Sector,Industry"
-    if not os.path.exists(STOCK_LIST_FILE):
+    if not os.path.exists(list_file):
         df = pd.DataFrame(columns=title_str.split(","))
-        df.to_csv(STOCK_LIST_FILE, index=False)
+        df.to_csv(list_file, index=False)
 
 
 def init_historical_data(source_dir: str):

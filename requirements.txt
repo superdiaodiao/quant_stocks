@@ -4,3 +4,4 @@ numpy~=1.26.4
 yfinance~=0.2.55
 matplotlib~=3.10.1
 akshare~=1.16.77
+numba~=0.61.0

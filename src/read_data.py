@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 
-from src.conf import CLEANED_DATA_DIR, DEFAULT_END_DATE, STOCK_LIST_FILE
+from src.conf import CLEANED_DATA_DIR, DEFAULT_END_DATE, NASDAQ_300M_STOCK_LIST_FILE
 
 
 def load_csv(file_path):
@@ -40,7 +40,7 @@ def load_stocks_data(ticker, end_date=DEFAULT_END_DATE):
     return pd.DataFrame()
 
 
-def get_stock_list(file_path=STOCK_LIST_FILE):
+def get_stock_list(file_path=NASDAQ_300M_STOCK_LIST_FILE):
     """获取股票列表"""
     if not os.path.exists(file_path):
         print(f"股票列表文件 {file_path} 不存在, 将创建空 DataFrame...")

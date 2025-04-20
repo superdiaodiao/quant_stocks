@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import talib
+from numba import jit
 from tqdm import tqdm
 
 from src.conf import DEFAULT_END_DATE, SHORT_MA, LONG_MA
@@ -31,10 +32,43 @@ def calculate_sharpe_ratio(df):
 def add_rsi_adx_index(df):
     """添加技术指标到DataFrame"""
     df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # type: ignore # RSI指标
-    df["adx"] = talib.ADX( # type: ignore # ADX指标
+    df["adx"] = talib.ADX(  # type: ignore # ADX指标
         df["high"], df["low"], df["close"], timeperiod=14
     )  # ADX平均趋向指数
     return df
+
+
+@jit(nopython=True)
+def calculate_position_numba(close, signal):
+    n = len(close)
+    position = np.zeros(n, dtype=np.int64)  # 初始化 position 列
+    entry_price = np.full(n, np.nan)  # 初始化 entry_price 列
+
+    for i in range(1, n):  # 从第1天开始处理
+        if position[i - 1] == 1:  # 如果上一天有持仓
+            # 当前收益率 = (当前价格 - 买入价格) / 买入价格
+            current_return = (close[i] - entry_price[i - 1]) / entry_price[i - 1]
+
+            if current_return >= 0.05 or signal[i] == 0:  # 当前收益率 >= 10%或者卖出信号
+                # 卖出
+                position[i] = 0  # 清仓后不再持仓
+                entry_price[i] = np.nan  # 清空买入价格记录
+            else:
+                # 无操作
+                position[i] = 1  # 保持持仓
+                entry_price[i] = entry_price[i - 1]  # 保留买入价格
+
+        elif position[i - 1] == 0:  # 如果上一天未持仓
+            if signal[i - 1] == 1:  # 上一天出现买入信号
+                # 开仓买入
+                position[i] = 1  # 更新状态为持仓
+                entry_price[i] = close[i]  # 记录买入价格
+            else:
+                # 无操作
+                position[i] = 0
+                entry_price[i] = np.nan  # 保持为缺失值
+
+    return position, entry_price
 
 
 def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
@@ -44,57 +78,29 @@ def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
     add_rsi_adx_index(df)
 
+    initial_len = len(df)
     df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"], inplace=True)
+    print(f"Dropped rows: {initial_len - len(df)} (out of {initial_len})")
 
     df["signal"] = np.where(
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20),
         1,  # 买入信号
         np.where(
-            (df["short_ma"] < df["long_ma"]) & (df["rsi"] > 65) & (df["adx"] < 30),
+            (df["short_ma"] < df["long_ma"]) & (df["rsi"] > 70) & (df["adx"] < 30),
             0,  # 卖出信号
             np.nan,  # 无信号
         ),
     )
 
-    # 初始化字段
-    df["holding"] = 0  # 是否持仓，1表示持仓，0表示空仓
-    df["entry_price"] = np.nan  # 持仓的买入价格
-    df["position"] = 0  # 持仓状态：1表示买入，-1表示卖出，0表示无操作
-    df["daily_return"] = 0  # 每日收益率
+    close = df["close"].values
+    signal = df["signal"].values
 
-    # 循环计算策略逻辑
-    for i in range(1, len(df)):  # 从第1天开始（0索引是不可用的）
-        # 累计收益率公式：当前价格涨幅 = (当前价格 - 买入价格) / 买入价格
-        if df.iloc[i - 1]["holding"] == 1:  # 如果上一天有持仓
-            current_return = (
-                df.iloc[i]["close"] - df.iloc[i - 1]["entry_price"]
-            ) / df.iloc[i - 1]["entry_price"]
+    # 调用 Numba 加速逻辑
+    position, entry_price = calculate_position_numba(close, signal)
+    df["position"] = position
+    df["entry_price"] = entry_price
 
-            if current_return >= 0.05:  # 如果当前收益率大于5%
-                df.at[df.index[i], "position"] = -1  # 卖出
-                df.at[df.index[i], "holding"] = 0  # 清仓后不再持仓
-                df.at[df.index[i], "entry_price"] = np.nan  # 清空买入价格记录
-
-            elif df.iloc[i]["signal"] == 0 and current_return > 0:
-                df.at[df.index[i], "position"] = -1
-                df.at[df.index[i], "holding"] = 0
-                df.at[df.index[i], "entry_price"] = np.nan
-
-            else:
-                df.at[df.index[i], "position"] = 0  # 无操作
-
-        # 开仓逻辑
-        elif df.iloc[i - 1]["holding"] == 0:  # 如果上一天未持仓
-            if df.iloc[i - 1]["signal"] == 1:  # 上一天出现买入信号
-                df.at[df.index[i], "position"] = 1  # 开仓买入
-                df.at[df.index[i], "holding"] = 1  # 更新状态为持仓
-                df.at[df.index[i], "entry_price"] = df.iloc[i][
-                    "close"
-                ]  # 记录当日买入价格
-            else:
-                df.at[df.index[i], "position"] = 0  # 未触发买入信号，无操作
-
-    df["daily_return"] = df["position"] * df["close"].pct_change()
+    df["daily_return"] = df["position"].shift(1) * df["close"].pct_change()
     # df.dropna(subset=["signal", "position"], inplace=True)
 
     return df.sort_index(ascending=True)
@@ -141,7 +147,6 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     "long_ma",
                     "signal",
                     "position",
-                    "holding",
                     "daily_return",
                 ]
             ].tail()
@@ -157,7 +162,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             mean_volume = df["volume"].mean()
 
             if mean_volume >= 100000:
-                action = "buy" if (df.iloc[-1]["position"] == 1) else "sell"
+                action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
 
                 recommendations.append(
                     {
