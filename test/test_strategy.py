@@ -1,8 +1,13 @@
 from conf import DEFAULT_END_DATE
 import numpy as np
-from src.read_data import load_stocks_data
-from src.analyze import analyze_stocks, calculate_max_drawdown, calculate_sharpe_ratio, refined_strategy
-from src.init_data import init_stock_list
+from src.io.read_data import load_stocks_data
+from strategy.analyze import (
+    analyze_stocks,
+    calculate_max_drawdown,
+    calculate_sharpe_ratio,
+    refined_strategy,
+)
+from src.io.init_data import init_stock_list
 
 
 def test_strategy(
@@ -23,10 +28,8 @@ def test_strategy(
 
         print("=== 策略计算基本列结果 ===")
         print(df.tail(10))
-        print(
-            f"\nsignal统计结果: {df['signal'].value_counts().to_dict()}\n"
-        )
-        
+        print(f"\nsignal统计结果: {df['signal'].value_counts().to_dict()}\n")
+
         print("=== 指标计算结果 ===")
         volatility = df["daily_return"].std() * np.sqrt(252)
         sharpe_ratio = calculate_sharpe_ratio(df)
@@ -54,14 +57,14 @@ if __name__ == "__main__":
     # and will gain about 12.5% profit in a week.
     # Therefore, we need to test the strategy on this stock with the date of 2025-04-11 by:
     #
-    # 1. batch test: 
+    # 1. batch test:
     # test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
     # and "KROS" should be in the recommendation list.
     #
-    # 2. single test: 
+    # 2. single test:
     # test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
     # and the result should be similar to the one in batch test.
     #
-    
+
     test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
     test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")

@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 from src.conf import CLEANED_DATA_DIR, SIGNAL_FILE
-from src.read_data import load_csv
+from src.io.read_data import load_csv
 
 
 def save_stocks_data(ticker, data):

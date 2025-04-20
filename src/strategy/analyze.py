@@ -5,14 +5,25 @@ from numba import jit
 from tqdm import tqdm
 
 from src.conf import DEFAULT_END_DATE, SHORT_MA, LONG_MA
-from src.read_data import load_stocks_data, get_stock_list
-from src.save_files import save_signals
+from src.io.read_data import load_stocks_data, get_stock_list
+from src.io.save_files import save_signals
 
 
 def calculate_max_drawdown(df):
-    """计算最大回撤"""
+    """仅计算首次持仓信号之后的最大回撤"""
     if len(df) == 0 or df["daily_return"].isna().all():
         return None  # 返回 None 表示无法计算
+
+    # 找到首次持仓的时间点
+    first_position_index = df[df["position"] == 1].index.min()
+
+    # 如果没有有效持仓信号，返回 None
+    if first_position_index is None:
+        return None
+
+    # 只保留从 first_position_index 开始的数据
+    df = df.loc[first_position_index:]
+
     # 从每日收益率生成累计收益
     cumulative_returns = (1 + df["daily_return"]).cumprod()
     # 记录历史最大累计收益
@@ -49,7 +60,7 @@ def calculate_position_numba(close, signal):
             # 当前收益率 = (当前价格 - 买入价格) / 买入价格
             current_return = (close[i] - entry_price[i - 1]) / entry_price[i - 1]
 
-            if current_return >= 0.05 or signal[i] == 0:  # 当前收益率 >= 10%或者卖出信号
+            if current_return >= 0.15 or signal[i] == 0:  # 当前收益率 >= 10%或者卖出信号
                 # 卖出
                 position[i] = 0  # 清仓后不再持仓
                 entry_price[i] = np.nan  # 清空买入价格记录
@@ -78,9 +89,7 @@ def refined_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
     add_rsi_adx_index(df)
 
-    initial_len = len(df)
     df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"], inplace=True)
-    print(f"Dropped rows: {initial_len - len(df)} (out of {initial_len})")
 
     df["signal"] = np.where(
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20),
@@ -155,7 +164,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         max_df_date = df.index[-1]
         add_his_rec = add_his_rec or max_df_date == pd.to_datetime(end_date)
 
-        if abs(df.iloc[-1]["signal"]) == 1 and add_his_rec:  # 买入/卖出信号
+        if abs(df.iloc[-1]["signal"]) >= 0 and add_his_rec:  # 买入/卖出信号
             volatility = df["daily_return"].std() * np.sqrt(252)
             sharpe_ratio = calculate_sharpe_ratio(df)
             max_drawdown = calculate_max_drawdown(df)

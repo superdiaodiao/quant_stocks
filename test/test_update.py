@@ -2,7 +2,7 @@ import datetime
 
 import akshare as ak
 
-from update_data import update_recent_data
+from src.io.update_data import update_recent_data
 
 symbol = "105." + "aapl".upper()
 today = datetime.date.today()

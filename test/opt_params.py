@@ -1,11 +1,12 @@
 from itertools import product
 
+from conf import NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from analyze import refined_strategy, calculate_max_drawdown, calculate_sharpe_ratio
-from src.read_data import load_stocks_data, get_stock_list
+from strategy.analyze import refined_strategy, calculate_max_drawdown, calculate_sharpe_ratio
+from src.io.read_data import load_stocks_data, get_stock_list
 
 
 # 优化SHORT_MA和LONG_MA的参数
@@ -115,16 +116,16 @@ def backtest_strategy(tickers, short_ma, long_ma):
     return {
         "sharpe_ratio": np.nanmean(sharpe_ratios),  # 使用 np.nanmean 忽略 NaN
         "annual_return": np.nanmean(annual_returns),
-        "max_drawdown": np.nanmin(max_drawdowns),
+        "max_drawdown": np.nanmedian(max_drawdowns),
     }
 
 
 # 参数范围
-short_ma_range = (3, 4)  # 短期均线范围
-long_ma_range = (20, 21)  # 长期均线范围
+short_ma_range = (3, 10)  # 短期均线范围
+long_ma_range = (20, 60)  # 长期均线范围
 
 # 股票列表
-tickers = get_stock_list()
+tickers = get_stock_list(NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE)
 
 optimal_params, results_df = optimize_ma_params(short_ma_range, long_ma_range, tickers)
 

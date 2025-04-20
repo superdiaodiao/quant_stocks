@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from analyze import refined_strategy
-from read_data import load_stocks_data
+from strategy.analyze import refined_strategy
+from src.io.read_data import load_stocks_data
 
 
 def plot_strategy_performance(df):
