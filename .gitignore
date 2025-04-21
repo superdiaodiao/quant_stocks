@@ -4,3 +4,4 @@ src/io/__pycache__
 src/strategy/__pycache__
 test/__pycache__
 src/strategy/ma/__pycache__
+src/strategy/dow_theory/__pycache__

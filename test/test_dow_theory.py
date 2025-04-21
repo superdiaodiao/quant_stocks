@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
-from strategy.dow_theory.gen_strategy import generate_signals
+import ccxt
+import pandas as pd
 
 
-def plot_signals(df, signals):
+def plot_btc_signals(df, signals):
     plt.figure(figsize=(15, 7))
-    plt.plot(df["close"], label="BTC Price")
+    plt.plot(df["close"], label="Price")
     plt.plot(signals["trend_line"], linestyle="--", color="orange", label="Trend Line")
     plt.scatter(
         signals[signals["sell_signal"]].index,
@@ -16,10 +17,6 @@ def plot_signals(df, signals):
     )
     plt.legend()
     plt.show()
-
-
-import ccxt
-import pandas as pd
 
 
 def fetch_btc_data():
@@ -34,13 +31,24 @@ def fetch_btc_data():
     return df.set_index("timestamp")
 
 
-# 运行流程
-btc_data = fetch_btc_data()
-signals = generate_signals(btc_data)
-plot_signals(btc_data, signals)
-
-# 输出交易信号详情
-latest_signal = signals[signals["sell_signal"]].iloc[-1]
-print(f"卖出时间：{latest_signal.name.date()}") # type: ignore
-print(f"触发价格：{latest_signal['close']:.2f}")
-print(f"止损建议：{latest_signal['trend_line']:.2f}")
+def plot_stock_signals(df, signals):
+    plt.figure(figsize=(15, 7))
+    plt.plot(df["close"], label="Close Price")
+    plt.scatter(
+        df.index[signals["2B_sell_signal"]],
+        df["close"][signals["2B_sell_signal"]],
+        color="red",
+        label="2B Sell Signal",
+        marker="v",
+        s=100,
+    )
+    plt.scatter(
+        df.index[signals["2B_buy_signal"]],
+        df["close"][signals["2B_buy_signal"]],
+        color="green",
+        label="2B Buy Signal",
+        marker="^",
+        s=100,
+    )
+    plt.legend()
+    plt.show()
