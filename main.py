@@ -1,4 +1,5 @@
 import os
+import re
 
 from src.conf import CLEANED_DATA_DIR, SOURCE_DIR
 from src.io.init_data import init_stock_list, init_historical_data
@@ -26,6 +27,9 @@ if __name__ == "__main__":
 
     # 分析股票并输出推荐信号
     recommendations = analyze_stocks()
-    print("\n=== 推荐的交易信号 ===")
-    for rec in recommendations:
-        print(rec)
+    if recommendations:
+        print("\n=== 推荐的交易信号 ===")
+        for rec in recommendations:
+            print(rec)
+    else:
+        print("没有推荐的交易信号。")
