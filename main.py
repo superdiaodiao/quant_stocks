@@ -1,9 +1,9 @@
 import os
 
-from strategy.analyze import analyze_stocks
 from src.conf import CLEANED_DATA_DIR, SOURCE_DIR
-from io.init_data import init_stock_list, init_historical_data
-from io.update_data import update_recent_data
+from src.io.init_data import init_stock_list, init_historical_data
+from src.io.update_data import update_recent_data
+from src.strategy.analyze import analyze_stocks
 
 # 创建存储文件夹
 os.makedirs(CLEANED_DATA_DIR, exist_ok=True)

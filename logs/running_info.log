@@ -5,3 +5,890 @@ Traceback (most recent call last):
     from io.init_data import init_stock_list, init_historical_data
 ModuleNotFoundError: No module named 'io.init_data'; 'io' is not a package
 Script ended at: Mon Apr 21 09:00:01 CST 2025
+Script started at: Mon Apr 21 16:01:22 CST 2025
+历史数据已存在，无需初始化。
+股票列表文件 /data/quant_stocks/stocks_list_dir/nasdaq/nasdaq_300M.csv 存在，加载数据...
+加载的数据总行数: 1556
+========= 股票列表文件内容 =========
+  Symbol  ...                                    Industry
+0    AAL  ...               Air Freight/Delivery Services
+1   AAOI  ...                              Semiconductors
+2   AAON  ...             Industrial Machinery/Components
+3   AAPG  ...  Biotechnology: Pharmaceutical Preparations
+4   AAPL  ...                      Computer Manufacturing
+
+[5 rows x 11 columns]
+Index(['Symbol', 'Name', 'Last Sale', 'Net Change', '% Change', 'Market Cap',
+       'Country', 'IPO Year', 'Volume', 'Sector', 'Industry'],
+      dtype='object')
+列名 'Symbol' 存在，提取数据...
+Successfully get the data of AAL from 20250417 to 2025-04-21
+Saved the latest data of AAL
+Successfully get the data of AAOI from 20250417 to 2025-04-21
+Saved the latest data of AAOI
+Successfully get the data of AAON from 20250417 to 2025-04-21
+Saved the latest data of AAON
+Successfully get the data of AAPG from 20250417 to 2025-04-21
+Saved the latest data of AAPG
+Successfully get the data of AAPL from 20250417 to 2025-04-21
+Saved the latest data of AAPL
+Successfully get the data of ABCL from 20250417 to 2025-04-21
+Saved the latest data of ABCL
+Successfully get the data of ABL from 20250417 to 2025-04-21
+Saved the latest data of ABL
+Successfully get the data of ABLLL from 20250417 to 2025-04-21
+Saved the latest data of ABLLL
+Successfully get the data of ABNB from 20250417 to 2025-04-21
+Saved the latest data of ABNB
+Successfully get the data of ABSI from 20250417 to 2025-04-21
+Saved the latest data of ABSI
+Successfully get the data of ABUS from 20250417 to 2025-04-21
+Saved the latest data of ABUS
+Successfully get the data of ABVX from 20250417 to 2025-04-21
+Saved the latest data of ABVX
+Successfully get the data of ACAD from 20250417 to 2025-04-21
+Saved the latest data of ACAD
+Successfully get the data of ACDC from 20250417 to 2025-04-21
+Saved the latest data of ACDC
+Successfully get the data of ACGL from 20250417 to 2025-04-21
+Saved the latest data of ACGL
+Successfully get the data of ACGLN from 20250417 to 2025-04-21
+Saved the latest data of ACGLN
+Successfully get the data of ACGLO from 20250417 to 2025-04-21
+Saved the latest data of ACGLO
+Successfully get the data of ACHC from 20250417 to 2025-04-21
+Saved the latest data of ACHC
+Successfully get the data of ACIC from 20250417 to 2025-04-21
+Saved the latest data of ACIC
+Successfully get the data of ACIW from 20250417 to 2025-04-21
+Saved the latest data of ACIW
+Successfully get the data of ACLS from 20250417 to 2025-04-21
+Saved the latest data of ACLS
+Successfully get the data of ACLX from 20250417 to 2025-04-21
+Saved the latest data of ACLX
+Successfully get the data of ACMR from 20250417 to 2025-04-21
+Saved the latest data of ACMR
+Successfully get the data of ACNB from 20250417 to 2025-04-21
+Saved the latest data of ACNB
+Successfully get the data of ACT from 20250417 to 2025-04-21
+Saved the latest data of ACT
+Successfully get the data of ADAP from 20250417 to 2025-04-21
+Saved the latest data of ADAP
+Successfully get the data of ADBE from 20250417 to 2025-04-21
+Saved the latest data of ADBE
+Successfully get the data of ADEA from 20250417 to 2025-04-21
+Saved the latest data of ADEA
+Successfully get the data of ADI from 20250417 to 2025-04-21
+Saved the latest data of ADI
+Successfully get the data of ADMA from 20250417 to 2025-04-21
+Saved the latest data of ADMA
+Successfully get the data of ADP from 20250417 to 2025-04-21
+Saved the latest data of ADP
+Successfully get the data of ADPT from 20250417 to 2025-04-21
+Saved the latest data of ADPT
+Successfully get the data of ADSE from 20250417 to 2025-04-21
+Saved the latest data of ADSE
+Successfully get the data of ADSK from 20250417 to 2025-04-21
+Saved the latest data of ADSK
+Successfully get the data of ADTN from 20250417 to 2025-04-21
+Saved the latest data of ADTN
+Successfully get the data of ADUS from 20250417 to 2025-04-21
+Saved the latest data of ADUS
+Successfully get the data of ADV from 20250417 to 2025-04-21
+Saved the latest data of ADV
+Successfully get the data of AEIS from 20250417 to 2025-04-21
+Saved the latest data of AEIS
+Successfully get the data of AEP from 20250417 to 2025-04-21
+Saved the latest data of AEP
+Successfully get the data of AEVA from 20250417 to 2025-04-21
+Saved the latest data of AEVA
+Successfully get the data of AFRM from 20250417 to 2025-04-21
+Saved the latest data of AFRM
+Successfully get the data of AFYA from 20250417 to 2025-04-21
+Saved the latest data of AFYA
+Successfully get the data of AGIO from 20250417 to 2025-04-21
+Saved the latest data of AGIO
+Successfully get the data of AGNC from 20250417 to 2025-04-21
+Saved the latest data of AGNC
+Successfully get the data of AGNCL from 20250417 to 2025-04-21
+Saved the latest data of AGNCL
+Successfully get the data of AGNCM from 20250417 to 2025-04-21
+Saved the latest data of AGNCM
+Successfully get the data of AGNCN from 20250417 to 2025-04-21
+Saved the latest data of AGNCN
+Successfully get the data of AGNCO from 20250417 to 2025-04-21
+Saved the latest data of AGNCO
+Successfully get the data of AGNCP from 20250417 to 2025-04-21
+Saved the latest data of AGNCP
+Successfully get the data of AGYS from 20250417 to 2025-04-21
+Saved the latest data of AGYS
+Successfully get the data of AHCO from 20250417 to 2025-04-21
+Saved the latest data of AHCO
+Successfully get the data of AIOT from 20250417 to 2025-04-21
+Saved the latest data of AIOT
+Successfully get the data of AKAM from 20250417 to 2025-04-21
+Saved the latest data of AKAM
+Successfully get the data of AKBA from 20250417 to 2025-04-21
+Saved the latest data of AKBA
+Successfully get the data of AKRO from 20250417 to 2025-04-21
+Saved the latest data of AKRO
+Successfully get the data of ALAB from 20250417 to 2025-04-21
+Saved the latest data of ALAB
+Successfully get the data of ALGM from 20250417 to 2025-04-21
+Saved the latest data of ALGM
+Successfully get the data of ALGN from 20250417 to 2025-04-21
+Saved the latest data of ALGN
+Successfully get the data of ALGT from 20250417 to 2025-04-21
+Saved the latest data of ALGT
+Successfully get the data of ALHC from 20250417 to 2025-04-21
+Saved the latest data of ALHC
+Successfully get the data of ALKS from 20250417 to 2025-04-21
+Saved the latest data of ALKS
+Successfully get the data of ALKT from 20250417 to 2025-04-21
+Saved the latest data of ALKT
+Successfully get the data of ALLO from 20250417 to 2025-04-21
+Saved the latest data of ALLO
+Successfully get the data of ALMS from 20250417 to 2025-04-21
+Saved the latest data of ALMS
+Successfully get the data of ALNT from 20250417 to 2025-04-21
+Saved the latest data of ALNT
+Successfully get the data of ALNY from 20250417 to 2025-04-21
+Saved the latest data of ALNY
+Successfully get the data of ALRM from 20250417 to 2025-04-21
+Saved the latest data of ALRM
+Successfully get the data of ALRS from 20250417 to 2025-04-21
+Saved the latest data of ALRS
+Successfully get the data of ALT from 20250417 to 2025-04-21
+Saved the latest data of ALT
+Successfully get the data of ALTI from 20250417 to 2025-04-21
+Saved the latest data of ALTI
+Successfully get the data of ALVO from 20250417 to 2025-04-21
+Saved the latest data of ALVO
+Successfully get the data of ALVOW from 20250417 to 2025-04-21
+Saved the latest data of ALVOW
+Successfully get the data of AMAL from 20250417 to 2025-04-21
+Saved the latest data of AMAL
+Successfully get the data of AMAT from 20250417 to 2025-04-21
+Saved the latest data of AMAT
+Successfully get the data of AMBA from 20250417 to 2025-04-21
+Saved the latest data of AMBA
+Successfully get the data of AMBR from 20250417 to 2025-04-21
+Saved the latest data of AMBR
+Successfully get the data of AMD from 20250417 to 2025-04-21
+Saved the latest data of AMD
+Successfully get the data of AMED from 20250417 to 2025-04-21
+Saved the latest data of AMED
+Successfully get the data of AMGN from 20250417 to 2025-04-21
+Saved the latest data of AMGN
+Successfully get the data of AMKR from 20250417 to 2025-04-21
+Saved the latest data of AMKR
+Successfully get the data of AMLX from 20250417 to 2025-04-21
+Saved the latest data of AMLX
+Successfully get the data of AMPH from 20250417 to 2025-04-21
+Saved the latest data of AMPH
+Successfully get the data of AMPL from 20250417 to 2025-04-21
+Saved the latest data of AMPL
+Successfully get the data of AMRK from 20250417 to 2025-04-21
+Saved the latest data of AMRK
+Successfully get the data of AMRX from 20250417 to 2025-04-21
+Saved the latest data of AMRX
+Successfully get the data of AMSC from 20250417 to 2025-04-21
+Saved the latest data of AMSC
+Successfully get the data of AMSF from 20250417 to 2025-04-21
+Saved the latest data of AMSF
+Successfully get the data of AMWD from 20250417 to 2025-04-21
+Saved the latest data of AMWD
+Successfully get the data of AMZN from 20250417 to 2025-04-21
+Saved the latest data of AMZN
+Successfully get the data of ANAB from 20250417 to 2025-04-21
+Saved the latest data of ANAB
+Successfully get the data of ANDE from 20250417 to 2025-04-21
+Saved the latest data of ANDE
+Successfully get the data of ANGI from 20250417 to 2025-04-21
+Saved the latest data of ANGI
+Successfully get the data of ANGO from 20250417 to 2025-04-21
+Saved the latest data of ANGO
+Successfully get the data of ANIP from 20250417 to 2025-04-21
+Saved the latest data of ANIP
+Successfully get the data of ANNA from 20250417 to 2025-04-21
+Saved the latest data of ANNA
+Successfully get the data of ANSS from 20250417 to 2025-04-21
+Saved the latest data of ANSS
+Successfully get the data of AOSL from 20250417 to 2025-04-21
+Saved the latest data of AOSL
+Successfully get the data of APA from 20250417 to 2025-04-21
+Saved the latest data of APA
+Successfully get the data of APEI from 20250417 to 2025-04-21
+Saved the latest data of APEI
+Successfully get the data of APGE from 20250417 to 2025-04-21
+Saved the latest data of APGE
+Successfully get the data of APLD from 20250417 to 2025-04-21
+Saved the latest data of APLD
+Successfully get the data of APLS from 20250417 to 2025-04-21
+Saved the latest data of APLS
+Successfully get the data of APOG from 20250417 to 2025-04-21
+Saved the latest data of APOG
+Successfully get the data of APP from 20250417 to 2025-04-21
+Saved the latest data of APP
+Successfully get the data of APPF from 20250417 to 2025-04-21
+Saved the latest data of APPF
+Successfully get the data of APPN from 20250417 to 2025-04-21
+Saved the latest data of APPN
+Successfully get the data of ARBKL from 20250417 to 2025-04-21
+Saved the latest data of ARBKL
+Successfully get the data of ARCB from 20250417 to 2025-04-21
+Saved the latest data of ARCB
+Successfully get the data of ARCC from 20250417 to 2025-04-21
+Saved the latest data of ARCC
+Successfully get the data of ARDX from 20250417 to 2025-04-21
+Saved the latest data of ARDX
+Successfully get the data of ARGX from 20250417 to 2025-04-21
+Saved the latest data of ARGX
+Successfully get the data of ARHS from 20250417 to 2025-04-21
+Saved the latest data of ARHS
+Successfully get the data of ARKO from 20250417 to 2025-04-21
+Saved the latest data of ARKO
+Successfully get the data of ARLP from 20250417 to 2025-04-21
+Saved the latest data of ARLP
+Successfully get the data of ARM from 20250417 to 2025-04-21
+Saved the latest data of ARM
+Successfully get the data of AROW from 20250417 to 2025-04-21
+Saved the latest data of AROW
+Successfully get the data of ARQT from 20250417 to 2025-04-21
+Saved the latest data of ARQT
+Successfully get the data of ARRY from 20250417 to 2025-04-21
+Saved the latest data of ARRY
+Successfully get the data of ARTNA from 20250417 to 2025-04-21
+Saved the latest data of ARTNA
+Successfully get the data of ARVN from 20250417 to 2025-04-21
+Saved the latest data of ARVN
+Successfully get the data of ARWR from 20250417 to 2025-04-21
+Saved the latest data of ARWR
+Successfully get the data of ASLE from 20250417 to 2025-04-21
+Saved the latest data of ASLE
+Successfully get the data of ASML from 20250417 to 2025-04-21
+Saved the latest data of ASML
+Successfully get the data of ASND from 20250417 to 2025-04-21
+Saved the latest data of ASND
+Successfully get the data of ASO from 20250417 to 2025-04-21
+Saved the latest data of ASO
+Successfully get the data of ASPI from 20250417 to 2025-04-21
+Saved the latest data of ASPI
+Successfully get the data of ASTE from 20250417 to 2025-04-21
+Saved the latest data of ASTE
+Successfully get the data of ASTH from 20250417 to 2025-04-21
+Saved the latest data of ASTH
+Successfully get the data of ASTL from 20250417 to 2025-04-21
+Saved the latest data of ASTL
+Successfully get the data of ASTS from 20250417 to 2025-04-21
+Saved the latest data of ASTS
+Successfully get the data of ATAT from 20250417 to 2025-04-21
+Saved the latest data of ATAT
+Successfully get the data of ATCOL from 20250417 to 2025-04-21
+Saved the latest data of ATCOL
+Successfully get the data of ATEC from 20250417 to 2025-04-21
+Saved the latest data of ATEC
+Successfully get the data of ATEX from 20250417 to 2025-04-21
+Saved the latest data of ATEX
+Successfully get the data of ATGL from 20250417 to 2025-04-21
+Saved the latest data of ATGL
+Successfully get the data of ATLC from 20250417 to 2025-04-21
+Saved the latest data of ATLC
+Successfully get the data of ATLCL from 20250417 to 2025-04-21
+Saved the latest data of ATLCL
+Successfully get the data of ATLCP from 20250417 to 2025-04-21
+Saved the latest data of ATLCP
+Successfully get the data of ATLCZ from 20250417 to 2025-04-21
+Saved the latest data of ATLCZ
+Successfully get the data of ATRC from 20250417 to 2025-04-21
+Saved the latest data of ATRC
+Successfully get the data of ATRO from 20250417 to 2025-04-21
+Saved the latest data of ATRO
+Successfully get the data of AUPH from 20250417 to 2025-04-21
+Saved the latest data of AUPH
+Successfully get the data of AUR from 20250417 to 2025-04-21
+Saved the latest data of AUR
+Successfully get the data of AUROW from 20250417 to 2025-04-21
+Saved the latest data of AUROW
+Successfully get the data of AUTL from 20250417 to 2025-04-21
+Saved the latest data of AUTL
+Successfully get the data of AVAH from 20250417 to 2025-04-21
+Saved the latest data of AVAH
+Successfully get the data of AVAV from 20250417 to 2025-04-21
+Saved the latest data of AVAV
+Successfully get the data of AVBP from 20250417 to 2025-04-21
+Saved the latest data of AVBP
+Successfully get the data of AVDL from 20250417 to 2025-04-21
+Saved the latest data of AVDL
+Successfully get the data of AVDX from 20250417 to 2025-04-21
+Saved the latest data of AVDX
+Successfully get the data of AVGO from 20250417 to 2025-04-21
+Saved the latest data of AVGO
+Successfully get the data of AVO from 20250417 to 2025-04-21
+Saved the latest data of AVO
+Successfully get the data of AVPT from 20250417 to 2025-04-21
+Saved the latest data of AVPT
+Successfully get the data of AVPTW from 20250417 to 2025-04-21
+Saved the latest data of AVPTW
+Successfully get the data of AVT from 20250417 to 2025-04-21
+Saved the latest data of AVT
+Successfully get the data of AVXL from 20250417 to 2025-04-21
+Saved the latest data of AVXL
+Successfully get the data of AXGN from 20250417 to 2025-04-21
+Saved the latest data of AXGN
+Successfully get the data of AXON from 20250417 to 2025-04-21
+Saved the latest data of AXON
+Successfully get the data of AXSM from 20250417 to 2025-04-21
+Saved the latest data of AXSM
+Successfully get the data of AZN from 20250417 to 2025-04-21
+Saved the latest data of AZN
+Successfully get the data of AZTA from 20250417 to 2025-04-21
+Saved the latest data of AZTA
+Successfully get the data of BAND from 20250417 to 2025-04-21
+Saved the latest data of BAND
+Successfully get the data of BANF from 20250417 to 2025-04-21
+Saved the latest data of BANF
+Successfully get the data of BANFP from 20250417 to 2025-04-21
+Saved the latest data of BANFP
+Successfully get the data of BANR from 20250417 to 2025-04-21
+Saved the latest data of BANR
+Successfully get the data of BASE from 20250417 to 2025-04-21
+Saved the latest data of BASE
+Successfully get the data of BATRA from 20250417 to 2025-04-21
+Saved the latest data of BATRA
+Successfully get the data of BATRK from 20250417 to 2025-04-21
+Saved the latest data of BATRK
+Successfully get the data of BBCP from 20250417 to 2025-04-21
+Saved the latest data of BBCP
+Successfully get the data of BBIO from 20250417 to 2025-04-21
+Saved the latest data of BBIO
+Successfully get the data of BBNX from 20250417 to 2025-04-21
+Saved the latest data of BBNX
+Successfully get the data of BBSI from 20250417 to 2025-04-21
+Saved the latest data of BBSI
+Successfully get the data of BCAL from 20250417 to 2025-04-21
+Saved the latest data of BCAL
+Successfully get the data of BCAX from 20250417 to 2025-04-21
+Saved the latest data of BCAX
+Successfully get the data of BCPC from 20250417 to 2025-04-21
+Saved the latest data of BCPC
+Successfully get the data of BCRX from 20250417 to 2025-04-21
+Saved the latest data of BCRX
+Successfully get the data of BCYC from 20250417 to 2025-04-21
+Saved the latest data of BCYC
+Successfully get the data of BEAM from 20250417 to 2025-04-21
+Saved the latest data of BEAM
+Successfully get the data of BECN from 20250417 to 2025-04-21
+Saved the latest data of BECN
+Successfully get the data of BELFA from 20250417 to 2025-04-21
+Saved the latest data of BELFA
+Successfully get the data of BELFB from 20250417 to 2025-04-21
+Saved the latest data of BELFB
+Successfully get the data of BFC from 20250417 to 2025-04-21
+Saved the latest data of BFC
+Successfully get the data of BFST from 20250417 to 2025-04-21
+Saved the latest data of BFST
+Successfully get the data of BGC from 20250417 to 2025-04-21
+Saved the latest data of BGC
+Successfully get the data of BGM from 20250417 to 2025-04-21
+Saved the latest data of BGM
+Successfully get the data of BHF from 20250417 to 2025-04-21
+Saved the latest data of BHF
+Successfully get the data of BHFAL from 20250417 to 2025-04-21
+Saved the latest data of BHFAL
+Successfully get the data of BHFAM from 20250417 to 2025-04-21
+Saved the latest data of BHFAM
+Successfully get the data of BHFAN from 20250417 to 2025-04-21
+Saved the latest data of BHFAN
+Successfully get the data of BHFAO from 20250417 to 2025-04-21
+Saved the latest data of BHFAO
+Successfully get the data of BHFAP from 20250417 to 2025-04-21
+Saved the latest data of BHFAP
+Successfully get the data of BHRB from 20250417 to 2025-04-21
+Saved the latest data of BHRB
+Successfully get the data of BIDU from 20250417 to 2025-04-21
+Saved the latest data of BIDU
+Successfully get the data of BIGC from 20250417 to 2025-04-21
+Saved the latest data of BIGC
+Successfully get the data of BIIB from 20250417 to 2025-04-21
+Saved the latest data of BIIB
+Successfully get the data of BILI from 20250417 to 2025-04-21
+Saved the latest data of BILI
+Successfully get the data of BITF from 20250417 to 2025-04-21
+Saved the latest data of BITF
+Successfully get the data of BJRI from 20250417 to 2025-04-21
+Saved the latest data of BJRI
+Successfully get the data of BKNG from 20250417 to 2025-04-21
+Saved the latest data of BKNG
+Successfully get the data of BKR from 20250417 to 2025-04-21
+Saved the latest data of BKR
+Successfully get the data of BL from 20250417 to 2025-04-21
+Saved the latest data of BL
+Successfully get the data of BLBD from 20250417 to 2025-04-21
+Saved the latest data of BLBD
+Successfully get the data of BLDP from 20250417 to 2025-04-21
+Saved the latest data of BLDP
+Successfully get the data of BLFS from 20250417 to 2025-04-21
+Saved the latest data of BLFS
+Successfully get the data of BLKB from 20250417 to 2025-04-21
+Saved the latest data of BLKB
+Successfully get the data of BLMN from 20250417 to 2025-04-21
+Saved the latest data of BLMN
+Successfully get the data of BLTE from 20250417 to 2025-04-21
+Saved the latest data of BLTE
+Successfully get the data of BMBL from 20250417 to 2025-04-21
+Saved the latest data of BMBL
+Successfully get the data of BMRC from 20250417 to 2025-04-21
+Saved the latest data of BMRC
+Successfully get the data of BMRN from 20250417 to 2025-04-21
+Saved the latest data of BMRN
+Successfully get the data of BNTX from 20250417 to 2025-04-21
+Saved the latest data of BNTX
+Successfully get the data of BOKF from 20250417 to 2025-04-21
+Saved the latest data of BOKF
+Successfully get the data of BPMC from 20250417 to 2025-04-21
+Saved the latest data of BPMC
+Successfully get the data of BPOP from 20250417 to 2025-04-21
+Saved the latest data of BPOP
+Successfully get the data of BPOPM from 20250417 to 2025-04-21
+Saved the latest data of BPOPM
+Successfully get the data of BPYPM from 20250417 to 2025-04-21
+Saved the latest data of BPYPM
+Successfully get the data of BPYPN from 20250417 to 2025-04-21
+Saved the latest data of BPYPN
+Successfully get the data of BPYPO from 20250417 to 2025-04-21
+Saved the latest data of BPYPO
+Successfully get the data of BPYPP from 20250417 to 2025-04-21
+Saved the latest data of BPYPP
+Successfully get the data of BRKL from 20250417 to 2025-04-21
+Saved the latest data of BRKL
+Successfully get the data of BRKR from 20250417 to 2025-04-21
+Saved the latest data of BRKR
+Successfully get the data of BRZE from 20250417 to 2025-04-21
+Saved the latest data of BRZE
+Successfully get the data of BSRR from 20250417 to 2025-04-21
+Saved the latest data of BSRR
+Successfully get the data of BSVN from 20250417 to 2025-04-21
+Saved the latest data of BSVN
+Successfully get the data of BSY from 20250417 to 2025-04-21
+Saved the latest data of BSY
+Successfully get the data of BTBT from 20250417 to 2025-04-21
+Saved the latest data of BTBT
+Successfully get the data of BTDR from 20250417 to 2025-04-21
+Saved the latest data of BTDR
+Successfully get the data of BTSG from 20250417 to 2025-04-21
+Saved the latest data of BTSG
+Successfully get the data of BTSGU from 20250417 to 2025-04-21
+Saved the latest data of BTSGU
+Successfully get the data of BUSE from 20250417 to 2025-04-21
+Saved the latest data of BUSE
+Successfully get the data of BVS from 20250417 to 2025-04-21
+Saved the latest data of BVS
+Successfully get the data of BWB from 20250417 to 2025-04-21
+Saved the latest data of BWB
+Successfully get the data of BWBBP from 20250417 to 2025-04-21
+Saved the latest data of BWBBP
+Successfully get the data of BWIN from 20250417 to 2025-04-21
+Saved the latest data of BWIN
+Successfully get the data of BWMN from 20250417 to 2025-04-21
+Saved the latest data of BWMN
+Successfully get the data of BYRN from 20250417 to 2025-04-21
+Saved the latest data of BYRN
+Successfully get the data of BZ from 20250417 to 2025-04-21
+Saved the latest data of BZ
+Successfully get the data of CAC from 20250417 to 2025-04-21
+Saved the latest data of CAC
+Successfully get the data of CACC from 20250417 to 2025-04-21
+Saved the latest data of CACC
+Successfully get the data of CAKE from 20250417 to 2025-04-21
+Saved the latest data of CAKE
+Successfully get the data of CALM from 20250417 to 2025-04-21
+Saved the latest data of CALM
+Successfully get the data of CAMT from 20250417 to 2025-04-21
+Saved the latest data of CAMT
+Successfully get the data of CAPR from 20250417 to 2025-04-21
+Saved the latest data of CAPR
+Successfully get the data of CAR from 20250417 to 2025-04-21
+Saved the latest data of CAR
+Successfully get the data of CARE from 20250417 to 2025-04-21
+Saved the latest data of CARE
+Successfully get the data of CARG from 20250417 to 2025-04-21
+Saved the latest data of CARG
+Successfully get the data of CART from 20250417 to 2025-04-21
+Saved the latest data of CART
+Successfully get the data of CASH from 20250417 to 2025-04-21
+Saved the latest data of CASH
+Successfully get the data of CASS from 20250417 to 2025-04-21
+Saved the latest data of CASS
+Successfully get the data of CASY from 20250417 to 2025-04-21
+Saved the latest data of CASY
+Successfully get the data of CATY from 20250417 to 2025-04-21
+Saved the latest data of CATY
+Successfully get the data of CBLL from 20250417 to 2025-04-21
+Saved the latest data of CBLL
+Successfully get the data of CBNK from 20250417 to 2025-04-21
+Saved the latest data of CBNK
+Successfully get the data of CBRL from 20250417 to 2025-04-21
+Saved the latest data of CBRL
+Successfully get the data of CBSH from 20250417 to 2025-04-21
+Saved the latest data of CBSH
+Successfully get the data of CCAP from 20250417 to 2025-04-21
+Saved the latest data of CCAP
+Successfully get the data of CCB from 20250417 to 2025-04-21
+Saved the latest data of CCB
+Successfully get the data of CCBG from 20250417 to 2025-04-21
+Saved the latest data of CCBG
+Successfully get the data of CCCS from 20250417 to 2025-04-21
+Saved the latest data of CCCS
+Successfully get the data of CCEC from 20250417 to 2025-04-21
+Saved the latest data of CCEC
+Successfully get the data of CCEP from 20250417 to 2025-04-21
+Saved the latest data of CCEP
+Successfully get the data of CCLDO from 20250417 to 2025-04-21
+Saved the latest data of CCLDO
+Successfully get the data of CCNE from 20250417 to 2025-04-21
+Saved the latest data of CCNE
+Successfully get the data of CCNEP from 20250417 to 2025-04-21
+Saved the latest data of CCNEP
+Successfully get the data of CCOI from 20250417 to 2025-04-21
+Saved the latest data of CCOI
+Successfully get the data of CCRN from 20250417 to 2025-04-21
+Saved the latest data of CCRN
+Successfully get the data of CCSI from 20250417 to 2025-04-21
+Saved the latest data of CCSI
+Successfully get the data of CDNA from 20250417 to 2025-04-21
+Saved the latest data of CDNA
+Successfully get the data of CDNS from 20250417 to 2025-04-21
+Saved the latest data of CDNS
+Successfully get the data of CDRO from 20250417 to 2025-04-21
+Saved the latest data of CDRO
+Successfully get the data of CDW from 20250417 to 2025-04-21
+Saved the latest data of CDW
+Successfully get the data of CDZIP from 20250417 to 2025-04-21
+Saved the latest data of CDZIP
+Successfully get the data of CECO from 20250417 to 2025-04-21
+Saved the latest data of CECO
+Successfully get the data of CEG from 20250417 to 2025-04-21
+Saved the latest data of CEG
+Successfully get the data of CELC from 20250417 to 2025-04-21
+Saved the latest data of CELC
+Successfully get the data of CELH from 20250417 to 2025-04-21
+Saved the latest data of CELH
+Successfully get the data of CENT from 20250417 to 2025-04-21
+Saved the latest data of CENT
+Successfully get the data of CENTA from 20250417 to 2025-04-21
+Saved the latest data of CENTA
+Successfully get the data of CENX from 20250417 to 2025-04-21
+Saved the latest data of CENX
+Successfully get the data of CEP from 20250417 to 2025-04-21
+Saved the latest data of CEP
+Successfully get the data of CERT from 20250417 to 2025-04-21
+Saved the latest data of CERT
+Successfully get the data of CEVA from 20250417 to 2025-04-21
+Saved the latest data of CEVA
+Successfully get the data of CFFN from 20250417 to 2025-04-21
+Saved the latest data of CFFN
+Successfully get the data of CFLT from 20250417 to 2025-04-21
+Saved the latest data of CFLT
+Successfully get the data of CG from 20250417 to 2025-04-21
+Saved the latest data of CG
+Successfully get the data of CGABL from 20250417 to 2025-04-21
+Saved the latest data of CGABL
+Successfully get the data of CGBD from 20250417 to 2025-04-21
+Saved the latest data of CGBD
+Successfully get the data of CGBDL from 20250417 to 2025-04-21
+Saved the latest data of CGBDL
+Successfully get the data of CGEM from 20250417 to 2025-04-21
+Saved the latest data of CGEM
+Successfully get the data of CGNT from 20250417 to 2025-04-21
+Saved the latest data of CGNT
+Successfully get the data of CGNX from 20250417 to 2025-04-21
+Saved the latest data of CGNX
+Successfully get the data of CGON from 20250417 to 2025-04-21
+Saved the latest data of CGON
+Successfully get the data of CHCO from 20250417 to 2025-04-21
+Saved the latest data of CHCO
+Successfully get the data of CHDN from 20250417 to 2025-04-21
+Saved the latest data of CHDN
+Successfully get the data of CHEF from 20250417 to 2025-04-21
+Saved the latest data of CHEF
+Successfully get the data of CHKP from 20250417 to 2025-04-21
+Saved the latest data of CHKP
+Successfully get the data of CHRD from 20250417 to 2025-04-21
+Saved the latest data of CHRD
+Successfully get the data of CHRW from 20250417 to 2025-04-21
+Saved the latest data of CHRW
+Successfully get the data of CHSCL from 20250417 to 2025-04-21
+Saved the latest data of CHSCL
+Successfully get the data of CHSCN from 20250417 to 2025-04-21
+Saved the latest data of CHSCN
+Successfully get the data of CHSCO from 20250417 to 2025-04-21
+Saved the latest data of CHSCO
+Successfully get the data of CHSCP from 20250417 to 2025-04-21
+Saved the latest data of CHSCP
+Successfully get the data of CHTR from 20250417 to 2025-04-21
+Saved the latest data of CHTR
+Successfully get the data of CHX from 20250417 to 2025-04-21
+Saved the latest data of CHX
+Successfully get the data of CIFR from 20250417 to 2025-04-21
+Saved the latest data of CIFR
+Successfully get the data of CIGI from 20250417 to 2025-04-21
+Saved the latest data of CIGI
+Successfully get the data of CINF from 20250417 to 2025-04-21
+Saved the latest data of CINF
+Successfully get the data of CKPT from 20250417 to 2025-04-21
+Saved the latest data of CKPT
+Successfully get the data of CLBK from 20250417 to 2025-04-21
+Saved the latest data of CLBK
+Successfully get the data of CLBT from 20250417 to 2025-04-21
+Saved the latest data of CLBT
+Successfully get the data of CLDX from 20250417 to 2025-04-21
+Saved the latest data of CLDX
+Successfully get the data of CLFD from 20250417 to 2025-04-21
+Saved the latest data of CLFD
+Successfully get the data of CLMB from 20250417 to 2025-04-21
+Saved the latest data of CLMB
+Successfully get the data of CLMT from 20250417 to 2025-04-21
+Saved the latest data of CLMT
+Successfully get the data of CLNE from 20250417 to 2025-04-21
+Saved the latest data of CLNE
+Successfully get the data of CLOV from 20250417 to 2025-04-21
+Saved the latest data of CLOV
+Successfully get the data of CLPT from 20250417 to 2025-04-21
+Saved the latest data of CLPT
+Successfully get the data of CLSK from 20250417 to 2025-04-21
+Saved the latest data of CLSK
+Successfully get the data of CMCO from 20250417 to 2025-04-21
+Saved the latest data of CMCO
+Successfully get the data of CMCSA from 20250417 to 2025-04-21
+Saved the latest data of CMCSA
+Successfully get the data of CME from 20250417 to 2025-04-21
+Saved the latest data of CME
+Successfully get the data of CMPO from 20250417 to 2025-04-21
+Saved the latest data of CMPO
+Successfully get the data of CMPOW from 20250417 to 2025-04-21
+Saved the latest data of CMPOW
+Successfully get the data of CMPR from 20250417 to 2025-04-21
+Saved the latest data of CMPR
+Successfully get the data of CMRX from 20250417 to 2025-04-21
+Saved the latest data of CMRX
+Successfully get the data of CNCK from 20250417 to 2025-04-21
+Saved the latest data of CNCK
+Successfully get the data of CNDT from 20250417 to 2025-04-21
+Saved the latest data of CNDT
+Successfully get the data of CNOB from 20250417 to 2025-04-21
+Saved the latest data of CNOB
+Successfully get the data of CNOBP from 20250417 to 2025-04-21
+Saved the latest data of CNOBP
+Successfully get the data of CNTA from 20250417 to 2025-04-21
+Saved the latest data of CNTA
+Successfully get the data of CNXC from 20250417 to 2025-04-21
+Saved the latest data of CNXC
+Successfully get the data of CNXN from 20250417 to 2025-04-21
+Saved the latest data of CNXN
+Successfully get the data of COCO from 20250417 to 2025-04-21
+Saved the latest data of COCO
+Successfully get the data of COGT from 20250417 to 2025-04-21
+Saved the latest data of COGT
+Successfully get the data of COHU from 20250417 to 2025-04-21
+Saved the latest data of COHU
+Successfully get the data of COIN from 20250417 to 2025-04-21
+Saved the latest data of COIN
+Successfully get the data of COKE from 20250417 to 2025-04-21
+Saved the latest data of COKE
+Successfully get the data of COLB from 20250417 to 2025-04-21
+Saved the latest data of COLB
+Successfully get the data of COLL from 20250417 to 2025-04-21
+Saved the latest data of COLL
+Successfully get the data of COLM from 20250417 to 2025-04-21
+Saved the latest data of COLM
+Successfully get the data of COMM from 20250417 to 2025-04-21
+Saved the latest data of COMM
+Successfully get the data of COO from 20250417 to 2025-04-21
+Saved the latest data of COO
+Successfully get the data of COOP from 20250417 to 2025-04-21
+Saved the latest data of COOP
+Successfully get the data of CORT from 20250417 to 2025-04-21
+Saved the latest data of CORT
+Successfully get the data of CORZ from 20250417 to 2025-04-21
+Saved the latest data of CORZ
+Successfully get the data of CORZW from 20250417 to 2025-04-21
+Saved the latest data of CORZW
+Successfully get the data of CORZZ from 20250417 to 2025-04-21
+Saved the latest data of CORZZ
+Successfully get the data of COST from 20250417 to 2025-04-21
+Saved the latest data of COST
+Successfully get the data of CPB from 20250417 to 2025-04-21
+Saved the latest data of CPB
+Successfully get the data of CPRT from 20250417 to 2025-04-21
+Saved the latest data of CPRT
+Successfully get the data of CPRX from 20250417 to 2025-04-21
+Saved the latest data of CPRX
+Successfully get the data of CRAI from 20250417 to 2025-04-21
+Saved the latest data of CRAI
+Successfully get the data of CRCT from 20250417 to 2025-04-21
+Saved the latest data of CRCT
+Successfully get the data of CRDO from 20250417 to 2025-04-21
+Saved the latest data of CRDO
+Successfully get the data of CRESW from 20250417 to 2025-04-21
+Saved the latest data of CRESW
+Successfully get the data of CRESY from 20250417 to 2025-04-21
+Saved the latest data of CRESY
+Successfully get the data of CRMD from 20250417 to 2025-04-21
+Saved the latest data of CRMD
+Successfully get the data of CRMT from 20250417 to 2025-04-21
+Saved the latest data of CRMT
+Successfully get the data of CRNC from 20250417 to 2025-04-21
+Saved the latest data of CRNC
+Successfully get the data of CRNX from 20250417 to 2025-04-21
+Saved the latest data of CRNX
+Successfully get the data of CRON from 20250417 to 2025-04-21
+Saved the latest data of CRON
+Successfully get the data of CROX from 20250417 to 2025-04-21
+Saved the latest data of CROX
+Successfully get the data of CRSP from 20250417 to 2025-04-21
+Saved the latest data of CRSP
+Successfully get the data of CRSR from 20250417 to 2025-04-21
+Saved the latest data of CRSR
+Successfully get the data of CRTO from 20250417 to 2025-04-21
+Saved the latest data of CRTO
+Successfully get the data of CRUS from 20250417 to 2025-04-21
+Saved the latest data of CRUS
+Successfully get the data of CRVL from 20250417 to 2025-04-21
+Saved the latest data of CRVL
+Successfully get the data of CRWD from 20250417 to 2025-04-21
+Saved the latest data of CRWD
+Successfully get the data of CRWV from 20250417 to 2025-04-21
+Saved the latest data of CRWV
+Successfully get the data of CSCO from 20250417 to 2025-04-21
+Saved the latest data of CSCO
+Successfully get the data of CSGP from 20250417 to 2025-04-21
+Saved the latest data of CSGP
+Successfully get the data of CSGS from 20250417 to 2025-04-21
+Saved the latest data of CSGS
+Successfully get the data of CSIQ from 20250417 to 2025-04-21
+Saved the latest data of CSIQ
+Successfully get the data of CSQ from 20250417 to 2025-04-21
+Saved the latest data of CSQ
+Successfully get the data of CSTL from 20250417 to 2025-04-21
+Saved the latest data of CSTL
+Successfully get the data of CSWC from 20250417 to 2025-04-21
+Saved the latest data of CSWC
+Successfully get the data of CSWCZ from 20250417 to 2025-04-21
+Saved the latest data of CSWCZ
+Successfully get the data of CSWI from 20250417 to 2025-04-21
+Saved the latest data of CSWI
+Successfully get the data of CSX from 20250417 to 2025-04-21
+Saved the latest data of CSX
+Successfully get the data of CTAS from 20250417 to 2025-04-21
+Saved the latest data of CTAS
+Successfully get the data of CTBI from 20250417 to 2025-04-21
+Saved the latest data of CTBI
+Successfully get the data of CTKB from 20250417 to 2025-04-21
+Saved the latest data of CTKB
+Successfully get the data of CTLP from 20250417 to 2025-04-21
+Saved the latest data of CTLP
+Successfully get the data of CTSH from 20250417 to 2025-04-21
+Saved the latest data of CTSH
+Successfully get the data of CUB from 20250417 to 2025-04-21
+Saved the latest data of CUB
+Successfully get the data of CVAC from 20250417 to 2025-04-21
+Saved the latest data of CVAC
+Successfully get the data of CVBF from 20250417 to 2025-04-21
+Saved the latest data of CVBF
+Successfully get the data of CVCO from 20250417 to 2025-04-21
+Saved the latest data of CVCO
+Successfully get the data of CVGW from 20250417 to 2025-04-21
+Saved the latest data of CVGW
+Successfully get the data of CVLT from 20250417 to 2025-04-21
+Saved the latest data of CVLT
+Successfully get the data of CWBC from 20250417 to 2025-04-21
+Saved the latest data of CWBC
+Successfully get the data of CWCO from 20250417 to 2025-04-21
+Saved the latest data of CWCO
+Successfully get the data of CWST from 20250417 to 2025-04-21
+Saved the latest data of CWST
+Successfully get the data of CYBR from 20250417 to 2025-04-21
+Saved the latest data of CYBR
+Successfully get the data of CYTK from 20250417 to 2025-04-21
+Saved the latest data of CYTK
+Successfully get the data of CZR from 20250417 to 2025-04-21
+Saved the latest data of CZR
+Successfully get the data of DADA from 20250417 to 2025-04-21
+Saved the latest data of DADA
+Successfully get the data of DAKT from 20250417 to 2025-04-21
+Saved the latest data of DAKT
+Successfully get the data of DASH from 20250417 to 2025-04-21
+Saved the latest data of DASH
+Successfully get the data of DAVE from 20250417 to 2025-04-21
+Saved the latest data of DAVE
+Successfully get the data of DAWN from 20250417 to 2025-04-21
+Saved the latest data of DAWN
+Successfully get the data of DBX from 20250417 to 2025-04-21
+Saved the latest data of DBX
+Successfully get the data of DCBO from 20250417 to 2025-04-21
+Saved the latest data of DCBO
+Successfully get the data of DCOM from 20250417 to 2025-04-21
+Saved the latest data of DCOM
+Successfully get the data of DCOMG from 20250417 to 2025-04-21
+Saved the latest data of DCOMG
+Successfully get the data of DCOMP from 20250417 to 2025-04-21
+Saved the latest data of DCOMP
+Successfully get the data of DCTH from 20250417 to 2025-04-21
+Saved the latest data of DCTH
+Successfully get the data of DDI from 20250417 to 2025-04-21
+Saved the latest data of DDI
+Successfully get the data of DDOG from 20250417 to 2025-04-21
+Saved the latest data of DDOG
+Successfully get the data of DGICA from 20250417 to 2025-04-21
+Saved the latest data of DGICA
+Successfully get the data of DGICB from 20250417 to 2025-04-21
+Saved the latest data of DGICB
+Successfully get the data of DGII from 20250417 to 2025-04-21
+Saved the latest data of DGII
+Successfully get the data of DGNX from 20250417 to 2025-04-21
+Saved the latest data of DGNX
+Successfully get the data of DHC from 20250417 to 2025-04-21
+Saved the latest data of DHC
+Successfully get the data of DHCNI from 20250417 to 2025-04-21
+Saved the latest data of DHCNI
+Successfully get the data of DHCNL from 20250417 to 2025-04-21
+Saved the latest data of DHCNL
+Successfully get the data of DHIL from 20250417 to 2025-04-21
+Saved the latest data of DHIL
+Successfully get the data of DIOD from 20250417 to 2025-04-21
+Saved the latest data of DIOD
+Successfully get the data of DJCO from 20250417 to 2025-04-21
+Saved the latest data of DJCO
+Successfully get the data of DJT from 20250417 to 2025-04-21
+Saved the latest data of DJT
+Successfully get the data of DJTWW from 20250417 to 2025-04-21
+Saved the latest data of DJTWW
+Successfully get the data of DKNG from 20250417 to 2025-04-21
+Saved the latest data of DKNG
+Successfully get the data of DLO from 20250417 to 2025-04-21
+Saved the latest data of DLO
+Successfully get the data of DLTR from 20250417 to 2025-04-21
+Saved the latest data of DLTR
+Successfully get the data of DMLP from 20250417 to 2025-04-21
+Saved the latest data of DMLP
+Successfully get the data of DNLI from 20250417 to 2025-04-21
+Saved the latest data of DNLI
+Successfully get the data of DNTH from 20250417 to 2025-04-21
+Saved the latest data of DNTH
+Successfully get the data of DNUT from 20250417 to 2025-04-21
+Saved the latest data of DNUT
+Successfully get the data of DOCU from 20250417 to 2025-04-21
+Saved the latest data of DOCU
+Successfully get the data of DOMO from 20250417 to 2025-04-21
+Saved the latest data of DOMO
+Successfully get the data of DOOO from 20250417 to 2025-04-21
+Saved the latest data of DOOO
+Successfully get the data of DORM from 20250417 to 2025-04-21
+Saved the latest data of DORM
+Successfully get the data of DOX from 20250417 to 2025-04-21
+Saved the latest data of DOX
+Successfully get the data of DPZ from 20250417 to 2025-04-21
+Saved the latest data of DPZ
+Successfully get the data of DRS from 20250417 to 2025-04-21
+Saved the latest data of DRS

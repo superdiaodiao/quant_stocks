@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from strategy.common import calculate_max_drawdown, calculate_sharpe_ratio
-from strategy.ma.gen_strategy import ma_strategy
+from src.strategy.common import calculate_max_drawdown, calculate_sharpe_ratio
+from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
 from src.conf import DEFAULT_END_DATE, LONG_MA
