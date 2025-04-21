@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from src.strategy.common import calculate_max_drawdown, calculate_sharpe_ratio
+from src.strategy.common import calculate_max_drawdown, calculate_sharpe_ratio, get_specific_strategy
 from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
@@ -36,7 +36,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         original_max_df_date = df.index[-1]
         print(original_max_df_date)
 
-        df = ma_strategy(df)
+        df = get_specific_strategy(df, 'ma')
 
         if df.empty:
             print(f"{ticker}没有满足策略条件的数据，跳过")

@@ -1,6 +1,6 @@
 from conf import DEFAULT_END_DATE
 import numpy as np
-from strategy.ma.gen_strategy import ma_strategy
+from strategy.common import get_specific_strategy
 from src.io.read_data import load_stocks_data
 from strategy.analyze import (
     analyze_stocks,
@@ -24,7 +24,7 @@ def test_strategy(
         print(f"=== {ticker} 的数据预览 ===")
         print(df.tail(10))
 
-        df = ma_strategy(df)
+        df = get_specific_strategy(df, "fixed_ma")
 
         print("=== 策略计算基本列结果 ===")
         print(df.tail(10))
