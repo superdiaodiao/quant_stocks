@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from strategy.analyze import refined_strategy
+from strategy.ma.gen_strategy import ma_strategy
 from src.io.read_data import load_stocks_data
 
 
@@ -24,7 +24,7 @@ recommendations = []
 
 for ticker in tqdm(tickers, desc="分析股票"):
     df = load_stocks_data(ticker)
-    df = refined_strategy(df)
+    df = ma_strategy(df)
     # 查看信号和仓位
     print(
         df[["close", "short_ma", "long_ma", "rsi", "adx", "signal", "position"]].tail()

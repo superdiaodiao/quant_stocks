@@ -1,11 +1,11 @@
 from conf import DEFAULT_END_DATE
 import numpy as np
+from strategy.ma.gen_strategy import ma_strategy
 from src.io.read_data import load_stocks_data
 from strategy.analyze import (
     analyze_stocks,
     calculate_max_drawdown,
     calculate_sharpe_ratio,
-    refined_strategy,
 )
 from src.io.init_data import init_stock_list
 
@@ -24,7 +24,7 @@ def test_strategy(
         print(f"=== {ticker} 的数据预览 ===")
         print(df.tail(10))
 
-        df = refined_strategy(df)
+        df = ma_strategy(df)
 
         print("=== 策略计算基本列结果 ===")
         print(df.tail(10))
