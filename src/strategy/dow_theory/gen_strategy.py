@@ -16,11 +16,88 @@ from strategy.common import calculate_rsi_adx
 连接最低之低点前的某一个高点，而使这条直线在两个高点之间不会穿越任何价位。
 延伸这条直线而经过最低的低点.
 """
+import numpy as np
+from numba import njit
+
+
+@njit  # 使用 numba 加速函数
+def calculate_trendlines_numba(low, high, n, window):
+    """
+    使用 numba 加速的道氏趋势线计算。
+    Args:
+        low (ndarray): 低点数组。
+        high (ndarray): 高点数组。
+        n (int): 数据长度。
+        window (int): 滑动窗口大小。
+    Returns:
+        upward_trends (ndarray), downward_trends (ndarray): 上升趋势线和下降趋势线的数组。
+    """
+    # 初始化结果数组
+    upward_trends = np.full(n, np.nan)
+    downward_trends = np.full(n, np.nan)
+
+    # 遍历数据点，按窗口找到趋势线起点和终点
+    for i in range(n - window):
+        # 当前窗口
+        start = i
+        end = i + window
+
+        ## 计算上升趋势线 ##
+        # 找到最低的低点作为起点
+        low_start_idx = np.argmin(low[start:end]) + start  # 获取全局索引
+        low_start = low[low_start_idx]
+
+        # 遍历窗口中剩余的低点，找到最高点前的一个低点作为终点
+        best_end_idx, best_slope = -1, -np.inf
+        for j in range(low_start_idx + 1, end):
+            slope = (low[j] - low_start) / (j - low_start_idx)
+            valid = True
+            for k in range(low_start_idx, j + 1):
+                if low[k] < low_start + slope * (k - low_start_idx):  # 检查是否穿越价格
+                    valid = False
+                    break
+            if valid and slope > best_slope:
+                best_end_idx = j
+                best_slope = slope
+
+        # 更新上升趋势线
+        if best_end_idx > -1:
+            for k in range(low_start_idx, best_end_idx + 1):
+                upward_trends[k] = low_start + best_slope * (k - low_start_idx)
+
+        ## 计算下降趋势线 ##
+        # 找到最高的高点作为起点
+        high_start_idx = np.argmax(high[start:end]) + start  # 获取全局索引
+        high_start = high[high_start_idx]
+
+        # 遍历窗口中剩余的高点，找到最低点前的一个高点作为终点
+        best_end_idx, best_slope = -1, np.inf
+        for j in range(high_start_idx + 1, end):
+            slope = (high[j] - high_start) / (j - high_start_idx)
+            valid = True
+            for k in range(high_start_idx, j + 1):
+                if high[k] > high_start + slope * (
+                    k - high_start_idx
+                ):  # 检查是否穿越价格
+                    valid = False
+                    break
+            if valid and slope < best_slope:
+                best_end_idx = j
+                best_slope = slope
+
+        # 更新下降趋势线
+        if best_end_idx > -1:
+            for k in range(high_start_idx, best_end_idx + 1):
+                downward_trends[k] = high_start + best_slope * (k - high_start_idx)
+
+    return upward_trends, downward_trends
+
+
 def calculate_trendlines(df, period="short"):
     """
-    根据道氏理论计算上升和下降趋势线。
+    根据道氏理论计算趋势线，使用 numba 进行优化。
     Args:
-        df (pd.DataFrame): 包含 'low', 'high', 和 'close' 列的输入数据框。
+        df (pd.DataFrame): 包含 'low', 'high', 和 'close' 的输入数据框。
         period (str): 确定趋势的时间范围，可以是 'short', 'medium', or 'long'。
     Returns:
         pd.DataFrame: 包含新列 upward_trend 和 downward_trend 的数据框。
@@ -35,77 +112,17 @@ def calculate_trendlines(df, period="short"):
     else:
         raise ValueError("Invalid period. Choose among 'short', 'medium', 'long'.")
 
-    # 初始化趋势线
-    df["upward_trend"] = np.nan
-    df["downward_trend"] = np.nan
+    # 转换为 NumPy 数组
+    low = df["low"].to_numpy()
+    high = df["high"].to_numpy()
+    n = len(df)
 
-    # 遍历数据点，按窗口找到趋势线起点和终点
-    for i in range(len(df) - window):
-        # 当前窗口数据
-        df_window = df.iloc[i : i + window]
+    # 使用 numba 加速计算
+    upward_trends, downward_trends = calculate_trendlines_numba(low, high, n, window)
 
-        ### 计算上升趋势线 ###
-        # 找到最低的低点作为起点
-        low_start_idx = df_window["low"].idxmin()
-        low_start = df.loc[low_start_idx, "low"]
-
-        # 遍历窗口中剩余的低点，找到最高点前的一个低点作为终点
-        best_end_idx, best_slope = None, None
-        for j in df.index[
-            df.index.get_loc(low_start_idx)
-            + 1 : df.index.get_loc(df_window.index[-1])
-            + 1
-        ]:
-            slope = (df.loc[j, "low"] - low_start) / ((j - low_start_idx).days)
-            trendline_values = [
-                low_start + slope * ((k - low_start_idx).days)
-                for k in df.index[
-                    df.index.get_loc(low_start_idx) : df.index.get_loc(j) + 1
-                ]
-            ]
-            if np.all(df["low"].loc[low_start_idx:j] >= trendline_values):
-                best_end_idx, best_slope = j, slope
-
-        # 更新上升趋势线
-        if best_end_idx:
-            df.loc[low_start_idx:best_end_idx, "upward_trend"] = [
-                low_start + best_slope * ((k - low_start_idx).days)
-                for k in df.index[
-                    df.index.get_loc(low_start_idx) : df.index.get_loc(best_end_idx) + 1
-                ]
-            ]
-
-        ### 计算下降趋势线 ###
-        # 找到最高的高点作为起点
-        high_start_idx = df_window["high"].idxmax()
-        high_start = df.loc[high_start_idx, "high"]
-
-        # 遍历窗口中剩余的高点，找到最低点前的一个高点作为终点
-        best_end_idx, best_slope = None, None
-        for j in df.index[
-            df.index.get_loc(high_start_idx)
-            + 1 : df.index.get_loc(df_window.index[-1])
-            + 1
-        ]:
-            slope = (df.loc[j, "high"] - high_start) / ((j - high_start_idx).days)
-            trendline_values = [
-                high_start + slope * ((k - high_start_idx).days)
-                for k in df.index[
-                    df.index.get_loc(high_start_idx) : df.index.get_loc(j) + 1
-                ]
-            ]
-            if np.all(df["high"].loc[high_start_idx:j] <= trendline_values):
-                best_end_idx, best_slope = j, slope
-
-        # 更新下降趋势线
-        if best_end_idx:
-            df.loc[high_start_idx:best_end_idx, "downward_trend"] = [
-                high_start + best_slope * ((k - high_start_idx).days)
-                for k in df.index[
-                    df.index.get_loc(high_start_idx) : df.index.get_loc(best_end_idx)
-                    + 1
-                ]
-            ]
+    # 结果赋值回 DataFrame
+    df["upward_trend"] = upward_trends
+    df["downward_trend"] = downward_trends
 
     return df
 
