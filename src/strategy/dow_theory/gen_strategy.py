@@ -1,5 +1,6 @@
 import numpy as np
 
+from numba import njit
 from strategy.common import calculate_rsi_adx
 
 
@@ -16,9 +17,6 @@ from strategy.common import calculate_rsi_adx
 连接最低之低点前的某一个高点，而使这条直线在两个高点之间不会穿越任何价位。
 延伸这条直线而经过最低的低点.
 """
-import numpy as np
-from numba import njit
-
 
 @njit  # 使用 numba 加速函数
 def calculate_trendlines_numba(low, high, n, window):
