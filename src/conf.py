@@ -16,7 +16,8 @@ OUTPUT_PATH = PROJECT_PATH + "output/"  # 保存输出结果的目录
 HISTORICAL_SIGNAL_FILE = OUTPUT_PATH + "historical_signals.csv" # 历史信号文件
 SIGNAL_FILE = OUTPUT_PATH + "signals.csv"  # 保存交易信号的文件
 
-# 配置参数
+# 策略配置参数
+STRATEGY_NAME = "dow_theory"  # 策略名称: "ma", "fixed_ma", "dow_theory"
 SHORT_MA = 5  # 短期均线
 LONG_MA = 20  # 长期均线
 

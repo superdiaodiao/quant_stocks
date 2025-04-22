@@ -1,1 +1,1 @@
-imp_date,ticker,action,price,short_ma,long_ma,rsi,adx,volatility,sharpe_ratio,max_drawdown
+imp_date,ticker,action,price,rsi,adx

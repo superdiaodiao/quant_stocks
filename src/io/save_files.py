@@ -2,7 +2,7 @@ import os
 
 import pandas as pd
 
-from src.conf import CLEANED_DATA_DIR, SIGNAL_FILE
+from src.conf import CLEANED_DATA_DIR, HISTORICAL_SIGNAL_FILE, SIGNAL_FILE
 from src.io.read_data import load_csv
 
 
@@ -24,7 +24,7 @@ def clean_and_sort_signals(signals, signal_columns):
         subset=["imp_date", "ticker", "action"], keep="last"
     )
     signals = signals.sort_values(
-        by=["imp_date", "action", "sharpe_ratio"], ascending=[False, False, False]
+        by=["imp_date", "action", "rsi"], ascending=[False, False, False]
     )
     return signals.reindex(columns=signal_columns)
 

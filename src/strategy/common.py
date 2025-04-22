@@ -1,8 +1,7 @@
 import numpy as np
+import talib
 
 from conf import LONG_MA, SHORT_MA
-from strategy.ma.gen_fix_strategy import fixed_ma_strategy
-from strategy.ma.gen_strategy import ma_strategy
 
 
 def calculate_max_drawdown(df):
@@ -37,6 +36,15 @@ def calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA):
     return df
 
 
+# 计算RSI和ADX指标
+def calculate_rsi_adx(df):
+    df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # type: ignore # RSI指标
+    df["adx"] = talib.ADX(  # type: ignore # ADX指标
+        df["high"], df["low"], df["close"], timeperiod=14
+    )  # ADX平均趋向指数
+    return df
+
+
 def calculate_sharpe_ratio(df):
     return round(
         df["daily_return"].mean() / (df["daily_return"].std() + 1e-8) * np.sqrt(252), 4
@@ -62,15 +70,3 @@ def calculate_price_oscillator(df):
     df["10d_Momentum"] = df["5d_Price_Change"].rolling(window=10).sum()
     df["Price_Oscillator"] = df["10d_Momentum"] - df["10d_Momentum"].shift(10)
     return df
-
-
-def get_specific_strategy(df, strategy):
-    if strategy == "ma":
-        return ma_strategy(df)
-    elif strategy == "fixed_ma":
-        return fixed_ma_strategy(df)
-    elif strategy == "dow_theory":
-        # TODO: implement dow_theory_strategy
-        return df
-    else:
-        return df

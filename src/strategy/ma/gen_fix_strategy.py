@@ -2,13 +2,14 @@
 import numpy as np
 
 from conf import LONG_MA, SHORT_MA
-from strategy.ma.position import ma_calculate_position
+from strategy.common import calculate_moving_average, calculate_rsi_adx
 
 
 def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
-    df["short_ma"] = df["close"].rolling(short_ma).mean()
-    df["long_ma"] = df["close"].rolling(long_ma).mean()
+    calculate_moving_average(df, short_ma, long_ma)
+    
+    calculate_rsi_adx(df)
 
     # 当10周移动平均线穿越30周移动平均线，而两者的斜率都向上，
     # 并且价格又同时位于两条移动平均线的上方时，这代表买进信号
@@ -37,15 +38,5 @@ def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
             np.nan,  # 无信号
         ),
     )
-
-    close = df["close"].values
-    signal = df["signal"].values
-
-    # 调用 Numba 加速逻辑
-    position, entry_price = ma_calculate_position(close, signal)
-    df["position"] = position
-    df["entry_price"] = entry_price
-
-    df["daily_return"] = df["position"].shift(1) * df["close"].pct_change()
 
     return df.sort_index(ascending=True)

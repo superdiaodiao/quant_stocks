@@ -1,5 +1,7 @@
 import numpy as np
 
+from strategy.common import calculate_rsi_adx
+
 
 def calculate_trendline(df, window=20, trend_type="up"):
     """计算趋势线"""
@@ -61,3 +63,15 @@ def generate_signals(df, window=20):
     )
 
     return df
+
+
+def dow_theory_strategy(df, window=20):
+    # 计算趋势线
+    df["trend_line_up"] = calculate_trendline(df, window, "up")
+    df["trend_line_down"] = calculate_trendline(df, window, "down")
+    
+    df = generate_signals(df, window)
+    
+    calculate_rsi_adx(df)
+
+    return df.sort_index(ascending=True)
