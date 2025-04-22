@@ -52,3 +52,30 @@ def plot_stock_signals(df, signals):
     )
     plt.legend()
     plt.show()
+
+
+def plot_trendlines(df):
+    plt.figure(figsize=(14, 7))
+    plt.plot(df.index, df["close"], label="Close Price", color="blue", linewidth=2)
+    plt.plot(
+        df.index,
+        df["upward_trend"],
+        label="Upward Trendline",
+        color="green",
+        linestyle="--",
+        linewidth=1.5,
+    )
+    plt.plot(
+        df.index,
+        df["downward_trend"],
+        label="Downward Trendline",
+        color="red",
+        linestyle="--",
+        linewidth=1.5,
+    )
+    plt.title("Trendlines based on Dow Theory", fontsize=16)
+    plt.xlabel("Date", fontsize=12)
+    plt.ylabel("Price", fontsize=12)
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.show()

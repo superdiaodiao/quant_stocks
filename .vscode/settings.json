@@ -9,5 +9,9 @@
     "python.analysis.typeCheckingMode": "standard",
     "python.analysis.extraPaths": [
         "./src",
-        "./tests"]
+        "./tests"
+    ],
+    "files.exclude": {
+        "**/__pychache__": true
+    }
 }
