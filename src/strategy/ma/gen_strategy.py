@@ -5,11 +5,11 @@ from strategy.common import calculate_moving_average, calculate_rsi_adx
 
 def ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
     """结合RSI和ADX改进均线策略"""
-    calculate_moving_average(df, short_ma, long_ma)
+    df = calculate_moving_average(df, short_ma, long_ma)
 
-    calculate_rsi_adx(df)
+    df = calculate_rsi_adx(df)
 
-    df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"], inplace=True)
+    df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"], inplace=True).copy()
 
     df["signal"] = np.where(
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20),

@@ -53,9 +53,9 @@ if __name__ == "__main__":
 
     # necessary test
     # test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
-    # test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
-    # test_strategy(test_mode="batch", end_date="2025-04-28", add_his_rec=True)
+    test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
+    # test_strategy(test_mode="batch", end_date="2025-04-18", add_his_rec=True)
     # test_strategy(test_mode="single", ticker="BCAX", end_date="2025-04-18")
     
     # other test
-    test_strategy(test_mode="batch")
+    # test_strategy(test_mode="batch")

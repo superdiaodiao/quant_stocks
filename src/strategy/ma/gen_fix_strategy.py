@@ -7,13 +7,13 @@ from strategy.common import calculate_moving_average, calculate_rsi_adx
 
 def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
-    calculate_moving_average(df, short_ma, long_ma)
+    df = calculate_moving_average(df, short_ma, long_ma)
 
-    calculate_rsi_adx(df)
+    df = calculate_rsi_adx(df)
 
-    #   ，而两者的斜率都向上，
+    # 当10周移动平均线穿越30周移动平均线，而两者的斜率都向上，
     # 并且价格又同时位于两条移动平均线的上方时，这代表买进信号
-    df = df.dropna(subset=["short_ma", "long_ma", "close"])
+    df = df.dropna(subset=["short_ma", "long_ma", "close"]).copy()
     df["buy_signal"] = (
         (df["short_ma"] > df["long_ma"])  # 短期均线大于长期均线
         & (df["short_ma"].shift(1) <= df["long_ma"].shift(1))  # 短期均线前一次低于长期均线
