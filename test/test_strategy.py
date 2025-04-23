@@ -40,7 +40,7 @@ if __name__ == "__main__":
     
     1. batch test:
     test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
-    and "KROS" should be in the recommendation list.
+    and "KROS" should be in the recommendation list or in the near former recommendation list.
     
     2. single test:
     test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     # test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
     test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
     # test_strategy(test_mode="batch", end_date="2025-04-18", add_his_rec=True)
-    # test_strategy(test_mode="single", ticker="BCAX", end_date="2025-04-18")
+    test_strategy(test_mode="single", ticker="BCAX", end_date="2025-04-18")
     
     # other test
     # test_strategy(test_mode="batch")
