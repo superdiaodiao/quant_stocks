@@ -1,5 +1,5 @@
 # 全局配置
-from datetime import date
+from datetime import date, timedelta
 
 
 PROJECT_PATH = "/data/quant_stocks/"
@@ -20,7 +20,10 @@ SIGNAL_FILE = OUTPUT_PATH + "signals.csv"  # 保存交易信号的文件
 STRATEGY_NAME = "dow_theory"  # 策略名称: "ma", "fixed_ma", "dow_theory"
 SHORT_MA = 5  # 短期均线
 LONG_MA = 20  # 长期均线
+VOLUMN_THREDHOLD = 100000  # 成交量阈值
 
 # 日期配置
 DEFAULT_START_DATE = "2020-01-01"  # 默认开始日期
-DEFAULT_END_DATE = date.today().strftime("%Y-%m-%d")  # 默认结束日期
+DEFAULT_END_DATE = (date.today() - timedelta(days=1)).strftime(
+    "%Y-%m-%d"
+)  # 默认结束日期为昨天

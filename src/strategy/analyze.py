@@ -3,7 +3,7 @@ import pandas as pd
 from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
-from src.conf import DEFAULT_END_DATE, LONG_MA, STRATEGY_NAME
+from src.conf import DEFAULT_END_DATE, LONG_MA, STRATEGY_NAME, VOLUMN_THREDHOLD
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
 from strategy.dow_theory.gen_strategy import dow_theory_strategy
@@ -21,6 +21,7 @@ def get_specific_strategy(df, strategy):
         return df
 
 
+# end_date = DEFAULT_END_DATE, 默认结束日期为昨天
 def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
     """分析股票并生成交易信号"""
     tickers = get_stock_list()
@@ -37,7 +38,11 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
 
     for ticker in tqdm(tickers, desc="分析股票"):
         df = load_stocks_data(ticker, end_date)
-        if df.empty or len(df) < LONG_MA:
+        if (
+            df.empty
+            or len(df) < LONG_MA
+            or df.iloc[-1].loc["volume"] < VOLUMN_THREDHOLD
+        ):
             continue
 
         original_max_df_date = df.index[-1]
@@ -55,21 +60,18 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         add_his_rec = add_his_rec or max_df_date == pd.to_datetime(end_date)
 
         if abs(df.iloc[-1]["signal"]) >= 0 and add_his_rec:  # 买入/卖出信号
-            mean_volume = df["volume"].mean()
+            action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
 
-            if mean_volume >= 100000:
-                action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
-
-                recommendations.append(
-                    {
-                        "imp_date": max_df_date,
-                        "ticker": ticker,
-                        "action": action,
-                        "price": df.iloc[-1]["close"],
-                        "rsi": df.iloc[-1]["rsi"],
-                        "adx": df.iloc[-1]["adx"],
-                    }
-                )
+            recommendations.append(
+                {
+                    "imp_date": max_df_date,
+                    "ticker": ticker,
+                    "action": action,
+                    "price": df.iloc[-1]["close"],
+                    "rsi": df.iloc[-1]["rsi"],
+                    "adx": df.iloc[-1]["adx"],
+                }
+            )
 
     recommendations.sort(
         key=lambda element: (
