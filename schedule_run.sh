@@ -20,6 +20,8 @@ fi
 # shellcheck disable=SC2129
 echo "Script started at: $(date)" >> "$LOG_PATH"
 
+pip install akshare --upgrade -i https://pypi.org/simple
+
 PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$SCRIPT_PATH" >> "$LOG_PATH" 2>&1
 
 echo "Script ended at: $(date)" >> "$LOG_PATH"

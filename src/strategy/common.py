@@ -38,9 +38,12 @@ def calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
 # 计算RSI和ADX指标
 def calculate_rsi_adx(df):
-    df["rsi"] = talib.RSI(df["close"], timeperiod=14)  # type: ignore # RSI指标
-    df["adx"] = talib.ADX(  # type: ignore # ADX指标
-        df["high"], df["low"], df["close"], timeperiod=14
+    df["rsi"] = round(talib.RSI(df["close"], timeperiod=14), 2)  # type: ignore # RSI指标
+    df["adx"] = round(
+        talib.ADX(  # type: ignore # ADX指标
+            df["high"], df["low"], df["close"], timeperiod=14
+        ),
+        2,
     )  # ADX平均趋向指数
     return df
 

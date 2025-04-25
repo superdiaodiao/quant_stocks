@@ -8,17 +8,34 @@ from src.io.save_files import save_stocks_data
 end_date = DEFAULT_END_DATE
 
 
-def update_recent_data():
+def update_recent_data(interface_type="sina"):
     """更新最近几天的数据"""
     tickers = get_stock_list()
 
     for ticker in tickers:
         try:
-            symbol = "105." + ticker
-            start_date = load_stocks_data(ticker).index[-1].strftime("%Y%m%d")
-            df = ak.stock_us_hist(
-                symbol=symbol, period="daily", start_date=start_date, end_date=end_date
-            )
+            ### 见https://akshare.akfamily.xyz/data/stock/stock.html#id56
+
+            if interface_type == "sina":
+                ## 新浪财经接口
+                symbol = ticker.upper()
+                start_date = load_stocks_data(ticker).index[-1].strftime("%Y-%m-%d")
+                df = ak.stock_us_daily(symbol=symbol)
+                df = df[(df["date"] >= start_date) & (df["date"] <= end_date)]
+
+                # 需要转化为int64，范围是[-2^63, 2^63-1]
+                df["volume"] = df["volume"].astype("int64")
+            else:
+                ## 东方财富接口
+                symbol = "105." + ticker
+                start_date = load_stocks_data(ticker).index[-1].strftime("%Y%m%d")
+                df = ak.stock_us_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
             if df.empty:
                 print(f"{ticker} could not update")
                 continue

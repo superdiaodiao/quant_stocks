@@ -57,9 +57,16 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         print(df.tail())
 
         max_df_date = df.index[-1]
-        add_his_rec = add_his_rec or max_df_date == pd.to_datetime(end_date)
 
-        if abs(df.iloc[-1]["signal"]) >= 0 and add_his_rec:  # 买入/卖出信号
+        if abs(df.iloc[-1]["signal"]) >= 0:  # 买入/卖出信号
+            
+            # 如果不需要历史记录，则只保留end_date的记录
+            if not add_his_rec:
+                df = df[df.index == pd.to_datetime(end_date)]
+                if df.empty:
+                    print(f"{ticker}没有满足策略条件的数据，跳过")
+                    continue
+
             action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
 
             recommendations.append(

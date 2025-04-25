@@ -56,3 +56,11 @@ def get_stock_list(file_path=NASDAQ_300M_STOCK_LIST_FILE):
     else:
         print("列名 'Symbol' 存在，提取数据...")
     return stock_list["Symbol"].tolist()
+
+
+# 过滤股票
+def filter_data(df, cap_threshold=3000000000, country="United States"):
+
+    df = df[df["Market Cap"] >= cap_threshold & df["Country"] == country]
+
+    return df

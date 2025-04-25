@@ -9,7 +9,7 @@ def ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
     df = calculate_rsi_adx(df)
 
-    df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"], inplace=True).copy()
+    df.dropna(subset=["short_ma", "long_ma", "rsi", "adx"]).copy()
 
     df["signal"] = np.where(
         (df["short_ma"] > df["long_ma"]) & (df["rsi"] < 70) & (df["adx"] > 20),

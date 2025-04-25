@@ -23,7 +23,7 @@ if __name__ == "__main__":
         print("历史数据已存在，无需初始化。")
 
     # 更新数据
-    update_recent_data()
+    # update_recent_data(interface_type="sina")
 
     # 分析股票并输出推荐信号
     recommendations = analyze_stocks()
