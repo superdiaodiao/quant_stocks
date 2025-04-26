@@ -18,6 +18,7 @@ from strategy.common import calculate_rsi_adx
 延伸这条直线而经过最低的低点.
 """
 
+
 @njit  # 使用 numba 加速函数
 def calculate_trendlines_numba(low, high, n, window):
     """
@@ -126,11 +127,10 @@ def calculate_trendlines(df, period="short"):
 
 
 def generate_signals(df, window=20):
-    
-    '''
+    """
     TODO: 书中讲的1-2-3准则的信号没有2B的早, 而且趋势线相对难以画出, 这部分先搁置
-    '''
-    
+    """
+
     # 计算趋势线
     # df = calculate_trendlines(df, period="short")
     # df["trend_line_up"] = df["upward_trend"]
@@ -158,7 +158,7 @@ def generate_signals(df, window=20):
     # 在中期趋势中，价格创新高或新低之后，如果2B准则得以成立，它通常会发生在3～5天之内。
     # 在市场的主要（长期）转折点上，价格创新高或新低之后，如果2B准则得以成立，通常会发生在7～10天之内。
     # 在股票市场中，价格创新高之后，随后走势的成交量通常会低于正常水平，但反转的确认（即当价格跌破先前的高点时）却会爆发大额成交量
-    
+
     ### 如果是短期的话，应该用以下的做法 ###
     ## 1. 2B 顶信号：价格创新高但未持续，随后下跌
     df["prev_high"] = df["high"].shift(1)  # 先前的高点
@@ -173,7 +173,7 @@ def generate_signals(df, window=20):
         df["close"] > df["prev_low"]
     )  # 收盘价重新回到先前低点上方
     df["2B_buy_signal"] = df["2B_bottom_condition1"] & df["2B_bottom_condition2"]
-    
+
     ### 如果是非中长期的话，应该用以下的做法 ###
     # from scipy.signal import argrelextrema
 

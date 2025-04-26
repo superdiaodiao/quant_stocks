@@ -16,7 +16,9 @@ def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
     df = df.dropna(subset=["short_ma", "long_ma", "close"]).copy()
     df["buy_signal"] = (
         (df["short_ma"] > df["long_ma"])  # 短期均线大于长期均线
-        & (df["short_ma"].shift(1) <= df["long_ma"].shift(1))  # 短期均线前一次低于长期均线
+        & (
+            df["short_ma"].shift(1) <= df["long_ma"].shift(1)
+        )  # 短期均线前一次低于长期均线
         & (df["short_ma"].diff() > 0)  # 短期均线斜率向上
         & (df["long_ma"].diff() > 0)  # 长期均线斜率向上
         & (df["close"] > df["short_ma"])  # 价格高于短期均线

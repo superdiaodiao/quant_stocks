@@ -3,6 +3,7 @@ import numpy as np
 from conf import LONG_MA, SHORT_MA
 from strategy.common import calculate_moving_average, calculate_rsi_adx
 
+
 def ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
     """结合RSI和ADX改进均线策略"""
     df = calculate_moving_average(df, short_ma, long_ma)

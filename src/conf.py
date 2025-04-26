@@ -13,7 +13,7 @@ NASDAQ_300M_STOCK_LIST_FILE = NASDAQ_PATH + "nasdaq_300M.csv"
 CLEANED_DATA_DIR = PROJECT_PATH + "cleaned_stocks_data"  # 保存历史数据的目录
 
 OUTPUT_PATH = PROJECT_PATH + "output/"  # 保存输出结果的目录
-HISTORICAL_SIGNAL_FILE = OUTPUT_PATH + "historical_signals.csv" # 历史信号文件
+HISTORICAL_SIGNAL_FILE = OUTPUT_PATH + "historical_signals.csv"  # 历史信号文件
 SIGNAL_FILE = OUTPUT_PATH + "signals.csv"  # 保存交易信号的文件
 
 # 策略配置参数

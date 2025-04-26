@@ -33,29 +33,29 @@ def test_strategy(
 
 if __name__ == "__main__":
 
-    '''   
+    """
     If we buy "KROS" on 2025-04-14, based on the data of 2025-04-11 and original strategy,
     and will gain about 12.5% profit in a week.
     Therefore, we need to test the strategy on this stock with the date of 2025-04-11 by:
-    
+
     1. batch test:
     test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
     and "KROS" should be in the recommendation list or in the near former recommendation list.
-    
+
     2. single test:
     test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
     and the result should be similar to the one in batch test.
-    
+
     Similar situation happens to "BCAX" on 2025-04-18:
     test_strategy(test_mode="batch", end_date="2025-04-18", add_his_rec=True)
     test_strategy(test_mode="single", ticker="BCAX", end_date="2025-04-18")
-    '''
+    """
 
     # necessary test
     # test_strategy(test_mode="batch", end_date="2025-04-11", add_his_rec=True)
     test_strategy(test_mode="single", ticker="KROS", end_date="2025-04-11")
     # test_strategy(test_mode="batch", end_date="2025-04-18", add_his_rec=True)
     test_strategy(test_mode="single", ticker="BCAX", end_date="2025-04-18")
-    
+
     # other test
     # test_strategy(test_mode="batch")

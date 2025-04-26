@@ -59,7 +59,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         max_df_date = df.index[-1]
 
         if abs(df.iloc[-1]["signal"]) >= 0:  # 买入/卖出信号
-            
+
             # 如果不需要历史记录，则只保留end_date的记录
             if not add_his_rec:
                 df = df[df.index == pd.to_datetime(end_date)]
