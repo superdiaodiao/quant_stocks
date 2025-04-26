@@ -1,6 +1,6 @@
 import numpy as np
 
-from conf import LONG_MA, SHORT_MA
+from src.conf import LONG_MA, SHORT_MA
 from strategy.common import calculate_moving_average, calculate_rsi_adx
 
 
