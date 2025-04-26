@@ -6,8 +6,8 @@ import pandas as pd
 from strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
-from strategy.analyze import calculate_max_drawdown, calculate_sharpe_ratio
 from src.io.read_data import load_stocks_data, get_stock_list
+from src.strategy.common import calculate_max_drawdown, calculate_sharpe_ratio
 
 
 # 优化SHORT_MA和LONG_MA的参数
