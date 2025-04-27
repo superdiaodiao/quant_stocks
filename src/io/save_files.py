@@ -20,6 +20,8 @@ def clean_and_sort_signals(signals, signal_columns):
     """
     去重和排序信号数据，确保只保留最新数据，并按照指定规则排序。
     """
+    signals["imp_date"] = pd.to_datetime(signals["imp_date"], errors="coerce")
+
     signals = signals.drop_duplicates(
         subset=["imp_date", "ticker", "action"], keep="last"
     )
@@ -61,7 +63,8 @@ def save_signals(recommendations, signal_columns):
     else:
         historical_signals = combined_signals
 
-    # 清理并排序历史信号
+    # 清理并排序历史信号（去重）
+    historical_signals = historical_signals.drop_duplicates(keep="last")
     historical_signals = clean_and_sort_signals(historical_signals, signal_columns)
 
     # 保存到历史文件

@@ -6,7 +6,7 @@ from src.io.read_data import load_stocks_data
 def calculate_returns(data, start_date, end_date):
     # 将数据读入 DataFrame
     df = pd.read_csv(data) if isinstance(data, str) else data
-    df["imp_date"] = pd.to_datetime(df["imp_date"], format="mixed")
+    df["imp_date"] = pd.to_datetime(df["imp_date"], format="%Y-%m-%d", errors="coerce")
 
     # 筛选指定日期区间的数据
     mask = (df["imp_date"] >= pd.to_datetime(start_date)) & (
@@ -128,9 +128,9 @@ def select_trading_group(df, group_col, min_count=10):
         # 按评分降序排序，若评分相同则按分组名称升序
         most_frequent_group = avg_scores.sort_values(ascending=False).index[0]
 
-    # 计算最终选中分组的平均评分
+    # 计算最终选中分组的平均【次日均收益率，也就是mean】
     most_frequent_score = daily_max_groups.loc[
-        daily_max_groups[group_col] == most_frequent_group, "score"
+        daily_max_groups[group_col] == most_frequent_group, "mean"
     ].mean()
 
     return most_frequent_group, most_frequent_score
@@ -164,9 +164,11 @@ def apply_trading_strategy(rsi_data, adx_data, min_count=10):
 
 
 # 加载文件路径或DataFrame，设置日期区间
-file_path = "test/test_data/historical_signals.csv"  # 替换为实际的文件路径
-start_date = "2025-04-07"
+file_path = "output/historical_signals.csv"  # 替换为实际的文件路径
 end_date = "2025-04-24"
+
+# 设置开始日期为结束日期前20天, 这样可以确保有14天的RSI和ADX数据, 其中需要确保end_date是交易日
+start_date = pd.to_datetime(end_date)-pd.DateOffset(days=20)  
 
 ## 如果需要测试不同的日期范围，可以取消下面的注释并设置日期范围
 # from strategy.analyze import analyze_stocks
@@ -183,7 +185,4 @@ print(f"\nRSI收益率分布: \n{rsi_dist}")
 print(f"\nADX收益率分布: \n{adx_dist}")
 
 
-decision = apply_trading_strategy(
-    rsi_dist, adx_dist, min_count=30
-)
-print(f"\n交易策略决策: \n{decision}")
+apply_trading_strategy(rsi_dist, adx_dist, min_count=10)
