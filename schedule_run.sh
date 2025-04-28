@@ -30,4 +30,10 @@ pip install akshare --upgrade -i https://pypi.org/simple
 
 PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$SCRIPT_PATH" >> "$LOG_PATH" 2>&1
 
+# update git repository
+cd "$PROJECT_PATH"
+git add . >> "$LOG_PATH" 2>&1
+git commit -m "update data on $(date +%Y-%m-%d)" >> "$LOG_PATH" 2>&1
+git push --set-upstream origin master >> "$LOG_PATH" 2>&1
+
 echo "Script ended at: $(date)" >> "$LOG_PATH"
