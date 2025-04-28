@@ -3,9 +3,10 @@ import pandas as pd
 from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
-from src.conf import DEFAULT_END_DATE, LONG_MA, STRATEGY_NAME, VOLUMN_THREDHOLD
+from src.conf import DEFAULT_END_DATE, LONG_MA, SHORT_MA, STRATEGY_NAME, VOLUMN_THREDHOLD
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
+from strategy.common import calculate_moving_average
 from strategy.dow_theory.gen_strategy import dow_theory_strategy
 from strategy.ma.gen_fix_strategy import fixed_ma_strategy
 
@@ -32,6 +33,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         "ticker",
         "action",
         "price",
+        "short_ma",
+        "long_ma",
         "rsi",
         "adx",
     ]
@@ -44,6 +47,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             or df.iloc[-1].loc["volume"] < VOLUMN_THREDHOLD
         ):
             continue
+
+        df = calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA)
 
         original_max_df_date = df.index[-1]
         print(original_max_df_date)
@@ -75,6 +80,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     "ticker": ticker,
                     "action": action,
                     "price": df.iloc[-1]["close"],
+                    "short_ma": df.iloc[-1]["short_ma"],
+                    "long_ma": df.iloc[-1]["long_ma"],
                     "rsi": df.iloc[-1]["rsi"],
                     "adx": df.iloc[-1]["adx"],
                 }

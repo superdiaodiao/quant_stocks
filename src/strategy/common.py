@@ -31,8 +31,10 @@ def calculate_max_drawdown(df):
 
 # 计算移动平均线
 def calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA):
-    df["short_ma"] = df["close"].rolling(short_ma).mean()
-    df["long_ma"] = df["close"].rolling(long_ma).mean()
+
+    df["short_ma"] = round(df["close"].rolling(short_ma).mean(), 4)
+    df["long_ma"] = round(df["close"].rolling(long_ma).mean(), 4)
+
     return df
 
 

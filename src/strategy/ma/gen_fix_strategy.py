@@ -7,8 +7,6 @@ from strategy.common import calculate_moving_average, calculate_rsi_adx
 
 def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
-    df = calculate_moving_average(df, short_ma, long_ma)
-
     df = calculate_rsi_adx(df)
 
     # 当10周移动平均线穿越30周移动平均线，而两者的斜率都向上，
