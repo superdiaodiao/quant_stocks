@@ -19,7 +19,7 @@ def get_specific_strategy(df, strategy):
     elif strategy == "dow_theory":
         return dow_theory_strategy(df)
     else:
-        return df
+        raise ValueError(f"未知策略: {strategy}")
 
 
 # end_date = DEFAULT_END_DATE, 默认结束日期为昨天
