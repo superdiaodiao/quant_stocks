@@ -1,7 +1,12 @@
 import os
-import re
 
-from src.conf import CLEANED_DATA_DIR, SOURCE_DIR
+from src.conf import (
+    CLEANED_DATA_DIR,
+    DEFAULT_END_DATE,
+    HISTORICAL_SIGNAL_FILE,
+    SOURCE_DIR,
+)
+from src.io.read_data import load_csv
 from src.io.init_data import init_stock_list, init_historical_data
 from src.io.update_data import update_recent_data
 from src.strategy.analyze import analyze_stocks
@@ -23,7 +28,12 @@ if __name__ == "__main__":
         print("历史数据已存在，无需初始化。")
 
     # 更新数据
-    update_recent_data(interface_type="sina")
+    historical_signals = load_csv(HISTORICAL_SIGNAL_FILE)
+    if historical_signals["imp_date"].max() == DEFAULT_END_DATE:
+        print("数据已是最新，无需更新。")
+    else:
+        print("数据不是最新的，开始更新...")
+        update_recent_data(interface_type="sina")
 
     # 分析股票并输出推荐信号
     recommendations = analyze_stocks()
