@@ -1,5 +1,6 @@
 import pandas as pd
 
+from conf import DEFAULT_END_DATE
 from src.io.read_data import load_stocks_data
 
 
@@ -165,12 +166,12 @@ def apply_trading_strategy(rsi_data, adx_data, min_count=10):
 
 # 加载文件路径或DataFrame，设置日期区间
 file_path = "output/historical_signals.csv"  # 替换为实际的文件路径
-end_date = "2025-04-24"
+end_date = DEFAULT_END_DATE
 
 # 设置开始日期为结束日期前20天, 这样可以确保有14天的RSI和ADX数据, 其中需要确保end_date是交易日
 start_date = pd.to_datetime(end_date)-pd.DateOffset(days=20)  
 
-## 如果需要测试不同的日期范围，可以取消下面的注释并设置日期范围
+## 如果需要生成指定日期范围的数据，可以取消下面的注释并设置日期范围
 # from strategy.analyze import analyze_stocks
 # end_date_list = pd.date_range(start_date, end_date).tolist()
 # for end_date in end_date_list:

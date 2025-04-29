@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
@@ -73,6 +72,13 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     continue
 
             action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
+
+            if action == "buy" and (
+                df.iloc[-1].loc["close"] < df.iloc[-1].loc["short_ma"]
+                or df.iloc[-1].loc["close"] < df.iloc[-1].loc["long_ma"]
+            ):
+                print(f"{ticker}的价格低于均线, 不加入buy信号")
+                continue
 
             recommendations.append(
                 {
