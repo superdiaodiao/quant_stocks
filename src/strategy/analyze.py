@@ -44,6 +44,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             df.empty
             or len(df) < LONG_MA
             or df.iloc[-1].loc["volume"] < VOLUMN_THREDHOLD
+            or df["volume"].iloc[-LONG_MA:].mean() < VOLUMN_THREDHOLD
         ):
             continue
 
