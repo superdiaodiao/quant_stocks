@@ -34,8 +34,21 @@ PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$PROJECT_PATH/src/opt_params/get_best
 
 # update git repository
 cd "$PROJECT_PATH"
-git add . >> "$LOG_PATH" 2>&1
-git commit -m "update data on $(date +%Y-%m-%d)" >> "$LOG_PATH" 2>&1
-git push --set-upstream origin master >> "$LOG_PATH" 2>&1
+check_success() {
+    if [ $? -ne 0 ]; then
+        echo "$1 failed." >> "$LOG_PATH"
+        exit 1
+    fi
+}
+
+git add .
+check_success "git add ."
+
+git commit -m "scheduled run $(date +%Y-%m-%d)"
+check_success "git commit"
+
+git push --set-upstream origin master
+check_success "git push"
+
 
 echo "Script ended at: $(date)" >> "$LOG_PATH"
