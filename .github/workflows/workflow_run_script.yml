@@ -1,4 +1,4 @@
-name: Python package
+name: run main python script
 
 on:
   push:
