@@ -2,7 +2,6 @@
 
 PYTHON_EXEC=/data/miniconda3/envs/quant_stocks/bin/python
 PROJECT_PATH=/data/quant_stocks
-SCRIPT_PATH="$PROJECT_PATH/main.py"
 LOG_PATH="$PROJECT_PATH/logs/running_info.log"
 MAX_SIZE=1048576 # 1MB
 
@@ -28,7 +27,10 @@ echo "Script started at: $(date)" >> "$LOG_PATH"
 
 pip install akshare --upgrade -i https://pypi.org/simple
 
-PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$SCRIPT_PATH" >> "$LOG_PATH" 2>&1
+# run the main.py script
+PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$PROJECT_PATH/main.py" >> "$LOG_PATH" 2>&1
+# run the get_best_rsi_adx.py script
+PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$PROJECT_PATH/src/opt_params/get_best_rsi_adx.py" >> "$LOG_PATH" 2>&1
 
 # update git repository
 cd "$PROJECT_PATH"
