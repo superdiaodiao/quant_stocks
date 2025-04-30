@@ -9,9 +9,11 @@ def calculate_returns(data, start_date, end_date):
     df = pd.read_csv(data) if isinstance(data, str) else data
     df["imp_date"] = pd.to_datetime(df["imp_date"], format="%Y-%m-%d", errors="coerce")
 
-    # 筛选指定日期区间的数据
-    mask = (df["imp_date"] >= pd.to_datetime(start_date)) & (
-        df["imp_date"] <= pd.to_datetime(end_date)
+    # 筛选指定日期区间的数据, 并且只保留买入信号
+    mask = (
+        (df["imp_date"] >= pd.to_datetime(start_date))
+        & (df["imp_date"] <= pd.to_datetime(end_date))
+        & (df["action"] == "buy")
     )
     selected_stocks = df[mask]
 
@@ -172,11 +174,11 @@ end_date = DEFAULT_END_DATE
 start_date = pd.to_datetime(end_date)-pd.DateOffset(days=20)  
 
 ## 如果需要生成指定日期范围的数据，可以取消下面的注释并设置日期范围
-# from strategy.analyze import analyze_stocks
-# end_date_list = pd.date_range(start_date, end_date).tolist()
-# for end_date in end_date_list:
-#     end_date = end_date.strftime("%Y-%m-%d")
-#     analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False,)
+from strategy.analyze import analyze_stocks
+end_date_list = pd.date_range(start_date, end_date).tolist()
+for end_date in end_date_list:
+    end_date = end_date.strftime("%Y-%m-%d")
+    analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False,)
 
 all_data, rsi_dist, adx_dist = calculate_returns(file_path, start_date, end_date)
 
