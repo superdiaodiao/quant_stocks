@@ -42,6 +42,8 @@ check_success() {
     fi
 }
 
+echo "Script ended at: $(date) and will update the git if no error occurs." >> "$LOG_PATH"
+
 git add .
 check_success "git add ."
 
@@ -50,6 +52,3 @@ check_success "git commit"
 
 git push --set-upstream origin master
 check_success "git push"
-
-
-echo "Script ended at: $(date)" >> "$LOG_PATH"
