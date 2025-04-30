@@ -12599,3 +12599,4 @@ adx_group
 Name: count, dtype: int64
 交易策略决策如下：
 {'selected_rsi_group': 50.0, 'selected_rsi_score': 0.007185709555316326, 'selected_adx_group': 40.0, 'selected_adx_score': 0.021923073971889657}
+Script ended at: Wed Apr 30 09:27:13 CST 2025

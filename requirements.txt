@@ -3,5 +3,5 @@ pandas~=2.2.3
 numpy~=1.26.4
 yfinance~=0.2.55
 matplotlib~=3.10.1
-akshare~=1.16.77
+akshare~=1.16.84
 numba~=0.61.0
