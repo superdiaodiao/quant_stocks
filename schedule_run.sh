@@ -27,13 +27,14 @@ echo "Script started at: $(date)" >> "$LOG_PATH"
 
 pip install akshare --upgrade -i https://pypi.org/simple
 
+
+cd "$PROJECT_PATH"
 # run the main.py script
-PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$PROJECT_PATH/main.py" >> "$LOG_PATH" 2>&1
+PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "./main.py" >> "$LOG_PATH" 2>&1
 # run the get_best_rsi_adx.py script
-PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "$PROJECT_PATH/src/opt_params/get_best_rsi_adx.py" >> "$LOG_PATH" 2>&1
+PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "./src/opt_params/get_best_rsi_adx.py" >> "$LOG_PATH" 2>&1
 
 # update git repository
-cd "$PROJECT_PATH"
 check_success() {
     if [ $? -ne 0 ]; then
         echo "$1 failed." >> "$LOG_PATH"
