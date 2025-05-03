@@ -7,8 +7,8 @@ MAX_SIZE=1048576 # 1MB
 
 # 判断是否为周末
 DAY_OF_WEEK=$(date +%u) # 获取当前是星期几（1-7，1=周一，7=周日）
-if [ "$DAY_OF_WEEK" -gt 5 ]; then
-    echo "今天是周末，不执行脚本。" >> "$LOG_PATH"
+if [ "$DAY_OF_WEEK" -eq 7 || "$DAY_OF_WEEK" -eq 1 ]; then
+    echo "今天是周日/周一，不执行脚本。" >> "$LOG_PATH"
     exit 0
 fi
 
