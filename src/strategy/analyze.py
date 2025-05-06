@@ -1,13 +1,13 @@
 import pandas as pd
-from src.strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
 from src.conf import DEFAULT_END_DATE, LONG_MA, SHORT_MA, STRATEGY_NAME, VOLUMN_THREDHOLD
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
-from strategy.common import calculate_moving_average
-from strategy.dow_theory.gen_strategy import dow_theory_strategy
-from strategy.ma.gen_fix_strategy import fixed_ma_strategy
+from src.strategy.common import calculate_moving_average, calculate_week_avg_volume
+from src.strategy.dow_theory.gen_strategy import dow_theory_strategy
+from src.strategy.ma.gen_fix_strategy import fixed_ma_strategy
+from src.strategy.ma.gen_strategy import ma_strategy
 
 
 def get_specific_strategy(df, strategy):
@@ -36,6 +36,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         "long_ma",
         "rsi",
         "adx",
+        "volume_avg_w",
+        "volume_avg_w_pct",
     ]
 
     for ticker in tqdm(tickers, desc="分析股票"):
@@ -49,6 +51,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             continue
 
         df = calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA)
+        df = calculate_week_avg_volume(df)
 
         original_max_df_date = df.index[-1]
         print(original_max_df_date)
@@ -91,6 +94,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     "long_ma": df.iloc[-1]["long_ma"],
                     "rsi": df.iloc[-1]["rsi"],
                     "adx": df.iloc[-1]["adx"],
+                    "volume_avg_w": df.iloc[-1]["volume_avg_w"],
+                    "volume_avg_w_pct": df.iloc[-1]["volume_avg_w_pct"],
                 }
             )
 
@@ -99,6 +104,8 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             element["imp_date"],
             element["action"],
             element["rsi"],
+            element["volume_avg_w_pct"],
+            element["volume_avg_w"],
         ),
         reverse=True,
     )

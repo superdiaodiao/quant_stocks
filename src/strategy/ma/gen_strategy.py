@@ -1,7 +1,7 @@
 import numpy as np
 
 from src.conf import LONG_MA, SHORT_MA
-from strategy.common import calculate_rsi_adx
+from src.strategy.common import calculate_rsi_adx
 
 
 def ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):

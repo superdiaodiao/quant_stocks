@@ -1,6 +1,6 @@
 import pandas as pd
 
-from conf import DEFAULT_END_DATE
+from src.conf import DEFAULT_END_DATE
 from src.io.read_data import load_stocks_data
 
 

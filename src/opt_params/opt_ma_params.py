@@ -1,13 +1,13 @@
 from itertools import product
 
-from conf import NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE
 import numpy as np
 import pandas as pd
-from strategy.ma.gen_strategy import ma_strategy
 from tqdm import tqdm
 
+from src.conf import NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.strategy.common import calculate_max_drawdown, calculate_sharpe_ratio
+from src.strategy.ma.gen_strategy import ma_strategy
 
 
 # 优化SHORT_MA和LONG_MA的参数

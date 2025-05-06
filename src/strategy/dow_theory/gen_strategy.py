@@ -1,7 +1,7 @@
 import numpy as np
 
 from numba import njit
-from strategy.common import calculate_rsi_adx
+from src.strategy.common import calculate_rsi_adx
 
 
 """

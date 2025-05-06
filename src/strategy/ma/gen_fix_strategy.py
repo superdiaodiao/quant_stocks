@@ -1,8 +1,8 @@
 # 根据移动平均线生成买卖信号
 import numpy as np
 
-from conf import LONG_MA, SHORT_MA
-from strategy.common import calculate_moving_average, calculate_rsi_adx
+from src.conf import LONG_MA, SHORT_MA
+from src.strategy.common import calculate_moving_average, calculate_rsi_adx
 
 
 def fixed_ma_strategy(df, short_ma=SHORT_MA, long_ma=LONG_MA):
