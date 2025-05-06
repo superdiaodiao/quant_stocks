@@ -34,6 +34,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         "price",
         "short_ma",
         "long_ma",
+        "50d_ma",
         "rsi",
         "adx",
         "volume_avg_w",
@@ -92,6 +93,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     "price": df.iloc[-1]["close"],
                     "short_ma": df.iloc[-1]["short_ma"],
                     "long_ma": df.iloc[-1]["long_ma"],
+                    "50d_ma": df.iloc[-1]["50d_ma"],
                     "rsi": df.iloc[-1]["rsi"],
                     "adx": df.iloc[-1]["adx"],
                     "volume_avg_w": df.iloc[-1]["volume_avg_w"],
@@ -103,6 +105,7 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         key=lambda element: (
             element["imp_date"],
             element["action"],
+            element["adx"],
             element["rsi"],
             element["volume_avg_w_pct"],
             element["volume_avg_w"],

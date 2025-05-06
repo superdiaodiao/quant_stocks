@@ -35,6 +35,8 @@ def calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
     df["short_ma"] = round(df["close"].rolling(short_ma).mean(), 4)
     df["long_ma"] = round(df["close"].rolling(long_ma).mean(), 4)
+    
+    df["50d_ma"] = round(df["close"].rolling(50).mean(), 4)
 
     return df
 
