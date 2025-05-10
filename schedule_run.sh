@@ -31,8 +31,8 @@ pip install akshare --upgrade -i https://pypi.org/simple
 cd "$PROJECT_PATH"
 # run the main.py script
 PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "./main.py" >> "$LOG_PATH" 2>&1
-# run the get_best_rsi_adx.py script
-PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "./src/opt_params/get_best_rsi_adx.py" >> "$LOG_PATH" 2>&1
+# run the get_best_rsi_adx.py script, "placeholder" is a placeholder for the first argument
+PYTHONPATH="$PROJECT_PATH" "$PYTHON_EXEC" "./src/opt_params/get_best_rsi_adx.py" "placeholder" >> "$LOG_PATH" 2>&1
 
 # update git repository
 check_success() {

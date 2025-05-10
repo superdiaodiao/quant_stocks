@@ -1,7 +1,12 @@
+import os
+import sys
 import pandas as pd
 
-from src.conf import DEFAULT_END_DATE
 from src.io.read_data import load_stocks_data
+
+
+# 加载文件路径或DataFrame
+file_path = "output/historical_signals.csv"  # 替换为实际的文件路径
 
 
 def calculate_returns(data, start_date, end_date):
@@ -132,11 +137,13 @@ def select_trading_group(df, group_col, min_count=10):
         most_frequent_group = avg_scores.sort_values(ascending=False).index[0]
 
     # 计算最终选中分组的平均【次日均收益率，也就是mean】
-    most_frequent_score = daily_max_groups.loc[
-        daily_max_groups[group_col] == most_frequent_group, "mean"
-    ].mean()
+    most_frequent_group_mean_return = (
+        daily_max_groups.loc[daily_max_groups[group_col] == most_frequent_group, "mean"]
+        .mean()
+        .round(4)
+    )
 
-    return most_frequent_group, most_frequent_score
+    return most_frequent_group, most_frequent_group_mean_return
 
 
 def apply_trading_strategy(rsi_data, adx_data, min_count=10):
@@ -151,41 +158,64 @@ def apply_trading_strategy(rsi_data, adx_data, min_count=10):
     返回：
     - decision (dict): 包括最佳 RSI 和 ADX 分组及其对应评分
     """
-    rsi_group, rsi_score = select_trading_group(rsi_data, "rsi_group", min_count)
-    adx_group, adx_score = select_trading_group(adx_data, "adx_group", min_count)
+    rsi_group, rsi_return = select_trading_group(rsi_data, "rsi_group", min_count)
+    adx_group, adx_return = select_trading_group(adx_data, "adx_group", min_count)
 
     # 基于 RSI 和 ADX 的分组选择，生成简单的决策逻辑
     decision = {
+        "end_date": end_date,
         "selected_rsi_group": rsi_group,
-        "selected_rsi_score": rsi_score,
+        "selected_rsi_mean_return": rsi_return,
         "selected_adx_group": adx_group,
-        "selected_adx_score": adx_score,
+        "selected_adx_mean_return": adx_return,
     }
 
     print(f"交易策略决策如下：\n{decision}")
     return decision
 
 
-# 加载文件路径或DataFrame，设置日期区间
-file_path = "output/historical_signals.csv"  # 替换为实际的文件路径
-end_date = DEFAULT_END_DATE
+if __name__ == "__main__":
 
-# 设置开始日期为结束日期前20天, 这样可以确保有14天的RSI和ADX数据, 其中需要确保end_date是交易日
-start_date = pd.to_datetime(end_date)-pd.DateOffset(days=20)  
+    ## 如果需要生成指定日期范围的数据，可以取消下面的注释并设置日期范围
+    # from strategy.analyze import analyze_stocks
+    # from src.conf import DEFAULT_END_DATE
 
-## 如果需要生成指定日期范围的数据，可以取消下面的注释并设置日期范围
-# from strategy.analyze import analyze_stocks
-# end_date_list = pd.date_range(start_date, end_date).tolist()
-# for end_date in end_date_list:
-#     end_date = end_date.strftime("%Y-%m-%d")
-#     analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False,)
+    # end_date = DEFAULT_END_DATE
+    # start_date = pd.to_datetime(end_date) - pd.DateOffset(days=20)
 
-all_data, rsi_dist, adx_dist = calculate_returns(file_path, start_date, end_date)
+    # end_date_list = pd.date_range(start_date, end_date).tolist()
+    # for end_date in end_date_list:
+    #     end_date = end_date.strftime("%Y-%m-%d")
+    #     analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False)
 
-# 打印结果
-print(f"所有股票及收益率数据: \n{all_data}")
-print(f"\nRSI收益率分布: \n{rsi_dist}")
-print(f"\nADX收益率分布: \n{adx_dist}")
+    decisions = []
 
+    df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index()
 
-apply_trading_strategy(rsi_dist, adx_dist, min_count=10)
+    if len(sys.argv) > 1:
+        end_date_list = [df.index[0]]
+    else:
+        end_date_list = df.index.drop_duplicates().tolist()
+
+    for end_date in end_date_list:
+        end_date = end_date.strftime("%Y-%m-%d")
+        start_date = pd.to_datetime(end_date) - pd.DateOffset(days=20)
+
+        all_data, rsi_dist, adx_dist = calculate_returns(
+            file_path, start_date, end_date
+        )
+        print(f"所有股票及收益率数据: \n{all_data}")
+        print(f"\nRSI收益率分布: \n{rsi_dist}")
+        print(f"\nADX收益率分布: \n{adx_dist}")
+
+        decision = apply_trading_strategy(rsi_dist, adx_dist, min_count=10)
+        decisions.append(decision)
+
+    decisions_df = pd.DataFrame(decisions)
+    print(decisions_df)
+
+    if len(sys.argv) > 1:
+        output_file = "output/rsi_adx_decisions.csv"
+
+        decisions_df.to_csv(output_file, index=False, mode="a")
+        print(f"交易策略决策已保存到 {output_file}")
