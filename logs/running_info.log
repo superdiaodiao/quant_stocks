@@ -15594,3 +15594,4 @@ Name: count, dtype: int64
 交易策略决策如下：
 {'selected_rsi_group': 60.0, 'selected_rsi_score': 0.006098693555126986, 'selected_adx_group': 25.0, 'selected_adx_score': 0.012847085744408833}
 Script ended at: Sat May 10 08:47:00 CST 2025 and will update the git if no error occurs.
+今天是周日/周一，不执行脚本。

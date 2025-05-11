@@ -1,5 +1,5 @@
-import os
 import sys
+import akshare as ak
 import pandas as pd
 
 from src.io.read_data import load_stocks_data
@@ -188,6 +188,14 @@ if __name__ == "__main__":
     #     end_date = end_date.strftime("%Y-%m-%d")
     #     analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False)
 
+    nasdaq_df = ak.index_global_hist_em(symbol="纳斯达克")
+    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
+    nasdaq_df = nasdaq_df.sort_values(by="imp_date")
+
+    nasdaq_df["change_rate"] = (
+        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(-1)
+    ) / nasdaq_df["最新价"].shift(-1)
+
     decisions = []
 
     df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index()
@@ -209,6 +217,18 @@ if __name__ == "__main__":
         print(f"\nADX收益率分布: \n{adx_dist}")
 
         decision = apply_trading_strategy(rsi_dist, adx_dist, min_count=10)
+
+        # 检查是否有匹配数据
+        filtered_df = nasdaq_df[nasdaq_df["imp_date"] == end_date]
+
+        if not filtered_df.empty:
+            nasdaq_change_rate = filtered_df["change_rate"].iloc[0].round(4)
+            print(f"Change rate for {end_date}: {nasdaq_change_rate}")
+        else:
+            print(f"No data found for end_date: {end_date}.")
+            nasdaq_change_rate = None  # 或者设置其他默认值
+        decision["nasdaq_change_rate"] = nasdaq_change_rate
+
         decisions.append(decision)
 
     decisions_df = pd.DataFrame(decisions)
