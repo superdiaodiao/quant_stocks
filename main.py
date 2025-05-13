@@ -1,9 +1,12 @@
 import os
+import akshare as ak
+import pandas as pd
 
 from src.conf import (
     CLEANED_DATA_DIR,
     DEFAULT_END_DATE,
     HISTORICAL_SIGNAL_FILE,
+    NASDAQ_INDEX_FILE,
     SOURCE_DIR,
 )
 from src.io.read_data import load_csv
@@ -15,6 +18,18 @@ from src.strategy.analyze import analyze_stocks
 os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
 
 if __name__ == "__main__":
+
+    # 更新nasdaq大盘数据
+    nasdaq_df = ak.index_global_hist_em(symbol="纳斯达克")
+    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
+    nasdaq_df = nasdaq_df.sort_values(by="imp_date")
+
+    nasdaq_df["change_rate"] = (
+        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
+    ) / nasdaq_df["最新价"].shift(1)
+
+    nasdaq_df.drop(columns=["imp_date"], inplace=True)
+    nasdaq_df.to_csv(NASDAQ_INDEX_FILE, index=False)
 
     # 初始化股票列表和信号数据库
     init_stock_list()

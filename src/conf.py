@@ -9,6 +9,7 @@ NASDAQ_PATH = PROJECT_PATH + "stocks_list_dir/nasdaq/"
 NASDAQ_GLOBAL_SELECT_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_select/g_s_300M.csv"
 NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_market/g_m_300M.csv"
 NASDAQ_300M_STOCK_LIST_FILE = NASDAQ_PATH + "nasdaq_300M.csv"
+NASDAQ_INDEX_FILE = NASDAQ_PATH + "nasdaq_index.csv"  # 纳斯达克指数文件
 
 CLEANED_DATA_DIR = PROJECT_PATH + "cleaned_stocks_data"  # 保存历史数据的目录
 
