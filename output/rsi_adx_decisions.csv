@@ -48,3 +48,5 @@ end_date,selected_rsi_group,selected_rsi_mean_return,selected_adx_group,selected
 2025-05-07,55.0,0.0007,20.0,0.0172,-0.0106
 2025-05-08,60.0,0.0061,25.0,0.0128,-0.0
 2025-05-09,60.0,0.0061,25.0,0.0128,
+end_date,selected_rsi_group,selected_rsi_mean_return,selected_adx_group,selected_adx_mean_return,nasdaq_change_rate
+2025-03-03,,,,,0.0036
