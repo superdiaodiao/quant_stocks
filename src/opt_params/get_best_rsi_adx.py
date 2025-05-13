@@ -193,12 +193,12 @@ if __name__ == "__main__":
     nasdaq_df = nasdaq_df.sort_values(by="imp_date")
 
     nasdaq_df["change_rate"] = (
-        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(-1)
-    ) / nasdaq_df["最新价"].shift(-1)
+        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
+    ) / nasdaq_df["最新价"].shift(1)
 
     decisions = []
 
-    df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index()
+    df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index(ascending=False)
 
     if len(sys.argv) > 1:
         end_date_list = [df.index[0]]
@@ -231,11 +231,19 @@ if __name__ == "__main__":
 
         decisions.append(decision)
 
-    decisions_df = pd.DataFrame(decisions)
-    print(decisions_df)
+    output_file = "output/rsi_adx_decisions.csv"
 
     if len(sys.argv) > 1:
-        output_file = "output/rsi_adx_decisions.csv"
+        old_decisions_df = pd.read_csv(output_file)
+        new_decisions_df = pd.DataFrame(decisions)
+        decisions_df = pd.concat([old_decisions_df, new_decisions_df], ignore_index=True) \
+            .drop_duplicates(subset=["end_date"], keep="last") \
+            .sort_values(by="end_date", ascending=False) \
+            .reset_index(drop=True)
+    else:
+        decisions_df = pd.DataFrame(decisions)
 
-        decisions_df.to_csv(output_file, index=False, mode="a")
-        print(f"交易策略决策已保存到 {output_file}")
+    print(decisions_df)
+
+    decisions_df.to_csv(output_file, index=False, mode="w")
+    print(f"交易策略决策已保存到 {output_file}")
