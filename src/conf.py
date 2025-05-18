@@ -1,8 +1,9 @@
 # 全局配置
 from datetime import date, timedelta
+import os
 
 
-PROJECT_PATH = "/data/quant_stocks/"
+PROJECT_PATH = os.getcwd() + "/"
 SOURCE_DIR = PROJECT_PATH + "his_data/us/nasdaq stocks"
 
 NASDAQ_PATH = PROJECT_PATH + "stocks_list_dir/nasdaq/"

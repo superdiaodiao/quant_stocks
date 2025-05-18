@@ -1,8 +1,7 @@
-import re
-from conf import DEFAULT_END_DATE, STRATEGY_NAME
-from strategy.analyze import analyze_stocks, get_specific_strategy
+from src.conf import DEFAULT_END_DATE, STRATEGY_NAME
 from src.io.read_data import load_stocks_data
 from src.io.init_data import init_stock_list
+from src.strategy.analyze import analyze_stocks, get_specific_strategy
 
 
 def test_strategy(
