@@ -2,7 +2,7 @@ import datetime
 
 import akshare as ak
 
-from src.io.update_data import update_recent_data
+from src.io.update_data import update_stocks_recent_data
 
 # dongcai interface
 symbol = "105." + "aapl".upper()
@@ -25,4 +25,4 @@ print(stock_us_hist_df.columns)
 print(stock_us_hist_df)
 
 
-# update_recent_data()
+# update_stocks_recent_data()

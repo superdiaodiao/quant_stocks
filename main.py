@@ -1,17 +1,14 @@
 import os
-import akshare as ak
-import pandas as pd
 
 from src.conf import (
     CLEANED_DATA_DIR,
     DEFAULT_END_DATE,
     HISTORICAL_SIGNAL_FILE,
-    NASDAQ_INDEX_FILE,
     SOURCE_DIR,
 )
 from src.io.read_data import load_csv
 from src.io.init_data import init_stock_list, init_historical_data
-from src.io.update_data import update_recent_data
+from src.io.update_data import update_nasdaq_index_data, update_stocks_recent_data
 from src.strategy.analyze import analyze_stocks
 
 # 创建存储文件夹
@@ -20,16 +17,7 @@ os.makedirs(CLEANED_DATA_DIR, exist_ok=True)
 if __name__ == "__main__":
 
     # 更新nasdaq大盘数据
-    nasdaq_df = ak.index_global_hist_em(symbol="纳斯达克")
-    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
-    nasdaq_df = nasdaq_df.sort_values(by="imp_date")
-
-    nasdaq_df["change_rate"] = (
-        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
-    ) / nasdaq_df["最新价"].shift(1)
-
-    nasdaq_df.drop(columns=["imp_date"], inplace=True)
-    nasdaq_df.to_csv(NASDAQ_INDEX_FILE, index=False)
+    update_nasdaq_index_data()
 
     # 初始化股票列表和信号数据库
     init_stock_list()
@@ -48,7 +36,7 @@ if __name__ == "__main__":
         print("数据已是最新，无需更新。")
     else:
         print("数据不是最新的，开始更新...")
-        update_recent_data(interface_type="sina")
+        update_stocks_recent_data(interface_type="sina")
 
     # 分析股票并输出推荐信号
     recommendations = analyze_stocks()
