@@ -1,4 +1,3 @@
-import sys
 import pandas as pd
 
 from src.conf import NASDAQ_INDEX_FILE
@@ -146,7 +145,7 @@ def select_trading_group(df, group_col, min_count=10):
     return most_frequent_group, most_frequent_group_mean_return
 
 
-def apply_trading_strategy(rsi_data, adx_data, min_count=10):
+def apply_trading_strategy(rsi_data, adx_data, min_count=10, end_date=None):
     """
     根据历史数据和 RSI/ADX 分布，生成交易决策。
 
@@ -174,7 +173,7 @@ def apply_trading_strategy(rsi_data, adx_data, min_count=10):
     return decision
 
 
-if __name__ == "__main__":
+def get_best_rsi_adx_decisions(is_test=False):
 
     ## 如果需要生成指定日期范围的数据，可以取消下面的注释并设置日期范围
     # from strategy.analyze import analyze_stocks
@@ -192,9 +191,11 @@ if __name__ == "__main__":
 
     decisions = []
 
-    df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index(ascending=False)
+    df = pd.read_csv(file_path, index_col="imp_date", parse_dates=True).sort_index(
+        ascending=False
+    )
 
-    if len(sys.argv) > 1:
+    if not is_test:
         end_date_list = [df.index[0]]
     else:
         end_date_list = df.index.drop_duplicates().tolist()
@@ -210,7 +211,9 @@ if __name__ == "__main__":
         print(f"\nRSI收益率分布: \n{rsi_dist}")
         print(f"\nADX收益率分布: \n{adx_dist}")
 
-        decision = apply_trading_strategy(rsi_dist, adx_dist, min_count=10)
+        decision = apply_trading_strategy(
+            rsi_dist, adx_dist, min_count=10, end_date=end_date
+        )
 
         # 检查是否有匹配数据
         filtered_df = nasdaq_df[nasdaq_df["日期"] == end_date]
@@ -227,13 +230,15 @@ if __name__ == "__main__":
 
     output_file = "output/rsi_adx_decisions.csv"
 
-    if len(sys.argv) > 1:
+    if not is_test:
         old_decisions_df = pd.read_csv(output_file)
         new_decisions_df = pd.DataFrame(decisions)
-        decisions_df = pd.concat([old_decisions_df, new_decisions_df], ignore_index=True) \
-            .drop_duplicates(subset=["end_date"], keep="last") \
-            .sort_values(by="end_date", ascending=False) \
+        decisions_df = (
+            pd.concat([old_decisions_df, new_decisions_df], ignore_index=True)
+            .drop_duplicates(subset=["end_date"], keep="last")
+            .sort_values(by="end_date", ascending=False)
             .reset_index(drop=True)
+        )
     else:
         decisions_df = pd.DataFrame(decisions)
 

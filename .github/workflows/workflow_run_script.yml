@@ -61,4 +61,3 @@ jobs:
       if: env.run_scripts == 'true'
       run: |
         python main.py
-        python src/opt_params/get_best_rsi_adx.py "placeholder"
