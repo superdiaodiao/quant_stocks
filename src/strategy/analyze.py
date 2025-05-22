@@ -1,7 +1,13 @@
 import pandas as pd
 from tqdm import tqdm
 
-from src.conf import DEFAULT_END_DATE, LONG_MA, SHORT_MA, STRATEGY_NAME, VOLUMN_THREDHOLD
+from src.conf import (
+    DEFAULT_END_DATE,
+    LONG_MA,
+    SHORT_MA,
+    STRATEGY_NAME,
+    VOLUMN_THREDHOLD,
+)
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
 from src.strategy.common import calculate_moving_average, calculate_week_avg_volume
@@ -16,6 +22,9 @@ def get_specific_strategy(df, strategy):
     elif strategy == "fixed_ma":
         return fixed_ma_strategy(df)
     elif strategy == "dow_theory":
+        # 前两个ma策略的计算已经在strategy中，dow_theory_strategy没有，所以这里要计算，方便最后的信号中也携带
+        df = calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA)
+
         return dow_theory_strategy(df)
     else:
         raise ValueError(f"未知策略: {strategy}")
@@ -51,7 +60,6 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         ):
             continue
 
-        df = calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA)
         df = calculate_week_avg_volume(df)
 
         original_max_df_date = df.index[-1]

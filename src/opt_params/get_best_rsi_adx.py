@@ -104,7 +104,7 @@ def select_trading_group(df, group_col, min_count=10):
     # 如果没有满足的组，返回 None
     if filtered_data.empty:
         print(f"没有任何分组 count >= {min_count}，无法选择分组。")
-        return None, None
+        return None, None, None
 
     # 找出每天评分最高的分组
     daily_max_groups = filtered_data.loc[
@@ -142,35 +142,19 @@ def select_trading_group(df, group_col, min_count=10):
         .round(4)
     )
 
-    return most_frequent_group, most_frequent_group_mean_return
+    # 计算最终选中分组的最新【次日均收益率，也就是mean】
+    most_frequent_group_latest_return = (
+        filtered_data.loc[filtered_data[group_col] == most_frequent_group]
+        .sort_values("imp_date", ascending=False)["mean"]
+        .iloc[0]
+        .round(4)
+    )
 
-
-def apply_trading_strategy(rsi_data, adx_data, min_count=10, end_date=None):
-    """
-    根据历史数据和 RSI/ADX 分布，生成交易决策。
-
-    参数：
-    - rsi_data (pd.DataFrame): RSI 收益分布数据
-    - adx_data (pd.DataFrame): ADX 收益分布数据
-    - min_count (int): 最小样本数量阈值
-
-    返回：
-    - decision (dict): 包括最佳 RSI 和 ADX 分组及其对应评分
-    """
-    rsi_group, rsi_return = select_trading_group(rsi_data, "rsi_group", min_count)
-    adx_group, adx_return = select_trading_group(adx_data, "adx_group", min_count)
-
-    # 基于 RSI 和 ADX 的分组选择，生成简单的决策逻辑
-    decision = {
-        "end_date": end_date,
-        "selected_rsi_group": rsi_group,
-        "selected_rsi_mean_return": rsi_return,
-        "selected_adx_group": adx_group,
-        "selected_adx_mean_return": adx_return,
-    }
-
-    print(f"交易策略决策如下：\n{decision}")
-    return decision
+    return (
+        most_frequent_group,
+        most_frequent_group_mean_return,
+        most_frequent_group_latest_return,
+    )
 
 
 def get_best_rsi_adx_decisions(is_test=False):
@@ -179,10 +163,10 @@ def get_best_rsi_adx_decisions(is_test=False):
     # from strategy.analyze import analyze_stocks
     # from src.conf import DEFAULT_END_DATE
 
-    # end_date = DEFAULT_END_DATE
-    # start_date = pd.to_datetime(end_date) - pd.DateOffset(days=20)
+    # date_list_end = DEFAULT_END_DATE
+    # date_list_start = "2025-03-03" # historical_signals.csv的开始日期, 方便对比
 
-    # end_date_list = pd.date_range(start_date, end_date).tolist()
+    # end_date_list = pd.date_range(date_list_start, date_list_end).sort_values().tolist()
     # for end_date in end_date_list:
     #     end_date = end_date.strftime("%Y-%m-%d")
     #     analyze_stocks(is_test=False,end_date=end_date,add_his_rec=False)
@@ -198,7 +182,7 @@ def get_best_rsi_adx_decisions(is_test=False):
     if not is_test:
         end_date_list = [df.index[0]]
     else:
-        end_date_list = df.index.drop_duplicates().tolist()
+        end_date_list = df.index.sort_values().drop_duplicates().tolist()
 
     for end_date in end_date_list:
         end_date = end_date.strftime("%Y-%m-%d")
@@ -211,9 +195,25 @@ def get_best_rsi_adx_decisions(is_test=False):
         print(f"\nRSI收益率分布: \n{rsi_dist}")
         print(f"\nADX收益率分布: \n{adx_dist}")
 
-        decision = apply_trading_strategy(
-            rsi_dist, adx_dist, min_count=10, end_date=end_date
+        rsi_group, rsi_mean_return, rsi_latest_return = select_trading_group(
+            rsi_dist, "rsi_group", min_count=10
         )
+        adx_group, adx_mean_return, adx_latest_return = select_trading_group(
+            adx_dist, "adx_group", min_count=10
+        )
+
+        # 基于 RSI 和 ADX 的分组选择，生成简单的决策逻辑
+        decision = {
+            "end_date": end_date,
+            "rsi_group": rsi_group,
+            "rsi_mean_return": rsi_mean_return,
+            "rsi_latest_return": rsi_latest_return,
+            "adx_group": adx_group,
+            "adx_mean_return": adx_mean_return,
+            "adx_latest_return": adx_latest_return,
+        }
+
+        print(f"交易策略决策如下：\n{decision}")
 
         # 检查是否有匹配数据
         filtered_df = nasdaq_df[nasdaq_df["日期"] == end_date]
@@ -243,6 +243,29 @@ def get_best_rsi_adx_decisions(is_test=False):
         decisions_df = pd.DataFrame(decisions)
 
     print(decisions_df)
+
+    # RSI 最新/平均回报大于等于 NASDAQ 变化率的比例
+    latest_rsi_condition = (
+        decisions_df["rsi_latest_return"] >= decisions_df["nasdaq_change_rate"]
+    )
+    mean_rsi_condition = (
+        decisions_df["rsi_mean_return"] >= decisions_df["nasdaq_change_rate"]
+    )
+
+    # ADX 最新/平均回报大于等于 NASDAQ 变化率的比例
+    latest_adx_condition = (
+        decisions_df["adx_latest_return"] >= decisions_df["nasdaq_change_rate"]
+    )
+    mean_adx_condition = (
+        decisions_df["adx_mean_return"] >= decisions_df["nasdaq_change_rate"]
+    )
+
+    print(
+        f"RSI 最新回报不低于大盘收益的比例: {latest_rsi_condition.mean():.2%}\n"
+        f"ADX 最新回报不低于大盘收益的比例: {mean_rsi_condition.mean():.2%}\n"
+        f"RSI 平均回报不低于大盘收益的比例: {latest_adx_condition.mean():.2%}\n"
+        f"ADX 平均回报不低于大盘收益的比例: {mean_adx_condition.mean():.2%}"
+    )
 
     decisions_df.to_csv(output_file, index=False, mode="w")
     print(f"交易策略决策已保存到 {output_file}")
