@@ -35,21 +35,104 @@ def calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA):
 
     df["short_ma"] = round(df["close"].rolling(short_ma).mean(), 4)
     df["long_ma"] = round(df["close"].rolling(long_ma).mean(), 4)
-    
+
     df["50d_ma"] = round(df["close"].rolling(50).mean(), 4)
 
     return df
 
 
 # 计算RSI和ADX指标
-def calculate_rsi_adx(df):
-    df["rsi"] = round(talib.RSI(df["close"], timeperiod=14), 2)  # type: ignore # RSI指标
+def calculate_rsi_adx(df, timeperiod=14):
+    df["rsi"] = round(talib.RSI(df["close"], timeperiod=timeperiod), 2)  # type: ignore # RSI指标
     df["adx"] = round(
         talib.ADX(  # type: ignore # ADX指标
-            df["high"], df["low"], df["close"], timeperiod=14
+            df["high"], df["low"], df["close"], timeperiod=timeperiod
         ),
         2,
     )  # ADX平均趋向指数
+    return df
+
+
+# 计算MACD和买卖信号
+# MACD指标是移动平均收敛/发散指标，常用于判断趋势的强弱和方向
+# MACD的计算公式如下：
+# DIF = EMA(Close, FastPeriod) - EMA(Close, SlowPeriod)
+# DEA = EMA(DIF, SignalPeriod)
+# MACD = 2 * (DIF - DEA)
+# 其中，EMA为指数移动平均，FastPeriod、SlowPeriod和SignalPeriod分别为快速、慢速和信号线的周期。
+def calculate_macd(df, fastperiod=12, slowperiod=26, signalperiod=9):
+    df["macd"], df["macd_signal"], df["macd_hist"] = talib.MACD(  # type: ignore
+        df["close"],
+        fastperiod=fastperiod,
+        slowperiod=slowperiod,
+        signalperiod=signalperiod,
+    )
+
+    # MACD零上金叉
+    macd_buy_signal = (df["macd"] > df["macd_signal"]) & (
+        df["macd_hist"].shift(1) < 0
+    )  # 柱状线由负转正
+    df["macd_buy_signal"] = macd_buy_signal.astype(int)
+
+    # MACD顶背离
+    macd_sell_signal = (df["macd"] < df["macd_signal"]) & (
+        df["high"] > df["high"].shift(2)
+    )
+    df["macd_sell_signal"] = macd_sell_signal.astype(int)
+
+    return df
+
+
+# 计算KDJ和买卖信号
+# KDJ指标是随机指标的改进版，常用于判断超买超卖状态
+# KDJ的计算公式如下：
+# RSV = (C - L14) / (H14 - L14) * 100
+# K = K-1 * (1 - α) + RSV * α
+# D = D-1 * (1 - α) + K * α
+# J = 3 * K - 2 * D
+# 其中，C为当前收盘价，L14为过去14天的最低价，H14为过去14天的最高价，
+# α为平滑系数（通常取1/3），K和D的初始值通常取50。
+def calculate_kdj(
+    df, window=14, alpha=1 / 3, adjust=False, buy_threshold=30, sell_threshold=70
+):
+
+    high_14 = df["high"].rolling(window=window).max()
+    low_14 = df["low"].rolling(window=window).min()
+    df["rsv"] = (df["close"] - low_14) / (high_14 - low_14) * 100
+    df["k"] = round(df["rsv"].ewm(alpha=alpha, adjust=adjust).mean(), 2)  # K值
+    df["d"] = round(df["k"].ewm(alpha=alpha, adjust=adjust).mean(), 2)  # D值
+    df["j"] = round(3 * df["k"] - 2 * df["d"], 2)  # J值
+
+    # KDJ超卖区金叉
+    kdj_buy_signal = (df["k"] > df["d"]) & (df["j"] < buy_threshold)
+    df["kdj_buy_signal"] = kdj_buy_signal.astype(int)
+
+    # KDJ超买死叉
+    kdj_sell_signal = (df["k"] < df["d"]) & (df["j"] > sell_threshold)
+    df["kdj_sell_signal"] = kdj_sell_signal.astype(int)
+
+    return df
+
+
+# 计算布林带和买卖信号
+# 布林带是基于移动平均线和标准差的波动率指标，常用于判断价格的波动范围
+def calculate_bollinger_bands(df, window=50, num_std=3):
+
+    df["ma"] = df["close"].rolling(window=window).mean()  # 中轨（移动平均线）
+    std = df["close"].rolling(window=window).std()  # 滚动标准差
+    df["upper"] = df["ma"] + (std * num_std)  # 上轨
+    df["lower"] = df["ma"] - (std * num_std)  # 下轨
+
+    if num_std == 0:
+        bollinger_buy_signal = df["close"] < df["ma"]
+        bollinger_sell_signal = df["close"] > df["ma"]
+    else:
+        bollinger_buy_signal = (df["close"] < df["ma"]) & (df["close"] > df["lower"])
+        bollinger_sell_signal = (df["close"] > df["ma"]) & (df["close"] < df["upper"])
+
+    df["bollinger_buy_signal"] = bollinger_buy_signal.astype(int)
+    df["bollinger_sell_signal"] = bollinger_sell_signal.astype(int)
+
     return df
 
 
@@ -81,10 +164,7 @@ def calculate_week_avg_volume(df):
 
     # 2. 计算每周的「上周周一到周五的均值」
     # 获取每周一到周五的数据并计算均值
-    last_week_avg = (
-        df.groupby("week_start")["volume"]
-        .mean()
-    )
+    last_week_avg = df.groupby("week_start")["volume"].mean()
 
     # 将 "上周的均值" 映射到当前周
     df["last_week_avg"] = df["week_start"].map(

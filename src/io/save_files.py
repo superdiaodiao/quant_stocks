@@ -2,13 +2,97 @@ import os
 
 import pandas as pd
 
-from src.conf import CLEANED_DATA_DIR, HISTORICAL_SIGNAL_FILE, SIGNAL_FILE
+from src.conf import (
+    CLEANED_EPS_DATA_FILE,
+    CLEANED_PRICE_DATA_DIR,
+    HISTORICAL_SIGNAL_FILE,
+    SIGNAL_FILE,
+    STOCK_EPS_FILE,
+)
 from src.io.read_data import load_csv
+
+
+def save_pe_denominator(
+    df=None, eps_file=STOCK_EPS_FILE, pe_deno_file=CLEANED_EPS_DATA_FILE
+):
+
+    df = pd.read_csv(eps_file) if df is None else df
+
+    df = df.drop_duplicates(subset=["ticker", "std_report_date"], keep="last")
+    df["std_report_date"] = pd.to_datetime(df["std_report_date"])
+    df["report_date"] = pd.to_datetime(df["report_date"])
+
+    # 单独处理函数
+    def process_func(group):
+        # 填充 eps 列：优先使用 diluted_eps，如果为空则用 basic_eps
+        group["eps"] = group["diluted_eps"].fillna(group["basic_eps"])
+
+        # 按 std_report_date 排序
+        group = group.sort_values(by="std_report_date").reset_index(drop=True)
+
+        # 检测是否为连续的正常季度（间隔应为 3 个月，即 90 天）
+        group["month_diff"] = (
+            group["std_report_date"]
+            .diff()
+            .apply(lambda x: (x.days // 30) if pd.notna(x) else 0)
+        )
+        group["is_continuous"] = (group["month_diff"] == 3) | (
+            group["std_report_date"] == group["std_report_date"].min()
+        )
+
+        # 判断 4 个季度窗是否连续，使用滑动窗口检查连续性
+        group["valid_window"] = (
+            group["is_continuous"]
+            .rolling(window=4, min_periods=4)
+            .apply(lambda x: x.all(), raw=True)
+        )
+
+        # 计算前 4 个季度 eps 的总和
+        group["trailing_eps"] = round(
+            group["eps"].rolling(window=4, min_periods=4).sum(), 2
+        )
+
+        # 如果窗口无效（不连续），则 trailing_eps 置为 NaN
+        group.loc[group["valid_window"] != 1, "trailing_eps"] = np.nan
+
+        return group
+
+    # 分组处理每只股票
+    res_df = df.groupby("ticker", group_keys=False).apply(process_func)
+
+    # 只保留需要的列
+    res_df = res_df[
+        [
+            "ticker",
+            "report_date",
+            "std_report_date",
+            "basic_eps",
+            "diluted_eps",
+            "trailing_eps",
+        ]
+    ]
+
+    # 排序结果
+    res_df["report_date"] = res_df["report_date"].apply(
+        lambda x: pd.to_datetime(x, errors="coerce").strftime("%Y-%m-%d")
+    )
+    res_df["std_report_date"] = res_df["std_report_date"].apply(
+        lambda x: pd.to_datetime(x, errors="coerce").strftime("%Y-%m-%d")
+    )
+    res_df = res_df.sort_values(
+        by=["ticker", "report_date", "std_report_date"], ascending=[True, False, False]
+    )  # type: ignore
+
+    if pe_deno_file:
+        res_df.to_csv(pe_deno_file, index=False)
+        print(f"PE 分母数据已保存到 {pe_deno_file}")
+
+    return res_df
 
 
 def save_stocks_data(ticker, data):
     """保存股票历史价格数据为 CSV 文件"""
-    file_path = os.path.join(CLEANED_DATA_DIR, f"{ticker}.csv")
+    file_path = os.path.join(CLEANED_PRICE_DATA_DIR, f"{ticker}.csv")
     if os.path.exists(file_path):
         existing_data = pd.read_csv(file_path, index_col="date", parse_dates=True)
         data = pd.concat([existing_data, data])

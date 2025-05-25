@@ -4,15 +4,21 @@ import os
 
 
 PROJECT_PATH = os.getcwd() + "/"
-SOURCE_DIR = PROJECT_PATH + "his_data/us/nasdaq stocks"
+STOCK_PRICE_SOURCE_DIR = PROJECT_PATH + "his_data/us/nasdaq/stocks_price"
+STOCK_EPS_FILE = PROJECT_PATH + "his_data/us/nasdaq/finance_info/eps.csv"
 
 NASDAQ_PATH = PROJECT_PATH + "stocks_list_dir/nasdaq/"
+NASDAQ_GLOBAL_SELECT_10B_STOCK_LIST_FILE = NASDAQ_PATH + "global_select/g_s_10B.csv"
+NASDAQ_GLOBAL_SELECT_2B_STOCK_LIST_FILE = NASDAQ_PATH + "global_select/g_s_2B.csv"
 NASDAQ_GLOBAL_SELECT_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_select/g_s_300M.csv"
 NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_market/g_m_300M.csv"
 NASDAQ_300M_STOCK_LIST_FILE = NASDAQ_PATH + "nasdaq_300M.csv"
 NASDAQ_INDEX_FILE = NASDAQ_PATH + "nasdaq_index.csv"  # 纳斯达克指数文件
 
-CLEANED_DATA_DIR = PROJECT_PATH + "cleaned_stocks_data"  # 保存历史数据的目录
+SP500_VIX_FILE = PROJECT_PATH + "his_data/us/sp500/vix.csv"  # VIX指数文件
+
+CLEANED_PRICE_DATA_DIR = PROJECT_PATH + "cleaned_stocks_data/price"  # 保存历史价格数据的目录
+CLEANED_EPS_DATA_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/trailing_eps.csv"
 
 OUTPUT_PATH = PROJECT_PATH + "output/"  # 保存输出结果的目录
 HISTORICAL_SIGNAL_FILE = OUTPUT_PATH + "historical_signals.csv"  # 历史信号文件

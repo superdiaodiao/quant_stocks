@@ -10,20 +10,27 @@ from src.conf import (
 )
 from src.io.read_data import load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
-from src.strategy.common import calculate_moving_average, calculate_week_avg_volume
+from src.strategy.common import (
+    calculate_bollinger_bands,
+    calculate_kdj,
+    calculate_moving_average,
+    calculate_week_avg_volume,
+)
 from src.strategy.dow_theory.gen_strategy import dow_theory_strategy
 from src.strategy.ma.gen_fix_strategy import fixed_ma_strategy
 from src.strategy.ma.gen_strategy import ma_strategy
 
 
-def get_specific_strategy(df, strategy):
+def get_specific_strategy(
+    df, short_ma=SHORT_MA, long_ma=LONG_MA, strategy=STRATEGY_NAME
+):
     if strategy == "ma":
-        return ma_strategy(df)
+        return ma_strategy(df, short_ma=short_ma, long_ma=long_ma)
     elif strategy == "fixed_ma":
-        return fixed_ma_strategy(df)
+        return fixed_ma_strategy(df, short_ma=short_ma, long_ma=long_ma)
     elif strategy == "dow_theory":
         # 前两个ma策略的计算已经在strategy中，dow_theory_strategy没有，所以这里要计算，方便最后的信号中也携带
-        df = calculate_moving_average(df, short_ma=SHORT_MA, long_ma=LONG_MA)
+        df = calculate_moving_average(df, short_ma=short_ma, long_ma=long_ma)
 
         return dow_theory_strategy(df)
     else:
@@ -48,6 +55,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         "adx",
         "volume_avg_w",
         "volume_avg_w_pct",
+        "k",
+        "d",
+        "j",
     ]
 
     for ticker in tqdm(tickers, desc="分析股票"):
@@ -61,11 +71,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
             continue
 
         df = calculate_week_avg_volume(df)
-
-        original_max_df_date = df.index[-1]
-        print(original_max_df_date)
-
-        df = get_specific_strategy(df, STRATEGY_NAME)
+        df = get_specific_strategy(df, SHORT_MA, LONG_MA, STRATEGY_NAME)
+        calculate_kdj(df)
+        calculate_bollinger_bands(df)
 
         if df.empty:
             print(f"{ticker}没有满足策略条件的数据，跳过")
@@ -75,7 +83,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
 
         max_df_date = df.index[-1]
 
-        if abs(df.iloc[-1]["signal"]) >= 0:  # 买入/卖出信号
+        if (
+            abs(df.iloc[-1]["signal"]) >= 0
+        ):  # 买入/卖出趋势信号，还需要结合其他指标进行判断
 
             # 如果不需要历史记录，则只保留end_date的记录
             if not add_his_rec:
@@ -84,13 +94,22 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     print(f"{ticker}没有满足策略条件的数据，跳过")
                     continue
 
-            action = "buy" if (df.iloc[-1]["signal"] == 1) else "sell"
-
-            if action == "buy" and (
-                df.iloc[-1].loc["close"] < df.iloc[-1].loc["short_ma"]
-                or df.iloc[-1].loc["close"] < df.iloc[-1].loc["long_ma"]
+            if (
+                df.iloc[-1]["signal"]
+                == 1 & df.iloc[-1]["kdj_buy_signal"]
+                == 1 & df.iloc[-1]["bollinger_buy_signal"]
+                == 1
             ):
-                print(f"{ticker}的价格低于均线, 不加入buy信号")
+                action = "buy"
+            elif (
+                df.iloc[-1]["signal"]
+                == 0 & df.iloc[-1]["kdj_sell_signal"]
+                == 1 & df.iloc[-1]["bollinger_sell_signal"]
+                == 1
+            ):
+                action = "sell"
+            else:
+                action = "hold"
                 continue
 
             recommendations.append(
@@ -106,6 +125,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     "adx": df.iloc[-1]["adx"],
                     "volume_avg_w": df.iloc[-1]["volume_avg_w"],
                     "volume_avg_w_pct": df.iloc[-1]["volume_avg_w_pct"],
+                    "k": df.iloc[-1]["k"],
+                    "d": df.iloc[-1]["d"],
+                    "j": df.iloc[-1]["j"],
                 }
             )
 

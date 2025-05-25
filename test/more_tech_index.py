@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
+from strategy.common import calculate_kdj, calculate_macd
 from strategy.ma.gen_strategy import ma_strategy
 from src.io.read_data import load_stocks_data
 
@@ -25,8 +26,23 @@ recommendations = []
 for ticker in tqdm(tickers, desc="分析股票"):
     df = load_stocks_data(ticker)
     df = ma_strategy(df)
+    calculate_macd(df)
+    calculate_kdj(df)
     # 查看信号和仓位
     print(
-        df[["close", "short_ma", "long_ma", "rsi", "adx", "signal", "position"]].tail()
+        df[
+            [
+                "close",
+                "short_ma",
+                "long_ma",
+                "rsi",
+                "adx",
+                "signal",
+                "macd_buy_signal",
+                "macd_sell_signal",
+                "kdj_buy_signal",
+                "kdj_sell_signal",
+            ]
+        ].tail()
     )
-    plot_strategy_performance(df)
+    # plot_strategy_performance(df)

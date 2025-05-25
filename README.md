@@ -73,7 +73,8 @@ pip install -r requirements.txt
 
 # 2.Historical Data Resource
 
-get history data at https://stooq.com/db/h/
+get history stocks data at https://stooq.com/db/h/
+get VIX data at https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv
 
 # 3.Prepare Stock List
 
