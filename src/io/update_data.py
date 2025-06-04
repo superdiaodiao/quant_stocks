@@ -7,6 +7,7 @@ from datetime import datetime
 from src.conf import (
     DEFAULT_END_DATE,
     DEFAULT_START_DATE,
+    NASDAQ_INDEX_FILE,
     STOCK_EPS_FILE,
 )
 from src.io.read_data import fetch_stock_eps, get_stock_list, load_stocks_data
@@ -16,14 +17,12 @@ MAX_RETRIES = 5  # 最大重试次数
 RETRY_DELAY = 10  # 每次重试的间隔时间（秒）
 
 end_date = DEFAULT_END_DATE
-# 2025年0529发现接口有问题, 暂时不使用
-# current_nasdaq_df = pd.read_csv(NASDAQ_INDEX_FILE, index_col="日期", parse_dates=True, encoding="utf-8")
-# nasdaq_max_date = (
-#     current_nasdaq_df.sort_index().index[-1]
-#     if not current_nasdaq_df.empty
-#     else end_date
-# )
-nasdaq_max_date = end_date
+current_nasdaq_df = pd.read_csv(NASDAQ_INDEX_FILE, index_col="日期", parse_dates=True, encoding="utf-8")
+nasdaq_max_date = (
+    current_nasdaq_df.sort_index().index[-1]
+    if not current_nasdaq_df.empty
+    else end_date
+)
 
 # 美股财报的正常更新周期（90天一季）
 report_date_threshold = 90
@@ -56,33 +55,31 @@ def fetch_data_with_retries(fetch_function, *args, **kwargs):
 
 
 def update_nasdaq_index_data():
-    """更新纳斯达克指数数据
-    2025年0529发现接口有问题, 暂时不使用
     """
-    pass
+    更新纳斯达克指数数据
+    """
 
+    if pd.to_datetime(nasdaq_max_date) >= pd.to_datetime(end_date):
+        print("NASDAQ index data is already up to date.")
+        nasdaq_df = current_nasdaq_df
+    else:
+        print("Fetching latest NASDAQ index data...")
+        nasdaq_df = fetch_data_with_retries(ak.index_global_hist_em, symbol="纳斯达克")
 
-#     if pd.to_datetime(nasdaq_max_date) >= pd.to_datetime(end_date):
-#         print("NASDAQ index data is already up to date.")
-#         nasdaq_df = current_nasdaq_df
-#     else:
-#         print("Fetching latest NASDAQ index data...")
-#         nasdaq_df = fetch_data_with_retries(ak.index_global_hist_em, symbol="纳斯达克")
+    if nasdaq_df is None or nasdaq_df.empty:
+        raise ValueError("Failed to fetch NASDAQ index data.")
 
-#     if nasdaq_df is None or nasdaq_df.empty:
-#         raise ValueError("Failed to fetch NASDAQ index data.")
+    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
+    nasdaq_df = nasdaq_df.sort_values(by="imp_date")
 
-#     nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
-#     nasdaq_df = nasdaq_df.sort_values(by="imp_date")
+    nasdaq_df["change_rate"] = (
+        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
+    ) / nasdaq_df["最新价"].shift(1)
 
-#     nasdaq_df["change_rate"] = (
-#         nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
-#     ) / nasdaq_df["最新价"].shift(1)
-
-#     nasdaq_df.drop(columns=["imp_date"], inplace=True)
-#     nasdaq_df.reset_index(drop=True, inplace=True)
-#     nasdaq_df.to_csv(NASDAQ_INDEX_FILE, index=False)
-#     return nasdaq_df
+    nasdaq_df.drop(columns=["imp_date"], inplace=True)
+    nasdaq_df.reset_index(drop=True, inplace=True)
+    nasdaq_df.to_csv(NASDAQ_INDEX_FILE, index=False)
+    return nasdaq_df
 
 
 # 更新股票每股收益数据, 一般每季度更新一次

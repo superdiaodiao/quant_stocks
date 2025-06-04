@@ -1,6 +1,7 @@
 import pandas as pd
 from tqdm import tqdm
 
+from financial.pe import calculate_pe, get_sorted_eps_data
 from src.conf import (
     DEFAULT_END_DATE,
     LONG_MA,
@@ -8,7 +9,7 @@ from src.conf import (
     STRATEGY_NAME,
     VOLUMN_THREDHOLD,
 )
-from src.io.read_data import load_stocks_data, get_stock_list
+from src.io.read_data import get_vix_data, load_stocks_data, get_stock_list
 from src.io.save_files import save_signals
 from src.strategy.common import (
     calculate_bollinger_bands,
@@ -60,6 +61,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         "j",
     ]
 
+    vix_df = get_vix_data()
+    vix_df.index = pd.to_datetime(vix_df.index)
+
     for ticker in tqdm(tickers, desc="分析股票"):
         df = load_stocks_data(ticker, end_date)
         if (
@@ -74,17 +78,51 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
         df = get_specific_strategy(df, SHORT_MA, LONG_MA, STRATEGY_NAME)
         calculate_kdj(df)
         calculate_bollinger_bands(df)
+        calculate_pe(df, get_sorted_eps_data())
 
         if df.empty:
             print(f"{ticker}没有满足策略条件的数据，跳过")
             continue
 
+        df = pd.merge(
+            left=df,
+            right=vix_df,
+            how="left",  # 左连接：以 df 为主
+            left_index=True,  # 使用左表的索引作为连接键
+            right_index=True,  # 使用右表的索引作为连接键
+        )
+
+        current_vix_close = df.iloc[-1]["vix_close"]
+        if current_vix_close >= 25:  # 高
+            dynamic_buy_combinations = [0, 2, 3]
+        elif current_vix_close >= 15 and current_vix_close < 25:  # 中
+            dynamic_buy_combinations = [0, 1]
+        else:  # 低
+            dynamic_buy_combinations = [1, 2]
+
+        dynamic_sell_combinations = [0, 1]
+
+        buy_conditions = [
+            df.iloc[-1]["bollinger_buy_signal"] == 1.0,
+            df.iloc[-1]["kdj_buy_signal"] == 1.0,
+            df.iloc[-1]["signal"] == 1.0,
+            df.iloc[-1]["pe"] <= 100,
+        ]
+        selected_buy_conditions = [buy_conditions[i] for i in dynamic_buy_combinations]
+        sell_conditions = [
+            df.iloc[-1]["bollinger_sell_signal"] == 1.0,
+            df.iloc[-1]["kdj_sell_signal"] == 1.0,
+        ]
+        selected_sell_conditions = [
+            sell_conditions[i] for i in dynamic_sell_combinations
+        ]
+
         print(df.tail())
 
         max_df_date = df.index[-1]
 
-        if (
-            abs(df.iloc[-1]["signal"]) >= 0
+        if any(selected_buy_conditions) or any(
+            selected_sell_conditions
         ):  # 买入/卖出趋势信号，还需要结合其他指标进行判断
 
             # 如果不需要历史记录，则只保留end_date的记录
@@ -94,19 +132,9 @@ def analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False):
                     print(f"{ticker}没有满足策略条件的数据，跳过")
                     continue
 
-            if (
-                df.iloc[-1]["signal"]
-                == 1 & df.iloc[-1]["kdj_buy_signal"]
-                == 1 & df.iloc[-1]["bollinger_buy_signal"]
-                == 1
-            ):
+            if any(selected_buy_conditions):
                 action = "buy"
-            elif (
-                df.iloc[-1]["signal"]
-                == 0 & df.iloc[-1]["kdj_sell_signal"]
-                == 1 & df.iloc[-1]["bollinger_sell_signal"]
-                == 1
-            ):
+            elif any(selected_sell_conditions):
                 action = "sell"
             else:
                 action = "hold"

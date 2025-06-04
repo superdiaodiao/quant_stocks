@@ -6,3 +6,4 @@ matplotlib~=3.10.1
 akshare~=1.16.95
 numba~=0.61.0
 backtrader~=1.9.78
+wget~=3.2

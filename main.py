@@ -6,9 +6,13 @@ from src.conf import (
     HISTORICAL_SIGNAL_FILE,
     STOCK_PRICE_SOURCE_DIR,
 )
-from src.io.read_data import load_csv
 from src.io.init_data import init_stock_list, init_historical_data
-from src.io.update_data import update_nasdaq_index_data, update_stocks_recent_data
+from src.io.read_data import load_csv
+from src.io.save_files import max_local_vix_date, save_vix_data
+from src.io.update_data import (
+    update_nasdaq_index_data,
+    update_stocks_recent_data,
+)
 from src.strategy.analyze import analyze_stocks
 
 # 创建存储文件夹
@@ -18,6 +22,14 @@ if __name__ == "__main__":
 
     # 更新nasdaq大盘数据
     update_nasdaq_index_data()
+
+    from src.io.update_data import nasdaq_max_date
+
+    # 更新sp500 vix数据
+    if max_local_vix_date == nasdaq_max_date:
+        print("本地 VIX 历史数据已存在，无需更新。")
+    elif not save_vix_data():
+        raise Exception("下载 VIX 历史数据失败。")
 
     # 初始化股票列表
     init_stock_list()
@@ -39,4 +51,4 @@ if __name__ == "__main__":
         update_stocks_recent_data(interface_type="sina")
 
     # 分析股票并输出推荐信号
-    analyze_stocks(is_test=False, end_date=DEFAULT_END_DATE, add_his_rec=False)
+    analyze_stocks(is_test=False, end_date=nasdaq_max_date, add_his_rec=False)

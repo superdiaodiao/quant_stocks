@@ -44,6 +44,6 @@ def calculate_pe(df_stocks, df_eps):
     )
 
     # 计算 PE
-    df_result["pe"] = round(df_result["close"] / df_result["trailing_eps"], 2)
+    df_stocks["pe"] = round(df_result["close"] / df_result["trailing_eps"], 2)
 
-    return df_result  # 返回结果
+    return df_stocks  # 返回结果

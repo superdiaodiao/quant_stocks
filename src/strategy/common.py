@@ -136,6 +136,58 @@ def calculate_bollinger_bands(df, window=50, num_std=3):
     return df
 
 
+def calculate_donchian_channel(df, window=20):
+    """
+    计算唐奇安通道
+
+    :param df: 包含 close, high, low 列的数据框 (DataFrame)
+    :param window: 唐奇安通道的窗口期长度，默认 20
+    :return: 增加唐奇安上轨/中轨/下轨以及买卖信号列的数据框
+    """
+    # 上轨：过去 window 天的最高值
+    df["donchian_upper"] = df["high"].rolling(window=window).max()
+    # 下轨：过去 window 天的最低值
+    df["donchian_lower"] = df["low"].rolling(window=window).min()
+    # 中轨：上轨和下轨的均值
+    df["donchian_middle"] = (df["donchian_upper"] + df["donchian_lower"]) / 2
+
+    # 买入信号：收盘价突破上轨
+    df["donchian_buy_signal"] = (df["close"] > df["donchian_upper"]).astype(int)
+    # 卖出信号：收盘价跌破下轨
+    df["donchian_sell_signal"] = (df["close"] < df["donchian_lower"]).astype(int)
+
+    return df
+
+
+def calculate_keltner_channel(df, window=20, atr_window=14, multiplier=1.5):
+    """
+    计算肯特纳通道
+
+    :param df: 包含 close, high, low 列的数据框 (DataFrame)
+    :param window: 移动平均窗口期长度，默认为 20
+    :param atr_window: ATR 的窗口期长度，默认为 14
+    :param multiplier: ATR 的乘数，默认为 1.5
+    :return: 增加肯特纳中轨/上轨/下轨以及买卖信号列的数据框
+    """
+    # 中轨：收盘价的简单滑动均线
+    df["keltner_middle"] = df["close"].rolling(window=window).mean()
+
+    # 使用 ta-lib 计算 ATR
+    df["atr"] = talib.ATR(df["high"], df["low"], df["close"], timeperiod=atr_window)  # type: ignore
+
+    # 上轨
+    df["keltner_upper"] = df["keltner_middle"] + multiplier * df["atr"]
+    # 下轨
+    df["keltner_lower"] = df["keltner_middle"] - multiplier * df["atr"]
+
+    # 买入信号：收盘价突破上轨
+    df["keltner_buy_signal"] = (df["close"] > df["keltner_upper"]).astype(int)
+    # 卖出信号：收盘价跌破下轨
+    df["keltner_sell_signal"] = (df["close"] < df["keltner_lower"]).astype(int)
+
+    return df
+
+
 def calculate_sharpe_ratio(df):
     return round(
         df["daily_return"].mean() / (df["daily_return"].std() + 1e-8) * np.sqrt(252), 4

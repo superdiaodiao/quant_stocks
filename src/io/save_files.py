@@ -1,15 +1,70 @@
 import os
 
 import pandas as pd
+import wget
 
 from src.conf import (
     CLEANED_EPS_DATA_FILE,
     CLEANED_PRICE_DATA_DIR,
     HISTORICAL_SIGNAL_FILE,
     SIGNAL_FILE,
+    SP500_VIX_FILE,
     STOCK_EPS_FILE,
 )
 from src.io.read_data import load_csv
+
+
+vix_data_file_url = (
+    "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"
+)
+temp_vix_file = "temp_vix_history.csv"
+vix_output_path = SP500_VIX_FILE
+local_vix_df = pd.read_csv(vix_output_path, index_col="DATE", parse_dates=True)
+max_local_vix_date = local_vix_df.index.max()
+
+
+# 本地保存路径
+def save_vix_data():
+    """
+    下载 VIX 历史数据，判断日期并更新本地文件。
+    """
+
+    try:
+        # 下载 CSV 文件到临时路径
+        print(f"正在下载文件：{vix_data_file_url}")
+        wget.download(vix_data_file_url, temp_vix_file)
+        print("\n下载完成。")
+
+        remote_df = pd.read_csv(temp_vix_file, index_col="DATE", parse_dates=True)
+        max_remote_vix_date = remote_df.index.max()
+
+        # 比较远程数据的最大日期和本地文件的最大日期
+        if max_remote_vix_date >= max_local_vix_date:
+
+            # 保存远程数据到文件（覆盖模式）
+            if max_remote_vix_date == max_local_vix_date:
+                print(
+                    f"远程文件的最大日期 {max_remote_vix_date.strftime('%Y-%m-%d')} 等于本地最大日期，不做更新。"
+                )
+            else:
+                print(
+                    f"远程文件的最大日期 {max_remote_vix_date.strftime('%Y-%m-%d')} 大于本地最大日期 {max_local_vix_date.strftime('%Y-%m-%d')}，更新本地文件。"
+                )
+                # 需要更新本地文件
+                remote_df.to_csv(vix_output_path)
+                print(f"数据已保存到文件：{vix_output_path}")
+            return True
+        else:
+            print(
+                f"远程文件的最大日期 {max_remote_vix_date.strftime('%Y-%m-%d')} 小于本地最大日期 {max_local_vix_date.strftime('%Y-%m-%d')}，不做更新。"
+            )
+            return False
+
+    finally:
+        # 删除临时文件
+        if os.path.exists(temp_vix_file):
+            os.remove(temp_vix_file)
+            print("临时文件已删除。")
 
 
 def save_pe_denominator(
