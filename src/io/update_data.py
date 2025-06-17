@@ -17,7 +17,7 @@ MAX_RETRIES = 5  # 最大重试次数
 RETRY_DELAY = 10  # 每次重试的间隔时间（秒）
 
 end_date = DEFAULT_END_DATE
-current_nasdaq_df = pd.read_csv(NASDAQ_INDEX_FILE, index_col="日期", parse_dates=True, encoding="utf-8")
+current_nasdaq_df = pd.read_csv(NASDAQ_INDEX_FILE, index_col="date", parse_dates=True, encoding="utf-8")
 nasdaq_max_date = (
     current_nasdaq_df.sort_index().index[-1]
     if not current_nasdaq_df.empty
@@ -61,20 +61,20 @@ def update_nasdaq_index_data():
 
     if pd.to_datetime(nasdaq_max_date) >= pd.to_datetime(end_date):
         print("NASDAQ index data is already up to date.")
-        nasdaq_df = current_nasdaq_df
+        return current_nasdaq_df
     else:
         print("Fetching latest NASDAQ index data...")
-        nasdaq_df = fetch_data_with_retries(ak.index_global_hist_em, symbol="纳斯达克")
+        nasdaq_df = fetch_data_with_retries(ak.index_us_stock_sina, symbol=".IXIC")
 
     if nasdaq_df is None or nasdaq_df.empty:
         raise ValueError("Failed to fetch NASDAQ index data.")
 
-    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["日期"])
+    nasdaq_df["imp_date"] = pd.to_datetime(nasdaq_df["date"])
     nasdaq_df = nasdaq_df.sort_values(by="imp_date")
 
     nasdaq_df["change_rate"] = (
-        nasdaq_df["最新价"] - nasdaq_df["最新价"].shift(1)
-    ) / nasdaq_df["最新价"].shift(1)
+        nasdaq_df["close"] - nasdaq_df["close"].shift(1)
+    ) / nasdaq_df["close"].shift(1)
 
     nasdaq_df.drop(columns=["imp_date"], inplace=True)
     nasdaq_df.reset_index(drop=True, inplace=True)

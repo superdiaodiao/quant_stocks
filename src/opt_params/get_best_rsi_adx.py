@@ -216,7 +216,7 @@ def get_best_rsi_adx_decisions(is_test=False):
         print(f"交易策略决策如下：\n{decision}")
 
         # 检查是否有匹配数据
-        filtered_df = nasdaq_df[nasdaq_df["日期"] == end_date]
+        filtered_df = nasdaq_df[nasdaq_df["date"] == end_date]
 
         if not filtered_df.empty:
             nasdaq_change_rate = filtered_df["change_rate"].iloc[0].round(4)
