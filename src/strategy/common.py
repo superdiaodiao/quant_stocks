@@ -5,6 +5,123 @@ import talib
 from src.conf import LONG_MA, SHORT_MA
 
 
+def monthly_signal_dates(
+    trading_dates: pd.DatetimeIndex, start: str, end: str | None
+) -> pd.DatetimeIndex:
+    """Return the final observed trading close of each requested month."""
+    dates = pd.DatetimeIndex(trading_dates).drop_duplicates().sort_values()
+    mask = dates >= pd.Timestamp(start)
+    if end is not None:
+        mask &= dates <= pd.Timestamp(end)
+    dates = dates[mask]
+    return pd.DatetimeIndex(
+        pd.Series(dates, index=dates).groupby(dates.to_period("M")).last().to_numpy()
+    )
+
+
+def scheduled_signal_dates(
+    trading_dates: pd.DatetimeIndex,
+    start: str,
+    end: str | None,
+    frequency: str = "monthly",
+) -> pd.DatetimeIndex:
+    """Return completed-period closes usable as signals without look-ahead."""
+    dates = pd.DatetimeIndex(trading_dates).drop_duplicates().sort_values()
+    mask = dates >= pd.Timestamp(start)
+    if end is not None:
+        mask &= dates <= pd.Timestamp(end)
+    dates = dates[mask]
+    if frequency == "daily":
+        return dates
+    period = {"weekly": "W-FRI", "monthly": "M"}.get(frequency)
+    if period is None:
+        raise ValueError(f"Unsupported signal frequency: {frequency}")
+    return pd.DatetimeIndex(
+        pd.Series(dates, index=dates).groupby(dates.to_period(period)).last().to_numpy()
+    )
+
+
+def next_trading_date(
+    trading_dates: pd.DatetimeIndex, signal_date: pd.Timestamp
+) -> pd.Timestamp | None:
+    dates = pd.DatetimeIndex(trading_dates).drop_duplicates().sort_values()
+    later = dates[dates > pd.Timestamp(signal_date)]
+    return pd.Timestamp(later[0]) if len(later) else None
+
+
+def market_regime_is_on(
+    signal_date: pd.Timestamp,
+    index_close: pd.Series,
+    moving_average_days: int,
+) -> bool:
+    """Canonical point-in-time market regime used by backtest and daily output."""
+    known = index_close.loc[:pd.Timestamp(signal_date)].dropna()
+    if len(known) < moving_average_days:
+        return False
+    moving_average = known.rolling(moving_average_days).mean().iloc[-1]
+    return bool(known.iloc[-1] > moving_average)
+
+
+def online_monthly_rebalance_context(
+    trading_dates: pd.DatetimeIndex,
+    decision_date=None,
+) -> dict:
+    """Resolve the same month-end signal and next-close execution used in backtests."""
+    dates = pd.DatetimeIndex(trading_dates).drop_duplicates().sort_values()
+    if dates.empty:
+        raise ValueError("No trading dates available")
+    decision = pd.Timestamp(decision_date or pd.Timestamp.today().date()).normalize()
+    dates = dates[dates.normalize() <= decision]
+    if dates.empty:
+        raise ValueError(f"No trading dates available on or before {decision.date()}")
+    previous_month = decision.to_period("M") - 1
+    completed = dates[dates.to_period("M") == previous_month]
+    if completed.empty:
+        raise ValueError(f"No completed-month trading data for {previous_month}")
+    signal_date = pd.Timestamp(completed[-1])
+    execution_date = next_trading_date(dates, signal_date)
+    return {
+        "as_of": pd.Timestamp(dates[-1]),
+        "signal_date": signal_date,
+        "execution_date": execution_date,
+        "order_pending": execution_date is None,
+    }
+
+
+def online_rebalance_context(
+    trading_dates: pd.DatetimeIndex,
+    decision_date=None,
+    frequency: str = "monthly",
+) -> dict:
+    """Resolve the latest completed scheduled signal and next-close execution."""
+    if frequency == "monthly":
+        return online_monthly_rebalance_context(trading_dates, decision_date)
+    dates = pd.DatetimeIndex(trading_dates).drop_duplicates().sort_values()
+    if dates.empty:
+        raise ValueError("No trading dates available")
+    decision = pd.Timestamp(decision_date or pd.Timestamp.today().date()).normalize()
+    known = dates[dates.normalize() <= decision]
+    if known.empty:
+        raise ValueError(f"No trading dates available on or before {decision.date()}")
+    if frequency == "daily":
+        signal_date = pd.Timestamp(known[-1])
+    elif frequency == "weekly":
+        current_week = decision.to_period("W-FRI")
+        completed = known[known.to_period("W-FRI") < current_week]
+        if completed.empty:
+            raise ValueError(f"No completed-week trading data before {current_week}")
+        signal_date = pd.Timestamp(completed[-1])
+    else:
+        raise ValueError(f"Unsupported signal frequency: {frequency}")
+    execution_date = next_trading_date(known, signal_date)
+    return {
+        "as_of": pd.Timestamp(known[-1]),
+        "signal_date": signal_date,
+        "execution_date": execution_date,
+        "order_pending": execution_date is None,
+    }
+
+
 def calculate_max_drawdown(df):
     """仅计算首次持仓信号之后的最大回撤"""
     if len(df) == 0 or df["daily_return"].isna().all():
@@ -124,11 +241,23 @@ def calculate_bollinger_bands(df, window=50, num_std=3):
     df["lower"] = df["ma"] - (std * num_std)  # 下轨
 
     if num_std == 0:
-        bollinger_buy_signal = df["close"] < df["ma"]
-        bollinger_sell_signal = df["close"] > df["ma"]
+        # A zero-width band is useful as a simple mean-crossing baseline.
+        bollinger_buy_signal = (df["close"] > df["ma"]) & (
+            df["close"].shift(1) <= df["ma"].shift(1)
+        )
+        bollinger_sell_signal = (df["close"] < df["ma"]) & (
+            df["close"].shift(1) >= df["ma"].shift(1)
+        )
     else:
-        bollinger_buy_signal = (df["close"] < df["ma"]) & (df["close"] > df["lower"])
-        bollinger_sell_signal = (df["close"] > df["ma"]) & (df["close"] < df["upper"])
+        # Mean reversion: enter only after price has actually touched the lower
+        # band and crossed back inside.  The old implementation fired on almost
+        # every observation below/above the mean.
+        bollinger_buy_signal = (df["close"] > df["lower"]) & (
+            df["close"].shift(1) <= df["lower"].shift(1)
+        )
+        bollinger_sell_signal = (df["close"] < df["upper"]) & (
+            df["close"].shift(1) >= df["upper"].shift(1)
+        )
 
     df["bollinger_buy_signal"] = bollinger_buy_signal.astype(int)
     df["bollinger_sell_signal"] = bollinger_sell_signal.astype(int)
@@ -145,9 +274,9 @@ def calculate_donchian_channel(df, window=20):
     :return: 增加唐奇安上轨/中轨/下轨以及买卖信号列的数据框
     """
     # 上轨：过去 window 天的最高值
-    df["donchian_upper"] = df["high"].rolling(window=window).max()
+    df["donchian_upper"] = df["high"].shift(1).rolling(window=window).max()
     # 下轨：过去 window 天的最低值
-    df["donchian_lower"] = df["low"].rolling(window=window).min()
+    df["donchian_lower"] = df["low"].shift(1).rolling(window=window).min()
     # 中轨：上轨和下轨的均值
     df["donchian_middle"] = (df["donchian_upper"] + df["donchian_lower"]) / 2
 
@@ -170,10 +299,12 @@ def calculate_keltner_channel(df, window=20, atr_window=14, multiplier=1.5):
     :return: 增加肯特纳中轨/上轨/下轨以及买卖信号列的数据框
     """
     # 中轨：收盘价的简单滑动均线
-    df["keltner_middle"] = df["close"].rolling(window=window).mean()
+    df["keltner_middle"] = df["close"].rolling(window=window).mean().shift(1)
 
     # 使用 ta-lib 计算 ATR
-    df["atr"] = talib.ATR(df["high"], df["low"], df["close"], timeperiod=atr_window)  # type: ignore
+    df["atr"] = talib.ATR(  # type: ignore
+        df["high"], df["low"], df["close"], timeperiod=atr_window
+    ).shift(1)
 
     # 上轨
     df["keltner_upper"] = df["keltner_middle"] + multiplier * df["atr"]

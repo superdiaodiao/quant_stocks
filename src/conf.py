@@ -1,9 +1,9 @@
 # 全局配置
 from datetime import date, timedelta
-import os
+from pathlib import Path
 
 
-PROJECT_PATH = os.getcwd() + "/"
+PROJECT_PATH = str(Path(__file__).resolve().parents[1]) + "/"
 STOCK_PRICE_SOURCE_DIR = PROJECT_PATH + "his_data/us/nasdaq/stocks_price"
 STOCK_EPS_FILE = PROJECT_PATH + "his_data/us/nasdaq/finance_info/eps.csv"
 
@@ -14,11 +14,17 @@ NASDAQ_GLOBAL_SELECT_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_select/g_s_300
 NASDAQ_GLOBAL_MARKET_300M_STOCK_LIST_FILE = NASDAQ_PATH + "global_market/g_m_300M.csv"
 NASDAQ_300M_STOCK_LIST_FILE = NASDAQ_PATH + "nasdaq_300M.csv"
 NASDAQ_INDEX_FILE = NASDAQ_PATH + "nasdaq_index.csv"  # 纳斯达克指数文件
-
 SP500_VIX_FILE = PROJECT_PATH + "his_data/us/sp500/vix.csv"  # VIX指数文件
 
 CLEANED_PRICE_DATA_DIR = PROJECT_PATH + "cleaned_stocks_data/price"  # 保存历史价格数据的目录
 CLEANED_EPS_DATA_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/trailing_eps.csv"
+POINT_IN_TIME_EPS_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/eps_point_in_time.csv"
+FINANCIAL_COVERAGE_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/financial_coverage.json"
+POINT_IN_TIME_FUNDAMENTALS_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/fundamentals_point_in_time.csv"
+FUNDAMENTALS_COVERAGE_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/fundamentals_coverage.json"
+FUNDAMENTALS_REFRESH_STATE_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/fundamentals_refresh_state.json"
+POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv"
+QUARTERLY_FUNDAMENTALS_COVERAGE_FILE = PROJECT_PATH + "cleaned_stocks_data/financial/quarterly_fundamentals_coverage.json"
 
 OUTPUT_PATH = PROJECT_PATH + "output/"  # 保存输出结果的目录
 HISTORICAL_SIGNAL_FILE = OUTPUT_PATH + "historical_signals.csv"  # 历史信号文件

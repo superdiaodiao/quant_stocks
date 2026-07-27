@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "repository": "superdiaodiao/quant_stocks",
+  "tag": "data-2026-07-24",
+  "archive": "quant_stocks_data_2026-07-24.tar.zst",
+  "sha256": "d992c649be8f21d3d8d1f17be9b67d9336f787b81c734e7d6680670d748dd1b8",
+  "archive_bytes": 255845381,
+  "file_count": 9101,
+  "notes": "完整数据快照；下载后必须通过 SHA-256 校验。"
+}

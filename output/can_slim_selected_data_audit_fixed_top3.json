@@ -1,0 +1,21 @@
+{
+  "selected_positions": 153,
+  "selected_symbols": 78,
+  "maximum_signal_snapshot_age_days": 43,
+  "positions_with_missing_holding_prices": 0,
+  "maximum_missing_holding_sessions": 0,
+  "positions_with_unresolved_terminal_return": 0,
+  "positions_with_over_50pct_daily_move": 1,
+  "largest_observed_holding_event": {
+    "ticker": "SEZL",
+    "date": "2024-11-08",
+    "daily_return": 0.7226805605461735,
+    "portfolio_weight": 0.3333333333333333
+  },
+  "largest_event_zeroed_sensitivity": {
+    "year": 2024,
+    "strategy": 1.4797779640395818,
+    "nasdaq": 0.28641246683135235,
+    "excess_vs_nasdaq": 1.1933654972082295
+  }
+}

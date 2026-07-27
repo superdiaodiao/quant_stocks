@@ -1,2 +1,21 @@
 .idea
 **.pyc
+.tokensave
+.venv/
+.pytest_cache/
+.codex/
+AGENTS.md
+
+# 大体积市场数据由 GitHub Release 数据包分发，不再进入 Git。
+cleaned_stocks_data/
+his_data/
+stocks_list_dir/
+dist/
+
+# 每日运行状态和本机审计产物不应进入版本库。
+output/daily/
+output/data_provenance/
+output/data_audit.json
+output/historical_data_audit.json
+output/stooq_live_backfill.json
+output/ibkr_stock_orders*.csv

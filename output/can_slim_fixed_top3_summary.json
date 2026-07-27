@@ -1,0 +1,113 @@
+{
+  "model_version": "can-slim-top3-v1",
+  "policy_status": "FROZEN_SHADOW",
+  "release_status": "BLOCKED",
+  "release_reason": "Historical research passed; genuine forward evidence starts after 2026-07-18.",
+  "rules": "Public CAN SLIM-inspired quarterly growth and leadership; at most three qualifying Nasdaq stocks, equal weighted when full; monthly close signal and next-session close execution.",
+  "configurations_tested_in_top_n_neighborhood": 4,
+  "historical_research_period": "2021-01-01 through 2026-07-17",
+  "policy_frozen_at": "2026-07-18",
+  "forward_evidence_start": "2026-07-18",
+  "parameter_update_frequency": "frozen",
+  "adaptive_framework_status": "RESEARCH_ONLY",
+  "adaptive_parameter_family": {
+    "top_n": [
+      3,
+      5,
+      10
+    ],
+    "minimum_median_dollar_volume": [
+      2000000,
+      10000000
+    ],
+    "position_weight_rule": "1 / top_n",
+    "selection_data_cutoff": "previous calendar year end",
+    "promotion_rule": "must beat the frozen policy in chronological walk-forward before it can update live parameters"
+  },
+  "signal_frequency": "monthly",
+  "uses_quarterly_fundamentals": true,
+  "uses_adaptive_channel": false,
+  "historical_years": 6,
+  "wins_vs_nasdaq": 6,
+  "passed_every_historical_year": true,
+  "minimum_historical_excess": 0.090734191770943,
+  "median_historical_excess": 0.13049834083721312,
+  "transaction_cost_stress_passed": true,
+  "transaction_cost_stress_definition": "30 bps one-way (3x assumed): compounded return above Nasdaq and at least 75% winning calendar years",
+  "three_x_cost_strategy_return": 6.920070052325006,
+  "three_x_cost_nasdaq_return": 0.9801118259188886,
+  "cost_stress_wins": {
+    "10": 6,
+    "30": 6,
+    "50": 6
+  },
+  "annualized_active_mean": 0.3496241954984639,
+  "bootstrap_ci_95_low": 0.022140598256932608,
+  "bootstrap_ci_95_high": 0.7361181549379491,
+  "bootstrap_probability_nonpositive": 0.0175,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_samples": 2000,
+  "current_shadow_config_ids": [
+    0
+  ],
+  "current_shadow_configs": [
+    {
+      "start": "2019-01-01",
+      "end": "2099-12-31",
+      "top_n": 3,
+      "market_ma_days": 200,
+      "transaction_cost_bps": 10.0,
+      "minimum_price": 10.0,
+      "minimum_median_dollar_volume": 10000000.0,
+      "minimum_eps_growth": 0.25,
+      "minimum_relative_volume": 0.8,
+      "minimum_52_week_high_ratio": 0.85,
+      "maximum_financial_age_days": 550,
+      "maximum_position_weight": 0.3333333333333333,
+      "signal_frequency": "monthly",
+      "use_quarterly_fundamentals": true,
+      "minimum_revenue_growth": 0.1,
+      "price_channel": "none",
+      "keltner_window": 20,
+      "keltner_atr_window": 14,
+      "keltner_multiplier": 1.5,
+      "selection_mode": "growth",
+      "ensemble_weight": 1.0
+    }
+  ],
+  "model_snapshots": [
+    {
+      "effective_start": "2026-07-18",
+      "effective_end": "9999-12-31",
+      "training_end": "2026-07-17",
+      "config_ids": [
+        0
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2099-12-31",
+          "top_n": 3,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.3333333333333333,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": true,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    }
+  ]
+}
