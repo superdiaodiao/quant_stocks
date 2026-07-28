@@ -25,6 +25,21 @@ def test_missing_history_is_a_valid_zero_position_state(tmp_path):
     assert output.exists()
 
 
+def test_header_only_legacy_history_is_a_valid_zero_position_state(tmp_path):
+    history = tmp_path / "history.csv"
+    history.write_text(
+        "as_of,ticker,signal_date,generated_at,target_weight\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "shadow.json"
+
+    result = evaluate_history(history, output)
+
+    assert result["status"] == "NO_RECORDED_POSITIONS"
+    assert result["recorded_periods"] == 0
+    assert output.exists()
+
+
 def test_recorded_cash_is_forward_evidence_against_nasdaq():
     records = pd.DataFrame({
         "ticker": ["CASH"],

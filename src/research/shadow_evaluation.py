@@ -122,6 +122,24 @@ def evaluate_history(
         )
         return result
     history = pd.read_csv(history_path)
+    # Older runs may have written a header-only history before forward-audit
+    # columns such as ``execution_date`` were introduced.  With no rows there
+    # is nothing to migrate or evaluate, so treat it exactly like a missing
+    # history instead of blocking the daily shadow pipeline.
+    if history.empty:
+        result = {
+            "status": "NO_RECORDED_POSITIONS",
+            "recorded_periods": 0,
+            "forward_periods": 0,
+            "forward_sessions": 0,
+            "forward_strategy_return": 0.0,
+            "forward_benchmark_return": 0.0,
+        }
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_file).write_text(
+            json.dumps(result, indent=2), encoding="utf-8"
+        )
+        return result
     required = {"signal_date", "execution_date", "generated_at", "ticker", "target_weight"}
     if not required.issubset(history.columns):
         missing = sorted(required - set(history.columns))
