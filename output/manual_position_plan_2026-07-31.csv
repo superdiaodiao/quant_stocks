@@ -1,0 +1,4 @@
+ticker,target_weight,current_shares,current_price,current_value,target_shares,share_change_reference,target_value,trade_notional_reference,estimated_transaction_cost,reference_action,current_median_dollar_volume_50d,full_target_participation_for_account
+KNSA,0.3333333333333333,0.0,74.34,0.0,447.0,447.0,33229.98,33229.98,33.229980000000005,REFERENCE_INCREASE,34870903.19500001,0.0009559067956150002
+ROKU,0.3333333333333333,0.0,145.01,0.0,229.0,229.0,33207.29,33207.29,33.20729,REFERENCE_INCREASE,371239288.445,8.97893471161303e-05
+VISN,0.3333333333333333,0.0,11.74,0.0,2836.0,2836.0,33294.64,33294.64,33.29464,REFERENCE_INCREASE,67428187.33000001,0.0004943530985075544

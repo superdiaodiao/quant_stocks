@@ -1,0 +1,104 @@
+{
+  "completed_at_utc": "2026-08-08T12:38:10.514580+00:00",
+  "completed_ticker_count": 3,
+  "last_checkpoint_at_utc": "2026-08-08T12:38:10.511766+00:00",
+  "last_checkpoint_ticker": "VRNA",
+  "requested_tickers": [
+    "AKRO",
+    "ETNB",
+    "VRNA"
+  ],
+  "research_only": true,
+  "results": [
+    {
+      "issuers": [
+        {
+          "cik": "0001744659",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Akero Therapeutics, Inc.  (AKRO)  (CIK 0001744659)",
+          "former_names": [],
+          "issuer_name": "Akero Therapeutics, Inc.",
+          "submission_payload_sha256": "a77afe315d5d4af5327b15880743fb99cd66621ff220e861e49f947cb94ffd4d",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001744659.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001104659-20-133854",
+          "cik": "0001744659",
+          "display_name": "Akero Therapeutics, Inc.  (AKRO)  (CIK 0001744659)",
+          "filing_date": "2020-12-09",
+          "form": "4"
+        }
+      ],
+      "search_payload_sha256": "587cec7ac275cc9d299aad1b63b75239bfb8d5118e6f9c516794f9c511f295cc",
+      "search_query": "AKRO",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AKRO&from=0&size=100",
+      "status": "ok",
+      "ticker": "AKRO"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001785173",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "89bio, Inc.  (ETNB)  (CIK 0001785173)",
+          "former_names": [],
+          "issuer_name": "89bio, Inc.",
+          "submission_payload_sha256": "a4bf40b75e703e5f0b8a5a2ca70923447bd8ad63d44932ad425d537b3ec9233d",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001785173.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000950170-23-031838",
+          "cik": "0001785173",
+          "display_name": "89bio, Inc.  (ETNB)  (CIK 0001785173)",
+          "filing_date": "2023-07-05",
+          "form": "4"
+        }
+      ],
+      "search_payload_sha256": "d94570bef484b8c6e9231b299b79998ebd2cbf088c5da037091209fc885d1d12",
+      "search_query": "ETNB",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ETNB&from=0&size=100",
+      "status": "ok",
+      "ticker": "ETNB"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001657312",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Verona Pharma plc  (VRNA)  (CIK 0001657312)",
+          "former_names": [],
+          "issuer_name": "Verona Pharma plc",
+          "submission_payload_sha256": "6ee89023dedd5431e2b31600916b803b2aee3ed3747ff428951879f2fc07a551",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001657312.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001104659-21-102886",
+          "cik": "0001657312",
+          "display_name": "Verona Pharma plc  (VRNA)  (CIK 0001657312)",
+          "filing_date": "2021-08-10",
+          "form": "4"
+        }
+      ],
+      "search_payload_sha256": "12249cf0c412e8d8bbd9622a75503296bbbc51551c54e2d6cfa73c4f5e3140db",
+      "search_query": "VRNA",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=VRNA&from=0&size=100",
+      "status": "ok",
+      "ticker": "VRNA"
+    }
+  ],
+  "resumed_at_utc": null,
+  "schema_version": 2,
+  "search_queries": {},
+  "search_queries_sha256": null,
+  "started_at_utc": "2026-08-08T12:38:06.110279+00:00",
+  "status": "COMPLETE"
+}

@@ -29,12 +29,46 @@ from src.research.universe_history import load_universe_snapshots, universe_as_o
 from src.strategy.common import market_regime_is_on, next_trading_date, scheduled_signal_dates
 
 
+def _config_ids_as_of(value: str | list[int] | dict, signal_date) -> list[int]:
+    """Resolve legacy config lists or dated walk-forward snapshots."""
+    parsed = json.loads(value) if isinstance(value, str) else value
+    if isinstance(parsed, list):
+        return [int(config_id) for config_id in parsed]
+    if not isinstance(parsed, dict) or not parsed:
+        raise ValueError("config_ids must be a non-empty list or dated mapping")
+    signal_date = pd.Timestamp(signal_date).normalize()
+    eligible = [
+        (pd.Timestamp(effective).normalize(), config_ids)
+        for effective, config_ids in parsed.items()
+        if pd.Timestamp(effective).normalize() <= signal_date
+    ]
+    if not eligible:
+        raise ValueError(f"no configuration effective by {signal_date.date()}")
+    _, config_ids = max(eligible, key=lambda item: item[0])
+    return [int(config_id) for config_id in config_ids]
+
+
+def _holding_calendar(
+    benchmark_index: pd.DatetimeIndex,
+    effective,
+    next_effective,
+) -> pd.DatetimeIndex:
+    """Use the U.S. benchmark calendar, excluding the next rebalance day."""
+    effective = pd.Timestamp(effective).normalize()
+    next_effective = pd.Timestamp(next_effective).normalize()
+    return benchmark_index[
+        (benchmark_index >= effective) & (benchmark_index < next_effective)
+    ]
+
+
 def audit_selected_histories(
     walk_forward_path: str | Path = "output/can_slim_walk_forward.csv",
     signal_frequency: str = "monthly",
     use_quarterly_fundamentals: bool = False,
     adaptive_channel: bool = False,
     fixed_config: CanSlimConfig | None = None,
+    maximum_financial_age_days: tuple[int, ...] = (550,),
+    quarterly_path: str | Path = POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE,
 ) -> tuple[pd.DataFrame, dict]:
     selected_years = (
         pd.DataFrame(index=range(2021, 2027))
@@ -65,7 +99,7 @@ def audit_selected_histories(
     nasdaq = pd.read_csv(NASDAQ_INDEX_FILE, index_col="date", parse_dates=True)["close"]
     eps = load_eps_history(POINT_IN_TIME_EPS_FILE)
     quarterly = (
-        load_quarterly_fundamentals(POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE)
+        load_quarterly_fundamentals(quarterly_path)
         if use_quarterly_fundamentals else None
     )
     snapshots = load_universe_snapshots()
@@ -75,24 +109,25 @@ def audit_selected_histories(
         [fixed_config]
         if fixed_config is not None
         else candidate_configs(
-            signal_frequency, use_quarterly_fundamentals, adaptive_channel
+            signal_frequency,
+            use_quarterly_fundamentals,
+            adaptive_channel,
+            maximum_financial_age_days=maximum_financial_age_days,
         )
     )
     rows = []
 
     for year, chosen in selected_years.iterrows():
         end = pd.Timestamp("2026-07-17") if year == 2026 else pd.Timestamp(year, 12, 31)
-        if fixed_config is not None:
-            selected_configs = [fixed_config]
-        else:
-            config_ids = json.loads(chosen.config_ids)
-            selected_configs = [
-                configs[int(config_id)] for config_id in config_ids
-            ]
         signals = scheduled_signal_dates(
             close.index, f"{year}-01-01", str(end.date()), signal_frequency
         )
         for signal_index, signal_date in enumerate(signals):
+            if fixed_config is not None:
+                selected_configs = [fixed_config]
+            else:
+                config_ids = _config_ids_as_of(chosen.config_ids, signal_date)
+                selected_configs = [configs[config_id] for config_id in config_ids]
             snapshot_date = max(date for date in snapshot_dates if date <= signal_date)
             selected = select_can_slim_ensemble_portfolio(
                 signal_date, adjusted, dollar_volume, nasdaq, eps, selected_configs,
@@ -108,7 +143,9 @@ def audit_selected_histories(
                 continue
             next_signal = signals[signal_index + 1] if signal_index + 1 < len(signals) else end
             next_effective = next_trading_date(close.index, next_signal) or end
-            holding_dates = close.loc[effective:next_effective].index[:-1]
+            holding_dates = _holding_calendar(
+                nasdaq.index, effective, next_effective
+            )
             for ticker, score in selected.iterrows():
                 prices = adjusted.loc[holding_dates, ticker]
                 missing = int(prices.isna().sum())
@@ -211,12 +248,30 @@ def main() -> None:
     parser.add_argument("--use-quarterly-fundamentals", action="store_true")
     parser.add_argument("--adaptive-channel", action="store_true")
     parser.add_argument("--fixed-top3", action="store_true")
+    parser.add_argument("--maximum-financial-age-days", default="550")
+    parser.add_argument(
+        "--quarterly-input",
+        type=Path,
+        default=Path(POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE),
+    )
+    parser.add_argument("--artifact-tag")
     args = parser.parse_args()
+    financial_age_days = tuple(
+        int(value.strip())
+        for value in args.maximum_financial_age_days.split(",")
+        if value.strip()
+    )
     suffix_parts = [] if args.signal_frequency == "monthly" else [args.signal_frequency]
     if args.use_quarterly_fundamentals:
         suffix_parts.append("quarterly_financials")
     if args.adaptive_channel:
         suffix_parts.append("adaptive_channel")
+    if financial_age_days != (550,):
+        suffix_parts.append(
+            "financial_age_" + "_".join(str(value) for value in financial_age_days)
+        )
+    if args.artifact_tag:
+        suffix_parts.append(args.artifact_tag)
     if args.fixed_top3:
         suffix_parts = ["fixed_top3"]
     suffix = f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
@@ -224,6 +279,8 @@ def main() -> None:
         args.walk_forward_path, args.signal_frequency,
         args.use_quarterly_fundamentals, args.adaptive_channel,
         fixed_top3_config() if args.fixed_top3 else None,
+        financial_age_days,
+        args.quarterly_input,
     )
     ledger.to_csv(f"output/can_slim_selected_data_audit{suffix}.csv", index=False)
     Path(f"output/can_slim_selected_data_audit{suffix}.json").write_text(

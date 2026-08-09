@@ -15,4 +15,11 @@ fi
 cd "$project_dir"
 echo "Daily pipeline started: $(date -Iseconds)" >> "$log_path"
 PYTHONPATH="$project_dir" "$python_exec" -m src.research.daily_pipeline >> "$log_path" 2>&1
+if PYTHONPATH="$project_dir" "$python_exec" "$project_dir/scripts/shadow_forward_observation.py" \
+    --observation-date latest >> "$log_path" 2>&1; then
+    echo "Shadow forward observation completed: $(date -Iseconds)" >> "$log_path"
+else
+    echo "Shadow forward observation unavailable; keeping release gate unchanged: $(date -Iseconds)" >> "$log_path"
+fi
+PYTHONPATH="$project_dir" "$python_exec" "$project_dir/scripts/shadow_forward_status.py" >> "$log_path" 2>&1
 echo "Daily pipeline completed: $(date -Iseconds)" >> "$log_path"

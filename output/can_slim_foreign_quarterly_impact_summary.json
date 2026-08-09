@@ -1,0 +1,44 @@
+{
+  "augmented_final_portfolio_value": 15935868.403861467,
+  "augmented_financial_coverage": 0.8555570782513362,
+  "augmented_ledger_rows": 373,
+  "augmented_missing_financial_observations": 2108,
+  "baseline_final_portfolio_value": 15935868.403861467,
+  "baseline_financial_coverage": 0.8531588323968754,
+  "baseline_ledger_rows": 373,
+  "baseline_missing_financial_observations": 2143,
+  "comparison_mode": "formal_rows_vs_removal_counterfactual",
+  "diagnostic_inputs": {
+    "cache_manifest": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/financial/sec_companyfacts_cache/manifest.json",
+    "cache_manifest_sha256": "53c1e2439603e5b6785ff00e602cd9daa31bdc154bc6c4a120421a9313264e67",
+    "cached_target_count": 36,
+    "eligible_for_parser_research_count": 0,
+    "formal_fundamentals_modified": false,
+    "priority_file": "output/can_slim_technical_candidate_financial_priorities.csv",
+    "priority_file_sha256": "7a97301e423b1b962289066f1dae7dec290efcd48084f3dab593d56a5c63d346",
+    "purpose": "read_only_foreign_quarterly_cache_diagnostic",
+    "status_counts": {
+      "LESS_THAN_8_TIMELY_CONTINUOUS_PAIRED_QUARTERS": 10,
+      "NO_NET_INCOME_QUARTER_CANDIDATES": 4,
+      "NO_REVENUE_QUARTER_CANDIDATES": 22
+    },
+    "target_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+    "target_symbol_count": 36
+  },
+  "eligible_symbols": [
+    "ASND",
+    "ICLR"
+  ],
+  "formal_foreign_rows_present": true,
+  "formal_fundamentals_modified_by_this_run": false,
+  "formal_model_changed": false,
+  "historical_strategy_path_changed": false,
+  "integrated_validation": {
+    "ASND": "PASS_DIAGNOSTIC_ONLY",
+    "ICLR": "PASS_DIAGNOSTIC_ONLY"
+  },
+  "ledger_difference_rows": 0,
+  "missing_financial_observations_recovered": 35,
+  "purpose": "in_memory_foreign_quarterly_impact",
+  "research_row_count": 202
+}

@@ -1,0 +1,17 @@
+{
+  "snapshot_count": 364,
+  "signal_count": 67,
+  "source_status_counts": {
+    "IMMUTABLE_GIT_COMMIT": 357,
+    "IMMUTABLE_WEB_ARCHIVE": 7
+  },
+  "signal_source_status_counts": {
+    "IMMUTABLE_GIT_COMMIT": 66,
+    "IMMUTABLE_WEB_ARCHIVE": 1
+  },
+  "snapshots_used_by_signals": 62,
+  "reproducible_snapshots_used_by_signals": 62,
+  "all_signal_snapshots_reproducible": true,
+  "nonreproducible_signal_dates": [],
+  "interpretation": "Source reproducibility is a lineage diagnostic, not permission to backdate a snapshot. A later immutable commit may reproduce a captured file only when independent embedded/capture timing supports the earlier observed_at date."
+}

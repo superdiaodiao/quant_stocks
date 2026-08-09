@@ -1,0 +1,9 @@
+{
+  "selected_positions": 185,
+  "selected_symbols": 90,
+  "maximum_signal_snapshot_age_days": 30,
+  "positions_with_missing_holding_prices": 0,
+  "maximum_missing_holding_sessions": 0,
+  "positions_with_unresolved_terminal_return": 0,
+  "positions_with_over_50pct_daily_move": 1
+}

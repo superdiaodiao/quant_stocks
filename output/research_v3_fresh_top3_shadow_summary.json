@@ -1,0 +1,44 @@
+{
+  "current_shadow_config_ids": [],
+  "current_shadow_configs": [],
+  "format_version": 1,
+  "forward_evidence_start": "2026-08-10",
+  "invalidation_evidence": {
+    "cost_stress_wins": {
+      "10": 4,
+      "30": 3,
+      "50": 3
+    },
+    "path": "output/data_provenance/research_v3_fresh_top3_proven_only_bank_v3_2026-08-10.json",
+    "quarterly_input_sha256": "13d77de9104445d89a4bf289eea4f93496394faaf02f7fddad40e916bff871c4",
+    "sha256": "a7e4055536b1360e402bf2f373c7a4d0a6db1f3a0dc93fbe695b53557d53e3fb",
+    "wins_vs_nasdaq": 4
+  },
+  "model_snapshots": [],
+  "model_version": "can-slim-v3-fresh-top3-shadow",
+  "observed_forward_months": 0,
+  "parameter_update_frequency": "frozen",
+  "policy_status": "INVALIDATED_DATA_RELIABILITY",
+  "promotion_eligible": false,
+  "promotion_policy": {
+    "data_manifest_must_remain_verifiable": true,
+    "forward_start": "2026-08-10",
+    "maximum_drawdown_must_not_exceed_40pct": true,
+    "minimum_forward_months": 12,
+    "minimum_monthly_signal_observations": 12,
+    "net_excess_at_30_bps_must_be_positive": true,
+    "parameters_must_remain_unchanged": true,
+    "selected_price_and_terminal_data_must_remain_complete": true
+  },
+  "release_reason": "Proven-only SEC financial replay reduced the historical diagnostic to 4/6; challenger withdrawn before any forward observation.",
+  "release_status": "BLOCKED",
+  "signal_frequency": "monthly",
+  "source_evidence": {
+    "data_manifest_sha256": "6dac0e103c5c5eac87173c783c955ca861b6dba7fe2ddea0c79df4724a87341d",
+    "path": "output/data_provenance/research_v3_fresh_top3_2026-08-10.json",
+    "sha256": "51f89cc20fadd46b3e98c8618ed8f2110ba9d67dc14c588d3ea542b412a86e33",
+    "strategy_code_sha256": "728cc6e3408ad13da3bdb29c3107b094504153991b5265562f3ad7582b4be4a0"
+  },
+  "uses_adaptive_channel": false,
+  "uses_quarterly_fundamentals": true
+}

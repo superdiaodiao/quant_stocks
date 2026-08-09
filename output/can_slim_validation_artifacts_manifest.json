@@ -1,0 +1,45 @@
+{
+  "format_version": 1,
+  "artifacts": [
+    {
+      "path": "can_slim_fixed_top3_backtest.csv",
+      "bytes": 197935,
+      "sha256": "2f0c5e378b0be0256a4e7bb8c392eadb0f001ad80261817b522ff92e4b1bc5f1"
+    },
+    {
+      "path": "can_slim_fixed_top3_trade_ledger.csv",
+      "bytes": 83866,
+      "sha256": "a10c5e67b8e61bdb7da47a4370d5e9e3cd2461c7f74af0d98572aff9a22d112b"
+    },
+    {
+      "path": "can_slim_fixed_top3_annual.csv",
+      "bytes": 559,
+      "sha256": "df992319a327cd5a41ef3081d3690102378b7f3b08f8cc83d7839e2151b4cd3b"
+    },
+    {
+      "path": "can_slim_fixed_top3_cost_stress.csv",
+      "bytes": 1716,
+      "sha256": "2a318da06113c724bd9763bb04f53c5ae82d36ce312c12f640e5f72140f4afd3"
+    },
+    {
+      "path": "can_slim_fixed_top3_liquidity_capacity.csv",
+      "bytes": 69752,
+      "sha256": "ccd751c23acc15e0fe87ba72b94827c7ad8e1010bc299af3602a1bf89a1cdc1d"
+    },
+    {
+      "path": "can_slim_fixed_top3_summary.json",
+      "bytes": 99941,
+      "sha256": "699f9acc8f2e338e7afecac9a894dcf5c376319ecf05749d6c1e0924cb547bed"
+    },
+    {
+      "path": "can_slim_technical_candidate_financial_coverage.json",
+      "bytes": 282916,
+      "sha256": "a5dc36c5e2d182505ba68ce1135aeb3444a2fd6528416a9cffa25bcb697bf2ee"
+    },
+    {
+      "path": "can_slim_technical_candidate_financial_priorities.csv",
+      "bytes": 47355,
+      "sha256": "59e1f3f1e011101363f14a7a4e0400d960bc0d32323098d9a1c95742572fa46e"
+    }
+  ]
+}

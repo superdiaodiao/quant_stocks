@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "scope": "selected_symbols_from_can_slim_fixed_top3",
+  "candidate_events": 3,
+  "candidate_tickers": 3,
+  "confirmed_events": 1,
+  "confirmed_market_moves": 2,
+  "confirmed_splits": 0,
+  "confirmed_cash_distributions": 1,
+  "confirmed_provider_adjustment_discontinuities": 0,
+  "confirmed_with_official_primary_source": 3,
+  "confirmed_with_secondary_source_only": 0,
+  "unresolved_events": 0,
+  "source_fetch_failed_events": 0,
+  "source_fetch_failed_tickers": 0,
+  "automatic_heuristic_adjustment_allowed": true,
+  "warning": "A price ratio near an integer split factor is not evidence of a split. CONFIRMED_MARKET_MOVE events are sourced real price moves and must not be adjusted. Unresolved events require sourced review before automatic back-adjustment."
+}

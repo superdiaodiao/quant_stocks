@@ -1,0 +1,3 @@
+batch_id,as_of,requested_ciks,failure_count,missing_before,missing_after,recovered_observations,yield_per_cik,recommended_action,audit_path
+20260730T210927Z,2026-07-31,20,0,1606,1569,37,1.85,REDUCE_BATCH_SIZE,output/fundamentals_repair_batches/20260730T210927Z.json
+20260730T211358Z,2026-07-31,10,0,1569,1565,4,0.4,PAUSE_FETCH_AND_REVIEW_SOURCES,output/fundamentals_repair_batches/20260730T211358Z.json

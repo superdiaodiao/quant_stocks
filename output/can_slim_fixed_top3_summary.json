@@ -2,7 +2,2784 @@
   "model_version": "can-slim-top3-v1",
   "policy_status": "FROZEN_SHADOW",
   "release_status": "BLOCKED",
-  "release_reason": "Historical research passed; genuine forward evidence starts after 2026-07-18.",
+  "release_reason": "Historical performance replay completed, but historical universe/price completeness has not passed and genuine forward evidence starts after 2026-07-18.",
+  "historical_data_status": "INCOMPLETE_STRESSED",
+  "historical_data_checks": {
+    "benchmark_calendar_complete": true,
+    "point_in_time_membership_complete": true,
+    "signal_member_prices_complete": false,
+    "signal_member_financials_complete": false,
+    "listed_price_histories_complete": true,
+    "historical_quarterly_value_conflicts_absent": false,
+    "observed_delisting_returns_complete": false,
+    "signal_technical_candidate_financials_complete": false
+  },
+  "historical_quarterly_value_conflict_count": 7,
+  "historical_quarterly_conflict_order_sensitivity": {
+    "conflict_group_count": 7,
+    "conflict_ticker_count": 5,
+    "signals_tested": 67,
+    "maximum_age_days": 550,
+    "minimum_profit_growth": 0.25,
+    "minimum_revenue_growth": 0.1,
+    "affected_signal_count": 6,
+    "affected_ticker_signal_count": 6,
+    "affected_tickers": [
+      "APPS"
+    ],
+    "financial_eligibility_changed_ticker_signal_count": 0,
+    "context_anchor_ticker": null,
+    "details": [
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-05-31",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 45436000.0,
+            "reverse": 45502000.0
+          },
+          "net_income_growth": {
+            "forward": 0.17569735548310303,
+            "reverse": 0.17740516482947782
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      },
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-06-30",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 35546000.0,
+            "reverse": 35612000.0
+          },
+          "net_income_growth": {
+            "forward": -0.35234312367903214,
+            "reverse": -0.35114058742074195
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      },
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-07-29",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 35546000.0,
+            "reverse": 35612000.0
+          },
+          "net_income_growth": {
+            "forward": -0.35234312367903214,
+            "reverse": -0.35114058742074195
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      },
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-08-31",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 36215000.0,
+            "reverse": 36250000.0
+          },
+          "net_income_growth": {
+            "forward": -0.3885493347740933,
+            "reverse": -0.387958398054974
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      },
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-09-30",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 36215000.0,
+            "reverse": 36250000.0
+          },
+          "net_income_growth": {
+            "forward": -0.3885493347740933,
+            "reverse": -0.387958398054974
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      },
+      {
+        "ticker": "APPS",
+        "signal_date": "2022-10-31",
+        "forward_present": true,
+        "reverse_present": true,
+        "differences": {
+          "net_income_ttm": {
+            "forward": 36215000.0,
+            "reverse": 36250000.0
+          },
+          "net_income_growth": {
+            "forward": -0.3885493347740933,
+            "reverse": -0.387958398054974
+          }
+        },
+        "forward_growth_mode_financially_eligible": false,
+        "reverse_growth_mode_financially_eligible": false,
+        "financial_eligibility_changed": false
+      }
+    ],
+    "analyzable": true,
+    "reason": null
+  },
+  "historical_technical_candidate_financial_coverage": {
+    "method": "Use the selector's shared non-financial cross section and exact minimum price, 50-day median dollar volume, relative volume, 52-week-high, price-history and market-regime rules. Financial coverage is required only for otherwise eligible candidates on risk-on signals. Historical member-price completeness remains an independent prerequisite.",
+    "signal_count": 67,
+    "risk_on_signal_count": 52,
+    "technical_candidate_observations": 14943,
+    "missing_financial_observations": 1877,
+    "financial_coverage": 0.8743893461821589,
+    "minimum_signal_financial_coverage": 0.6666666666666666,
+    "missing_financial_reporting_profile_counts": {
+      "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE": 86,
+      "NO_PARSED_SEC_FINANCIALS": 117,
+      "SEC_ANNUAL_ONLY_OR_UNMAPPED_QUARTERLY": 21,
+      "SEC_NET_INCOME_ONLY_NO_REVENUE_FACTS": 39,
+      "SEC_QUARTERLY_PARTIAL": 88
+    },
+    "complete": false,
+    "missing_financial_symbol_count": 351,
+    "missing_financial_symbols_top20": [
+      "CCEP",
+      "DOX",
+      "OZK",
+      "CHKP",
+      "ASML",
+      "CYBR",
+      "ARGX",
+      "SNY",
+      "SBLK",
+      "AZN",
+      "EXPD",
+      "NVMI",
+      "TCOM",
+      "PCVX",
+      "TSEM",
+      "DSGX",
+      "GLNG",
+      "AXNX",
+      "ABCB",
+      "NUVL"
+    ],
+    "missing_financial_priorities_top20": [
+      {
+        "ticker": "CCEP",
+        "missing_signal_count": 39,
+        "first_missing_signal_date": "2021-09-30",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 39,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "",
+        "priority_rank": 1,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 39,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 1
+      },
+      {
+        "ticker": "DOX",
+        "missing_signal_count": 35,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-01-30",
+        "no_raw_pit_financial_facts_signal_count": 35,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F|20-F/A",
+        "priority_rank": 2,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 266,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 2
+      },
+      {
+        "ticker": "OZK",
+        "missing_signal_count": 30,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 30,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "NOT_CACHED",
+        "recommended_data_action": "FETCH_SEC_COMPANYFACTS",
+        "observed_annual_forms": "",
+        "priority_rank": 3,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 40,
+        "fetch_priority_rank": 1,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": null
+      },
+      {
+        "ticker": "CHKP",
+        "missing_signal_count": 28,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2025-09-30",
+        "no_raw_pit_financial_facts_signal_count": 28,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F",
+        "priority_rank": 4,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 267,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 3
+      },
+      {
+        "ticker": "ASML",
+        "missing_signal_count": 27,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 27,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "",
+        "priority_rank": 5,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 41,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 4
+      },
+      {
+        "ticker": "CYBR",
+        "missing_signal_count": 27,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2025-11-28",
+        "no_raw_pit_financial_facts_signal_count": 27,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F|20-F/A",
+        "priority_rank": 6,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 268,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 5
+      },
+      {
+        "ticker": "ARGX",
+        "missing_signal_count": 25,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 25,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F",
+        "priority_rank": 7,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 269,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 6
+      },
+      {
+        "ticker": "SNY",
+        "missing_signal_count": 25,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 25,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "",
+        "priority_rank": 8,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 42,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 7
+      },
+      {
+        "ticker": "SBLK",
+        "missing_signal_count": 23,
+        "first_missing_signal_date": "2021-03-31",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 23,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F|20-F/A",
+        "priority_rank": 9,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 270,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 8
+      },
+      {
+        "ticker": "AZN",
+        "missing_signal_count": 22,
+        "first_missing_signal_date": "2021-04-30",
+        "last_missing_signal_date": "2025-02-28",
+        "no_raw_pit_financial_facts_signal_count": 22,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F",
+        "priority_rank": 10,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 271,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 9
+      },
+      {
+        "ticker": "EXPD",
+        "missing_signal_count": 21,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2023-10-31",
+        "no_raw_pit_financial_facts_signal_count": 21,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "US_GAAP_WITH_10Q",
+        "recommended_data_action": "REVIEW_US_GAAP_PARSER",
+        "observed_annual_forms": "",
+        "priority_rank": 11,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 43,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": 1,
+        "foreign_priority_rank": null
+      },
+      {
+        "ticker": "NVMI",
+        "missing_signal_count": 21,
+        "first_missing_signal_date": "2021-12-31",
+        "last_missing_signal_date": "2026-06-30",
+        "no_raw_pit_financial_facts_signal_count": 21,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F",
+        "priority_rank": 12,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 272,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 10
+      },
+      {
+        "ticker": "TCOM",
+        "missing_signal_count": 21,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2025-11-28",
+        "no_raw_pit_financial_facts_signal_count": 21,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F",
+        "priority_rank": 13,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 273,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 11
+      },
+      {
+        "ticker": "PCVX",
+        "missing_signal_count": 20,
+        "first_missing_signal_date": "2023-01-31",
+        "last_missing_signal_date": "2026-07-17",
+        "no_raw_pit_financial_facts_signal_count": 0,
+        "insufficient_growth_history_signal_count": 20,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "SEC_NET_INCOME_ONLY_NO_REVENUE_FACTS",
+        "raw_sec_cache_profile": "US_GAAP_WITH_10Q",
+        "recommended_data_action": "CONFIRM_NO_OPERATING_REVENUE",
+        "observed_annual_forms": "10-K",
+        "priority_rank": 14,
+        "sec_cache_refresh_tier": 6,
+        "cache_refresh_priority_rank": 206,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": null
+      },
+      {
+        "ticker": "TSEM",
+        "missing_signal_count": 20,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2026-05-29",
+        "no_raw_pit_financial_facts_signal_count": 20,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F|20-F/A",
+        "priority_rank": 15,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 274,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 12
+      },
+      {
+        "ticker": "DSGX",
+        "missing_signal_count": 19,
+        "first_missing_signal_date": "2023-05-31",
+        "last_missing_signal_date": "2025-07-31",
+        "no_raw_pit_financial_facts_signal_count": 19,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "40-F",
+        "priority_rank": 16,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 275,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 13
+      },
+      {
+        "ticker": "GLNG",
+        "missing_signal_count": 19,
+        "first_missing_signal_date": "2021-05-28",
+        "last_missing_signal_date": "2026-05-29",
+        "no_raw_pit_financial_facts_signal_count": 19,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        "raw_sec_cache_profile": "FOREIGN_PERIODIC_NO_10Q",
+        "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+        "observed_annual_forms": "20-F|20-F/A",
+        "priority_rank": 17,
+        "sec_cache_refresh_tier": 8,
+        "cache_refresh_priority_rank": 276,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": 14
+      },
+      {
+        "ticker": "AXNX",
+        "missing_signal_count": 18,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2024-10-31",
+        "no_raw_pit_financial_facts_signal_count": 18,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "NOT_CACHED",
+        "recommended_data_action": "FETCH_SEC_COMPANYFACTS",
+        "observed_annual_forms": "",
+        "priority_rank": 18,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 44,
+        "fetch_priority_rank": 2,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": null
+      },
+      {
+        "ticker": "ABCB",
+        "missing_signal_count": 17,
+        "first_missing_signal_date": "2021-01-29",
+        "last_missing_signal_date": "2024-07-31",
+        "no_raw_pit_financial_facts_signal_count": 17,
+        "insufficient_growth_history_signal_count": 0,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        "raw_sec_cache_profile": "US_GAAP_WITH_10Q",
+        "recommended_data_action": "REVIEW_US_GAAP_PARSER",
+        "observed_annual_forms": "",
+        "priority_rank": 19,
+        "sec_cache_refresh_tier": 2,
+        "cache_refresh_priority_rank": 45,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": 2,
+        "foreign_priority_rank": null
+      },
+      {
+        "ticker": "NUVL",
+        "missing_signal_count": 17,
+        "first_missing_signal_date": "2023-06-30",
+        "last_missing_signal_date": "2026-06-30",
+        "no_raw_pit_financial_facts_signal_count": 0,
+        "insufficient_growth_history_signal_count": 17,
+        "stale_growth_snapshot_signal_count": 0,
+        "reporting_profile": "SEC_NET_INCOME_ONLY_NO_REVENUE_FACTS",
+        "raw_sec_cache_profile": "US_GAAP_WITH_10Q",
+        "recommended_data_action": "CONFIRM_NO_OPERATING_REVENUE",
+        "observed_annual_forms": "10-K",
+        "priority_rank": 20,
+        "sec_cache_refresh_tier": 6,
+        "cache_refresh_priority_rank": 207,
+        "fetch_priority_rank": null,
+        "reparse_priority_rank": null,
+        "foreign_priority_rank": null
+      }
+    ]
+  },
+  "historical_temporal_security_type_filter": {
+    "method": "Carry a symbol's previously observed non-common classification forward through later ambiguous or truncated names. A later explicit common stock, common/ordinary shares, or American Depositary Shares label prospectively re-admits it. No future record rewrites an earlier snapshot.",
+    "signals_tested": 67,
+    "symbols_excluded_vs_stateless_name_filter": 648,
+    "excluded_symbols": [
+      "AACG",
+      "ABLLL",
+      "ACAX",
+      "ACGLN",
+      "ACGLO",
+      "AFJKU",
+      "AGNCL",
+      "AGNCM",
+      "AGNCN",
+      "AGNCO",
+      "AGNCP",
+      "AGZD",
+      "AIMAU",
+      "AIMBU",
+      "AMRN",
+      "ANSC",
+      "ANTE",
+      "APTMU",
+      "ARCC",
+      "ARLP",
+      "ATLCL",
+      "ATLCP",
+      "AUVIP",
+      "AVDL",
+      "AVHIW",
+      "AVPTW",
+      "AWINW",
+      "BAERW",
+      "BANFP",
+      "BANX",
+      "BBLGW",
+      "BCDAW",
+      "BCTXW",
+      "BEATW",
+      "BEEMW",
+      "BENFW",
+      "BETRW",
+      "BFIIW",
+      "BFRGW",
+      "BFRIW",
+      "BHAC",
+      "BHACW",
+      "BHFAL",
+      "BHFAM",
+      "BHFAN",
+      "BHFAO",
+      "BHFAP",
+      "BIAFW",
+      "BIDU",
+      "BKCC",
+      "BLDEW",
+      "BLEUW",
+      "BNZIW",
+      "BPOPM",
+      "BROGW",
+      "BRRR",
+      "BRSHW",
+      "BSJV",
+      "BTBDW",
+      "BTCTW",
+      "BTMWW",
+      "BUJAW",
+      "BWBBP",
+      "BZFDW",
+      "CAPTW",
+      "CCD",
+      "CCGWW",
+      "CCLDO",
+      "CCLDP",
+      "CCLP",
+      "CCNEP",
+      "CDIOW",
+      "CDROW",
+      "CDTTW",
+      "CDZIP",
+      "CEADW",
+      "CELUW",
+      "CETXP",
+      "CGABL",
+      "CGBD",
+      "CGBDL",
+      "CGO",
+      "CHEA",
+      "CHI",
+      "CHKEL",
+      "CHKEW",
+      "CHKEZ",
+      "CHSCL",
+      "CHSCM",
+      "CHSCN",
+      "CHSCO",
+      "CHSCP",
+      "CHW",
+      "CHY",
+      "CIFRW",
+      "CINGW",
+      "CLBTW",
+      "CLINU",
+      "CLINW",
+      "CLMT",
+      "CLNNW",
+      "CLOEU",
+      "CLRCU",
+      "CLRCW",
+      "CLVRW",
+      "CMAXW",
+      "CMCA",
+      "CMPOW",
+      "CNFRL",
+      "CNOBP",
+      "COCHW",
+      "COEPW",
+      "COMSP",
+      "COMSW",
+      "CONXW",
+      "CPLP",
+      "CPTNW",
+      "CPZ",
+      "CRESW",
+      "CRESY",
+      "CREVW",
+      "CSLRW",
+      "CSQ",
+      "CSSEL",
+      "CSSEN",
+      "CSSEP",
+      "CSWCZ",
+      "CTCXW",
+      "CUBA",
+      "CUENW",
+      "CURIW",
+      "CXAIW",
+      "CXSE",
+      "CYCCP",
+      "CYTHW",
+      "DATSW",
+      "DAVEW",
+      "DBGIW",
+      "DCFCW",
+      "DCOMP",
+      "DECA",
+      "DFLIW",
+      "DGRE",
+      "DGRS",
+      "DGRW",
+      "DHCNI",
+      "DHCNL",
+      "DMLP",
+      "DRMAW",
+      "DRTSW",
+      "DTSTW",
+      "DXJS",
+      "DXR",
+      "ECDAW",
+      "ECXWW",
+      "EDAP",
+      "EDBLW",
+      "EFSCP",
+      "EFTRW",
+      "EMCB",
+      "ENCPW",
+      "ENGNW",
+      "ENTR",
+      "EOSEW",
+      "ERIC",
+      "ESGLW",
+      "ESGRO",
+      "ESGRP",
+      "ESLAW",
+      "EUDAW",
+      "EVGOW",
+      "EVGRW",
+      "EVLVW",
+      "EVMT",
+      "EVO",
+      "FAB",
+      "FAD",
+      "FANH",
+      "FATBP",
+      "FATBW",
+      "FAZEW",
+      "FBIOP",
+      "FBYDW",
+      "FBZ",
+      "FCA",
+      "FCNCO",
+      "FCNCP",
+      "FDT",
+      "FDTS",
+      "FDUS",
+      "FEM",
+      "FEMS",
+      "FEP",
+      "FEUZ",
+      "FEX",
+      "FEXDW",
+      "FFIEW",
+      "FGBIP",
+      "FGFPP",
+      "FGIWW",
+      "FGM",
+      "FHLTU",
+      "FHLTW",
+      "FICVW",
+      "FITBI",
+      "FITBO",
+      "FITBP",
+      "FJP",
+      "FKU",
+      "FLN",
+      "FMSTW",
+      "FNK",
+      "FNX",
+      "FNY",
+      "FOSLL",
+      "FPA",
+      "FREEW",
+      "FRMEP",
+      "FSZ",
+      "FTA",
+      "FTAIM",
+      "FTAIN",
+      "FTAIO",
+      "FTAIP",
+      "FTC",
+      "FTGC",
+      "FULTP",
+      "FUND",
+      "FYC",
+      "FYT",
+      "FYX",
+      "GAINL",
+      "GAINZ",
+      "GAMCU",
+      "GAMCW",
+      "GBBKW",
+      "GBDC",
+      "GCMGW",
+      "GDEVW",
+      "GECC",
+      "GECCN",
+      "GECCO",
+      "GFAIW",
+      "GGLL",
+      "GGROW",
+      "GHIXU",
+      "GHIXW",
+      "GIPRW",
+      "GLAD",
+      "GLADZ",
+      "GLDI",
+      "GLLIW",
+      "GLSTW",
+      "GMBLP",
+      "GMBLW",
+      "GMBLZ",
+      "GOEVW",
+      "GOODN",
+      "GOODO",
+      "GOVXW",
+      "GRABW",
+      "GREEL",
+      "GROMW",
+      "GRRRW",
+      "GRVY",
+      "GSDWW",
+      "GSMGW",
+      "GTR",
+      "HBANL",
+      "HBANM",
+      "HBANP",
+      "HCDIP",
+      "HCDIW",
+      "HCDIZ",
+      "HGASW",
+      "HHGCW",
+      "HOFVW",
+      "HOLOW",
+      "HOVNP",
+      "HPKEW",
+      "HROWM",
+      "HSCSW",
+      "HTIA",
+      "HTIBP",
+      "HTLFP",
+      "HTOOW",
+      "HTZWW",
+      "HUBCW",
+      "HUBCZ",
+      "HUMAW",
+      "HWCPZ",
+      "HYMCL",
+      "HYMCW",
+      "HYXF",
+      "HYZD",
+      "HYZNW",
+      "IBIT",
+      "ICUCW",
+      "IEP",
+      "IGTAW",
+      "IINNW",
+      "IMACW",
+      "IMPPP",
+      "IMTXW",
+      "INBKZ",
+      "INVZW",
+      "IPXX",
+      "IPXXW",
+      "IRAA",
+      "IRAAW",
+      "IROHU",
+      "ISPOW",
+      "ISRLU",
+      "ISRLW",
+      "IVDAW",
+      "JFBRW",
+      "JSM",
+      "JSPRW",
+      "JTAIW",
+      "JTAIZ",
+      "KERNW",
+      "KITTW",
+      "KNGZ",
+      "KPLTW",
+      "KRNLW",
+      "KTTAW",
+      "KWESW",
+      "LANDM",
+      "LANDO",
+      "LANDP",
+      "LATG",
+      "LBRDP",
+      "LCAHW",
+      "LCFYW",
+      "LDTCW",
+      "LEXXW",
+      "LFLYW",
+      "LFMDP",
+      "LGHLW",
+      "LGVCW",
+      "LIDRW",
+      "LIFWW",
+      "LIFWZ",
+      "LILMW",
+      "LIXTW",
+      "LMDXW",
+      "LNZAW",
+      "LSEAW",
+      "LTRYW",
+      "LUCYW",
+      "LUNRW",
+      "LUXHP",
+      "LVOXW",
+      "LVROW",
+      "MAPSW",
+      "MARPS",
+      "MBINM",
+      "MBINN",
+      "MBINO",
+      "MBINP",
+      "MBNKP",
+      "MCOMW",
+      "MDAIW",
+      "MDRRP",
+      "METCL",
+      "MFIC",
+      "MFICL",
+      "MINDP",
+      "MLECW",
+      "MMVWW",
+      "MNSBP",
+      "MNTSW",
+      "MOBXW",
+      "MRCC",
+      "MSAIW",
+      "MSBIP",
+      "MSFD",
+      "MTEKW",
+      "MVLAW",
+      "MVSTW",
+      "MYPSW",
+      "NAMSW",
+      "NCNCW",
+      "NCPLW",
+      "NEOVW",
+      "NETD",
+      "NETDW",
+      "NEWTI",
+      "NICE",
+      "NIOBW",
+      "NIRWW",
+      "NKGNW",
+      "NLSPW",
+      "NMFCZ",
+      "NNAVW",
+      "NOGNW",
+      "NRAC",
+      "NRSNW",
+      "NRXPW",
+      "NTES",
+      "NTRBW",
+      "NTRSO",
+      "NUBIU",
+      "NUBIW",
+      "NUKKW",
+      "NVDD",
+      "NVDU",
+      "NVVEW",
+      "NWTNW",
+      "NXGLW",
+      "NXLIW",
+      "NXPLW",
+      "NYMTL",
+      "NYMTM",
+      "NYMTN",
+      "NYMTZ",
+      "OABIW",
+      "OCCI",
+      "OCCIN",
+      "OCCIO",
+      "OCEAW",
+      "OCFCP",
+      "OCSL",
+      "ODVWZ",
+      "OFS",
+      "OMAB",
+      "ONBPO",
+      "ONBPP",
+      "ONFOW",
+      "ONMDW",
+      "OPINL",
+      "OPTXW",
+      "ORGNW",
+      "OSAAW",
+      "OTECW",
+      "OXBRW",
+      "OXLC",
+      "OXLCM",
+      "OXLCN",
+      "OXLCO",
+      "OXLCP",
+      "OXLCZ",
+      "OXSQ",
+      "OZKAP",
+      "PARAP",
+      "PAVMZ",
+      "PAYOW",
+      "PCTTU",
+      "PCTTW",
+      "PDBC",
+      "PETVW",
+      "PETWW",
+      "PFTAU",
+      "PHUNW",
+      "PIIIW",
+      "PNFPP",
+      "POWWP",
+      "PPYA",
+      "PRENW",
+      "PROCW",
+      "PRSR",
+      "PRSRU",
+      "PRSRW",
+      "PRSTW",
+      "PSC",
+      "PSEC",
+      "PSNY",
+      "PTHRU",
+      "PTHRW",
+      "PTIXW",
+      "PTMN",
+      "PTWOU",
+      "PTWOW",
+      "PUCKW",
+      "PXSAP",
+      "PXSAW",
+      "QQQE",
+      "QQQX",
+      "QRTEP",
+      "QSIAW",
+      "RAND",
+      "RCKTW",
+      "RCRTW",
+      "REGCO",
+      "REGCP",
+      "RELIW",
+      "RENEW",
+      "REVBW",
+      "RGTIW",
+      "RILYL",
+      "RILYP",
+      "RILYZ",
+      "RMCOW",
+      "RNWWW",
+      "ROCL",
+      "ROCLW",
+      "RSVRW",
+      "RUMBW",
+      "RVMDW",
+      "RVPHW",
+      "RVSNW",
+      "RYAAY",
+      "SABSW",
+      "SAITW",
+      "SATLW",
+      "SAVAW",
+      "SBFMW",
+      "SCLXW",
+      "SDAWW",
+      "SEATW",
+      "SHCRW",
+      "SHFSW",
+      "SHOTW",
+      "SHPWW",
+      "SIGIP",
+      "SIMO",
+      "SKGRU",
+      "SKGRW",
+      "SKOR",
+      "SKRE",
+      "SLACU",
+      "SLACW",
+      "SLAMU",
+      "SLAMW",
+      "SLDPW",
+      "SLGCW",
+      "SLMBP",
+      "SLNAW",
+      "SLNHP",
+      "SLRC",
+      "SLVO",
+      "SMXWW",
+      "SNAXW",
+      "SNCRL",
+      "SOHOB",
+      "SOHON",
+      "SONDW",
+      "SOUNW",
+      "SPECW",
+      "SQFTP",
+      "SQFTW",
+      "SRZNW",
+      "SSSS",
+      "SSSSL",
+      "STIXW",
+      "STRCW",
+      "STRRP",
+      "STSSW",
+      "SURGW",
+      "SVMHW",
+      "SVREW",
+      "SWAGW",
+      "SWKHL",
+      "SWSSW",
+      "SWVLW",
+      "SXTPW",
+      "SYTAW",
+      "TALKW",
+      "TBLAW",
+      "TCBIO",
+      "TCBPW",
+      "TCPC",
+      "TECTP",
+      "TENKU",
+      "TETE",
+      "TFINP",
+      "THCPU",
+      "THCPW",
+      "THWWW",
+      "TIGR",
+      "TLSIW",
+      "TMCWW",
+      "TNONW",
+      "TOIIW",
+      "TRIB",
+      "TURN",
+      "TWLVW",
+      "UCBIO",
+      "UHGWW",
+      "UKOMW",
+      "UNIY",
+      "USCL",
+      "USCTW",
+      "USGOW",
+      "VCIT",
+      "VCLT",
+      "VCSH",
+      "VERBW",
+      "VFSWW",
+      "VGASW",
+      "VGIT",
+      "VGLT",
+      "VGSH",
+      "VIASP",
+      "VIEWW",
+      "VLYPO",
+      "VLYPP",
+      "VMBS",
+      "VMCAW",
+      "VNQI",
+      "VOD",
+      "VONE",
+      "VONG",
+      "VONV",
+      "VRMEW",
+      "VSSYW",
+      "VTHR",
+      "VTIP",
+      "VTWG",
+      "VTWO",
+      "VTWV",
+      "VWEWW",
+      "VWOB",
+      "WAFDP",
+      "WCBR",
+      "WCLD",
+      "WESTW",
+      "WGSWW",
+      "WHF",
+      "WHFCL",
+      "WHLRD",
+      "WHLRL",
+      "WHLRP",
+      "WKSPW",
+      "WLDSW",
+      "WSBCP",
+      "WTBN",
+      "WTFCM",
+      "WTFCP",
+      "WVVIP",
+      "XBIOW",
+      "XBPEW",
+      "XELAP",
+      "XOMAO",
+      "XOMAP",
+      "XOSWW",
+      "XPDB",
+      "XPDBU",
+      "XPDBW",
+      "YSBPW",
+      "ZAPPW",
+      "ZCARW",
+      "ZFOXW",
+      "ZIONL",
+      "ZIONO",
+      "ZIONP",
+      "ZURAW",
+      "ZZZ"
+    ],
+    "maximum_exclusions_on_one_signal": 645,
+    "by_signal": [
+      {
+        "signal_date": "2021-01-29",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-02-26",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-03-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-04-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-05-28",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-06-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-07-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-08-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-09-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-10-29",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-11-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2021-12-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-01-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-02-28",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-03-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-04-29",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-05-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2022-06-30",
+        "inherited_non_common_exclusion_count": 9
+      },
+      {
+        "signal_date": "2022-07-29",
+        "inherited_non_common_exclusion_count": 13
+      },
+      {
+        "signal_date": "2022-08-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2022-09-30",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2022-10-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2022-11-30",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2022-12-30",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-01-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-02-28",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-03-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-04-28",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-05-31",
+        "inherited_non_common_exclusion_count": 14
+      },
+      {
+        "signal_date": "2023-06-30",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-07-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-08-31",
+        "inherited_non_common_exclusion_count": 2
+      },
+      {
+        "signal_date": "2023-09-29",
+        "inherited_non_common_exclusion_count": 14
+      },
+      {
+        "signal_date": "2023-10-31",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2023-11-30",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2023-12-29",
+        "inherited_non_common_exclusion_count": 0
+      },
+      {
+        "signal_date": "2024-01-31",
+        "inherited_non_common_exclusion_count": 645
+      },
+      {
+        "signal_date": "2024-02-29",
+        "inherited_non_common_exclusion_count": 642
+      },
+      {
+        "signal_date": "2024-03-28",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-04-30",
+        "inherited_non_common_exclusion_count": 15
+      },
+      {
+        "signal_date": "2024-05-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-06-28",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-07-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-08-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-09-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-10-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-11-29",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2024-12-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-01-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-02-28",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-03-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-04-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-05-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-06-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-07-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-08-29",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-09-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-10-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-11-28",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2025-12-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-01-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-02-27",
+        "inherited_non_common_exclusion_count": 12
+      },
+      {
+        "signal_date": "2026-03-31",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-04-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-05-29",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-06-30",
+        "inherited_non_common_exclusion_count": 1
+      },
+      {
+        "signal_date": "2026-07-17",
+        "inherited_non_common_exclusion_count": 1
+      }
+    ]
+  },
+  "historical_benchmark_calendar": {
+    "start": "2021-01-01",
+    "end": "2026-07-17",
+    "expected_sessions": 1390,
+    "observed_unique_sessions": 1390,
+    "missing_sessions": [],
+    "duplicate_dates": [],
+    "non_session_rows": [],
+    "invalid_close_dates": [],
+    "complete": true
+  },
+  "historical_missing_price_symbols": 2313,
+  "historical_minimum_usable_pit_financial_growth_coverage": 0.2522334723049434,
+  "historical_missing_usable_pit_financial_growth_symbols": 4261,
+  "historical_missing_no_raw_pit_financial_facts_symbols": 3886,
+  "historical_missing_insufficient_financial_history_symbols": 585,
+  "historical_missing_stale_financial_growth_symbols": 45,
+  "historical_financial_gap_observations": {
+    "total": 149016,
+    "no_raw_pit_facts": 133145,
+    "insufficient_history": 14832,
+    "stale_growth": 1039,
+    "missing_raw_metric": {
+      "NO_NET_INCOME_FACT": 25,
+      "NO_REVENUE_AND_NET_INCOME_FACTS": 133145,
+      "NO_REVENUE_FACT": 8296
+    }
+  },
+  "historical_missing_price_symbols_with_pit_financial_data": 35,
+  "historical_missing_price_symbols_without_pit_financial_data": 2281,
+  "historical_missing_price_symbols_never_with_pit_financial_data": 2278,
+  "historical_missing_price_symbols_with_mixed_pit_financial_coverage": [
+    "ACVA",
+    "IKT",
+    "VYNE"
+  ],
+  "historical_pit_gap_priority_method": "Rank symbols that never had usable PIT financial data on any missing-price signal by descending affected signal count, then ticker. Price-file dates and remediation scope describe current backfill work only; no future return, later financial result, or selection outcome is used for ranking.",
+  "historical_pit_gap_priority_top20": [
+    {
+      "ticker": "AKTS",
+      "provider_ticker": "AKTS",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 48,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 48,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 48,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2026-01-09",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 1,
+      "recovery_priority_rank": 8
+    },
+    {
+      "ticker": "BGNE",
+      "provider_ticker": "BGNE",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 48,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2025-01-31",
+      "absent_price_file_signal_count": 48,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 48,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 2,
+      "recovery_priority_rank": 1117
+    },
+    {
+      "ticker": "VRM",
+      "provider_ticker": "VRM",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 48,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 48,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 48,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2025-02-20",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 3,
+      "recovery_priority_rank": 9
+    },
+    {
+      "ticker": "ATIF",
+      "provider_ticker": "ATIF",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 47,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 47,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 47,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 4,
+      "recovery_priority_rank": 1118
+    },
+    {
+      "ticker": "MDJH",
+      "provider_ticker": "MDJH",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 47,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 47,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 47,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 5,
+      "recovery_priority_rank": 1119
+    },
+    {
+      "ticker": "NUZE",
+      "provider_ticker": "NUZE",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 46,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-10-31",
+      "absent_price_file_signal_count": 46,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 46,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 6,
+      "recovery_priority_rank": 1120
+    },
+    {
+      "ticker": "AMSWA",
+      "provider_ticker": "AMSWA",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 45,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 45,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 45,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 7,
+      "recovery_priority_rank": 1121
+    },
+    {
+      "ticker": "GRTS",
+      "provider_ticker": "GRTS",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 45,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 45,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 45,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 8,
+      "recovery_priority_rank": 1122
+    },
+    {
+      "ticker": "NICK",
+      "provider_ticker": "NICK",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 45,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 45,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 45,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 9,
+      "recovery_priority_rank": 1123
+    },
+    {
+      "ticker": "SEEL",
+      "provider_ticker": "SEEL",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 45,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 45,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 45,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 10,
+      "recovery_priority_rank": 1124
+    },
+    {
+      "ticker": "VTNR",
+      "provider_ticker": "VTNR",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 45,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 45,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 45,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 11,
+      "recovery_priority_rank": 1125
+    },
+    {
+      "ticker": "ABIO",
+      "provider_ticker": "ABIO",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 44,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-08-30",
+      "absent_price_file_signal_count": 44,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 44,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 12,
+      "recovery_priority_rank": 1126
+    },
+    {
+      "ticker": "AGBA",
+      "provider_ticker": "AGBA",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 44,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 44,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 44,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 13,
+      "recovery_priority_rank": 1127
+    },
+    {
+      "ticker": "BFI",
+      "provider_ticker": "BFI",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 44,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 44,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 44,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 14,
+      "recovery_priority_rank": 1128
+    },
+    {
+      "ticker": "CHK",
+      "provider_ticker": "CHK",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 44,
+      "first_missing_signal_date": "2021-02-26",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 44,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 44,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 15,
+      "recovery_priority_rank": 1129
+    },
+    {
+      "ticker": "RNLX",
+      "provider_ticker": "RNLX",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 44,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-09-30",
+      "absent_price_file_signal_count": 44,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 44,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 16,
+      "recovery_priority_rank": 1130
+    },
+    {
+      "ticker": "CALB",
+      "provider_ticker": "CALB",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 43,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-07-31",
+      "absent_price_file_signal_count": 43,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 43,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 17,
+      "recovery_priority_rank": 1131
+    },
+    {
+      "ticker": "CATC",
+      "provider_ticker": "CATC",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 43,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-07-31",
+      "absent_price_file_signal_count": 43,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 43,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 18,
+      "recovery_priority_rank": 1132
+    },
+    {
+      "ticker": "CERE",
+      "provider_ticker": "CERE",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 43,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-07-31",
+      "absent_price_file_signal_count": 43,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 43,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 19,
+      "recovery_priority_rank": 1133
+    },
+    {
+      "ticker": "CONN",
+      "provider_ticker": "CONN",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 43,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-07-31",
+      "absent_price_file_signal_count": 43,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 43,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 20,
+      "recovery_priority_rank": 1134
+    }
+  ],
+  "historical_pit_gap_recovery_priority_method": "Operational quick-win rank: symbols with any raw PIT facts but no usable growth snapshot first, then symbols with an existing partial price file, then descending affected signal count and ticker. This rank estimates repair readiness, not investment importance, and uses no future return or selection outcome.",
+  "historical_pit_gap_recovery_top20": [
+    {
+      "ticker": "AKRO",
+      "provider_ticker": "AKRO",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2025-12-31",
+      "last_missing_signal_date": "2025-12-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 1,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2019-06-20",
+      "observed_price_file_last_date": "2025-12-01",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2028,
+      "recovery_priority_rank": 1
+    },
+    {
+      "ticker": "ATSG",
+      "provider_ticker": "ATSG",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2025-04-30",
+      "last_missing_signal_date": "2025-04-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 1,
+      "observed_price_file_first_date": "2005-02-25",
+      "observed_price_file_last_date": "2025-04-10",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2036,
+      "recovery_priority_rank": 2
+    },
+    {
+      "ticker": "ETNB",
+      "provider_ticker": "ETNB",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2025-10-31",
+      "last_missing_signal_date": "2025-10-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 1,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2019-11-11",
+      "observed_price_file_last_date": "2025-10-01",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2083,
+      "recovery_priority_rank": 3
+    },
+    {
+      "ticker": "OPI_PRE_REORG",
+      "provider_ticker": "OPI",
+      "security_identity_type": "ticker_reuse",
+      "security_identity_source_url": "https://www.sec.gov/Archives/edgar/data/1456772/000110465926076652/tm2618043d2_8k.htm",
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2025-10-31",
+      "last_missing_signal_date": "2025-10-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 1,
+      "observed_price_file_first_date": "2009-06-02",
+      "observed_price_file_last_date": "2025-10-06",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2181,
+      "recovery_priority_rank": 4
+    },
+    {
+      "ticker": "SLNO",
+      "provider_ticker": "SLNO",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2026-05-29",
+      "last_missing_signal_date": "2026-05-29",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 1,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2014-11-14",
+      "observed_price_file_last_date": "2026-05-15",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2219,
+      "recovery_priority_rank": 5
+    },
+    {
+      "ticker": "VRNA",
+      "provider_ticker": "VRNA",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 1,
+      "first_missing_signal_date": "2025-10-31",
+      "last_missing_signal_date": "2025-10-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 1,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 1,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2017-04-27",
+      "observed_price_file_last_date": "2025-10-01",
+      "remediation_scope": "RESTORE_PRICE_TAIL_PLUS_PIT_FINANCIAL",
+      "priority_rank": 2265,
+      "recovery_priority_rank": 6
+    },
+    {
+      "ticker": "CORZ_PRE2024",
+      "provider_ticker": "CORZ",
+      "security_identity_type": "ticker_reuse",
+      "security_identity_source_url": "https://www.sec.gov/Archives/edgar/data/1839341/000119312524013078/d661343d8k.htm",
+      "missing_signal_count": 11,
+      "first_missing_signal_date": "2022-02-28",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 11,
+      "history_starts_after_signal_count": 0,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 0,
+      "insufficient_growth_history_signal_count": 11,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": null,
+      "observed_price_file_last_date": null,
+      "remediation_scope": "ACQUIRE_PRICE_AND_PIT_FINANCIAL",
+      "priority_rank": 1630,
+      "recovery_priority_rank": 7
+    },
+    {
+      "ticker": "AKTS",
+      "provider_ticker": "AKTS",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 48,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 48,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 48,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2026-01-09",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 1,
+      "recovery_priority_rank": 8
+    },
+    {
+      "ticker": "VRM",
+      "provider_ticker": "VRM",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 48,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-12-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 48,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 48,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2025-02-20",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 3,
+      "recovery_priority_rank": 9
+    },
+    {
+      "ticker": "CAMP",
+      "provider_ticker": "CAMP",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 42,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-06-28",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 42,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 42,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2024-10-11",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 34,
+      "recovery_priority_rank": 10
+    },
+    {
+      "ticker": "LIFE",
+      "provider_ticker": "LIFE",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 42,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-06-28",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 42,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 42,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2026-01-29",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 46,
+      "recovery_priority_rank": 11
+    },
+    {
+      "ticker": "INBX",
+      "provider_ticker": "INBX",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 40,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2024-04-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 40,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 40,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2024-05-28",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 66,
+      "recovery_priority_rank": 12
+    },
+    {
+      "ticker": "TWLV",
+      "provider_ticker": "TWLV",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 39,
+      "first_missing_signal_date": "2021-04-30",
+      "last_missing_signal_date": "2024-06-28",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 39,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 39,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2026-01-09",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 96,
+      "recovery_priority_rank": 13
+    },
+    {
+      "ticker": "MINM",
+      "provider_ticker": "MINM",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 37,
+      "first_missing_signal_date": "2021-07-30",
+      "last_missing_signal_date": "2024-07-31",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 37,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 37,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2025-06-03",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 156,
+      "recovery_priority_rank": 14
+    },
+    {
+      "ticker": "STRC",
+      "provider_ticker": "STRC",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 31,
+      "first_missing_signal_date": "2021-09-30",
+      "last_missing_signal_date": "2024-03-28",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 31,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 31,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2025-07-25",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 304,
+      "recovery_priority_rank": 15
+    },
+    {
+      "ticker": "AEYE",
+      "provider_ticker": "AEYE",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 24,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 24,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 24,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2023-01-03",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 489,
+      "recovery_priority_rank": 16
+    },
+    {
+      "ticker": "AFBI",
+      "provider_ticker": "AFBI",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 24,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 24,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 24,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2023-01-03",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 490,
+      "recovery_priority_rank": 17
+    },
+    {
+      "ticker": "AGEN",
+      "provider_ticker": "AGEN",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 24,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 24,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 24,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2023-01-03",
+      "observed_price_file_last_date": "2026-07-31",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 491,
+      "recovery_priority_rank": 18
+    },
+    {
+      "ticker": "AIRG",
+      "provider_ticker": "AIRG",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 24,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 24,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 24,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2023-01-03",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 493,
+      "recovery_priority_rank": 19
+    },
+    {
+      "ticker": "AIRT",
+      "provider_ticker": "AIRT",
+      "security_identity_type": null,
+      "security_identity_source_url": null,
+      "missing_signal_count": 24,
+      "first_missing_signal_date": "2021-01-29",
+      "last_missing_signal_date": "2022-12-30",
+      "absent_price_file_signal_count": 0,
+      "history_starts_after_signal_count": 24,
+      "stale_or_ended_history_count": 0,
+      "internal_price_gap_at_signal_count": 0,
+      "no_raw_pit_financial_facts_signal_count": 24,
+      "insufficient_growth_history_signal_count": 0,
+      "stale_growth_snapshot_signal_count": 0,
+      "observed_price_file_first_date": "2023-01-03",
+      "observed_price_file_last_date": "2026-07-17",
+      "remediation_scope": "BACKFILL_PRICE_HEAD_PLUS_PIT_FINANCIAL",
+      "priority_rank": 494,
+      "recovery_priority_rank": 20
+    }
+  ],
+  "historical_maximum_signal_snapshot_age_days": 30,
+  "historical_allowed_signal_snapshot_age_days": 40,
+  "historical_stale_signal_snapshot_dates": [],
+  "historical_stale_snapshot_selection_diagnostics": {
+    "method": "Compare the last knowable snapshot with the next observed snapshot, their union, and an intentionally over-broad universe of every symbol with observed prices. The later and all-price universes are sensitivity bounds, not point-in-time evidence.",
+    "signals": [],
+    "all_bracketed_top3_stable": false,
+    "point_in_time_gap_resolved": false
+  },
+  "historical_missing_price_symbols_passing_financial_screen": [
+    "APLS",
+    "PPBI",
+    "SEZL"
+  ],
+  "historical_confirmed_insufficient_listing_history_symbols": [
+    "SEZL"
+  ],
+  "historical_unresolved_observable_potential_competitors": [
+    "APLS"
+  ],
+  "historical_observable_missing_price_detail_rows": 164,
+  "historical_observable_missing_price_by_ticker": [
+    {
+      "ticker": "ACVA",
+      "affected_signal_count": 11,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "AMED",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "APLS",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [],
+      "classifications": [
+        "unresolved_observable_potential_competitor"
+      ]
+    },
+    {
+      "ticker": "ASND",
+      "affected_signal_count": 9,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "AVDX",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "AZPN",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "BGFV",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "BPMC",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "CDMO",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "CFLT",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "COOP",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "CRBP",
+      "affected_signal_count": 24,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "CSGS",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "DGICB",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "EDIT",
+      "affected_signal_count": 24,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "ESGR",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "EXAS",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "FYBR",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "HOLX",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "IKT",
+      "affected_signal_count": 10,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "ITCI",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "KELYB",
+      "affected_signal_count": 6,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "LBTYB",
+      "affected_signal_count": 29,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "MASI",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "ODP",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "PDCO",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "PENG",
+      "affected_signal_count": 3,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "PPBI",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [],
+      "classifications": [
+        "confirmed_terminal_before_signal"
+      ]
+    },
+    {
+      "ticker": "PVLA",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "ROIC",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "RVNC",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "SAGE",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "SEZL",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [],
+      "classifications": [
+        "confirmed_insufficient_listing_history"
+      ]
+    },
+    {
+      "ticker": "SWTX",
+      "affected_signal_count": 1,
+      "failed_thresholds_observed": [
+        "positive_profit"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    },
+    {
+      "ticker": "VYNE",
+      "affected_signal_count": 22,
+      "failed_thresholds_observed": [
+        "positive_profit",
+        "profit_growth",
+        "revenue_growth"
+      ],
+      "classifications": [
+        "fails_financial_screen"
+      ]
+    }
+  ],
+  "historical_financial_screen_interpretation": "This is an observable upper bound under the current PIT financial dataset, not proof that missing-price symbols without PIT growth snapshots were truly ineligible at the time. A usable growth snapshot requires enough raw quarterly facts to calculate TTM year-over-year growth and must satisfy the configured age limit; it is not synonymous with the presence of any raw SEC fact. missing_without_pit_financial_data_symbols means absent on at least one missing-price signal and can overlap with symbols that had PIT financial data on another signal; missing_never_with_pit_financial_data_symbols is the mutually exclusive residual.",
+  "historical_unresolved_terminal_returns": 105,
+  "selected_position_terminal_returns_complete": true,
+  "unresolved_terminal_returns_affecting_traded_symbols": [],
   "rules": "Public CAN SLIM-inspired quarterly growth and leadership; at most three qualifying Nasdaq stocks, equal weighted when full; monthly close signal and next-session close execution.",
   "configurations_tested_in_top_n_neighborhood": 4,
   "historical_research_period": "2021-01-01 through 2026-07-17",
@@ -27,24 +2804,195 @@
   "signal_frequency": "monthly",
   "uses_quarterly_fundamentals": true,
   "uses_adaptive_channel": false,
+  "historical_evidence_class": "RETROSPECTIVE_IN_SAMPLE",
+  "historical_evidence_interpretation": "The frozen policy was chosen after reviewing this period. These returns, annual win counts, and bootstrap statistics are retrospective sensitivity evidence, not out-of-sample proof.",
+  "bootstrap_evidence_class": "RETROSPECTIVE_IN_SAMPLE_INFORMATION_ONLY",
   "historical_years": 6,
-  "wins_vs_nasdaq": 6,
-  "passed_every_historical_year": true,
-  "minimum_historical_excess": 0.090734191770943,
-  "median_historical_excess": 0.13049834083721312,
-  "transaction_cost_stress_passed": true,
+  "wins_vs_nasdaq": 5,
+  "passed_every_historical_year": false,
+  "minimum_historical_excess": -0.04673117330512011,
+  "median_historical_excess": 0.18918463049268514,
+  "transaction_cost_stress_passed": false,
   "transaction_cost_stress_definition": "30 bps one-way (3x assumed): compounded return above Nasdaq and at least 75% winning calendar years",
-  "three_x_cost_strategy_return": 6.920070052325006,
+  "transaction_cost_stress_interpretation": "The frozen combined gate is intentionally unchanged. Its winning-year requirement measures retrospective breadth, while the separate incremental diagnostics below isolate whether the increase from 10 to 30 bps creates additional losing years.",
+  "transaction_cost_stress_diagnostics": {
+    "combined_gate_passed": false,
+    "combined_gate_failure_attribution": [
+      "ANNUAL_BREADTH_WORSENED_UNDER_STRESS_COST",
+      "ADDITIONAL_FAILED_YEARS_CREATED_BY_STRESS_COST"
+    ],
+    "compounded_alpha_positive_at_30bps": true,
+    "incremental_cost_robustness_passed": false,
+    "annual_breadth_passed_at_30bps": false,
+    "winning_year_fraction_at_10bps": 0.8333333333333334,
+    "winning_year_fraction_at_30bps": 0.6666666666666666,
+    "required_winning_year_fraction": 0.75,
+    "no_incremental_failed_years_at_30bps": false,
+    "baseline_10bps_failed_years": [
+      2023
+    ],
+    "stress_30bps_failed_years": [
+      2023,
+      2025
+    ],
+    "incremental_failed_years_due_to_30bps": [
+      2025
+    ],
+    "annual_excess_at_30bps": {
+      "2021": 0.17758781661821388,
+      "2022": 0.14100968707268446,
+      "2023": -0.08788287765196734,
+      "2024": 2.4711963971637454,
+      "2025": -0.013981989592372512,
+      "2026": 0.23392692832712259
+    },
+    "annual_turnover_at_10bps": {
+      "2021": 19.320233248923685,
+      "2022": 2.9980019980019983,
+      "2023": 15.039773369638809,
+      "2024": 14.152022867097656,
+      "2025": 16.063729476301,
+      "2026": 10.658785066982334
+    },
+    "annual_transaction_cost_simulated_dollars_at_10bps": {
+      "2021": 37604.33947824942,
+      "2022": 5986.685158156063,
+      "2023": 31608.542572527804,
+      "2024": 57469.119779702836,
+      "2025": 166294.49938759507,
+      "2026": 189552.35965309592
+    },
+    "annual_gross_notional_simulated_dollars_at_10bps": {
+      "2021": 37604339.47824942,
+      "2022": 5986685.1581560625,
+      "2023": 31608542.572527803,
+      "2024": 57469119.779702835,
+      "2025": 166294499.3875951,
+      "2026": 189552359.65309593
+    },
+    "annual_cost_capacity": {
+      "2021": {
+        "gross_excess_at_0bps": 0.26072149033298353,
+        "estimated_break_even_one_way_cost_bps": null,
+        "break_even_cost_lower_bound_bps": 50.0,
+        "classification": "ABOVE_HIGHEST_REPLAYED_COST",
+        "observed_excess_by_cost_bps": {
+          "0": 0.26072149033298353,
+          "10": 0.2324816272033403,
+          "30": 0.17758781661821388,
+          "50": 0.12474350355603114
+        }
+      },
+      "2022": {
+        "gross_excess_at_0bps": 0.14833637606512773,
+        "estimated_break_even_one_way_cost_bps": null,
+        "break_even_cost_lower_bound_bps": 50.0,
+        "classification": "ABOVE_HIGHEST_REPLAYED_COST",
+        "observed_excess_by_cost_bps": {
+          "0": 0.14833637606512773,
+          "10": 0.14588763378202996,
+          "30": 0.14100968707268446,
+          "50": 0.13615766123478357
+        }
+      },
+      "2023": {
+        "gross_excess_at_0bps": -0.025689679027060652,
+        "estimated_break_even_one_way_cost_bps": 0.0,
+        "break_even_cost_lower_bound_bps": null,
+        "classification": "NONPOSITIVE_BEFORE_COST",
+        "observed_excess_by_cost_bps": {
+          "0": -0.025689679027060652,
+          "10": -0.04673117330512011,
+          "30": -0.08788287765196734,
+          "50": -0.12782334680639051
+        }
+      },
+      "2024": {
+        "gross_excess_at_0bps": 2.6343431145360343,
+        "estimated_break_even_one_way_cost_bps": null,
+        "break_even_cost_lower_bound_bps": 50.0,
+        "classification": "ABOVE_HIGHEST_REPLAYED_COST",
+        "observed_excess_by_cost_bps": {
+          "0": 2.6343431145360343,
+          "10": 2.5792098288922745,
+          "30": 2.4711963971637454,
+          "50": 2.3661203924394822
+        }
+      },
+      "2025": {
+        "gross_excess_at_0bps": 0.044808297877621195,
+        "estimated_break_even_one_way_cost_bps": 22.80780068636458,
+        "break_even_cost_lower_bound_bps": null,
+        "classification": "BRACKETED_INTERPOLATION",
+        "observed_excess_by_cost_bps": {
+          "0": 0.044808297877621195,
+          "10": 0.024898995159717385,
+          "30": -0.013981989592372512,
+          "50": -0.05164536185771307
+        }
+      },
+      "2026": {
+        "gross_excess_at_0bps": 0.27724974465135954,
+        "estimated_break_even_one_way_cost_bps": null,
+        "break_even_cost_lower_bound_bps": 50.0,
+        "classification": "ABOVE_HIGHEST_REPLAYED_COST",
+        "observed_excess_by_cost_bps": {
+          "0": 0.27724974465135954,
+          "10": 0.2626569147555986,
+          "30": 0.23392692832712259,
+          "50": 0.20579397213427342
+        }
+      }
+    },
+    "break_even_method": "Linear interpolation between replayed 0/10/30/50 bps one-way cost levels. Diagnostic only; not used for model selection or release."
+  },
+  "trade_liquidity_capacity": {
+    "method": "Gross trade notional is normalized by simulated portfolio NAV, then rescaled to hypothetical account sizes and divided by the prior 50-session median dollar volume. This is a full-day liquidity proxy, not a closing-auction fill or market-impact model.",
+    "liquidity_window_sessions": 50,
+    "trade_count": 377,
+    "trades_with_liquidity": 377,
+    "trades_missing_liquidity": 0,
+    "account_size_participation": {
+      "100000": {
+        "median": 0.00034719087508468,
+        "p95": 0.002507430878285852,
+        "maximum": 0.0034232733985289014,
+        "trades_above_1pct": 0,
+        "trades_above_5pct": 0
+      },
+      "1000000": {
+        "median": 0.0034719087508468,
+        "p95": 0.025074308782858525,
+        "maximum": 0.03423273398528902,
+        "trades_above_1pct": 99,
+        "trades_above_5pct": 0
+      }
+    },
+    "account_capacity": {
+      "1pct": {
+        "minimum": 292118.0646657478,
+        "p10": 536523.4682700001,
+        "median": 2880260.0291730003
+      },
+      "5pct": {
+        "minimum": 1460590.323328739,
+        "p10": 2682617.3413500004,
+        "median": 14401300.145865003
+      }
+    }
+  },
+  "three_x_cost_strategy_return": 8.0348729241552,
   "three_x_cost_nasdaq_return": 0.9801118259188886,
   "cost_stress_wins": {
-    "10": 6,
-    "30": 6,
-    "50": 6
+    "0": 5,
+    "10": 5,
+    "30": 4,
+    "50": 4
   },
-  "annualized_active_mean": 0.3496241954984639,
-  "bootstrap_ci_95_low": 0.022140598256932608,
-  "bootstrap_ci_95_high": 0.7361181549379491,
-  "bootstrap_probability_nonpositive": 0.0175,
+  "annualized_active_mean": 0.3677863628279288,
+  "bootstrap_ci_95_low": 0.045957852776345814,
+  "bootstrap_ci_95_high": 0.7547573744428178,
+  "bootstrap_probability_nonpositive": 0.0105,
   "bootstrap_block_sessions": 20,
   "bootstrap_samples": 2000,
   "current_shadow_config_ids": [
@@ -109,5 +3057,119 @@
         }
       ]
     }
-  ]
+  ],
+  "input_fingerprints": {
+    "strategy_code": {
+      "path": "explicit_project_files",
+      "files": [
+        "src/__init__.py",
+        "src/conf.py",
+        "src/financial/eps.py",
+        "src/financial/quarterly_fundamentals.py",
+        "src/io/__init__.py",
+        "src/io/security_identity.py",
+        "src/io/security_universe.py",
+        "src/io/terminal_returns.py",
+        "src/research/__init__.py",
+        "src/research/can_slim.py",
+        "src/research/data_quality.py",
+        "src/research/universe_history.py",
+        "src/strategy/__init__.py",
+        "src/strategy/common.py"
+      ],
+      "sha256": "728cc6e3408ad13da3bdb29c3107b094504153991b5265562f3ad7582b4be4a0",
+      "file_count": 14,
+      "bytes": 83609,
+      "roots": [
+        "src/research/can_slim.py",
+        "src/research/universe_history.py"
+      ],
+      "dependency_resolution": "recursive_ast_project_imports"
+    },
+    "source_code": {
+      "path": "src",
+      "pattern": "*.py",
+      "sha256": "0768c3b0a9e300a1663895795a98062a435f151108771d58a94a5ea32d6dee6b",
+      "file_count": 57,
+      "bytes": 876941
+    },
+    "price_data": {
+      "path": "cleaned_stocks_data/price",
+      "pattern": "*.csv",
+      "sha256": "d06946734a385ca431d9ad86a1d0c0e9d1c3b8d643be37390ec7d3c848247f8b",
+      "file_count": 4402,
+      "bytes": 439397213
+    },
+    "price_data_provenance": {
+      "path": "output/data_provenance",
+      "pattern": "*.json",
+      "sha256": "4043144030760f153fe6754244dceff5e8240ff5a82ef8d11e40b466059d6c39",
+      "file_count": 38127,
+      "bytes": 35261946180
+    },
+    "eps": {
+      "path": "cleaned_stocks_data/financial/eps_point_in_time.csv",
+      "sha256": "138f1afb42312c78e43d7682227b40c002a7286f0912a0d2137012fcad946a0f",
+      "bytes": 2692867
+    },
+    "quarterly_fundamentals": {
+      "path": "cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv",
+      "sha256": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69",
+      "bytes": 35013260
+    },
+    "nasdaq_index": {
+      "path": "stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e",
+      "bytes": 535069
+    },
+    "universe_snapshots": {
+      "path": "stocks_list_dir/nasdaq/snapshots",
+      "pattern": "*.csv",
+      "sha256": "be044d0c2322f3e722983afee7d2a6f000f76e8348407c59c58425b84743a459",
+      "file_count": 380,
+      "bytes": 348126126
+    },
+    "terminal_returns": {
+      "path": "stocks_list_dir/nasdaq/terminal_returns.csv",
+      "sha256": "f3cc59854323f0222c498ec3da07a3b3a583e27a2caf6d8c030226c04beed9a3",
+      "bytes": 33129
+    },
+    "confirmed_price_adjustments": {
+      "path": "stocks_list_dir/nasdaq/confirmed_price_adjustments.csv",
+      "sha256": "49a2fe6a307f7cb0fbb27c0703ffd1133ad28848f2358429f4319aadf9b8152b",
+      "bytes": 222
+    },
+    "confirmed_listings": {
+      "path": "stocks_list_dir/nasdaq/confirmed_listings.csv",
+      "sha256": "7f91b81834e0ee9a6ccf612d291629f744e387c1cdab8811d4d0843b81853f4c",
+      "bytes": 192
+    },
+    "security_identity": {
+      "path": "stocks_list_dir/nasdaq/security_identity.csv",
+      "sha256": "201804b030f507165f51fd01f74b208d202a1765989a929f0f281841083d2921",
+      "bytes": 3442
+    },
+    "reviewed_market_moves": {
+      "path": "stocks_list_dir/nasdaq/reviewed_market_moves.csv",
+      "sha256": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47",
+      "bytes": 983
+    },
+    "data_manifest": {
+      "schema_version": 1,
+      "sha256": "4ec14ef855dece59c36f42e5b89b9488da13f40979fbc0a43a50c73138235080",
+      "components": {
+        "price_data": "d06946734a385ca431d9ad86a1d0c0e9d1c3b8d643be37390ec7d3c848247f8b",
+        "price_data_provenance": "4043144030760f153fe6754244dceff5e8240ff5a82ef8d11e40b466059d6c39",
+        "eps": "138f1afb42312c78e43d7682227b40c002a7286f0912a0d2137012fcad946a0f",
+        "quarterly_fundamentals": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69",
+        "nasdaq_index": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e",
+        "universe_snapshots": "be044d0c2322f3e722983afee7d2a6f000f76e8348407c59c58425b84743a459",
+        "terminal_returns": "f3cc59854323f0222c498ec3da07a3b3a583e27a2caf6d8c030226c04beed9a3",
+        "confirmed_price_adjustments": "49a2fe6a307f7cb0fbb27c0703ffd1133ad28848f2358429f4319aadf9b8152b",
+        "confirmed_listings": "7f91b81834e0ee9a6ccf612d291629f744e387c1cdab8811d4d0843b81853f4c",
+        "security_identity": "201804b030f507165f51fd01f74b208d202a1765989a929f0f281841083d2921",
+        "reviewed_market_moves": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47"
+      }
+    }
+  }
 }

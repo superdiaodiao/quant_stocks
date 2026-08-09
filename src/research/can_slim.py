@@ -13,6 +13,10 @@ import pandas as pd
 
 from src.financial.eps import eps_snapshot
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
+from src.io.security_identity import (
+    issuer_rename_transitions,
+    remap_weights_after_issuer_rename,
+)
 from src.research.data_quality import back_adjust_common_splits, stock_returns_with_delisting_penalty
 from src.strategy.common import market_regime_is_on, next_trading_date, scheduled_signal_dates
 
@@ -66,23 +70,17 @@ class CanSlimConfig:
     ensemble_weight: float = 1.0
 
 
-def score_can_slim_cross_section(
+def build_can_slim_technical_cross_section(
     date: pd.Timestamp,
     close: pd.DataFrame,
     dollar_volume: pd.DataFrame,
     index_close: pd.Series,
-    eps: pd.DataFrame,
     config: CanSlimConfig,
     eligible_symbols: set[str] | None = None,
-    quarterly_fundamentals: pd.DataFrame | None = None,
     keltner_upper: pd.DataFrame | None = None,
+    eligibility_close: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Score C/A/N/S/L signals that were knowable at ``date``.
-
-    C/A use point-in-time trailing EPS growth; N is proximity to a 52-week
-    high; S is relative dollar-volume; L is 12-month relative strength.
-    Market direction (M) is applied when positions are formed, not here.
-    """
+    """Build the point-in-time non-financial cross section used by CAN SLIM."""
     history = close.loc[:date]
     if len(history) < 253:
         return pd.DataFrame()
@@ -90,8 +88,13 @@ def score_can_slim_cross_section(
     if index_history.isna().any():
         return pd.DataFrame()
     dollar_history = dollar_volume.loc[:date]
+    eligibility_history = (
+        eligibility_close.loc[:date].reindex_like(history)
+        if eligibility_close is not None else history
+    )
     frame = pd.DataFrame({
         "price": history.iloc[-1],
+        "eligibility_price": eligibility_history.iloc[-1],
         "median_dollar_volume_50d": dollar_history.iloc[-50:].median(),
         "relative_volume": dollar_history.iloc[-1] / dollar_history.iloc[-50:].median(),
         "high_52_week": history.iloc[-252:].max(),
@@ -112,6 +115,65 @@ def score_can_slim_cross_section(
         frame["keltner_breakout"] = True
     if eligible_symbols is not None:
         frame = frame.loc[frame.index.intersection(sorted(eligible_symbols))]
+    return frame
+
+
+def can_slim_nonfinancial_candidate_mask(
+    frame: pd.DataFrame,
+    config: CanSlimConfig,
+) -> pd.Series:
+    """Return symbols that could qualify if their financial tests passed."""
+    mask = (
+        frame["eligibility_price"].ge(config.minimum_price)
+        & frame["median_dollar_volume_50d"].ge(
+            config.minimum_median_dollar_volume
+        )
+        & frame["relative_volume"].ge(config.minimum_relative_volume)
+        & frame["keltner_breakout"]
+    )
+    if config.selection_mode == "recovery":
+        mask &= frame["relative_strength_3m"].gt(0)
+        required = ["price", "median_dollar_volume_50d", "relative_volume",
+                    "relative_strength_3m"]
+    else:
+        mask &= frame["near_52_week_high"].ge(
+            config.minimum_52_week_high_ratio
+        )
+        required = ["price", "median_dollar_volume_50d", "relative_volume",
+                    "near_52_week_high", "relative_strength_12_1"]
+    return mask & frame[required].notna().all(axis=1)
+
+
+def score_can_slim_cross_section(
+    date: pd.Timestamp,
+    close: pd.DataFrame,
+    dollar_volume: pd.DataFrame,
+    index_close: pd.Series,
+    eps: pd.DataFrame,
+    config: CanSlimConfig,
+    eligible_symbols: set[str] | None = None,
+    quarterly_fundamentals: pd.DataFrame | None = None,
+    keltner_upper: pd.DataFrame | None = None,
+    eligibility_close: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Score C/A/N/S/L signals that were knowable at ``date``.
+
+    C/A use point-in-time trailing EPS growth; N is proximity to a 52-week
+    high; S is relative dollar-volume; L is 12-month relative strength.
+    Market direction (M) is applied when positions are formed, not here.
+    """
+    frame = build_can_slim_technical_cross_section(
+        date,
+        close,
+        dollar_volume,
+        index_close,
+        config,
+        eligible_symbols,
+        keltner_upper,
+        eligibility_close,
+    )
+    if frame.empty:
+        return frame
     eps_known = eps_snapshot(eps, date, config.maximum_financial_age_days)
     if config.use_quarterly_fundamentals and quarterly_fundamentals is not None:
         scored = frame.join(eps_known, how="left")
@@ -139,30 +201,27 @@ def score_can_slim_cross_section(
         scored["revenue_ok"] = True
         scored["financial_source"] = "eps"
         scored["financial_coverage_ok"] = True
-    base_eligible = (
-        (scored["price"] >= config.minimum_price)
-        & (scored["median_dollar_volume_50d"] >= config.minimum_median_dollar_volume)
-        & (scored["relative_volume"] >= config.minimum_relative_volume)
-        & scored["profit_positive"]
-        & scored["financial_coverage_ok"]
+    nonfinancial_eligible = can_slim_nonfinancial_candidate_mask(
+        scored, config
+    )
+    financial_eligible = (
+        scored["profit_positive"] & scored["financial_coverage_ok"]
     )
     if config.selection_mode == "recovery":
-        model_eligible = (
+        financial_eligible &= (
             scored["financial_source"].eq("sec_quarterly")
             & scored["revenue_growth"].ge(0)
-            & scored["keltner_breakout"]
-            & scored["relative_strength_3m"].gt(0)
         )
         scored["leadership_metric"] = scored["relative_strength_3m"]
     else:
-        model_eligible = (
-            (scored["near_52_week_high"] >= config.minimum_52_week_high_ratio)
-            & (scored["profit_growth"] >= config.minimum_eps_growth)
+        financial_eligible &= (
+            scored["profit_growth"].ge(config.minimum_eps_growth)
             & scored["revenue_ok"]
-            & scored["keltner_breakout"]
         )
         scored["leadership_metric"] = scored["relative_strength_12_1"]
-    eligible = scored.loc[base_eligible & model_eligible].dropna(subset=[
+    eligible = scored.loc[
+        nonfinancial_eligible & financial_eligible
+    ].dropna(subset=[
         "price", "median_dollar_volume_50d", "relative_volume",
         "near_52_week_high", "leadership_metric", "profit_growth",
     ])
@@ -195,11 +254,12 @@ def select_can_slim_portfolio(
     eligible_symbols: set[str] | None = None,
     quarterly_fundamentals: pd.DataFrame | None = None,
     keltner_upper: pd.DataFrame | None = None,
+    eligibility_close: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Canonical selector shared by the replay and daily recommendation path."""
     selected = score_can_slim_cross_section(
         date, close, dollar_volume, index_close, eps, config, eligible_symbols,
-        quarterly_fundamentals, keltner_upper,
+        quarterly_fundamentals, keltner_upper, eligibility_close,
     ).head(config.top_n).copy()
     selected["target_weight"] = (
         min(1 / len(selected), config.maximum_position_weight)
@@ -218,6 +278,7 @@ def select_can_slim_ensemble_portfolio(
     eligible_symbols: set[str] | None = None,
     quarterly_fundamentals: pd.DataFrame | None = None,
     keltner_upper: pd.DataFrame | None = None,
+    eligibility_close: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Average canonical portfolio weights across time-frozen configurations."""
     if not configs:
@@ -225,7 +286,7 @@ def select_can_slim_ensemble_portfolio(
     selections = [
         select_can_slim_portfolio(
             date, close, dollar_volume, index_close, eps, config, eligible_symbols,
-            quarterly_fundamentals, keltner_upper,
+            quarterly_fundamentals, keltner_upper, eligibility_close,
         )
         for config in configs
     ]
@@ -276,11 +337,14 @@ def calculate_can_slim_returns(
     quarterly_fundamentals: pd.DataFrame | None = None,
     high: pd.DataFrame | None = None,
     low: pd.DataFrame | None = None,
+    adjust_splits: bool = True,
+    eligibility_close: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Replay scheduled signals with a self-financing buy-and-hold portfolio."""
     result, _ = calculate_can_slim_returns_with_ledger(
         close, dollar_volume, index_close, eps, config, universe_as_of,
-        quarterly_fundamentals, high, low,
+        quarterly_fundamentals, high, low, adjust_splits=adjust_splits,
+        eligibility_close=eligibility_close,
     )
     return result
 
@@ -296,6 +360,9 @@ def calculate_can_slim_returns_with_ledger(
     high: pd.DataFrame | None = None,
     low: pd.DataFrame | None = None,
     initial_capital: float = 1_000_000.0,
+    adjust_splits: bool = True,
+    eligibility_close: pd.DataFrame | None = None,
+    identity_transitions: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Replay the canonical policy and return its daily series and trade ledger.
 
@@ -305,7 +372,9 @@ def calculate_can_slim_returns_with_ledger(
     """
     if initial_capital <= 0:
         raise ValueError("initial_capital must be positive")
-    prices = back_adjust_common_splits(close).sort_index()
+    prices = (
+        back_adjust_common_splits(close) if adjust_splits else close.copy()
+    ).sort_index()
     adjustment = prices / close.reindex_like(prices)
     adjusted_high = high.reindex_like(prices) * adjustment if high is not None else None
     adjusted_low = low.reindex_like(prices) * adjustment if low is not None else None
@@ -318,8 +387,16 @@ def calculate_can_slim_returns_with_ledger(
             config.keltner_atr_window, config.keltner_multiplier,
         )
     dollar_volume = dollar_volume.reindex_like(prices)
+    eligibility_close = (
+        eligibility_close if eligibility_close is not None else close
+    ).reindex_like(prices)
     index_close = index_close.reindex(prices.index).ffill()
     stock_returns = stock_returns_with_delisting_penalty(prices).fillna(0.0)
+    identity_transitions = (
+        issuer_rename_transitions()
+        if identity_transitions is None
+        else identity_transitions
+    )
     targets: dict[pd.Timestamp, tuple[pd.Series, pd.Timestamp, str]] = {}
     for signal_date in scheduled_signal_dates(
         prices.index, config.start, config.end, config.signal_frequency
@@ -331,6 +408,7 @@ def calculate_can_slim_returns_with_ledger(
             signal_date, prices, dollar_volume, index_close, eps, config, symbols,
             quarterly_fundamentals,
             keltner_upper,
+            eligibility_close,
         )
         effective = next_trading_date(prices.index, signal_date)
         if effective is None:
@@ -347,6 +425,9 @@ def calculate_can_slim_returns_with_ledger(
             reason = "MARKET_REGIME_TO_CASH"
         else:
             reason = "NO_QUALIFYING_STOCKS_TO_CASH"
+        target = remap_weights_after_issuer_rename(
+            target, effective, identity_transitions
+        )
         targets[effective] = (target, signal_date, reason)
 
     valuation_prices = prices.ffill()
@@ -362,6 +443,53 @@ def calculate_can_slim_returns_with_ledger(
     trade_id = 0
     for current_date, returns in stock_returns.iterrows():
         previous_nav = nav
+        for transition in identity_transitions.itertuples(index=False):
+            if current_date != transition.current_ticker_first_date:
+                continue
+            old = transition.historical_ticker
+            new = transition.provider_ticker
+            if old not in prices or new not in prices:
+                continue
+            old_value = float(position_values[old])
+            if abs(old_value) <= 1e-12:
+                continue
+            position_values[new] += old_value
+            position_values[old] = 0.0
+            old_shares = float(shares[old])
+            new_shares = float(shares[new])
+            old_basis = (
+                old_shares * float(average_cost[old])
+                if old_shares > 0 and np.isfinite(average_cost[old])
+                else 0.0
+            )
+            new_basis = (
+                new_shares * float(average_cost[new])
+                if new_shares > 0 and np.isfinite(average_cost[new])
+                else 0.0
+            )
+            shares[new] = new_shares + old_shares
+            shares[old] = 0.0
+            if shares[new] > 0:
+                average_cost[new] = (old_basis + new_basis) / shares[new]
+            average_cost[old] = np.nan
+            old_entry = entry_dates.pop(old, None)
+            if old_entry is not None:
+                current_entry = entry_dates.get(new)
+                entry_dates[new] = (
+                    min(old_entry, current_entry)
+                    if current_entry is not None
+                    else old_entry
+                )
+            old_history = prices.loc[prices.index < current_date, old].dropna()
+            if len(old_history):
+                old_price = float(old_history.iloc[-1])
+                new_price = float(valuation_prices.loc[current_date, new])
+                if (
+                    np.isfinite(old_price) and old_price > 0
+                    and np.isfinite(new_price) and new_price > 0
+                ):
+                    returns = returns.copy()
+                    returns.loc[new] = new_price / old_price - 1
         position_values = position_values.mul(1 + returns)
         pre_trade_nav = float(cash + position_values.sum())
         scheduled = targets.get(current_date)
@@ -507,14 +635,21 @@ def calculate_can_slim_scheduled_returns(
     quarterly_fundamentals: pd.DataFrame | None = None,
     high: pd.DataFrame | None = None,
     low: pd.DataFrame | None = None,
+    adjust_splits: bool = True,
+    eligibility_close: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Replay a time-frozen parameter schedule without resetting the portfolio."""
-    prices = back_adjust_common_splits(close).sort_index()
+    prices = (
+        back_adjust_common_splits(close) if adjust_splits else close.copy()
+    ).sort_index()
     adjustment = prices / close.reindex_like(prices)
     adjusted_high = high.reindex_like(prices) * adjustment if high is not None else None
     adjusted_low = low.reindex_like(prices) * adjustment if low is not None else None
     keltner_upper = None
     dollar_volume = dollar_volume.reindex_like(prices)
+    eligibility_close = (
+        eligibility_close if eligibility_close is not None else close
+    ).reindex_like(prices)
     index_close = index_close.reindex(prices.index).ffill()
     stock_returns = stock_returns_with_delisting_penalty(prices).fillna(0.0)
     targets: dict[pd.Timestamp, tuple[pd.Series, float]] = {}
@@ -556,6 +691,7 @@ def calculate_can_slim_scheduled_returns(
             signal_date, prices, dollar_volume, index_close, eps, configs, symbols,
             quarterly_fundamentals,
             keltner_upper,
+            eligibility_close,
         )
         risk_on = market_regime_is_on(
             signal_date, index_close, configs[0].market_ma_days

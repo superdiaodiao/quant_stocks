@@ -1,0 +1,202 @@
+{
+  "completed_at_utc": "2026-08-08T10:31:16.474497+00:00",
+  "completed_ticker_count": 14,
+  "last_checkpoint_at_utc": "2026-08-08T10:31:16.470702+00:00",
+  "last_checkpoint_ticker": "WAI",
+  "requested_tickers": [
+    "CCCX",
+    "CGCT",
+    "CLEU",
+    "CLRC",
+    "CYCC",
+    "JFBR",
+    "KWE",
+    "OPT",
+    "QVCGA",
+    "SDM",
+    "STBX",
+    "STSS",
+    "VAPE",
+    "WAI"
+  ],
+  "research_only": true,
+  "results": [
+    {
+      "issuers": [
+        {
+          "cik": "0002007825",
+          "current_exchanges": [
+            "NYSE",
+            "NYSE"
+          ],
+          "current_tickers": [
+            "INFQ",
+            "INFQ-WT"
+          ],
+          "display_name": "Churchill Capital Corp X/Cayman  (CCCX)  (CIK 0002007825)",
+          "former_names": [],
+          "issuer_name": "Infleqtion, Inc.",
+          "submission_payload_sha256": "7d98624fb937af2510018a1b2aff0c0a50fc5f5a8aeda9189fe6f3e088143d8b",
+          "submission_url": "https://data.sec.gov/submissions/CIK0002007825.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001193125-25-116188",
+          "cik": "0002007825",
+          "display_name": "Churchill Capital Corp X/Cayman  (CCCX)  (CIK 0002007825)",
+          "filing_date": "2025-05-09",
+          "form": "S-1/A"
+        }
+      ],
+      "search_payload_sha256": "39f00467c1a66235c590aa41694b0b10e32dfde3af93fd5b2f85c1b6b6cb7d8c",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CCCX&from=0&size=100",
+      "status": "ok",
+      "ticker": "CCCX"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "56210c256077b266b9f8f00516b24d6fae0eb7b8653ce3ca7158023ce817985d",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CGCT&from=0&size=100",
+      "status": "ok",
+      "ticker": "CGCT"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001775085",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "China Liberal Education Holdings Ltd  (CLEU)  (CIK 0001775085)",
+          "former_names": [],
+          "issuer_name": "China Liberal Education Holdings Ltd",
+          "submission_payload_sha256": "42d7db9acfe5ea92a50f32d83270023a6588f79e086d6ca4ed714c6a4fd6d204",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001775085.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001477932-23-008156",
+          "cik": "0001775085",
+          "display_name": "China Liberal Education Holdings Ltd  (CLEU)  (CIK 0001775085)",
+          "filing_date": "2023-11-08",
+          "form": "6-K"
+        }
+      ],
+      "search_payload_sha256": "2171157329dfc25bc08fea68cb6b6c1979af129f96831633dfd91e67d901dc0f",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CLEU&from=0&size=100",
+      "status": "ok",
+      "ticker": "CLEU"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "65652ecae4cb59f3b9af17f71388dbe903638f541c1e8f401e774ab056762773",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CLRC&from=0&size=100",
+      "status": "ok",
+      "ticker": "CLRC"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "d4df7bd9c4a435c4c9c19634a55c8c8097b36a7b49cfae135eeaf854eb8e96b9",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CYCC&from=0&size=100",
+      "status": "ok",
+      "ticker": "CYCC"
+    },
+    {
+      "error": "<HTTPError 500: 'Internal Server Error'>",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=JFBR&from=0&size=100",
+      "status": "failed",
+      "ticker": "JFBR"
+    },
+    {
+      "error": "<HTTPError 500: 'Internal Server Error'>",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=KWE&from=0&size=100",
+      "status": "failed",
+      "ticker": "KWE"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "2467a1c1b4ffab117167ddb086c1e92e8ab4390b26a86e722916a6c55fe6096b",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=OPT&from=0&size=100",
+      "status": "ok",
+      "ticker": "OPT"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "2d62bc93ec5318d077ada83eedb623e962b02c161a41354e4120650af159816b",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=QVCGA&from=0&size=100",
+      "status": "ok",
+      "ticker": "QVCGA"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0002014955",
+          "current_exchanges": [
+            null
+          ],
+          "current_tickers": [
+            "SDM"
+          ],
+          "display_name": "Smart Digital Group Ltd  (SDM)  (CIK 0002014955)",
+          "former_names": [],
+          "issuer_name": "Smart Digital Group Ltd",
+          "submission_payload_sha256": "58768b32c616fc4a69e0ac2679c5570c8de233d8a1012b459e2e3f91a3312af5",
+          "submission_url": "https://data.sec.gov/submissions/CIK0002014955.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001213900-25-028984",
+          "cik": "0002014955",
+          "display_name": "Smart Digital Group Ltd  (SDM)  (CIK 0002014955)",
+          "filing_date": "2025-04-04",
+          "form": "FWP"
+        }
+      ],
+      "search_payload_sha256": "c26e643397f4686f34fdf7a71cf71b47d1ebe15f4cb606fb9946f9ff80a4d443",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=SDM&from=0&size=100",
+      "status": "ok",
+      "ticker": "SDM"
+    },
+    {
+      "error": "<HTTPError 500: 'Internal Server Error'>",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=STBX&from=0&size=100",
+      "status": "failed",
+      "ticker": "STBX"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "82753163dfb43a81dbd7a1bca142affad4b9ee1b71be0fe82912ea5e0e38c86f",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=STSS&from=0&size=100",
+      "status": "ok",
+      "ticker": "STSS"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "83ec91c9d65dd3725cba206f0b629f490fb4f23c93ff684f7bac1ac62d8785f6",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=VAPE&from=0&size=100",
+      "status": "ok",
+      "ticker": "VAPE"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "817a3aa7eae8a589c776916bac0e20029ecb609b3cf368fc4b9ecc5a1a0fde68",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=WAI&from=0&size=100",
+      "status": "ok",
+      "ticker": "WAI"
+    }
+  ],
+  "resumed_at_utc": null,
+  "schema_version": 2,
+  "started_at_utc": "2026-08-08T10:30:56.286731+00:00",
+  "status": "COMPLETE"
+}

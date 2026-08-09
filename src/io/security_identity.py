@@ -23,6 +23,15 @@ def load_security_identity(path: str | Path = SECURITY_IDENTITY_FILE) -> pd.Data
     if missing:
         raise ValueError(f"security identity file is missing columns: {sorted(missing)}")
     frame = frame.copy()
+    if "identity_type" not in frame:
+        frame["identity_type"] = "ticker_reuse"
+    allowed_identity_types = {"ticker_reuse", "issuer_rename"}
+    invalid_identity_types = set(frame["identity_type"]) - allowed_identity_types
+    if invalid_identity_types:
+        raise ValueError(
+            "unsupported security identity types: "
+            f"{sorted(invalid_identity_types)}"
+        )
     for column in ("provider_ticker", "historical_ticker"):
         frame[column] = frame[column].astype(str).str.upper().str.strip()
     for column in ("last_historical_date", "current_ticker_first_date"):
@@ -34,34 +43,107 @@ def load_security_identity(path: str | Path = SECURITY_IDENTITY_FILE) -> pd.Data
     return frame
 
 
+def issuer_rename_transitions(
+    path: str | Path = SECURITY_IDENTITY_FILE,
+) -> pd.DataFrame:
+    """Return sourced 1:1 ticker changes for the same underlying security."""
+    frame = load_security_identity(path)
+    return frame.loc[frame["identity_type"].eq("issuer_rename")].copy()
+
+
+def normalize_universe_symbols(
+    symbols: set[str],
+    observed_at: pd.Timestamp,
+    identities: pd.DataFrame,
+) -> set[str]:
+    """Map a snapshot's reused provider ticker to its PIT security identity."""
+    result = {str(symbol).upper() for symbol in symbols}
+    observed_at = pd.Timestamp(observed_at).normalize()
+    for row in identities.itertuples(index=False):
+        if (
+            row.identity_type == "ticker_reuse"
+            and observed_at <= row.last_historical_date
+            and row.provider_ticker in result
+        ):
+            result.remove(row.provider_ticker)
+            result.add(row.historical_ticker)
+    return result
+
+
+def remap_weights_after_issuer_rename(
+    weights: pd.Series,
+    as_of: pd.Timestamp,
+    transitions: pd.DataFrame,
+) -> pd.Series:
+    """Express target weights under the tradable ticker effective at ``as_of``."""
+    result = weights.copy()
+    for row in transitions.itertuples(index=False):
+        if pd.Timestamp(as_of) < row.current_ticker_first_date:
+            continue
+        old = row.historical_ticker
+        new = row.provider_ticker
+        if old not in result.index or new not in result.index:
+            continue
+        result.loc[new] += result.loc[old]
+        result.loc[old] = 0.0
+    return result
+
+
 def normalize_point_in_time_tickers(
     frame: pd.DataFrame,
     path: str | Path = SECURITY_IDENTITY_FILE,
 ) -> pd.DataFrame:
-    """Map old issuer observations that a provider labels with today's ticker."""
+    """Make provider-labelled histories usable under their PIT ticker.
+
+    A reused ticker moves old facts to the historical issuer. A same-issuer
+    rename additionally retains those facts under the current ticker so TTM
+    continuity remains available after the rename.
+    """
     result = frame.copy()
     period_end = pd.to_datetime(result["period_end"], errors="coerce")
+    renamed_history = []
     for row in load_security_identity(path).itertuples(index=False):
         mask = (
             result["ticker"].astype(str).str.upper().eq(row.provider_ticker)
             & period_end.le(row.last_historical_date)
         )
-        result.loc[mask, "ticker"] = row.historical_ticker
-    return result
+        if row.identity_type == "issuer_rename":
+            historical = result.loc[mask].copy()
+            historical["ticker"] = row.historical_ticker
+            renamed_history.append(historical)
+        else:
+            result.loc[mask, "ticker"] = row.historical_ticker
+    return pd.concat([result, *renamed_history], ignore_index=True)
 
 
 def split_reused_ticker_price_histories(
     path: str | Path = SECURITY_IDENTITY_FILE,
     price_dir: str | Path = CLEANED_PRICE_DATA_DIR,
 ) -> list[dict]:
-    """Split a provider's continuous current-ticker file at sourced rename dates."""
+    """Split a provider's continuous current-ticker file at sourced rename dates.
+
+    Existing historical files are merged so rerunning the repair cannot erase
+    an already separated old-ticker history.
+    """
     price_dir = Path(price_dir)
     results = []
     for row in load_security_identity(path).itertuples(index=False):
         current_path = price_dir / f"{row.provider_ticker.lower()}.csv"
         historical_path = price_dir / f"{row.historical_ticker.lower()}.csv"
         current = pd.read_csv(current_path, parse_dates=["date"])
-        historical = current.loc[current["date"] <= row.last_historical_date].copy()
+        extracted = current.loc[
+            current["date"] <= row.last_historical_date
+        ].copy()
+        existing = (
+            pd.read_csv(historical_path, parse_dates=["date"])
+            if historical_path.exists()
+            else pd.DataFrame(columns=current.columns)
+        )
+        historical = (
+            pd.concat([existing, extracted], ignore_index=True)
+            .sort_values("date")
+            .drop_duplicates("date", keep="last")
+        )
         current = current.loc[current["date"] >= row.current_ticker_first_date].copy()
         historical["ticker"] = row.historical_ticker
         current["ticker"] = row.provider_ticker
@@ -73,6 +155,7 @@ def split_reused_ticker_price_histories(
             "provider_ticker": row.provider_ticker,
             "historical_ticker": row.historical_ticker,
             "historical_rows": len(historical),
+            "historical_rows_extracted": len(extracted),
             "current_rows": len(current),
             "source_url": row.source_url,
         })

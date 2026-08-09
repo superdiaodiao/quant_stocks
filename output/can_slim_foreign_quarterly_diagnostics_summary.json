@@ -1,0 +1,17 @@
+{
+  "cache_manifest": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/financial/sec_companyfacts_cache/manifest.json",
+  "cache_manifest_sha256": "e46fd53fbb23498f7f1a6861deb582355cf3227f3874fcbfe7680bf29ce6d51f",
+  "cached_target_count": 45,
+  "eligible_for_parser_research_count": 0,
+  "formal_fundamentals_modified": false,
+  "priority_file": "output/can_slim_technical_candidate_financial_priorities.csv",
+  "priority_file_sha256": "983db6187fc6370b95eb18bf31e6580aec91038615a7f0530a61eb69a14b59e6",
+  "purpose": "read_only_foreign_quarterly_cache_diagnostic",
+  "status_counts": {
+    "LESS_THAN_8_TIMELY_CONTINUOUS_PAIRED_QUARTERS": 11,
+    "NO_NET_INCOME_QUARTER_CANDIDATES": 4,
+    "NO_REVENUE_QUARTER_CANDIDATES": 30
+  },
+  "target_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+  "target_symbol_count": 45
+}

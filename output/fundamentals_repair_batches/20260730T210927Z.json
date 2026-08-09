@@ -1,0 +1,68 @@
+{
+  "batch_id": "20260730T210927Z",
+  "as_of": "2026-07-31",
+  "purpose": "selector_level_companyfacts_repair_yield",
+  "priority_file": "output/can_slim_technical_candidate_financial_priorities.csv",
+  "priority_file_sha256": "b27b5015c74da2a32da366980a58b2ceabb4f88b879e9555999ea2ff17988862",
+  "before": {
+    "missing_financial_observations": 1606,
+    "missing_financial_symbol_count": 307,
+    "financial_coverage": 0.8899547759353159
+  },
+  "after": {
+    "missing_financial_observations": 1569,
+    "missing_financial_symbol_count": 298,
+    "financial_coverage": 0.8924900644100315
+  },
+  "delta": {
+    "recovered_observations": 37,
+    "resolved_missing_symbols": 9,
+    "financial_coverage_change": 0.0025352884747156246
+  },
+  "update": {
+    "requested_ciks": 20,
+    "requested_ticker_count": 21,
+    "requested_tickers": [
+      "HEES",
+      "IMAB",
+      "AVBP",
+      "CCB",
+      "CSIQ",
+      "EFSC",
+      "ESQ",
+      "ETNB",
+      "EXPI",
+      "FGEN",
+      "HSAI",
+      "IMCR",
+      "IREN",
+      "ITCI",
+      "KOD",
+      "MLCO",
+      "ODD",
+      "PLAY",
+      "RDFN",
+      "RVNC",
+      "AGNT"
+    ],
+    "failure_count": 0,
+    "failures": [],
+    "raw_cache_profile_counts_after": {
+      "US_GAAP_WITH_10Q": 16,
+      "FOREIGN_PERIODIC_NO_10Q": 5
+    },
+    "cached_symbol_count_before": 262,
+    "cached_symbol_count_after": 283
+  },
+  "decision": {
+    "recovered_observations_per_requested_cik": 1.85,
+    "recommended_action": "REDUCE_BATCH_SIZE",
+    "thresholds": {
+      "continue_same_batch_size": 2.0,
+      "reduce_batch_size": 0.5
+    }
+  },
+  "strategy_fingerprint": "736b28e72f368a48bd815f5a50fa52dcda554fed88a971f56a652e1bba35f2f6",
+  "quarterly_fundamentals_fingerprint": "50e501fc622c7e688c337085f8a80168edefcc5099b99a8fe9a20b5195aa3f52",
+  "audit_path": "output/fundamentals_repair_batches/20260730T210927Z.json"
+}

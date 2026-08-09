@@ -1,0 +1,18 @@
+{
+  "status": "BLOCKED",
+  "scope": "all_integer_ratio_price_jump_candidates",
+  "candidate_events": 702,
+  "candidate_tickers": 541,
+  "confirmed_events": 43,
+  "confirmed_market_moves": 3,
+  "confirmed_splits": 25,
+  "confirmed_cash_distributions": 3,
+  "confirmed_provider_adjustment_discontinuities": 15,
+  "confirmed_with_official_primary_source": 6,
+  "confirmed_with_secondary_source_only": 40,
+  "unresolved_events": 569,
+  "source_fetch_failed_events": 87,
+  "source_fetch_failed_tickers": 67,
+  "automatic_heuristic_adjustment_allowed": false,
+  "warning": "A price ratio near an integer split factor is not evidence of a split. CONFIRMED_MARKET_MOVE events are sourced real price moves and must not be adjusted. Unresolved events require sourced review before automatic back-adjustment."
+}

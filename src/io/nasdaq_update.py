@@ -53,6 +53,15 @@ def _github_raw_provenance(source: str) -> tuple[str | None, str | None]:
     return f"https://github.com/{match.group(1)}", match.group(2)
 
 
+def _portable_project_path(path: str | Path) -> str:
+    """Prefer a repository-relative path in persisted provenance manifests."""
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(Path(PROJECT_PATH).resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
 def _read_archived_nasdaq_trader_source(source: str) -> str:
     """Read a raw file or a byte-ranged Common Crawl WARC record."""
     parsed = urlsplit(source)
@@ -253,6 +262,13 @@ def import_nasdaq_listings_history(
     repository = Path(repository).resolve()
     if not (repository / ".git").exists():
         raise ValueError(f"Not a Git repository: {repository}")
+    remote = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=repository,
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() or str(repository)
     log = subprocess.run(
         [
             "git", "log", "--format=%H|%ad", "--date=short", "--",
@@ -328,6 +344,8 @@ def import_nasdaq_listings_history(
             column for column in ("ETF", "Test Issue", "NextShares") if column in normalized
         ]
         normalized = normalized[["Symbol", "Name", *optional_type_columns]].sort_values("Symbol")
+        normalized["Source File"] = source_path
+        normalized["Source Repository"] = remote
         normalized["Source Commit"] = commit
         normalized["Observed At"] = observed_at
         target = snapshot_dir / f"nasdaq_listed_{observed_at}.csv"
@@ -337,17 +355,18 @@ def import_nasdaq_listings_history(
             "observed_at": observed_at,
             "rows": len(normalized),
             "source_path": source_path,
-            "snapshot": str(target),
+            "source_repository": remote,
+            "snapshot": _portable_project_path(target),
         })
     result = {
-        "source_repository": str(repository),
+        "source_repository": remote,
         "minimum_rows": minimum_rows,
         "imported": sorted(imported, key=lambda item: item["observed_at"]),
         "skipped": skipped,
     }
     manifest = snapshot_dir / "listings_git_import_manifest.json"
     manifest.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    result["manifest"] = str(manifest)
+    result["manifest"] = _portable_project_path(manifest)
     return result
 
 
@@ -721,6 +740,96 @@ def _atomic_merge(path: Path, incoming: pd.DataFrame, ticker: str | None = None)
     return len(incoming)
 
 
+def _exclude_existing_price_dates(
+    target: Path, incoming: pd.DataFrame
+) -> pd.DataFrame:
+    """Keep every missing session while preserving existing provider rows."""
+    if not target.exists():
+        return incoming
+    existing_dates = pd.to_datetime(
+        pd.read_csv(target, usecols=["date"])["date"],
+        errors="coerce",
+    )
+    return incoming.loc[~incoming["date"].isin(existing_dates)]
+
+
+def _validate_price_adjustment_overlap(
+    target: Path,
+    incoming: pd.DataFrame,
+    price_factor: float,
+    volume_factor: float,
+    minimum_sessions: int,
+    tolerance: float,
+) -> dict:
+    """Require requested scaling to agree with existing overlapping rows."""
+    if price_factor == 1.0 and volume_factor == 1.0:
+        return {"status": "NOT_REQUIRED"}
+    if not target.exists():
+        raise ValueError(
+            "non-unit adjustment factors require an existing overlap file"
+        )
+    existing = pd.read_csv(
+        target,
+        usecols=["date", "close", "volume"],
+        parse_dates=["date"],
+    ).rename(columns={
+        "close": "existing_close",
+        "volume": "existing_volume",
+    })
+    overlap = existing.merge(
+        incoming[["date", "close", "volume"]].rename(columns={
+            "close": "incoming_close",
+            "volume": "incoming_volume",
+        }),
+        on="date",
+    )
+    overlap = overlap.loc[
+        overlap["existing_close"].gt(0)
+        & overlap["incoming_close"].gt(0)
+        & overlap["existing_volume"].gt(0)
+        & overlap["incoming_volume"].gt(0)
+    ]
+    if len(overlap) < minimum_sessions:
+        raise ValueError(
+            "insufficient overlap to validate adjustment factors: "
+            f"{len(overlap)} < {minimum_sessions}"
+        )
+    price_ratios = (
+        overlap["existing_close"] / overlap["incoming_close"]
+    )
+    volume_ratios = (
+        overlap["existing_volume"] / overlap["incoming_volume"]
+    )
+    price_median = float(price_ratios.median())
+    volume_median = float(volume_ratios.median())
+    price_within = float(
+        ((price_ratios / price_median - 1).abs() <= tolerance).mean()
+    )
+    volume_within = float(
+        ((volume_ratios / volume_median - 1).abs() <= tolerance).mean()
+    )
+    if (
+        abs(price_median / price_factor - 1) > tolerance
+        or abs(volume_median / volume_factor - 1) > tolerance
+        or price_within < 0.95
+        or volume_within < 0.95
+    ):
+        raise ValueError(
+            "requested adjustment factors do not match stable overlap: "
+            f"price median={price_median}, volume median={volume_median}, "
+            f"price within={price_within}, volume within={volume_within}"
+        )
+    return {
+        "status": "VERIFIED",
+        "overlap_sessions": int(len(overlap)),
+        "price_ratio_median": price_median,
+        "volume_ratio_median": volume_median,
+        "relative_tolerance": tolerance,
+        "price_ratio_within_tolerance_fraction": price_within,
+        "volume_ratio_within_tolerance_fraction": volume_within,
+    }
+
+
 def update_ticker(ticker: str, end: date, price_dir: Path) -> dict:
     path = price_dir / f"{ticker.lower()}.csv"
     if path.exists():
@@ -737,15 +846,44 @@ def update_ticker(ticker: str, end: date, price_dir: Path) -> dict:
     return {"ticker": ticker, "status": "updated" if rows else "no_data", "rows": rows}
 
 
-def update_all(end: date, workers=8, limit: int | None = None) -> dict:
+def update_all(
+    end: date,
+    workers: int = 8,
+    limit: int | None = None,
+    tickers: list[str] | None = None,
+) -> dict:
     price_dir = Path(CLEANED_PRICE_DATA_DIR)
-    universe = refresh_universe(end)
-    tickers = pd.read_csv(NASDAQ_300M_STOCK_LIST_FILE)["Symbol"].dropna().astype(str).tolist()
-    if limit:
-        tickers = tickers[:limit]
+    targeted = list(dict.fromkeys(
+        ticker.strip().upper()
+        for ticker in (tickers or [])
+        if ticker.strip()
+    ))
+    partial = bool(targeted) or limit is not None
+    if partial:
+        current = pd.read_csv(NASDAQ_300M_STOCK_LIST_FILE)
+        universe = {
+            "mode": "retained_for_partial_update",
+            "count": len(current),
+            "added": [],
+            "removed": [],
+            "snapshot": None,
+        }
+    else:
+        universe = refresh_universe(end)
+        current = pd.read_csv(NASDAQ_300M_STOCK_LIST_FILE)
+    requested = (
+        targeted
+        if targeted
+        else current["Symbol"].dropna().astype(str).tolist()
+    )
+    if limit is not None:
+        requested = requested[:limit]
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(update_ticker, ticker, end, price_dir): ticker for ticker in tickers}
+        futures = {
+            pool.submit(update_ticker, ticker, end, price_dir): ticker
+            for ticker in requested
+        }
         for future in as_completed(futures):
             ticker = futures[future]
             try:
@@ -765,6 +903,8 @@ def update_all(end: date, workers=8, limit: int | None = None) -> dict:
     return {
         "end": end.isoformat(),
         "universe": universe,
+        "requested_ticker_count": len(requested),
+        "requested_tickers": requested if targeted else None,
         "counts": counts,
         "failures": [x for x in results if x["status"] == "failed"],
     }
@@ -802,6 +942,71 @@ def backfill_existing_price_files(end: date, workers: int = 8) -> dict:
         "no_data": sorted(item["ticker"] for item in results if item["status"] == "no_data"),
         "failures": [item for item in results if item["status"] == "failed"],
     }
+
+
+def backfill_official_history(
+    ticker: str,
+    start: date,
+    end: date,
+    price_factor: float = 1.0,
+    volume_factor: float = 1.0,
+    source_note: str = "",
+    source_url: str = "",
+) -> dict:
+    """Fill missing Nasdaq dates without replacing existing observations."""
+    if price_factor <= 0 or volume_factor <= 0:
+        raise ValueError("price and volume factors must be positive")
+    ticker = ticker.upper().strip()
+    incoming = fetch_history(ticker, start, end)
+    for column in ("open", "high", "low", "close"):
+        incoming[column] = incoming[column] * price_factor
+    incoming["volume"] = incoming["volume"] * volume_factor
+    price_dir = Path(CLEANED_PRICE_DATA_DIR)
+    target = price_dir / f"{ticker.lower()}.csv"
+    existing_dates = (
+        set(pd.read_csv(target, usecols=["date"], parse_dates=["date"])["date"])
+        if target.exists() else set()
+    )
+    missing = incoming.loc[~incoming["date"].isin(existing_dates)].copy()
+    rows = _atomic_merge(target, missing, ticker)
+    result = {
+        "ticker": ticker,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "status": "updated" if rows else "no_missing_rows",
+        "rows_added": rows,
+        "first_added_date": (
+            missing["date"].min().strftime("%Y-%m-%d") if rows else None
+        ),
+        "last_added_date": (
+            missing["date"].max().strftime("%Y-%m-%d") if rows else None
+        ),
+        "price_factor": price_factor,
+        "volume_factor": volume_factor,
+        "nasdaq_api": API.format(symbol=ticker),
+        "source_url": source_url,
+        "source_note": source_note,
+        "verified_at": pd.Timestamp.now(tz="UTC").isoformat(),
+    }
+    provenance = (
+        Path(PROJECT_PATH)
+        / "output/data_provenance/nasdaq_official_history_backfill.json"
+    )
+    provenance.parent.mkdir(parents=True, exist_ok=True)
+    previous = []
+    if provenance.exists():
+        try:
+            previous = json.loads(
+                provenance.read_text(encoding="utf-8")
+            ).get("runs", [])
+        except (OSError, json.JSONDecodeError):
+            previous = []
+    provenance.write_text(
+        json.dumps({"runs": [*previous, result]}, indent=2),
+        encoding="utf-8",
+    )
+    result["provenance"] = str(provenance)
+    return result
 
 
 def backfill_listed_universe_price_files(
@@ -856,24 +1061,42 @@ def import_stooq_github_mirror(
     commit: str,
     tickers: list[str],
     workers: int = 8,
+    source_paths: dict[str, str] | None = None,
+    adjustment_factors: dict[str, dict] | None = None,
 ) -> dict:
     """Append missing sessions from an immutable GitHub mirror of Stooq data.
 
     Existing sessions are never replaced, so this recovery source fills holes
     without silently changing prices already obtained from Nasdaq.
     """
-    tree_url = f"https://api.github.com/repos/{repository}/git/trees/{commit}?recursive=1"
-    with urlopen(Request(tree_url, headers=HEADERS), timeout=60) as response:
-        tree = json.loads(response.read().decode("utf-8"))
-    if tree.get("truncated"):
-        raise RuntimeError("GitHub tree response is truncated; refusing partial import")
     requested = {ticker.upper().strip() for ticker in tickers if ticker.strip()}
-    paths = {}
-    for item in tree.get("tree", []):
-        path = item.get("path", "")
-        match = re.search(r"(?:^|/)([^/]+)\.us\.txt$", path, flags=re.IGNORECASE)
-        if match and match.group(1).upper() in requested:
-            paths.setdefault(match.group(1).upper(), path)
+    paths = {
+        ticker.upper(): path
+        for ticker, path in (source_paths or {}).items()
+        if ticker.upper() in requested
+    }
+    if source_paths is None:
+        tree_url = (
+            f"https://api.github.com/repos/{repository}/git/trees/"
+            f"{commit}?recursive=1"
+        )
+        with urlopen(
+            Request(tree_url, headers=HEADERS), timeout=60
+        ) as response:
+            tree = json.loads(response.read().decode("utf-8"))
+        if tree.get("truncated"):
+            raise RuntimeError(
+                "GitHub tree response is truncated; refusing partial import"
+            )
+        for item in tree.get("tree", []):
+            path = item.get("path", "")
+            match = re.search(
+                r"(?:^|/)([^/]+)\.us\.txt$",
+                path,
+                flags=re.IGNORECASE,
+            )
+            if match and match.group(1).upper() in requested:
+                paths.setdefault(match.group(1).upper(), path)
 
     price_dir = Path(CLEANED_PRICE_DATA_DIR)
 
@@ -886,7 +1109,17 @@ def import_stooq_github_mirror(
         )
         with urlopen(Request(source_url, headers=HEADERS), timeout=60) as response:
             text = response.read().decode("utf-8-sig", errors="replace")
-        raw = pd.read_csv(StringIO(text))
+        try:
+            raw = pd.read_csv(StringIO(text))
+        except pd.errors.EmptyDataError:
+            # Keep an empty pinned mirror file as explicit negative evidence;
+            # it is deterministic and must not abort the rest of the batch.
+            return {
+                "ticker": ticker,
+                "status": "empty_source",
+                "rows": 0,
+                "source_url": source_url,
+            }
         required = {"<DATE>", "<OPEN>", "<HIGH>", "<LOW>", "<CLOSE>", "<VOL>"}
         if not required.issubset(raw.columns):
             raise ValueError(f"{ticker}: invalid Stooq columns")
@@ -897,11 +1130,28 @@ def import_stooq_github_mirror(
         incoming["date"] = pd.to_datetime(
             incoming["date"].astype(str), format="%Y%m%d", errors="raise"
         )
+        adjustment = (adjustment_factors or {}).get(ticker, {})
+        price_factor = float(adjustment.get("price_factor", 1.0))
+        volume_factor = float(adjustment.get("volume_factor", 1.0))
+        if price_factor <= 0 or volume_factor <= 0:
+            raise ValueError(
+                f"{ticker}: adjustment factors must be positive"
+            )
         target = price_dir / f"{ticker.lower()}.csv"
-        if target.exists():
-            existing_dates = pd.read_csv(target, usecols=["date"], parse_dates=["date"])["date"]
-            if not existing_dates.empty:
-                incoming = incoming.loc[incoming["date"] > existing_dates.max()]
+        adjustment_validation = _validate_price_adjustment_overlap(
+            target,
+            incoming,
+            price_factor,
+            volume_factor,
+            int(adjustment.get("minimum_overlap_sessions", 20)),
+            float(adjustment.get("relative_tolerance", 0.01)),
+        )
+        for column in ("open", "high", "low", "close"):
+            incoming[column] = incoming[column] * price_factor
+        incoming["volume"] = (
+            incoming["volume"] * volume_factor
+        ).round()
+        incoming = _exclude_existing_price_dates(target, incoming)
         rows = _atomic_merge(target, incoming, ticker)
         return {
             "ticker": ticker,
@@ -910,6 +1160,13 @@ def import_stooq_github_mirror(
             "first_date": incoming["date"].min().strftime("%Y-%m-%d") if rows else None,
             "last_date": incoming["date"].max().strftime("%Y-%m-%d") if rows else None,
             "source_url": source_url,
+            "price_factor": price_factor,
+            "volume_factor": volume_factor,
+            "adjustment_source_url": adjustment.get(
+                "source_url", ""
+            ),
+            "adjustment_note": adjustment.get("note", ""),
+            "adjustment_validation": adjustment_validation,
         }
 
     results = []
@@ -925,6 +1182,10 @@ def import_stooq_github_mirror(
     report = {
         "repository": repository,
         "commit": commit,
+        "path_discovery": (
+            "verified_source_paths"
+            if source_paths is not None else "recursive_git_tree"
+        ),
         "requested": len(requested),
         "matched": len(paths),
         "counts": pd.Series(
@@ -944,7 +1205,10 @@ def import_stooq_github_mirror(
             prior_runs = prior.get("runs", [
                 {
                     key: prior[key]
-                    for key in ("repository", "commit", "requested", "matched", "counts", "results")
+                    for key in (
+                        "repository", "commit", "path_discovery",
+                        "requested", "matched", "counts", "results",
+                    )
                     if key in prior
                 }
             ])
@@ -952,7 +1216,10 @@ def import_stooq_github_mirror(
             prior_runs = []
     report["runs"] = [*prior_runs, {
         key: report[key]
-        for key in ("repository", "commit", "requested", "matched", "counts", "results")
+        for key in (
+            "repository", "commit", "path_discovery",
+            "requested", "matched", "counts", "results",
+        )
     }]
     provenance.write_text(json.dumps(report, indent=2), encoding="utf-8")
     report["provenance"] = str(provenance)
@@ -1004,7 +1271,19 @@ def import_stooq_git_mirror(
             ["git", "show", f"{resolved}:{source_path}"], cwd=repository,
             check=True, capture_output=True, text=True,
         ).stdout
-        raw = pd.read_csv(StringIO(raw_text))
+        try:
+            raw = pd.read_csv(StringIO(raw_text))
+        except pd.errors.EmptyDataError:
+            # A pinned mirror can contain an intentionally empty placeholder
+            # for a ticker.  This is a deterministic source result, not a
+            # transient import failure; keep it visible in provenance so a
+            # later batch can safely continue with the remaining symbols.
+            return {
+                "ticker": ticker,
+                "status": "empty_source",
+                "rows": 0,
+                "source_path": source_path,
+            }
         required = {"<DATE>", "<OPEN>", "<HIGH>", "<LOW>", "<CLOSE>", "<VOL>"}
         if not required.issubset(raw.columns):
             raise ValueError(f"{ticker}: invalid Stooq columns")
@@ -1014,11 +1293,7 @@ def import_stooq_git_mirror(
         })[["date", "open", "high", "low", "close", "volume"]]
         incoming["date"] = pd.to_datetime(incoming["date"].astype(str), format="%Y%m%d")
         target = price_dir / f"{ticker.lower()}.csv"
-        if target.exists():
-            existing_dates = pd.to_datetime(
-                pd.read_csv(target, usecols=["date"])["date"], errors="coerce"
-            )
-            incoming = incoming.loc[~incoming["date"].isin(existing_dates)]
+        incoming = _exclude_existing_price_dates(target, incoming)
         rows = _atomic_merge(target, incoming, ticker)
         return {
             "ticker": ticker, "status": "updated" if rows else "no_missing_rows",
@@ -1035,7 +1310,7 @@ def import_stooq_git_mirror(
             except Exception as exc:
                 results.append({"ticker": ticker, "status": "failed", "error": str(exc)})
     results.sort(key=lambda item: item["ticker"])
-    report = {
+    run = {
         "repository": remote, "commit": resolved, "requested": len(requested),
         "matched": len(paths),
         "counts": pd.Series([item["status"] for item in results], dtype="object").value_counts().to_dict(),
@@ -1043,6 +1318,15 @@ def import_stooq_git_mirror(
     }
     provenance = Path(PROJECT_PATH) / "output/data_provenance/stooq_git_import.json"
     provenance.parent.mkdir(parents=True, exist_ok=True)
+    previous_runs = []
+    if provenance.exists():
+        try:
+            previous = json.loads(provenance.read_text(encoding="utf-8"))
+            previous_runs = list(previous.get("runs", []))
+        except (OSError, ValueError, TypeError):
+            previous_runs = []
+    report = dict(run)
+    report["runs"] = previous_runs + [run]
     provenance.write_text(json.dumps(report, indent=2), encoding="utf-8")
     report["provenance"] = str(provenance)
     return report
@@ -1113,9 +1397,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--tickers",
-        help="Comma-separated tickers for --import-stooq-github-mirror",
+        help=(
+            "Comma-separated tickers for a targeted price update or a Stooq "
+            "mirror import. Targeted updates retain the formal universe."
+        ),
     )
     args = parser.parse_args()
+    if args.limit is not None and args.tickers:
+        parser.error("--limit and --tickers are mutually exclusive")
     if args.import_stooq_git_mirror:
         if not args.tickers:
             parser.error("--tickers is required with --import-stooq-git-mirror")
@@ -1163,7 +1452,12 @@ def main() -> None:
     elif args.backfill_existing:
         result = backfill_existing_price_files(date.fromisoformat(args.end), args.workers)
     else:
-        result = update_all(date.fromisoformat(args.end), args.workers, args.limit)
+        result = update_all(
+            date.fromisoformat(args.end),
+            args.workers,
+            args.limit,
+            args.tickers.split(",") if args.tickers else None,
+        )
     print(json.dumps(result, indent=2))
 
 

@@ -1,0 +1,57 @@
+{
+  "batch_id": "20260730T211358Z",
+  "as_of": "2026-07-31",
+  "purpose": "selector_level_companyfacts_repair_yield",
+  "priority_file": "output/can_slim_technical_candidate_financial_priorities.csv",
+  "priority_file_sha256": "dbabf2ff883b3f33e3c241ad084952e00b28e9410922ebcdd84608852b8a877f",
+  "before": {
+    "missing_financial_observations": 1569,
+    "missing_financial_symbol_count": 298,
+    "financial_coverage": 0.8924900644100315
+  },
+  "after": {
+    "missing_financial_observations": 1565,
+    "missing_financial_symbol_count": 297,
+    "financial_coverage": 0.8927641496505413
+  },
+  "delta": {
+    "recovered_observations": 4,
+    "resolved_missing_symbols": 1,
+    "financial_coverage_change": 0.00027408524050975824
+  },
+  "update": {
+    "requested_ciks": 10,
+    "requested_ticker_count": 10,
+    "requested_tickers": [
+      "SBGI",
+      "SHOP",
+      "SRRK",
+      "AKRO",
+      "ATSG",
+      "AUPH",
+      "BCAX",
+      "BGFV",
+      "BILI",
+      "CBC"
+    ],
+    "failure_count": 0,
+    "failures": [],
+    "raw_cache_profile_counts_after": {
+      "US_GAAP_WITH_10Q": 9,
+      "FOREIGN_PERIODIC_NO_10Q": 1
+    },
+    "cached_symbol_count_before": 283,
+    "cached_symbol_count_after": 293
+  },
+  "decision": {
+    "recovered_observations_per_requested_cik": 0.4,
+    "recommended_action": "PAUSE_FETCH_AND_REVIEW_SOURCES",
+    "thresholds": {
+      "continue_same_batch_size": 2.0,
+      "reduce_batch_size": 0.5
+    }
+  },
+  "strategy_fingerprint": "736b28e72f368a48bd815f5a50fa52dcda554fed88a971f56a652e1bba35f2f6",
+  "quarterly_fundamentals_fingerprint": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69",
+  "audit_path": "output/fundamentals_repair_batches/20260730T211358Z.json"
+}

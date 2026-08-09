@@ -1,0 +1,22 @@
+{
+  "status": "REFERENCE_ONLY_NOT_AN_ORDER",
+  "account_equity_usd": 100000.0,
+  "transaction_cost_bps": 10.0,
+  "fractional_shares": false,
+  "target_exposure": 1.0,
+  "estimated_turnover_notional": 99731.91,
+  "estimated_transaction_cost": 99.73191000000001,
+  "estimated_residual_cash": 168.35808999999648,
+  "warning": "Prices are references, fills can differ, and this file is not a broker order or authorization to trade.",
+  "provenance_format_version": 1,
+  "input_provenance": {
+    "recommendations": {
+      "path": "output/daily/can-slim-top3-v1/recommendations_2026-07-31.csv",
+      "bytes": 6559,
+      "sha256": "1c3f779a64909b4686c5a41ba2386cf0a3b4f780a933d8d80e8c02dc8b30227b"
+    },
+    "holdings": null
+  },
+  "strategy_sha256": "736b28e72f368a48bd815f5a50fa52dcda554fed88a971f56a652e1bba35f2f6",
+  "data_manifest_sha256": "abe03bbc33ff5b5463608f3e6e83a44e7124e11c853a5f2362cbef30f7844861"
+}

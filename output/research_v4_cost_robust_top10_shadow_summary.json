@@ -1,0 +1,141 @@
+{
+  "current_shadow_config_ids": [
+    15
+  ],
+  "current_shadow_configs": [
+    {
+      "end": "2026-07-17",
+      "ensemble_weight": 1.0,
+      "keltner_atr_window": 14,
+      "keltner_multiplier": 1.5,
+      "keltner_window": 20,
+      "market_ma_days": 200,
+      "maximum_financial_age_days": 150,
+      "maximum_position_weight": 0.1,
+      "minimum_52_week_high_ratio": 0.85,
+      "minimum_eps_growth": 0.25,
+      "minimum_median_dollar_volume": 10000000.0,
+      "minimum_price": 10.0,
+      "minimum_relative_volume": 0.8,
+      "minimum_revenue_growth": 0.1,
+      "price_channel": "none",
+      "selection_mode": "growth",
+      "signal_frequency": "monthly",
+      "start": "2019-01-01",
+      "top_n": 10,
+      "transaction_cost_bps": 10.0,
+      "use_quarterly_fundamentals": true
+    }
+  ],
+  "format_version": 1,
+  "forward_evidence_start": "2026-08-10",
+  "generated_at_utc": "2026-08-09T20:04:35.665266+00:00",
+  "historical_diagnostic": {
+    "cost_stress_wins": {
+      "10": 4,
+      "30": 4,
+      "50": 4
+    },
+    "median_excess_vs_nasdaq": 0.19263087048193805,
+    "minimum_excess_vs_nasdaq": -0.3255754798778743,
+    "wins_vs_nasdaq": 4,
+    "years": 5
+  },
+  "model_snapshots": [
+    {
+      "config_ids": [
+        15
+      ],
+      "configs": [
+        {
+          "end": "2026-07-17",
+          "ensemble_weight": 1.0,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "keltner_window": 20,
+          "market_ma_days": 200,
+          "maximum_financial_age_days": 150,
+          "maximum_position_weight": 0.1,
+          "minimum_52_week_high_ratio": 0.85,
+          "minimum_eps_growth": 0.25,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_price": 10.0,
+          "minimum_relative_volume": 0.8,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "selection_mode": "growth",
+          "signal_frequency": "monthly",
+          "start": "2019-01-01",
+          "top_n": 10,
+          "transaction_cost_bps": 10.0,
+          "use_quarterly_fundamentals": true
+        }
+      ],
+      "effective_end": null,
+      "effective_start": "2026-08-10"
+    }
+  ],
+  "model_version": "can-slim-v4-cost-robust-top10-shadow",
+  "observed_forward_months": 0,
+  "path_risk_evidence": {
+    "path": "/Users/bytedance/code/quant_stocks/output/data_provenance/research_v4_cost_robust_top10_proven_only_bank_v3_path_risk.json",
+    "sha256": "95767e1d183efaeeb20a33482e85a83368c8620c5054e546db44d1dcef413997"
+  },
+  "policy_status": "FROZEN_FORWARD_ONLY",
+  "promotion_eligible": false,
+  "promotion_policy": {
+    "data_manifest_must_remain_verifiable": true,
+    "forward_start": "2026-08-10",
+    "maximum_drawdown_must_not_exceed_40pct": true,
+    "minimum_forward_months": 12,
+    "minimum_monthly_signal_observations": 12,
+    "net_excess_at_30_bps_must_be_positive": true,
+    "parameters_must_remain_unchanged": true,
+    "selected_price_and_terminal_data_must_remain_complete": true
+  },
+  "quarterly_input": {
+    "is_formal_input": false,
+    "path": "/Users/bytedance/code/quant_stocks/output/data_provenance/companyfacts_proven_only_manifest-6c8a87fcc71cfcd5-recipe-6f0998be-q1-fp-guard-bank-duration-v3/quarterly.csv",
+    "sha256": "13d77de9104445d89a4bf289eea4f93496394faaf02f7fddad40e916bff871c4"
+  },
+  "release_reason": "The cost-robust Top 10 configuration was selected after historical inspection.  Historical results are diagnostic only; promotion requires a new forward shadow record.",
+  "release_status": "BLOCKED",
+  "risk_diagnostic": {
+    "current_drawdown": -0.18105450850520122,
+    "maximum_drawdown": -0.23924405407751448,
+    "time_underwater_fraction": 0.9315789473684211
+  },
+  "selected_data_audit": {
+    "largest_event_zeroed_sensitivity": {
+      "excess_vs_nasdaq": 0.13951895109554258,
+      "nasdaq": 0.28641246683135235,
+      "strategy": 0.42593141792689493,
+      "year": 2024
+    },
+    "largest_observed_holding_event": {
+      "daily_return": 0.7226805605461735,
+      "date": "2024-11-08",
+      "portfolio_weight": 0.1,
+      "ticker": "SEZL"
+    },
+    "maximum_missing_holding_sessions": 0,
+    "maximum_signal_snapshot_age_days": 30,
+    "positions_with_missing_holding_prices": 0,
+    "positions_with_over_50pct_daily_move": 1,
+    "positions_with_unresolved_terminal_return": 0,
+    "selected_positions": 508,
+    "selected_symbols": 194
+  },
+  "selection_evidence": {
+    "candidate_id": 15,
+    "path": "/Users/bytedance/code/quant_stocks/output/data_provenance/research_candidate_cost_screen_proven_only_bank_v3_13d77de9_2026-08-10.json",
+    "screen_artifact_sha256": "268fa29bdc4b3436ccdde8607d7e35e2e64117e337a595eda41b685bc991db91",
+    "sha256": "a57d65befb06015b76ac60222a753f6b69d147aba4065c116561c785dcbf2764"
+  },
+  "source_evidence": {
+    "data_manifest_sha256": "a7723f289b9c32f0a40de46d0ed66a3ea31072ba8006f4f54f98d5c29254e594",
+    "path": "/Users/bytedance/code/quant_stocks/output/data_provenance/research_v4_cost_robust_top10_proven_only_bank_v3_2026-08-10.json",
+    "sha256": "0714297a822d63c8f8612acbec8ebd20735784271cab2865ff4a20ab03bc2139",
+    "strategy_code_sha256": "728cc6e3408ad13da3bdb29c3107b094504153991b5265562f3ad7582b4be4a0"
+  }
+}

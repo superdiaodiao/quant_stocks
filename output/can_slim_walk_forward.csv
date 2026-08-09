@@ -1,0 +1,6 @@
+test_year,training_years,rolling_training_years,config_ids,portfolio_state,strategy,nasdaq,excess_vs_nasdaq,average_invested,invested_days_pct,average_holdings,annual_turnover
+2022,expanding from 2019 through each prior cutoff,36 months through each prior cutoff,"{""2022-01-01"": [3]}",continuous,-0.16898572744156914,-0.3310002555645566,0.16201452812298744,0.0796812749003984,0.0796812749003984,0.398406374501992,1.999000999000999
+2023,expanding from 2019 through each prior cutoff,36 months through each prior cutoff,"{""2023-01-01"": [3]}",continuous,-0.19994154017636612,0.43423103966916465,-0.6341725798455308,0.9200000000000003,0.92,4.6,15.819921561207106
+2024,expanding from 2019 through each prior cutoff,36 months through each prior cutoff,"{""2024-01-01"": [3]}",continuous,0.8816724792382213,0.28641246683135235,0.595260012406869,1.0,1.0,5.0,16.14405384121922
+2025,expanding from 2019 through each prior cutoff,36 months through each prior cutoff,"{""2025-01-01"": [3]}",continuous,0.24427376768264408,0.20357524453555675,0.04069852314708733,0.832,0.832,4.16,18.024921635821244
+2026,expanding from 2019 through each prior cutoff,36 months through each prior cutoff,"{""2026-01-01"": [3]}",continuous,0.04653662005907444,0.09802301782248235,-0.05148639776340791,0.8444444444444446,0.8444444444444444,4.222222222222222,10.792126721968817

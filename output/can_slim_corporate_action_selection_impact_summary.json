@@ -1,0 +1,160 @@
+{
+  "status": "RESEARCH_ONLY",
+  "formal_model_changed": false,
+  "signal_count": 91,
+  "raw_top3_changed_signals": 0,
+  "executed_top3_changed_signals": 0,
+  "signals_with_direct_candidate_changes": 5,
+  "signals_with_indirect_selection_effect": 0,
+  "signals_with_unresolved_indirect_selection_effect": 0,
+  "changed_signal_dates": [],
+  "maximum_absolute_annual_return_delta": 0.0,
+  "unresolved_event_selection_relevance": {
+    "price_lookback_sessions": 253,
+    "unresolved_events_on_selected_tickers": 2,
+    "events": [
+      {
+        "ticker": "CORT",
+        "event_date": "2025-12-31",
+        "validation_status": "UNRESOLVED_PRICE_JUMP",
+        "selected_signals_after_event": [],
+        "affects_selected_price_lookback": false
+      },
+      {
+        "ticker": "TGTX",
+        "event_date": "2023-08-01",
+        "validation_status": "UNRESOLVED_PRICE_JUMP",
+        "selected_signals_after_event": [
+          {
+            "signal_date": "2025-03-31",
+            "trading_sessions_after_event": 417,
+            "inside_price_lookback": false
+          },
+          {
+            "signal_date": "2025-04-30",
+            "trading_sessions_after_event": 438,
+            "inside_price_lookback": false
+          }
+        ],
+        "affects_selected_price_lookback": false
+      }
+    ],
+    "events_affecting_selected_price_lookback": 0,
+    "interpretation": "An unresolved event on a ticker is selection-relevant only when a selected signal occurs within the policy's 253-session price lookback. This does not resolve the underlying event."
+  },
+  "interpretation": "Direct candidate changes are separated by validation status. An indirect selection effect means a candidate-set change altered percentile scores or Top 3 membership of other tickers; the unresolved metric counts only unresolved or source-fetch-failed price events.",
+  "input_fingerprints": {
+    "strategy_code": {
+      "path": "explicit_project_files",
+      "files": [
+        "src/__init__.py",
+        "src/conf.py",
+        "src/financial/eps.py",
+        "src/financial/quarterly_fundamentals.py",
+        "src/io/__init__.py",
+        "src/io/security_identity.py",
+        "src/io/security_universe.py",
+        "src/io/terminal_returns.py",
+        "src/research/__init__.py",
+        "src/research/can_slim.py",
+        "src/research/data_quality.py",
+        "src/research/universe_history.py",
+        "src/strategy/__init__.py",
+        "src/strategy/common.py"
+      ],
+      "sha256": "728cc6e3408ad13da3bdb29c3107b094504153991b5265562f3ad7582b4be4a0",
+      "file_count": 14,
+      "bytes": 83609,
+      "roots": [
+        "src/research/can_slim.py",
+        "src/research/universe_history.py"
+      ],
+      "dependency_resolution": "recursive_ast_project_imports"
+    },
+    "source_code": {
+      "path": "src",
+      "pattern": "*.py",
+      "sha256": "eab476658539efdac1cef7f6674c5d176a2919a127f168b4ad18813cbeedd6ee",
+      "file_count": 57,
+      "bytes": 880195
+    },
+    "price_data": {
+      "path": "cleaned_stocks_data/price",
+      "pattern": "*.csv",
+      "sha256": "d06946734a385ca431d9ad86a1d0c0e9d1c3b8d643be37390ec7d3c848247f8b",
+      "file_count": 4402,
+      "bytes": 439397213
+    },
+    "price_data_provenance": {
+      "path": "output/data_provenance",
+      "pattern": "*.json",
+      "sha256": "f058b059ee37d9bd7e3a8cb3c49709873bee5cde3e82ceb3eab0311c6a67dfc0",
+      "file_count": 38130,
+      "bytes": 35324419453
+    },
+    "eps": {
+      "path": "cleaned_stocks_data/financial/eps_point_in_time.csv",
+      "sha256": "138f1afb42312c78e43d7682227b40c002a7286f0912a0d2137012fcad946a0f",
+      "bytes": 2692867
+    },
+    "quarterly_fundamentals": {
+      "path": "cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv",
+      "sha256": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69",
+      "bytes": 35013260
+    },
+    "nasdaq_index": {
+      "path": "stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e",
+      "bytes": 535069
+    },
+    "universe_snapshots": {
+      "path": "stocks_list_dir/nasdaq/snapshots",
+      "pattern": "*.csv",
+      "sha256": "be044d0c2322f3e722983afee7d2a6f000f76e8348407c59c58425b84743a459",
+      "file_count": 380,
+      "bytes": 348126126
+    },
+    "terminal_returns": {
+      "path": "stocks_list_dir/nasdaq/terminal_returns.csv",
+      "sha256": "f3cc59854323f0222c498ec3da07a3b3a583e27a2caf6d8c030226c04beed9a3",
+      "bytes": 33129
+    },
+    "confirmed_price_adjustments": {
+      "path": "stocks_list_dir/nasdaq/confirmed_price_adjustments.csv",
+      "sha256": "49a2fe6a307f7cb0fbb27c0703ffd1133ad28848f2358429f4319aadf9b8152b",
+      "bytes": 222
+    },
+    "confirmed_listings": {
+      "path": "stocks_list_dir/nasdaq/confirmed_listings.csv",
+      "sha256": "7f91b81834e0ee9a6ccf612d291629f744e387c1cdab8811d4d0843b81853f4c",
+      "bytes": 192
+    },
+    "security_identity": {
+      "path": "stocks_list_dir/nasdaq/security_identity.csv",
+      "sha256": "201804b030f507165f51fd01f74b208d202a1765989a929f0f281841083d2921",
+      "bytes": 3442
+    },
+    "reviewed_market_moves": {
+      "path": "stocks_list_dir/nasdaq/reviewed_market_moves.csv",
+      "sha256": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47",
+      "bytes": 983
+    },
+    "data_manifest": {
+      "schema_version": 1,
+      "sha256": "16b05d07a6570a7ccb1044b6e13ba0b51bb44cb9a18c17b6f43bc065c56f28ed",
+      "components": {
+        "price_data": "d06946734a385ca431d9ad86a1d0c0e9d1c3b8d643be37390ec7d3c848247f8b",
+        "price_data_provenance": "f058b059ee37d9bd7e3a8cb3c49709873bee5cde3e82ceb3eab0311c6a67dfc0",
+        "eps": "138f1afb42312c78e43d7682227b40c002a7286f0912a0d2137012fcad946a0f",
+        "quarterly_fundamentals": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69",
+        "nasdaq_index": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e",
+        "universe_snapshots": "be044d0c2322f3e722983afee7d2a6f000f76e8348407c59c58425b84743a459",
+        "terminal_returns": "f3cc59854323f0222c498ec3da07a3b3a583e27a2caf6d8c030226c04beed9a3",
+        "confirmed_price_adjustments": "49a2fe6a307f7cb0fbb27c0703ffd1133ad28848f2358429f4319aadf9b8152b",
+        "confirmed_listings": "7f91b81834e0ee9a6ccf612d291629f744e387c1cdab8811d4d0843b81853f4c",
+        "security_identity": "201804b030f507165f51fd01f74b208d202a1765989a929f0f281841083d2921",
+        "reviewed_market_moves": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47"
+      }
+    }
+  }
+}

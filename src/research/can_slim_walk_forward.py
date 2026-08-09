@@ -29,8 +29,13 @@ def candidate_configs(
     use_quarterly_fundamentals: bool = False,
     adaptive_channel: bool = False,
     end: str | pd.Timestamp = "2026-07-17",
+    maximum_financial_age_days: tuple[int, ...] = (550,),
 ) -> list[CanSlimConfig]:
     """Small, predeclared grid; broad enough to test robustness without curve fitting."""
+    if not maximum_financial_age_days or any(
+        int(days) <= 0 for days in maximum_financial_age_days
+    ):
+        raise ValueError("maximum financial ages must be positive")
     end = pd.Timestamp(end).normalize().strftime("%Y-%m-%d")
     base = CanSlimConfig(
         start="2019-01-01", end=end, signal_frequency=signal_frequency,
@@ -50,17 +55,20 @@ def candidate_configs(
             top_n=top_n,
             maximum_position_weight=1 / top_n,
             minimum_median_dollar_volume=liquidity,
+            maximum_financial_age_days=int(financial_age_days),
             price_channel=channel,
             selection_mode=selection_mode,
         )
         for top_n in (3, 5, 10)
         for liquidity in (2_000_000.0, 10_000_000.0)
+        for financial_age_days in maximum_financial_age_days
         for channel, selection_mode in variants
     ]
 
 
 def core_fallback_ids(configs: list[CanSlimConfig]) -> list[int]:
     """Return the predeclared liquid, concentrated CAN SLIM growth core."""
+    fallback_age = max(config.maximum_financial_age_days for config in configs)
     return [
         config_id
         for config_id, config in enumerate(configs)
@@ -68,6 +76,7 @@ def core_fallback_ids(configs: list[CanSlimConfig]) -> list[int]:
             config.selection_mode == "growth"
             and config.top_n == 5
             and config.minimum_median_dollar_volume == 10_000_000.0
+            and config.maximum_financial_age_days == fallback_age
         )
     ]
 
@@ -336,9 +345,14 @@ def run_walk_forward(
     artifact_suffix: str = "",
     use_quarterly_fundamentals: bool = False,
     adaptive_channel: bool = False,
+    maximum_financial_age_days: tuple[int, ...] = (550,),
+    quarterly_path: str | Path = POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     configs = candidate_configs(
-        signal_frequency, use_quarterly_fundamentals, adaptive_channel,
+        signal_frequency,
+        use_quarterly_fundamentals,
+        adaptive_channel,
+        maximum_financial_age_days=maximum_financial_age_days,
     )
     candidate_groups = {
         config_id: f"top{config.top_n}-liq{int(config.minimum_median_dollar_volume)}"
@@ -357,7 +371,7 @@ def run_walk_forward(
     nasdaq = pd.read_csv(NASDAQ_INDEX_FILE, index_col="date", parse_dates=True)["close"]
     eps = load_eps_history(POINT_IN_TIME_EPS_FILE)
     quarterly = (
-        load_quarterly_fundamentals(POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE)
+        load_quarterly_fundamentals(quarterly_path)
         if use_quarterly_fundamentals else None
     )
     universe_snapshots = load_universe_snapshots()
@@ -473,6 +487,7 @@ def run_walk_forward(
         "parameter_update_frequency": "annual",
         "uses_quarterly_fundamentals": use_quarterly_fundamentals,
         "uses_adaptive_channel": adaptive_channel,
+        "maximum_financial_age_days_grid": list(maximum_financial_age_days),
         "candidate_count": len(configs),
         "ensemble_size": len(current_ids),
         "out_of_sample_years": len(walk),
@@ -514,16 +529,41 @@ def main() -> None:
     )
     parser.add_argument("--use-quarterly-fundamentals", action="store_true")
     parser.add_argument("--adaptive-channel", action="store_true")
+    parser.add_argument(
+        "--maximum-financial-age-days",
+        default="550",
+        help="Comma-separated predeclared freshness grid, for example 150,365,550",
+    )
+    parser.add_argument(
+        "--quarterly-input",
+        type=Path,
+        default=Path(POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE),
+    )
+    parser.add_argument(
+        "--artifact-tag",
+        help="Append a caller-supplied provenance tag to research outputs.",
+    )
     args = parser.parse_args()
+    financial_age_days = tuple(
+        int(value.strip())
+        for value in args.maximum_financial_age_days.split(",")
+        if value.strip()
+    )
     suffix_parts = [] if args.signal_frequency == "monthly" else [args.signal_frequency]
     if args.use_quarterly_fundamentals:
         suffix_parts.append("quarterly_financials")
     if args.adaptive_channel:
         suffix_parts.append("adaptive_channel")
+    if financial_age_days != (550,):
+        suffix_parts.append(
+            "financial_age_" + "_".join(str(value) for value in financial_age_days)
+        )
+    if args.artifact_tag:
+        suffix_parts.append(args.artifact_tag)
     suffix = f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
     candidates, walk, summary = run_walk_forward(
         args.signal_frequency, suffix, args.use_quarterly_fundamentals,
-        args.adaptive_channel,
+        args.adaptive_channel, financial_age_days, args.quarterly_input,
     )
     output = Path("output")
     candidates.to_csv(output / f"can_slim_walk_forward_candidates{suffix}.csv", index=False)

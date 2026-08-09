@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "scope": "name_based_research_classification",
+  "current_universe": 1620,
+  "traded_symbols": 104,
+  "current_category_counts": {
+    "OPERATING_COMMON_EQUITY": 1399,
+    "FOREIGN_OR_DEPOSITARY": 221
+  },
+  "traded_category_counts": {
+    "OPERATING_COMMON_EQUITY": 100,
+    "FOREIGN_OR_DEPOSITARY": 4
+  },
+  "financial_state_counts": {
+    "FRESH": 1503,
+    "MISSING": 86,
+    "STALE": 31
+  },
+  "warning": "Categories are transparent name-based diagnostics, not definitive legal-security classifications and not a new selection rule."
+}

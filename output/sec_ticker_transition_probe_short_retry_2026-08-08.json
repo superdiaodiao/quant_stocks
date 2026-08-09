@@ -1,0 +1,42 @@
+{
+  "completed_at_utc": "2026-08-08T10:46:28.354211+00:00",
+  "completed_ticker_count": 3,
+  "last_checkpoint_at_utc": "2026-08-08T10:46:28.350243+00:00",
+  "last_checkpoint_ticker": "VAPE",
+  "requested_tickers": [
+    "CGCT",
+    "CLRC",
+    "VAPE"
+  ],
+  "research_only": true,
+  "results": [
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "5754f7f3b5466a209ccf7c3c4c36fb376508ad5ba92ee8eabaef94e62ce90512",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CGCT&from=0&size=100",
+      "status": "ok",
+      "ticker": "CGCT"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "6c45b2487ef149edeffad0462f25827b35565a6f590604edaf0200b47833b79e",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=CLRC&from=0&size=100",
+      "status": "ok",
+      "ticker": "CLRC"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "6bc36833eca40afd02ff997071c4ae7ca39b9e6287c0754bfacb4592f3643998",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=VAPE&from=0&size=100",
+      "status": "ok",
+      "ticker": "VAPE"
+    }
+  ],
+  "resumed_at_utc": null,
+  "schema_version": 2,
+  "started_at_utc": "2026-08-08T10:46:21.640455+00:00",
+  "status": "COMPLETE"
+}

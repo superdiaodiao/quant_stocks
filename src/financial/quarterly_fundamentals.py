@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from src.conf import POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE
+from src.io.security_identity import normalize_point_in_time_tickers
 
 QUARTERLY_METRICS = ("net_income", "revenue")
 _SNAPSHOT_CACHES: dict[int, tuple[weakref.ReferenceType, dict]] = {}
@@ -33,6 +34,9 @@ def load_quarterly_fundamentals(
 ) -> pd.DataFrame:
     frame = pd.read_csv(path)
     frame["ticker"] = frame["ticker"].astype(str).str.upper()
+    frame = frame.rename(columns={"fiscal_end": "period_end"})
+    frame = normalize_point_in_time_tickers(frame)
+    frame = frame.rename(columns={"period_end": "fiscal_end"})
     for column in ("fiscal_end", "available_date"):
         frame[column] = pd.to_datetime(frame[column], errors="coerce")
     frame["value"] = pd.to_numeric(frame["value"], errors="coerce")
@@ -62,7 +66,16 @@ def quarterly_growth_snapshot(
     )
     values = latest.pivot_table(
         index=["ticker", "fiscal_end"], columns="metric", values="value", aggfunc="last"
-    ).dropna(subset=list(QUARTERLY_METRICS)).reset_index()
+    )
+    # A Company Facts payload can contain one supported metric without the
+    # other (for example, net income facts before an issuer reports an
+    # operating-revenue concept).  That is a valid *missing-data* observation,
+    # not a malformed frame.  Return an empty snapshot so historical audits
+    # can classify it instead of failing with ``KeyError`` while selecting the
+    # required metric columns below.
+    if not set(QUARTERLY_METRICS).issubset(values.columns):
+        return pd.DataFrame()
+    values = values.dropna(subset=list(QUARTERLY_METRICS)).reset_index()
     availability = latest.groupby(["ticker", "fiscal_end"])["available_date"].max()
     key = pd.MultiIndex.from_frame(values[["ticker", "fiscal_end"]])
     values["growth_available_date"] = availability.reindex(key).to_numpy()

@@ -1,0 +1,214 @@
+{
+  "model_version": "can-slim-v2",
+  "method": "36-month rolling selection with expanding-history stability ranks; fixed CAN SLIM core fallback when no candidate has positive rolling evidence; parameters updated annually and frozen between updates",
+  "signal_frequency": "monthly",
+  "parameter_update_frequency": "annual",
+  "uses_quarterly_fundamentals": false,
+  "uses_adaptive_channel": false,
+  "candidate_count": 6,
+  "ensemble_size": 1,
+  "out_of_sample_years": 5,
+  "wins_vs_nasdaq": 3,
+  "passed_every_out_of_sample_year": false,
+  "release_status": "BLOCKED",
+  "current_shadow_config_ids": [
+    3
+  ],
+  "current_shadow_configs": [
+    {
+      "start": "2019-01-01",
+      "end": "2026-07-17",
+      "top_n": 5,
+      "market_ma_days": 200,
+      "transaction_cost_bps": 10.0,
+      "minimum_price": 10.0,
+      "minimum_median_dollar_volume": 10000000.0,
+      "minimum_eps_growth": 0.25,
+      "minimum_relative_volume": 0.8,
+      "minimum_52_week_high_ratio": 0.85,
+      "maximum_financial_age_days": 550,
+      "maximum_position_weight": 0.2,
+      "signal_frequency": "monthly",
+      "use_quarterly_fundamentals": false,
+      "minimum_revenue_growth": 0.1,
+      "price_channel": "none",
+      "keltner_window": 20,
+      "keltner_atr_window": 14,
+      "keltner_multiplier": 1.5,
+      "selection_mode": "growth",
+      "ensemble_weight": 1.0
+    }
+  ],
+  "model_snapshots": [
+    {
+      "effective_start": "2022-01-01",
+      "effective_end": "2022-12-31",
+      "training_end": "2021-12-31",
+      "config_ids": [
+        3
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2026-07-17",
+          "top_n": 5,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.2,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": false,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    },
+    {
+      "effective_start": "2023-01-01",
+      "effective_end": "2023-12-31",
+      "training_end": "2022-12-31",
+      "config_ids": [
+        3
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2026-07-17",
+          "top_n": 5,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.2,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": false,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    },
+    {
+      "effective_start": "2024-01-01",
+      "effective_end": "2024-12-31",
+      "training_end": "2023-12-31",
+      "config_ids": [
+        3
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2026-07-17",
+          "top_n": 5,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.2,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": false,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    },
+    {
+      "effective_start": "2025-01-01",
+      "effective_end": "2025-12-31",
+      "training_end": "2024-12-31",
+      "config_ids": [
+        3
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2026-07-17",
+          "top_n": 5,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.2,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": false,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    },
+    {
+      "effective_start": "2026-01-01",
+      "effective_end": "2026-07-17",
+      "training_end": "2025-12-31",
+      "config_ids": [
+        3
+      ],
+      "configs": [
+        {
+          "start": "2019-01-01",
+          "end": "2026-07-17",
+          "top_n": 5,
+          "market_ma_days": 200,
+          "transaction_cost_bps": 10.0,
+          "minimum_price": 10.0,
+          "minimum_median_dollar_volume": 10000000.0,
+          "minimum_eps_growth": 0.25,
+          "minimum_relative_volume": 0.8,
+          "minimum_52_week_high_ratio": 0.85,
+          "maximum_financial_age_days": 550,
+          "maximum_position_weight": 0.2,
+          "signal_frequency": "monthly",
+          "use_quarterly_fundamentals": false,
+          "minimum_revenue_growth": 0.1,
+          "price_channel": "none",
+          "keltner_window": 20,
+          "keltner_atr_window": 14,
+          "keltner_multiplier": 1.5,
+          "selection_mode": "growth",
+          "ensemble_weight": 1.0
+        }
+      ]
+    }
+  ],
+  "cost_stress_wins": {
+    "10": 3,
+    "30": 2,
+    "50": 2
+  }
+}

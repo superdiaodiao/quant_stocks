@@ -2,13 +2,17 @@ name: Fixed Top 3 shadow recommendations
 
 on:
   schedule:
-    # 08:30 Asia/Shanghai. Tuesday-Saturday correspond to the preceding
-    # US Monday-Friday sessions.
-    - cron: "30 0 * * 2-6"
+    # 08:30 Asia/Shanghai daily. Sunday/Monday are intentional retries:
+    # if a Friday month-end run is delayed, they still precede Monday close.
+    - cron: "30 0 * * *"
   workflow_dispatch:
 
 permissions:
+  actions: read
+  artifact-metadata: write
+  attestations: write
   contents: read
+  id-token: write
 
 concurrency:
   group: fixed-top3-shadow-recommendations
@@ -18,6 +22,8 @@ jobs:
   recommend:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      SHADOW_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
     steps:
     - uses: actions/checkout@v5
@@ -44,9 +50,133 @@ jobs:
       run: |
         scripts/download_data_release.sh
 
+    - name: Restore cumulative shadow ledger
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        runs_json="${RUNNER_TEMP}/shadow-workflow-runs.json"
+        artifacts_json="${RUNNER_TEMP}/shadow-artifacts.json"
+        gh api \
+          --paginate \
+          --slurp \
+          "repos/${GITHUB_REPOSITORY}/actions/workflows/workflow_run_script.yml/runs?branch=${SHADOW_DEFAULT_BRANCH}&status=success&per_page=100" \
+          > "${runs_json}"
+        gh api \
+          --paginate \
+          --slurp \
+          "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+          > "${artifacts_json}"
+        artifact_id="$(
+          python scripts/select_shadow_artifact.py \
+            --runs-json "${runs_json}" \
+            --artifacts-json "${artifacts_json}" \
+            --current-run-id "${GITHUB_RUN_ID}" \
+            --default-branch "${SHADOW_DEFAULT_BRANCH}"
+        )"
+        if [[ -z "${artifact_id}" ]]; then
+          echo "No prior shadow artifact exists; starting the ledger."
+          echo "SHADOW_PREVIOUS_ARTIFACT_ID=" >> "${GITHUB_ENV}"
+          exit 0
+        fi
+        echo "SHADOW_PREVIOUS_ARTIFACT_ID=${artifact_id}" >> "${GITHUB_ENV}"
+
+        restore_dir="${RUNNER_TEMP}/previous-shadow"
+        archive="${RUNNER_TEMP}/previous-shadow.zip"
+        mkdir -p "${restore_dir}"
+        gh api \
+          "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+          > "${archive}"
+        unzip -q "${archive}" -d "${restore_dir}"
+
+        mapfile -t histories < <(
+          find "${restore_dir}" -type f -name recommendation_history.csv
+        )
+        if [[ "${#histories[@]}" -ne 1 ]]; then
+          echo "Expected one prior recommendation history, found ${#histories[@]}."
+          exit 1
+        fi
+
+        model_dir="output/daily/can-slim-top3-v1"
+        mkdir -p "${model_dir}"
+        cp "${histories[0]}" "${model_dir}/recommendation_history.csv"
+
+        history_dir="${histories[0]%/*}"
+        required_files=(
+          recommendation_history.sha256
+          recommendation_history.provenance.json
+          recommendation_history.attestation.json
+        )
+        for required_file in "${required_files[@]}"; do
+          if [[ ! -f "${history_dir}/${required_file}" ]]; then
+            echo "Prior shadow artifact lacks ${required_file}; refusing to re-attest unverified history."
+            exit 1
+          fi
+          cp "${history_dir}/${required_file}" "${model_dir}/${required_file}"
+        done
+        (
+          cd "${model_dir}"
+          sha256sum --check recommendation_history.sha256
+        )
+
+        identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/workflow_run_script.yml@refs/heads/${SHADOW_DEFAULT_BRANCH}"
+        gh attestation verify \
+          "${model_dir}/recommendation_history.csv" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --bundle "${model_dir}/recommendation_history.attestation.json" \
+          --cert-identity "${identity}"
+        gh attestation verify \
+          "${model_dir}/recommendation_history.provenance.json" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --bundle "${model_dir}/recommendation_history.attestation.json" \
+          --cert-identity "${identity}"
+        PYTHONPATH=. python - <<'PY'
+        from src.research.shadow_ledger import verify_shadow_ledger
+
+        result = verify_shadow_ledger(
+            "output/daily/can-slim-top3-v1/recommendation_history.csv"
+        )
+        if not result["externally_anchored"]:
+            raise SystemExit(
+                f"Prior shadow ledger provenance is invalid: {result}"
+            )
+        PY
+
     - name: Generate fixed Top 3 shadow recommendation
       run: |
         PYTHONPATH=. python -m src.research.daily_pipeline --workers 8
+
+    - name: Seal cumulative shadow ledger
+      run: |
+        cd output/daily/can-slim-top3-v1
+        sha256sum recommendation_history.csv > recommendation_history.sha256
+
+    - name: Sign shadow ledger provenance
+      id: attest-ledger
+      uses: actions/attest@v4
+      with:
+        subject-path: |
+          output/daily/can-slim-top3-v1/recommendation_history.csv
+          output/daily/can-slim-top3-v1/recommendation_history.provenance.json
+
+    - name: Verify signed shadow ledger provenance
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        model_dir="output/daily/can-slim-top3-v1"
+        bundle="${{ steps.attest-ledger.outputs.bundle-path }}"
+        identity="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/workflow_run_script.yml@refs/heads/${SHADOW_DEFAULT_BRANCH}"
+        gh attestation verify \
+          "${model_dir}/recommendation_history.csv" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --bundle "${bundle}" \
+          --cert-identity "${identity}"
+        gh attestation verify \
+          "${model_dir}/recommendation_history.provenance.json" \
+          --repo "${GITHUB_REPOSITORY}" \
+          --bundle "${bundle}" \
+          --cert-identity "${identity}"
+        cp "${bundle}" \
+          "${model_dir}/recommendation_history.attestation.json"
 
     - name: Publish recommendation summary
       if: success()
@@ -83,4 +213,4 @@ jobs:
         name: fixed-top3-shadow-${{ github.run_id }}
         path: output/daily/can-slim-top3-v1/
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 90

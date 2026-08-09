@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from src.io.security_universe import investable_common_equities
 from src.conf import (
     CLEANED_EPS_DATA_FILE,
     FINANCIAL_COVERAGE_FILE,
@@ -33,31 +34,6 @@ SEC_FACTS_API = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 SEC_HEADERS = {"User-Agent": "quant_stocks research data@example.com", "Accept": "application/json"}
 POINT_IN_TIME_EPS_FILE = Path(POINT_IN_TIME_EPS_FILE)
-NON_COMMON_SECURITY_PATTERN = (
-    r"\bPreferred\b|\bPreference Shares?\b|\bWarrants?\b|\bUnits?\b|Notes? due|"
-    r"Debenture|\bRights?\b|Tangible Equity| - Depositary Shares$|"
-    r"Depositary Shares, each Representing|Depositary Shares Each Representing|"
-    r"Depositary Shares rep|Trust Preferred|Preferred Units|Senior Notes|Subordinated Notes|"
-    r"\bETF\b|\bETN\b|\bIndex Fund\b|\bTest Stock\b|\bWhen Issued\b|"
-    r"\bAcquisition\b.*\b(?:Corp(?:oration)?|Co(?:mpany)?|Ltd\.?)\b"
-)
-
-
-def investable_common_equities(universe: pd.DataFrame) -> pd.DataFrame:
-    """Remove preferreds, warrants, units, rights, and debt from stock research."""
-    eligible = universe.loc[
-        ~universe["Name"].astype(str).str.contains(
-            NON_COMMON_SECURITY_PATTERN, case=False, na=False, regex=True
-        )
-    ].copy()
-    for flag in ("ETF", "Test Issue", "NextShares"):
-        if flag in eligible:
-            eligible = eligible.loc[
-                ~eligible[flag].astype(str).str.upper().eq("Y")
-            ]
-    return eligible
-
-
 def _period_end(value: str) -> pd.Timestamp:
     return pd.to_datetime(value, format="%b %Y") + pd.offsets.MonthEnd(0)
 
@@ -178,14 +154,27 @@ def audit_financial_coverage(
     latest = usable.groupby("ticker")["available_date"].max()
     universe_set = set(map(str.upper, universe))
     covered = {ticker for ticker, available in latest.items() if available >= cutoff} & universe_set
-    exact = set(frame.loc[frame["exact_report_date"], "ticker"]) & universe_set
+    observed = set(latest.index) & universe_set
+    missing = universe_set - observed
+    stale = observed - covered
+    exact_recent = set(
+        usable.loc[
+            usable["exact_report_date"] & usable["available_date"].ge(cutoff),
+            "ticker",
+        ]
+    ) & universe_set
     return {
         "as_of": as_of.isoformat(),
         "universe_count": len(universe_set),
         "fresh_tickers": len(covered),
         "fresh_coverage": len(covered) / max(len(universe_set), 1),
-        "tickers_with_exact_recent_report_date": len(exact),
-        "missing_or_stale": sorted(universe_set - covered),
+        "tickers_with_exact_recent_report_date": len(exact_recent),
+        "exact_recent_report_date_coverage": (
+            len(exact_recent) / max(len(universe_set), 1)
+        ),
+        "missing": sorted(missing),
+        "stale": sorted(stale),
+        "missing_or_stale": sorted(missing | stale),
         "maximum_age_days": maximum_age_days,
     }
 

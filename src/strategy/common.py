@@ -5,6 +5,9 @@ import talib
 from src.conf import LONG_MA, SHORT_MA
 
 
+CASH_SENTINEL = "__CASH__"
+
+
 def monthly_signal_dates(
     trading_dates: pd.DatetimeIndex, start: str, end: str | None
 ) -> pd.DatetimeIndex:

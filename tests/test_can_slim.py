@@ -37,6 +37,44 @@ def test_can_slim_selects_profitable_leader_near_high_with_volume():
     assert selected.loc["LEAD", "target_weight"] == 0.2
 
 
+def test_contemporaneous_price_is_used_only_for_minimum_price_eligibility():
+    dates = pd.bdate_range("2024-01-01", periods=260)
+    close = pd.DataFrame(
+        {"LEAD": range(20, 280)}, index=dates, dtype=float
+    )
+    eligibility_close = close * 10
+    volume = pd.DataFrame(
+        3_000_000.0, index=dates, columns=close.columns
+    )
+    index = pd.Series(range(1_000, 1_260), index=dates, dtype=float)
+    eps = pd.DataFrame({
+        "ticker": ["LEAD"],
+        "period_end": [dates[-80]],
+        "available_date": [dates[-70]],
+        "quarterly_eps": [1.0],
+        "trailing_eps": [4.0],
+        "prior_trailing_eps": [2.0],
+        "eps_growth": [1.0],
+        "source": ["test"],
+    })
+
+    selected = select_can_slim_portfolio(
+        dates[-1],
+        close,
+        volume,
+        index,
+        eps,
+        CanSlimConfig(top_n=1, minimum_price=500),
+        {"LEAD"},
+        eligibility_close=eligibility_close,
+    )
+
+    assert selected.index.tolist() == ["LEAD"]
+    assert selected.loc["LEAD", "eligibility_price"] == 2790
+    assert selected.loc["LEAD", "price"] == 279
+    assert selected.loc["LEAD", "near_52_week_high"] == 1
+
+
 def test_can_slim_keltner_variant_requires_true_range_breakout():
     dates = pd.bdate_range("2024-01-01", periods=260)
     close = pd.DataFrame({"LEAD": range(20, 280)}, index=dates, dtype=float)
@@ -274,3 +312,50 @@ def test_trade_ledger_holds_fixed_shares_and_reconciles_portfolio_value(
     )
     compounded = (1 + result["strategy"]).prod() * 1_000_000
     assert compounded == pytest.approx(result.iloc[-1]["portfolio_value"])
+
+
+def test_trade_ledger_migrates_issuer_rename_without_synthetic_trade(
+    monkeypatch,
+):
+    dates = pd.bdate_range("2023-01-02", periods=280)
+    rename_date = dates[-1]
+    close = pd.DataFrame(index=dates, columns=["OLD", "NEW"], dtype=float)
+    close.loc[dates < rename_date, "OLD"] = 10.0
+    close.loc[rename_date, "NEW"] = 11.0
+    volume = pd.DataFrame(
+        20_000_000.0, index=dates, columns=close.columns
+    )
+    index = pd.Series(np.linspace(1_000, 1_100, len(dates)), index=dates)
+    monkeypatch.setattr(
+        "src.research.can_slim.select_can_slim_portfolio",
+        lambda *args, **kwargs: pd.DataFrame(
+            {"target_weight": [1.0]}, index=["OLD"]
+        ),
+    )
+    monkeypatch.setattr(
+        "src.research.can_slim.market_regime_is_on",
+        lambda *args, **kwargs: True,
+    )
+    transitions = pd.DataFrame({
+        "provider_ticker": ["NEW"],
+        "historical_ticker": ["OLD"],
+        "last_historical_date": [dates[-2]],
+        "current_ticker_first_date": [rename_date],
+        "identity_type": ["issuer_rename"],
+    })
+    config = CanSlimConfig(
+        start=str(dates[255].date()),
+        end=str(dates[-1].date()),
+        top_n=1,
+        maximum_position_weight=1.0,
+        transaction_cost_bps=0,
+    )
+
+    result, ledger = calculate_can_slim_returns_with_ledger(
+        close, volume, index, pd.DataFrame(), config, lambda _: {"OLD"},
+        adjust_splits=False, identity_transitions=transitions,
+    )
+
+    assert ledger["ticker"].unique().tolist() == ["OLD"]
+    assert result.loc[rename_date, "turnover"] == pytest.approx(0.0)
+    assert result.loc[rename_date, "strategy"] == pytest.approx(0.1)

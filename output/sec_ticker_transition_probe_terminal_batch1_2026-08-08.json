@@ -1,0 +1,1016 @@
+{
+  "completed_at_utc": "2026-08-08T12:53:33.101082+00:00",
+  "completed_ticker_count": 30,
+  "last_checkpoint_at_utc": "2026-08-08T12:53:33.099223+00:00",
+  "last_checkpoint_ticker": "APTO",
+  "requested_tickers": [
+    "AADI",
+    "ABL",
+    "ABP",
+    "ABVE",
+    "ACHL",
+    "ACLX",
+    "ADAP",
+    "ADD",
+    "ADN",
+    "ADVM",
+    "AFMD",
+    "AGAE",
+    "AGFY",
+    "AGH",
+    "AGRI",
+    "AIMBU",
+    "AKYA",
+    "ALRN",
+    "ALTM",
+    "ALTS",
+    "ALVR",
+    "AMED",
+    "AMRK",
+    "AMTB",
+    "AMWD",
+    "ANTE",
+    "APDN",
+    "APLS",
+    "APLT",
+    "APTO"
+  ],
+  "research_only": true,
+  "results": [
+    {
+      "issuers": [
+        {
+          "cik": "0001422142",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "WHWK"
+          ],
+          "display_name": "Aadi Bioscience, Inc.  (AADI)  (CIK 0001422142)",
+          "former_names": [],
+          "issuer_name": "Whitehawk Therapeutics, Inc.",
+          "submission_payload_sha256": "dd8e205309bc8ab56f839107232e52c436e4b9c0e6ac94aad96fff0d8b2a1d3e",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001422142.json"
+        },
+        {
+          "cik": "0001422142",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "WHWK"
+          ],
+          "display_name": "Aerpio Pharmaceuticals, Inc.  (AADI)  (CIK 0001422142)",
+          "former_names": [],
+          "issuer_name": "Whitehawk Therapeutics, Inc.",
+          "submission_payload_sha256": "dd8e205309bc8ab56f839107232e52c436e4b9c0e6ac94aad96fff0d8b2a1d3e",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001422142.json"
+        },
+        {
+          "cik": "0001422142",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "WHWK"
+          ],
+          "display_name": "Whitehawk Therapeutics, Inc.  (AADI, WHWK)  (CIK 0001422142)",
+          "former_names": [],
+          "issuer_name": "Whitehawk Therapeutics, Inc.",
+          "submission_payload_sha256": "dd8e205309bc8ab56f839107232e52c436e4b9c0e6ac94aad96fff0d8b2a1d3e",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001422142.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001628280-23-037568",
+          "cik": "0001422142",
+          "display_name": "Aadi Bioscience, Inc.  (AADI)  (CIK 0001422142)",
+          "filing_date": "2023-11-08",
+          "form": "8-K"
+        },
+        {
+          "accession": "0001628280-25-015269",
+          "cik": "0001422142",
+          "display_name": "Whitehawk Therapeutics, Inc.  (AADI, WHWK)  (CIK 0001422142)",
+          "filing_date": "2025-03-28",
+          "form": "10-K"
+        },
+        {
+          "accession": "0001193125-21-182386",
+          "cik": "0001422142",
+          "display_name": "Aerpio Pharmaceuticals, Inc.  (AADI)  (CIK 0001422142)",
+          "filing_date": "2021-06-04",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "d92a15a2495b62dd29507623bda595f8b0e8b412e307263a0e582045084516b2",
+      "search_query": "AADI",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AADI&from=0&size=100",
+      "status": "ok",
+      "ticker": "AADI"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "0e9345992078e41f4347f740589cf13c8531c104ac4ac234fec07ee9b27f2406",
+      "search_query": "ABL",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ABL&from=0&size=100",
+      "status": "ok",
+      "ticker": "ABL"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001893219",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "ABPO"
+          ],
+          "display_name": "Abpro Holdings, Inc.  (ABP, ABPWW)  (CIK 0001893219)",
+          "former_names": [],
+          "issuer_name": "Abpro Holdings, Inc.",
+          "submission_payload_sha256": "6c5886f814abc26c8e756e7554f4b0fc063a8867faacf54af7ad53671ddf79e7",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001893219.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001213900-25-016110",
+          "cik": "0001893219",
+          "display_name": "Abpro Holdings, Inc.  (ABP, ABPWW)  (CIK 0001893219)",
+          "filing_date": "2025-02-21",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "4b87e2975904aeb1784d687f7a7ced1a1cd1f250a09d0bd4b592ccb612985bcf",
+      "search_query": "ABP",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ABP&from=0&size=100",
+      "status": "ok",
+      "ticker": "ABP"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001979484",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "ABVEF"
+          ],
+          "display_name": "Above Food Ingredients Inc.  (ABVE, ABVEW)  (CIK 0001979484)",
+          "former_names": [],
+          "issuer_name": "Above Food Ingredients Inc.",
+          "submission_payload_sha256": "e3bcc4f802a4c016e16ba9a75c06d971c201cd5dce524735d51287a5a8644ce1",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001979484.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001104659-24-044918",
+          "cik": "0001979484",
+          "display_name": "Above Food Ingredients Inc.  (ABVE, ABVEW)  (CIK 0001979484)",
+          "filing_date": "2024-04-09",
+          "form": "424B3"
+        }
+      ],
+      "search_payload_sha256": "7e68373ee5bb38726a84faa1c9e7a9e283420861a0e838092884a04a1bc6781d",
+      "search_query": "ABVE",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ABVE&from=0&size=100",
+      "status": "ok",
+      "ticker": "ABVE"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001830749",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Achilles Therapeutics plc  (ACHL)  (CIK 0001830749)",
+          "former_names": [],
+          "issuer_name": "Achilles Therapeutics plc",
+          "submission_payload_sha256": "c1dc7eb7803d8c64254239864ab987fbe53374c012d45669a9d25e5533076f3d",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001830749.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000950170-22-009003",
+          "cik": "0001830749",
+          "display_name": "Achilles Therapeutics plc  (ACHL)  (CIK 0001830749)",
+          "filing_date": "2022-05-10",
+          "form": "6-K"
+        }
+      ],
+      "search_payload_sha256": "7ea7ec6884b1c565a7a537f0d9a6ef28f79482632a5239a212e46814bee2c400",
+      "search_query": "ACHL",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ACHL&from=0&size=100",
+      "status": "ok",
+      "ticker": "ACHL"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001786205",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "ACLX"
+          ],
+          "display_name": "Arcellx, Inc.  (ACLX)  (CIK 0001786205)",
+          "former_names": [],
+          "issuer_name": "Arcellx, Inc.",
+          "submission_payload_sha256": "64b26acd021dbc52105b490857525973b3230b444c0cbd8f695eba89db4031c2",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001786205.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001209191-22-006871",
+          "cik": "0001786205",
+          "display_name": "Arcellx, Inc.  (ACLX)  (CIK 0001786205)",
+          "filing_date": "2022-02-03",
+          "form": "3"
+        }
+      ],
+      "search_payload_sha256": "a4b92299fc2b8bbf6fe8e3f8bc59ea613f8fc96adcfb31f2284c023e5e42b77e",
+      "search_query": "ACLX",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ACLX&from=0&size=100",
+      "status": "ok",
+      "ticker": "ACLX"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001621227",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Adaptimmune Therapeutics PLC  (ADAP)  (CIK 0001621227)",
+          "former_names": [],
+          "issuer_name": "Adaptimmune Therapeutics PLC",
+          "submission_payload_sha256": "d3d13a627287faf7d51451af1d31ebcf9e815a4fcb8372b397eed08ed589b1da",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001621227.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001558370-24-000041",
+          "cik": "0001621227",
+          "display_name": "Adaptimmune Therapeutics PLC  (ADAP)  (CIK 0001621227)",
+          "filing_date": "2024-01-04",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "fe93c2e70ca5b592a49e1b6367f78b99d7009ca18e986e943a8611cfc8b11946",
+      "search_query": "ADAP",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ADAP&from=0&size=100",
+      "status": "ok",
+      "ticker": "ADAP"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "8ced1142ad733a9a490d7e9f3325dd690d5fcd0632ed7ac3acb775a9310eab08",
+      "search_query": "ADD",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ADD&from=0&size=100",
+      "status": "ok",
+      "ticker": "ADD"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001744494",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "ADNH"
+          ],
+          "display_name": "ADVENT TECHNOLOGIES HOLDINGS, INC.  (ADN, ADNWW)  (CIK 0001744494)",
+          "former_names": [],
+          "issuer_name": "ADVENT TECHNOLOGIES HOLDINGS, INC.",
+          "submission_payload_sha256": "3d72a47646a677972ee55f7ebaaee3c82ec82586e0fb12b154341103ba589da0",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001744494.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001140361-22-023625",
+          "cik": "0001744494",
+          "display_name": "ADVENT TECHNOLOGIES HOLDINGS, INC.  (ADN, ADNWW)  (CIK 0001744494)",
+          "filing_date": "2022-06-21",
+          "form": "424B3"
+        }
+      ],
+      "search_payload_sha256": "7b4d31a113f09f2062ffc661a1afddd3b998ff4f6cce3a9007d7b8a8dc1d5258",
+      "search_query": "ADN",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ADN&from=0&size=100",
+      "status": "ok",
+      "ticker": "ADN"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001501756",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Adverum Biotechnologies, Inc.  (ADVM)  (CIK 0001501756)",
+          "former_names": [],
+          "issuer_name": "Adverum Biotechnologies, Inc.",
+          "submission_payload_sha256": "e071135cb8e81c276e2160bea6d075fc7eeb4cd69cdfa574788574588583ab34",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001501756.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001564590-17-009877",
+          "cik": "0001501756",
+          "display_name": "Adverum Biotechnologies, Inc.  (ADVM)  (CIK 0001501756)",
+          "filing_date": "2017-05-09",
+          "form": "10-Q"
+        }
+      ],
+      "search_payload_sha256": "c8f4f2c003aaa37c39d7722900cca971ceac3d24de980e5b0e4ddaa8fa05ee69",
+      "search_query": "ADVM",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ADVM&from=0&size=100",
+      "status": "ok",
+      "ticker": "ADVM"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001608390",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Affimed N.V.  (AFMD)  (CIK 0001608390)",
+          "former_names": [],
+          "issuer_name": "Affimed N.V.",
+          "submission_payload_sha256": "99e41dc8699f56f523d1a99514506a9aad5a6036346f0e84a74410b230a2745e",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001608390.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001558370-20-004500",
+          "cik": "0001608390",
+          "display_name": "Affimed N.V.  (AFMD)  (CIK 0001608390)",
+          "filing_date": "2020-04-28",
+          "form": "20-F"
+        }
+      ],
+      "search_payload_sha256": "55e6ff7635de505fb450216d0335875b86344bd5908803a4b0261c4633e8a085",
+      "search_query": "AFMD",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AFMD&from=0&size=100",
+      "status": "ok",
+      "ticker": "AFMD"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001708341",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "AIFA"
+          ],
+          "display_name": "All In FutureTech Alliance, Inc.  (AGAE)  (CIK 0001708341)",
+          "former_names": [],
+          "issuer_name": "All In FutureTech Alliance, Inc.",
+          "submission_payload_sha256": "7a8edd498baefde57bbff48533ce9178f8c6db02fad4d7b7babef867c019a5bd",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001708341.json"
+        },
+        {
+          "cik": "0001708341",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "AIFA"
+          ],
+          "display_name": "Allied Gaming & Entertainment Inc.  (AGAE)  (CIK 0001708341)",
+          "former_names": [],
+          "issuer_name": "All In FutureTech Alliance, Inc.",
+          "submission_payload_sha256": "7a8edd498baefde57bbff48533ce9178f8c6db02fad4d7b7babef867c019a5bd",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001708341.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000929638-25-003065",
+          "cik": "0001708341",
+          "display_name": "Allied Gaming & Entertainment Inc.  (AGAE)  (CIK 0001708341)",
+          "filing_date": "2025-08-14",
+          "form": "8-K"
+        },
+        {
+          "accession": "0001213900-26-059288",
+          "cik": "0001708341",
+          "display_name": "All In FutureTech Alliance, Inc.  (AGAE)  (CIK 0001708341)",
+          "filing_date": "2026-05-20",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "5f37b05b41f7c0d0cc6b1db989b41c799d22ba7fddfb638371035e30683148db",
+      "search_query": "AGAE",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AGAE&from=0&size=100",
+      "status": "ok",
+      "ticker": "AGAE"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001800637",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "RYM"
+          ],
+          "display_name": "Agrify Corp  (AGFY)  (CIK 0001800637)",
+          "former_names": [],
+          "issuer_name": "RYTHM, Inc.",
+          "submission_payload_sha256": "5b9a9de134cec3a8acf12ca092f0e90272821c87773dd67ac51aef7e0c2697e7",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001800637.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001213900-23-014128",
+          "cik": "0001800637",
+          "display_name": "Agrify Corp  (AGFY)  (CIK 0001800637)",
+          "filing_date": "2023-02-24",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "7857ce339a74440bf7fb7ad03f09e7550458d6e2cfcd3042dccefbda4bee08e4",
+      "search_query": "AGFY",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AGFY&from=0&size=100",
+      "status": "ok",
+      "ticker": "AGFY"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0002009312",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "PUSA"
+          ],
+          "display_name": "Aureus Greenway Holdings Inc  (AGH)  (CIK 0002009312)",
+          "former_names": [],
+          "issuer_name": "Aureus Greenway Holdings Inc",
+          "submission_payload_sha256": "47f0a221205539c73fd185daf156683cb11d58d64db3a2300ce08963d8a58221",
+          "submission_url": "https://data.sec.gov/submissions/CIK0002009312.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001493152-26-014320",
+          "cik": "0002009312",
+          "display_name": "Aureus Greenway Holdings Inc  (AGH)  (CIK 0002009312)",
+          "filing_date": "2026-03-31",
+          "form": "10-K"
+        }
+      ],
+      "search_payload_sha256": "8ff22d590cdca0fa2582149758fcf73adbcd51744af118a74f64106a8f8fbda9",
+      "search_query": "AGH",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AGH&from=0&size=100",
+      "status": "ok",
+      "ticker": "AGH"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "52171323c6d8f9938e7d5e0482518f81f8ac3e683ab51946b74b0842d53b1d97",
+      "search_query": "AGRI",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AGRI&from=0&size=100",
+      "status": "ok",
+      "ticker": "AGRI"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001903464",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Aimfinity Investment Corp. I  (AIMA, AIMAU, AIMAW, AIMBU)  (CIK 0001903464)",
+          "former_names": [],
+          "issuer_name": "Aimfinity Investment Corp. I",
+          "submission_payload_sha256": "2e2e774c26fb6383821b47fe30558ee04ab6d9c792317d1fc4fbc41deb47fe9e",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001903464.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001013762-23-004124",
+          "cik": "0001903464",
+          "display_name": "Aimfinity Investment Corp. I  (AIMA, AIMAU, AIMAW, AIMBU)  (CIK 0001903464)",
+          "filing_date": "2023-10-16",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "57704b0e75f51f7ecc9d049f14be2eb9266594ab3a78ebf63e0a5b3287378702",
+      "search_query": "AIMBU",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AIMBU&from=0&size=100",
+      "status": "ok",
+      "ticker": "AIMBU"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001711933",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Akoya Biosciences, Inc.  (AKYA)  (CIK 0001711933)",
+          "former_names": [],
+          "issuer_name": "Akoya Biosciences, Inc.",
+          "submission_payload_sha256": "3550811e4960b41196a3f4db2adaa319f8d9308696705ae895fd994bce57e445",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001711933.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001104659-24-068747",
+          "cik": "0001711933",
+          "display_name": "Akoya Biosciences, Inc.  (AKYA)  (CIK 0001711933)",
+          "filing_date": "2024-06-05",
+          "form": "4"
+        }
+      ],
+      "search_payload_sha256": "3e807c8c14807ffb87ff888acc03f0886e9d58856b2c6ba97e2aeffd049d0f8c",
+      "search_query": "AKYA",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AKYA&from=0&size=100",
+      "status": "ok",
+      "ticker": "AKYA"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001420565",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "RNTX"
+          ],
+          "display_name": "AILERON THERAPEUTICS INC  (ALRN)  (CIK 0001420565)",
+          "former_names": [],
+          "issuer_name": "Rein Therapeutics, Inc.",
+          "submission_payload_sha256": "cb232560c3251a915b2658231d8205831d6e4a968d3397e1699c8daed25e91b4",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001420565.json"
+        },
+        {
+          "cik": "0001420565",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "RNTX"
+          ],
+          "display_name": "Aileron Therapeutics, Inc.  (ALRN)  (CIK 0001420565)",
+          "former_names": [],
+          "issuer_name": "Rein Therapeutics, Inc.",
+          "submission_payload_sha256": "cb232560c3251a915b2658231d8205831d6e4a968d3397e1699c8daed25e91b4",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001420565.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001193125-20-263968",
+          "cik": "0001420565",
+          "display_name": "AILERON THERAPEUTICS INC  (ALRN)  (CIK 0001420565)",
+          "filing_date": "2020-10-05",
+          "form": "S-1"
+        },
+        {
+          "accession": "0001193125-24-258568",
+          "cik": "0001420565",
+          "display_name": "Aileron Therapeutics, Inc.  (ALRN)  (CIK 0001420565)",
+          "filing_date": "2024-11-14",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "de4dca5b2a420b04e49c7b1b4b1364fcc5be13a98bec6d63ae3e389a485a0f5f",
+      "search_query": "ALRN",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ALRN&from=0&size=100",
+      "status": "ok",
+      "ticker": "ALRN"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "e3d3e849e72bfa2ef50c0a7615f80c884bc3e535e69466d7aedf15432f2e446b",
+      "search_query": "ALTM",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ALTM&from=0&size=100",
+      "status": "ok",
+      "ticker": "ALTM"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0000862861",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "AIFC"
+          ],
+          "display_name": "ALT5 Sigma Corp  (ALTS)  (CIK 0000862861)",
+          "former_names": [],
+          "issuer_name": "AI Financial Corp",
+          "submission_payload_sha256": "39f62b44d090f5b69a4641c95dfee598b42107b81fb1e2284d8f23ff99c9fb46",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000862861.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001628280-25-014629",
+          "cik": "0000862861",
+          "display_name": "ALT5 Sigma Corp  (ALTS)  (CIK 0000862861)",
+          "filing_date": "2025-03-25",
+          "form": "10-K/A"
+        }
+      ],
+      "search_payload_sha256": "70673e1cedda4a11436b14dd11e3ceb08d57bc2f841abb8655702b7596bea904",
+      "search_query": "ALTS",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ALTS&from=0&size=100",
+      "status": "ok",
+      "ticker": "ALTS"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001754068",
+          "current_exchanges": [
+            "Nasdaq"
+          ],
+          "current_tickers": [
+            "KLRS"
+          ],
+          "display_name": "Allovir, Inc.  (ALVR)  (CIK 0001754068)",
+          "former_names": [],
+          "issuer_name": "Kalaris Therapeutics, Inc.",
+          "submission_payload_sha256": "ff63423b98856654f70ecb84a3fa6c682a6f93faa19b6a85a0874e46cbd63c73",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001754068.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000899243-22-018833",
+          "cik": "0001754068",
+          "display_name": "Allovir, Inc.  (ALVR)  (CIK 0001754068)",
+          "filing_date": "2022-05-19",
+          "form": "4"
+        }
+      ],
+      "search_payload_sha256": "0667cd455fac8cce1256bf89595038ca5f27ddd046d3c0b09977bdd4d0203745",
+      "search_query": "ALVR",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ALVR&from=0&size=100",
+      "status": "ok",
+      "ticker": "ALVR"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0000896262",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "AMEDISYS INC  (AMED)  (CIK 0000896262)",
+          "former_names": [],
+          "issuer_name": "AMEDISYS INC",
+          "submission_payload_sha256": "e7d118c197ec8469afed3fd3c754d5463fc43cd476a5f1c2e57ca0f2067d8a5d",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000896262.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001193125-17-335883",
+          "cik": "0000896262",
+          "display_name": "AMEDISYS INC  (AMED)  (CIK 0000896262)",
+          "filing_date": "2017-11-07",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "fb784c033adf52f57ecf4ac287652ea17a8052ad4656898f4e2c9862b0f3ac23",
+      "search_query": "AMED",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AMED&from=0&size=100",
+      "status": "ok",
+      "ticker": "AMED"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001591588",
+          "current_exchanges": [
+            "NYSE"
+          ],
+          "current_tickers": [
+            "GOLD"
+          ],
+          "display_name": "A-Mark Precious Metals, Inc.  (AMRK)  (CIK 0001591588)",
+          "former_names": [],
+          "issuer_name": "Gold.com, Inc.",
+          "submission_payload_sha256": "8b0606041a1e9d6ebae323ccf0a49a167f0d0aba2838b5031e1e72f01bee08c9",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001591588.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001209191-23-053907",
+          "cik": "0001591588",
+          "display_name": "A-Mark Precious Metals, Inc.  (AMRK)  (CIK 0001591588)",
+          "filing_date": "2023-10-31",
+          "form": "4/A"
+        }
+      ],
+      "search_payload_sha256": "93958f352d8628c769448304ff4a445ef20437e2ef0a3764ce620a1765cb9594",
+      "search_query": "AMRK",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AMRK&from=0&size=100",
+      "status": "ok",
+      "ticker": "AMRK"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001734342",
+          "current_exchanges": [
+            "NYSE"
+          ],
+          "current_tickers": [
+            "AMTB"
+          ],
+          "display_name": "Amerant Bancorp Inc.  (AMTB)  (CIK 0001734342)",
+          "former_names": [],
+          "issuer_name": "Amerant Bancorp Inc.",
+          "submission_payload_sha256": "dfecbf715830e1be144bf6b41b405fb044b350fc6d8664420b1fb220efdbdee4",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001734342.json"
+        },
+        {
+          "cik": "0001734342",
+          "current_exchanges": [
+            "NYSE"
+          ],
+          "current_tickers": [
+            "AMTB"
+          ],
+          "display_name": "Mercantil Bank Holding Corp  (AMTB)  (CIK 0001734342)",
+          "former_names": [],
+          "issuer_name": "Amerant Bancorp Inc.",
+          "submission_payload_sha256": "dfecbf715830e1be144bf6b41b405fb044b350fc6d8664420b1fb220efdbdee4",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001734342.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001734342-23-000066",
+          "cik": "0001734342",
+          "display_name": "Amerant Bancorp Inc.  (AMTB)  (CIK 0001734342)",
+          "filing_date": "2023-10-19",
+          "form": "8-K"
+        },
+        {
+          "accession": "0001734342-19-000012",
+          "cik": "0001734342",
+          "display_name": "Mercantil Bank Holding Corp  (AMTB)  (CIK 0001734342)",
+          "filing_date": "2019-05-21",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "8a1016a5a8bccae2caaedffa04d88a519189d6fecc6f7f32b98fca5638f38904",
+      "search_query": "AMTB",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AMTB&from=0&size=100",
+      "status": "ok",
+      "ticker": "AMTB"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0000794619",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "AMERICAN WOODMARK CORP  (AMWD)  (CIK 0000794619)",
+          "former_names": [],
+          "issuer_name": "AMERICAN WOODMARK CORP",
+          "submission_payload_sha256": "87673fac53ca7b222dac91c0bb48f792e11771679397ed415cf8a21c3838281f",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000794619.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000794619-15-000158",
+          "cik": "0000794619",
+          "display_name": "AMERICAN WOODMARK CORP  (AMWD)  (CIK 0000794619)",
+          "filing_date": "2015-08-20",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "eea722709770c5cd3ffc40037f9df1a205a799c417731e82276e2340cfd2b1cb",
+      "search_query": "AMWD",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=AMWD&from=0&size=100",
+      "status": "ok",
+      "ticker": "AMWD"
+    },
+    {
+      "issuers": [],
+      "matches": [],
+      "search_payload_sha256": "700719ccadfe3cd4c321b7bc81e76e876981ab5df8459f8174fd044b10960d0b",
+      "search_query": "ANTE",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=ANTE&from=0&size=100",
+      "status": "ok",
+      "ticker": "ANTE"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0000744452",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "BNBX"
+          ],
+          "display_name": "APPLIED DNA SCIENCES INC  (APDN)  (CIK 0000744452)",
+          "former_names": [],
+          "issuer_name": "BNB PLUS CORP.",
+          "submission_payload_sha256": "e4757c65bde980a4e6d5147ce246d74c65c7edde8c2f38efd123bd3453ed3301",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000744452.json"
+        },
+        {
+          "cik": "0000744452",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "BNBX"
+          ],
+          "display_name": "APPLIED DNA SCIENCES INC  (APDN, APPDW)  (CIK 0000744452)",
+          "former_names": [],
+          "issuer_name": "BNB PLUS CORP.",
+          "submission_payload_sha256": "e4757c65bde980a4e6d5147ce246d74c65c7edde8c2f38efd123bd3453ed3301",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000744452.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001104659-19-061698",
+          "cik": "0000744452",
+          "display_name": "APPLIED DNA SCIENCES INC  (APDN, APPDW)  (CIK 0000744452)",
+          "filing_date": "2019-11-08",
+          "form": "8-K"
+        },
+        {
+          "accession": "0001104659-25-097097",
+          "cik": "0000744452",
+          "display_name": "APPLIED DNA SCIENCES INC  (APDN)  (CIK 0000744452)",
+          "filing_date": "2025-10-06",
+          "form": "8-K"
+        }
+      ],
+      "search_payload_sha256": "671cfe5517f110072a050260126bd160f87440cad1b395213a37683170399a50",
+      "search_query": "APDN",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=APDN&from=0&size=100",
+      "status": "ok",
+      "ticker": "APDN"
+    },
+    {
+      "error": "<HTTPError 500: 'Internal Server Error'>",
+      "search_query": "APLS",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=APLS&from=0&size=100",
+      "status": "failed",
+      "ticker": "APLS"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0001697532",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Applied Therapeutics Inc.  (APLT)  (CIK 0001697532)",
+          "former_names": [],
+          "issuer_name": "Applied Therapeutics, Inc.",
+          "submission_payload_sha256": "b4886d5c7b94557713578aff356ddb8d38cbb9839c87b00aa3111a4057bb30e8",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001697532.json"
+        },
+        {
+          "cik": "0001697532",
+          "current_exchanges": [],
+          "current_tickers": [],
+          "display_name": "Applied Therapeutics, Inc.  (APLT)  (CIK 0001697532)",
+          "former_names": [],
+          "issuer_name": "Applied Therapeutics, Inc.",
+          "submission_payload_sha256": "b4886d5c7b94557713578aff356ddb8d38cbb9839c87b00aa3111a4057bb30e8",
+          "submission_url": "https://data.sec.gov/submissions/CIK0001697532.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0000950170-24-122804",
+          "cik": "0001697532",
+          "display_name": "Applied Therapeutics, Inc.  (APLT)  (CIK 0001697532)",
+          "filing_date": "2024-11-07",
+          "form": "10-Q"
+        },
+        {
+          "accession": "0001209191-23-039425",
+          "cik": "0001697532",
+          "display_name": "Applied Therapeutics Inc.  (APLT)  (CIK 0001697532)",
+          "filing_date": "2023-06-23",
+          "form": "3"
+        }
+      ],
+      "search_payload_sha256": "3b5027e5e1ea0eb889fdc9251385b9f0e1bba721960cebabfc16ad7c2d16ffaf",
+      "search_query": "APLT",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=APLT&from=0&size=100",
+      "status": "ok",
+      "ticker": "APLT"
+    },
+    {
+      "issuers": [
+        {
+          "cik": "0000882361",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "APTOF"
+          ],
+          "display_name": "Aptose Biosciences Inc.  (APTO)  (CIK 0000882361)",
+          "former_names": [],
+          "issuer_name": "Aptose Biosciences Inc.",
+          "submission_payload_sha256": "34bd97ad2b649e748009a349a0f1a7841a08b624a739f94db6b3ca197f3575da",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000882361.json"
+        },
+        {
+          "cik": "0000882361",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "APTOF"
+          ],
+          "display_name": "Aptose Biosciences Inc., (formerly LORUS THERAPEUTICS INC.)  (APTO)  (CIK 0000882361)",
+          "former_names": [],
+          "issuer_name": "Aptose Biosciences Inc.",
+          "submission_payload_sha256": "34bd97ad2b649e748009a349a0f1a7841a08b624a739f94db6b3ca197f3575da",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000882361.json"
+        },
+        {
+          "cik": "0000882361",
+          "current_exchanges": [
+            "OTC"
+          ],
+          "current_tickers": [
+            "APTOF"
+          ],
+          "display_name": "LORUS THERAPEUTICS INC  (APTO)  (CIK 0000882361)",
+          "former_names": [],
+          "issuer_name": "Aptose Biosciences Inc.",
+          "submission_payload_sha256": "34bd97ad2b649e748009a349a0f1a7841a08b624a739f94db6b3ca197f3575da",
+          "submission_url": "https://data.sec.gov/submissions/CIK0000882361.json"
+        }
+      ],
+      "matches": [
+        {
+          "accession": "0001171843-15-004341",
+          "cik": "0000882361",
+          "display_name": "Aptose Biosciences Inc.  (APTO)  (CIK 0000882361)",
+          "filing_date": "2015-08-05",
+          "form": "6-K"
+        },
+        {
+          "accession": "0001279569-14-001553",
+          "cik": "0000882361",
+          "display_name": "Aptose Biosciences Inc., (formerly LORUS THERAPEUTICS INC.)  (APTO)  (CIK 0000882361)",
+          "filing_date": "2014-09-29",
+          "form": "6-K"
+        },
+        {
+          "accession": "0001279569-14-001431",
+          "cik": "0000882361",
+          "display_name": "LORUS THERAPEUTICS INC  (APTO)  (CIK 0000882361)",
+          "filing_date": "2014-09-02",
+          "form": "6-K"
+        }
+      ],
+      "search_payload_sha256": "0d0d74a364d8ca369f5b84f4627fcb44110ac549ec148c35d667862bd884f060",
+      "search_query": "APTO",
+      "search_url": "https://efts.sec.gov/LATEST/search-index?q=APTO&from=0&size=100",
+      "status": "ok",
+      "ticker": "APTO"
+    }
+  ],
+  "resumed_at_utc": null,
+  "schema_version": 2,
+  "search_queries": {},
+  "search_queries_sha256": null,
+  "started_at_utc": "2026-08-08T12:52:50.606763+00:00",
+  "status": "COMPLETE"
+}

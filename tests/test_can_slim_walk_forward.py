@@ -5,6 +5,7 @@ from src.research.can_slim_walk_forward import (
     annual_parameter_snapshot_periods,
     candidate_configs,
     configs_from_snapshots,
+    core_fallback_ids,
     select_stable_ensemble,
 )
 
@@ -34,6 +35,19 @@ def test_candidate_grid_carries_the_requested_signal_frequency():
     configs = candidate_configs("weekly")
     assert {config.signal_frequency for config in configs} == {"weekly"}
     assert {c.minimum_eps_growth for c in configs} == {0.25}
+
+
+def test_freshness_grid_is_predeclared_and_expands_without_duplicates():
+    configs = candidate_configs(maximum_financial_age_days=(150, 365, 550))
+    keys = {
+        (c.top_n, c.minimum_median_dollar_volume, c.maximum_financial_age_days)
+        for c in configs
+    }
+    assert len(configs) == len(keys) == 18
+    assert {c.maximum_financial_age_days for c in configs} == {150, 365, 550}
+    fallback = core_fallback_ids(configs)
+    assert len(fallback) == 1
+    assert configs[fallback[0]].maximum_financial_age_days == 550
 
 
 def test_training_score_prefers_worst_year_then_median():
