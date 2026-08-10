@@ -1803,7 +1803,55 @@ data_release/
 └── latest.json
 ```
 
-## 14. 常见问题
+## 14. 研究缓存冷归档与恢复
+
+SEC Company Facts 的 Wayback 历史快照体积约 33GB，不适合提交到 Git。两份
+18,595-CIK 快照的全量审计记录在
+`output/data_provenance/companyfacts_snapshot_variant_audit_2026-08-10.json`：
+16,997 个文件字节完全一致，其余 1,598 个文件去掉顶层 `symbols` 元数据后也完全
+一致，`semantic_difference_count=0`。因此冷归档只保存
+`wayback-20250414-symbols-v2`；原始 WARC URL、ZIP SHA、capture 时间和展开统计由
+`companyfacts_wayback_warc_extraction.json` 绑定。
+
+创建可上传的 zstd 压缩分卷（每卷不超过 1900MB）以及机器可读 catalog：
+
+```bash
+scripts/create_research_cache_archive.sh
+```
+
+产物位于 `dist/research-cache-sec-companyfacts-2025-04-14/`，catalog 同时写到
+`research_cache/sec-companyfacts-2025-04-14.json`。catalog 固定 snapshot manifest、
+source evidence、variant audit、整包 SHA-256、每个分卷的大小和 SHA-256。上传到独立的
+research-only GitHub Release 时，目录内也会带上两份 evidence JSON，使用：
+
+```bash
+gh release create research-cache-sec-companyfacts-2025-04-14 \
+  --repo superdiaodiao/quant_stocks \
+  --title "Research cache: SEC Company Facts 2025-04-14" \
+  --notes "Research-only reproducibility cache; not a formal data release." \
+  dist/research-cache-sec-companyfacts-2025-04-14/*
+```
+
+已发布的归档入口：
+[`research-cache-sec-companyfacts-2025-04-14`](https://github.com/superdiaodiao/quant_stocks/releases/tag/research-cache-sec-companyfacts-2025-04-14)。
+
+下载并恢复时必须显式给出恢复父目录；脚本拒绝覆盖已存在的同名快照。若 parts 目录
+已经包含全部分卷（例如手工下载），不会重复联网下载：
+
+```bash
+restore_parent="$(mktemp -d)"
+scripts/restore_research_cache_archive.sh \
+  research_cache/sec-companyfacts-2025-04-14.json \
+  dist/research-cache-restore \
+  "$restore_parent"
+```
+
+恢复流程依次验证每个分卷 SHA、拼接后的整包 SHA、解压后的 snapshot manifest；只有
+三层都通过才报告成功。该快照仍缺当前后续研究范围内的 104 个 symbol，只能作为
+research archive 和离线复放输入，不能替代正式 annual/quarterly 数据、正式 validation
+或解除 `BLOCKED` 状态。
+
+## 15. 常见问题
 
 ### 为什么不是每天选一批新股票？
 
@@ -1855,7 +1903,7 @@ cat data_release/latest.json
 不会自动清除已经存在的历史 Blob。只需要当前代码时，请使用 `git clone --depth 1`。
 若未来决定彻底清理历史，需要单独执行历史重写和强制推送；这不属于普通发布流程。
 
-## 15. 风险说明
+## 16. 风险说明
 
 - 本项目仅用于研究和辅助决策；
 - 回测不代表未来表现；

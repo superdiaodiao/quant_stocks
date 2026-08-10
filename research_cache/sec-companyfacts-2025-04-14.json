@@ -1,0 +1,44 @@
+{
+  "archive": {
+    "bytes": 562326340,
+    "parts": [
+      {
+        "bytes": 562326340,
+        "name": "sec-companyfacts-wayback-20250414-symbols-v2.tar.zst.part-000",
+        "sha256": "171184f99dfb1698a7e8730645ed6ce42502eef25552736dc3688e16986afdae"
+      }
+    ],
+    "sha256": "171184f99dfb1698a7e8730645ed6ce42502eef25552736dc3688e16986afdae"
+  },
+  "archive_format": "deterministic-tar+zstd+split",
+  "archive_id": "sec-companyfacts-wayback-20250414-symbols-v2",
+  "generated_at_utc": "2026-08-10T02:38:18.508030+00:00",
+  "release_tag": "research-cache-sec-companyfacts-2025-04-14",
+  "repository": "superdiaodiao/quant_stocks",
+  "research_only": true,
+  "restore": {
+    "command": "scripts/restore_research_cache_archive.sh research_cache/sec-companyfacts-2025-04-14.json dist/research-cache-restore <restore-parent>",
+    "post_restore_verifier": "PYTHONPATH=. .venv/bin/python scripts/companyfacts_cache_snapshot.py --verify-snapshot output/data_provenance/companyfacts_historical_snapshots/wayback-20250414-symbols-v2",
+    "script": "scripts/restore_research_cache_archive.sh"
+  },
+  "schema_version": 1,
+  "snapshot": {
+    "entry_bytes": 17568017754,
+    "entry_count": 18595,
+    "id": "wayback-20250414-symbols-v2",
+    "manifest_sha256": "4f319df058abfe3a4bf732fc40f4e4b9f4cb10c245d5475ca08843deb65c55ab",
+    "relative_restore_path": "output/data_provenance/companyfacts_historical_snapshots/wayback-20250414-symbols-v2",
+    "snapshot_metadata_sha256": "8f64d53ee42f7468a827c3ce7c7722bb20d4b564f8dd78d3c11e6ffe587f2806"
+  },
+  "source": {
+    "archive_item": "archiveteam_usgovernment_20250414083128_a5f859a6",
+    "capture_timestamp": "20250414082852",
+    "extraction_evidence_asset": "companyfacts_wayback_warc_extraction.json",
+    "extraction_evidence_sha256": "598dd1e8e50d41f44d870dbadae468e2fcde6cf904e322b8bb3adeb1c1b75ab3",
+    "variant_audit_asset": "companyfacts_snapshot_variant_audit_2026-08-10.json",
+    "variant_audit_sha256": "df6c2113d603b1bfd79cdf4277fc8ca75451b8aa2dfa3314d8b8ac4726a67b9d",
+    "warc_url": "https://archive.org/download/archiveteam_usgovernment_20250414083128_a5f859a6/usgovernment_20250414083128_a5f859a6.1738361595.megawarc.warc.zst",
+    "zip_sha256": "5fcdeff2b9f9a75d9591511342265653ee91bbe0ce7846c0a69b7acd16fad12e"
+  },
+  "warning": "This immutable 2025-04-14 research snapshot is incomplete for 104 symbols in the later formal scope and cannot replace current formal data."
+}
