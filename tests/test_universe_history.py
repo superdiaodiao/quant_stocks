@@ -59,6 +59,26 @@ def test_closed_end_funds_and_subunits_are_not_investable(tmp_path):
     assert snapshots[pd.Timestamp("2025-04-01")] == {"OPERATING"}
 
 
+def test_liberty_braves_tracking_stock_is_excluded_until_spinoff(tmp_path):
+    pd.DataFrame({
+        "Symbol": ["BATRK"],
+        "Name": [
+            "Liberty Media Corporation - Series C Liberty Braves Common Stock"
+        ],
+    }).to_csv(tmp_path / "nasdaq_listed_2023-06-01.csv", index=False)
+    pd.DataFrame({
+        "Symbol": ["BATRK"],
+        "Name": [
+            "Atlanta Braves Holdings, Inc. - Series C Common Stock"
+        ],
+    }).to_csv(tmp_path / "nasdaq_listed_2023-08-01.csv", index=False)
+
+    snapshots = load_universe_snapshots(tmp_path)
+
+    assert snapshots[pd.Timestamp("2023-06-01")] == set()
+    assert snapshots[pd.Timestamp("2023-08-01")] == {"BATRK"}
+
+
 def test_snapshot_coverage_never_claims_earlier_history(tmp_path):
     pd.DataFrame({"Symbol": ["A"], "Name": ["A Common Stock"]}).to_csv(
         tmp_path / "nasdaq_300M_2025-04-14.csv", index=False

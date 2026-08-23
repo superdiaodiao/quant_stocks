@@ -25,6 +25,7 @@ from src.conf import (
 from src.financial.eps import load_eps_history
 from src.financial.quarterly_fundamentals import load_quarterly_fundamentals
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
+from src.financial.quarterly_fundamentals import quarterly_profit_ttm_snapshot
 from src.io.fundamentals_update import (
     SEC_COMPANYFACTS_CACHE_DIR,
     cached_companyfacts_symbol_payload_profiles,
@@ -117,8 +118,11 @@ def _memoized_cost_stress_selection():
 def _sec_cache_refresh_tier(
     reporting_profile: str,
     missing_signal_count: int,
+    raw_cache_profile: str = "",
 ) -> int:
     """Prioritize actionable gaps without exhausting low-yield partial tails."""
+    if raw_cache_profile == "FDIC_EXCHANGE_ACT_NO_SEC_COMPANYFACTS":
+        return 98
     if reporting_profile == "SEC_QUARTERLY_PARTIAL":
         return 1 if missing_signal_count >= 3 else 3
     if reporting_profile == "NO_PARSED_SEC_FINANCIALS":
@@ -154,6 +158,8 @@ def _recommended_financial_data_action(
     raw_cache_profile: str,
     has_supported_revenue_source: bool = False,
 ) -> str:
+    if raw_cache_profile == "FDIC_EXCHANGE_ACT_NO_SEC_COMPANYFACTS":
+        return "NEEDS_FDIC_ARCHIVED_QUARTERLY_SOURCE"
     if raw_cache_profile == "NOT_CACHED":
         return "FETCH_SEC_COMPANYFACTS"
     if raw_cache_profile in {
@@ -180,6 +186,19 @@ def _recommended_financial_data_action(
     if reporting_profile == "SEC_QUARTERLY_PARTIAL":
         return "REPARSE_OR_ACCEPT_HISTORY_LIMIT"
     return "REVIEW_FACT_CONCEPT_MAPPING"
+
+
+def _effective_raw_financial_profile(
+    raw_cache_profile: str,
+    quarterly_taxonomies: set[str],
+) -> str:
+    """Route proven non-SEC filers away from the SEC refresh queue."""
+    if any(
+        str(taxonomy).strip().lower().startswith("fdic-")
+        for taxonomy in quarterly_taxonomies
+    ):
+        return "FDIC_EXCHANGE_ACT_NO_SEC_COMPANYFACTS"
+    return raw_cache_profile
 
 
 def technical_candidate_financial_coverage(
@@ -221,6 +240,7 @@ def technical_candidate_financial_coverage(
                 "market_regime_on": False,
                 "technical_candidate_count": 0,
                 "usable_financial_count": 0,
+                "known_nonpositive_profit_count": 0,
                 "missing_financial_count": 0,
                 "financial_coverage": 1.0,
             })
@@ -246,13 +266,23 @@ def technical_candidate_financial_coverage(
             signal_date,
             config.maximum_financial_age_days,
         )
+        current_ttm = quarterly_profit_ttm_snapshot(
+            quarterly,
+            signal_date,
+            config.maximum_financial_age_days,
+        )
         unbounded_financial = quarterly_growth_snapshot(
             quarterly,
             signal_date,
             100_000,
         )
         usable = candidates & set(financial.index)
-        missing = candidates - usable
+        nonpositive_tickers = (
+            set(current_ttm.index[current_ttm["net_income_ttm"].le(0)])
+            if "net_income_ttm" in current_ttm.columns else set()
+        )
+        known_nonpositive_profit = (candidates - usable) & nonpositive_tickers
+        missing = candidates - usable - known_nonpositive_profit
         raw_known = quarterly.loc[
             quarterly["available_date"].le(signal_date)
             & quarterly["metric"].isin(("net_income", "revenue"))
@@ -278,9 +308,11 @@ def technical_candidate_financial_coverage(
             "market_regime_on": True,
             "technical_candidate_count": len(candidates),
             "usable_financial_count": len(usable),
+            "known_nonpositive_profit_count": len(known_nonpositive_profit),
             "missing_financial_count": len(missing),
             "financial_coverage": (
-                len(usable) / len(candidates) if candidates else 1.0
+                (len(usable) + len(known_nonpositive_profit)) / len(candidates)
+                if candidates else 1.0
             ),
         })
     risk_on_rows = [row for row in rows if row["market_regime_on"]]
@@ -290,9 +322,13 @@ def technical_candidate_financial_coverage(
     candidate_observations = sum(
         row["technical_candidate_count"] for row in risk_on_rows
     )
+    known_nonpositive_profit_observations = sum(
+        row["known_nonpositive_profit_count"] for row in risk_on_rows
+    )
     priorities = []
     annual_forms: dict[str, set[str]] = {}
     quarterly_metrics: dict[str, set[str]] = {}
+    quarterly_taxonomies: dict[str, set[str]] = {}
     if len(quarterly):
         observed_quarterly = quarterly.loc[
             quarterly["metric"].isin(("net_income", "revenue"))
@@ -305,6 +341,18 @@ def technical_candidate_financial_coverage(
             .agg(lambda values: set(map(str, values)))
             .to_dict()
         )
+        if "taxonomy" in quarterly.columns:
+            observed_taxonomies = quarterly.dropna(
+                subset=["ticker", "taxonomy"]
+            ).copy()
+            observed_taxonomies["ticker"] = (
+                observed_taxonomies["ticker"].astype(str).str.upper()
+            )
+            quarterly_taxonomies = (
+                observed_taxonomies.groupby("ticker")["taxonomy"]
+                .agg(lambda values: set(map(str, values)))
+                .to_dict()
+            )
     if annual_fundamentals is not None and len(annual_fundamentals):
         annual = annual_fundamentals.dropna(
             subset=["ticker", "form"]
@@ -324,7 +372,10 @@ def technical_candidate_financial_coverage(
             quarterly_metrics.get(ticker, set()),
         )
         raw_profile = (raw_cache_profiles or {}).get(ticker, {})
-        raw_cache_profile = raw_profile.get("profile", "NOT_CACHED")
+        raw_cache_profile = _effective_raw_financial_profile(
+            raw_profile.get("profile", "NOT_CACHED"),
+            quarterly_taxonomies.get(ticker, set()),
+        )
         priorities.append({
             "ticker": ticker,
             "missing_signal_count": int(missing_counts[ticker]),
@@ -360,6 +411,7 @@ def technical_candidate_financial_coverage(
         row["sec_cache_refresh_tier"] = _sec_cache_refresh_tier(
             row["reporting_profile"],
             row["missing_signal_count"],
+            row["raw_sec_cache_profile"],
         )
     cache_refresh_priorities = sorted(
         priorities,
@@ -378,6 +430,7 @@ def technical_candidate_financial_coverage(
             "REVIEW_US_GAAP_PARSER",
         },
         "foreign_priority_rank": {"NEEDS_FOREIGN_QUARTERLY_SOURCE"},
+        "fdic_priority_rank": {"NEEDS_FDIC_ARCHIVED_QUARTERLY_SOURCE"},
     }
     for column, actions in queue_actions.items():
         eligible = sorted(
@@ -400,13 +453,19 @@ def technical_candidate_financial_coverage(
             "minimum price, 50-day median dollar volume, relative volume, "
             "52-week-high, price-history and market-regime rules. Financial "
             "coverage is required only for otherwise eligible candidates on "
-            "risk-on signals. Historical member-price completeness remains "
+            "risk-on signals. A recent, consecutive four-quarter TTM net loss "
+            "is a fully observed deterministic failure of the selector's "
+            "positive-profit gate and does not require older growth history. "
+            "Historical member-price completeness remains "
             "an independent prerequisite."
         ),
         "signal_count": len(rows),
         "risk_on_signal_count": len(risk_on_rows),
         "technical_candidate_observations": candidate_observations,
         "missing_financial_observations": missing_observations,
+        "known_nonpositive_profit_observations": (
+            known_nonpositive_profit_observations
+        ),
         "financial_coverage": (
             (candidate_observations - missing_observations)
             / candidate_observations

@@ -17,6 +17,11 @@ def test_pre_freeze_signal_is_not_written(tmp_path: Path, monkeypatch) -> None:
                 "policy_status": "FROZEN_FORWARD_ONLY",
                 "release_status": "BLOCKED",
                 "forward_evidence_start": "2026-08-10",
+                "source_evidence": {
+                    "data_manifest_sha256": "a" * 64,
+                    "strategy_code_sha256": "b" * 64,
+                },
+                "quarterly_input": {"sha256": "c" * 64},
             }
         )
     )
@@ -50,3 +55,5 @@ def test_pre_freeze_signal_is_not_written(tmp_path: Path, monkeypatch) -> None:
 
     assert result["written"] is False
     assert result["status"] == "WAITING_FOR_FIRST_POST_FREEZE_SIGNAL"
+    assert result["promotion_eligible"] is False
+    assert result["frozen_bindings"]["summary_sha256"]

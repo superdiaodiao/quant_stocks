@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,6 +22,14 @@ DEFAULT_SUMMARY = Path("output/research_v4_cost_robust_top10_shadow_summary.json
 DEFAULT_OUTPUT_DIR = Path("output/daily")
 
 
+def _sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def record_signal(
     *,
     decision_date: date | pd.Timestamp | None = None,
@@ -35,6 +44,18 @@ def record_signal(
         raise ValueError("v4 shadow policy is not frozen")
     if summary.get("release_status") != "BLOCKED":
         raise ValueError("v4 shadow runner must not be production eligible")
+
+    frozen_bindings = {
+        "summary_path": str(summary_path.resolve()),
+        "summary_sha256": _sha256(summary_path),
+        "data_manifest_sha256": summary["source_evidence"][
+            "data_manifest_sha256"
+        ],
+        "strategy_code_sha256": summary["source_evidence"][
+            "strategy_code_sha256"
+        ],
+        "quarterly_input_sha256": summary["quarterly_input"]["sha256"],
+    }
 
     model_dir = Path(output_dir) / MODEL_VERSION
     history_path = model_dir / "recommendation_history.csv"
@@ -56,6 +77,8 @@ def record_signal(
             "forward_evidence_start": summary["forward_evidence_start"],
             "model_version": MODEL_VERSION,
             "release_status": "BLOCKED",
+            "promotion_eligible": False,
+            "frozen_bindings": frozen_bindings,
         }
 
     signal_date = pd.Timestamp(metadata["signal_date"])
@@ -75,7 +98,9 @@ def record_signal(
         "history_path": str(history_path),
         "manifest_path": str(manifest_path),
         "release_status": "BLOCKED",
+        "promotion_eligible": False,
         "external_anchor": False,
+        "frozen_bindings": frozen_bindings,
     }
 
 

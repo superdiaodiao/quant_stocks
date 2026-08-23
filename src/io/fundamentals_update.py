@@ -103,6 +103,9 @@ METRIC_CONCEPTS = {
         "GrossInvestmentIncomeOperating",
         "Revenues",
         "SalesRevenueNet",
+        "SalesRevenueGoodsNet",
+        "SalesRevenueServicesNet",
+        "InvestmentAdvisoryManagementAndAdministrativeFees",
     ),
     "net_income": (
         "NetIncomeLoss",
@@ -129,7 +132,10 @@ BANK_NET_INTEREST_CONCEPTS = (
     "InterestIncomeExpenseNet",
     "InterestRevenueExpenseNet",
 )
-BANK_NONINTEREST_CONCEPTS = ("NoninterestIncome",)
+BANK_NONINTEREST_CONCEPTS = (
+    "RevenueNotFromContractWithCustomerExcludingInterestIncome",
+    "NoninterestIncome",
+)
 
 
 def _annual_rows(facts: dict, metric: str, concepts: tuple[str, ...]) -> list[dict]:
@@ -199,13 +205,33 @@ def parse_companyfacts_annual(symbol: str, payload: dict, fetched_at=None) -> pd
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
     frame = pd.DataFrame(records)
     frame["_derived"] = frame["concept"].str.startswith("derived_")
+    duplicate_keys = [
+        "fiscal_end", "available_date", "metric", "accession"
+    ]
+    bank_rows = frame["concept"].str.startswith(
+        "derived_bank_revenue:", na=False
+    )
+    bank_keys = {
+        tuple(row)
+        for row in frame.loc[bank_rows, duplicate_keys].itertuples(
+            index=False, name=None
+        )
+    }
+    zero_generic_total = (
+        frame["metric"].eq("revenue")
+        & frame["concept"].isin({"Revenue", "Revenues"})
+        & frame["value"].eq(0)
+        & frame[duplicate_keys].apply(tuple, axis=1).isin(bank_keys)
+    )
+    frame["_priority"] = frame["_derived"].astype(int)
+    frame.loc[zero_generic_total, "_priority"] = 2
     frame = (
-        frame.sort_values("_derived")
+        frame.sort_values("_priority")
         .drop_duplicates(
-            ["fiscal_end", "available_date", "metric", "accession"],
+            duplicate_keys,
             keep="first",
         )
-        .drop(columns="_derived")
+        .drop(columns=["_derived", "_priority"])
     )
     frame.insert(0, "ticker", symbol.upper())
     now = fetched_at or pd.Timestamp.now(tz="UTC")
@@ -216,11 +242,83 @@ def parse_companyfacts_annual(symbol: str, payload: dict, fetched_at=None) -> pd
 def _explicit_quarter_rows(
     facts: dict, metric: str, concepts: tuple[str, ...]
 ) -> list[dict]:
+    def proven_unframed_10k_quarters(units: list[dict]) -> set[tuple]:
+        """Identify complete direct-quarter runs disclosed inside a 10-K.
+
+        Company Facts sometimes omits ``frame`` from the quarterly-results
+        table in a 10-K even though the filing reports four distinct,
+        quarter-length periods.  An isolated unframed duration is ambiguous,
+        so accept these rows only when the same accession contains a complete
+        run of at least four consecutive quarter ends and each end has one
+        unambiguous reported value.
+        """
+        by_accession: dict[str, list[dict]] = {}
+        for row in units:
+            if row.get("form") not in {"10-K", "10-K/A"}:
+                continue
+            if re.search(r"Q[1-4]$", str(row.get("frame") or "")):
+                continue
+            start = pd.to_datetime(row.get("start"), errors="coerce")
+            end = pd.to_datetime(row.get("end"), errors="coerce")
+            filed = pd.to_datetime(row.get("filed"), errors="coerce")
+            value = pd.to_numeric(row.get("val"), errors="coerce")
+            accession = str(row.get("accn") or "")
+            if (
+                not accession
+                or pd.isna(start)
+                or pd.isna(end)
+                or pd.isna(filed)
+                or pd.isna(value)
+                or not 60 <= (end - start).days <= 135
+            ):
+                continue
+            by_accession.setdefault(accession, []).append({
+                "identity": (
+                    accession,
+                    start,
+                    end,
+                    filed,
+                    float(value),
+                ),
+                "end": end,
+                "value": float(value),
+            })
+
+        accepted: set[tuple] = set()
+        for rows in by_accession.values():
+            by_end: dict[pd.Timestamp, list[dict]] = {}
+            for row in rows:
+                by_end.setdefault(row["end"], []).append(row)
+            unambiguous = {
+                end: items
+                for end, items in by_end.items()
+                if len({item["value"] for item in items}) == 1
+            }
+            run: list[pd.Timestamp] = []
+            runs: list[list[pd.Timestamp]] = []
+            for end in sorted(unambiguous):
+                if run and not 60 <= (end - run[-1]).days <= 135:
+                    runs.append(run)
+                    run = []
+                run.append(end)
+            if run:
+                runs.append(run)
+            for complete_run in runs:
+                if len(complete_run) < 4:
+                    continue
+                for end in complete_run:
+                    accepted.update(
+                        item["identity"] for item in unambiguous[end]
+                    )
+        return accepted
+
     candidates = []
     for taxonomy_priority, taxonomy in enumerate(("us-gaap", "ifrs-full")):
         namespace = facts.get(taxonomy, {})
         for concept_priority, concept in enumerate(concepts):
-            for row in namespace.get(concept, {}).get("units", {}).get("USD", []):
+            units = namespace.get(concept, {}).get("units", {}).get("USD", [])
+            proven_unframed = proven_unframed_10k_quarters(units)
+            for row in units:
                 if row.get("form") not in QUARTERLY_FORMS:
                     continue
                 fp = str(row.get("fp") or "")
@@ -235,7 +333,16 @@ def _explicit_quarter_rows(
                     or row.get("form") in {"10-Q", "10-Q/A"}
                     or bool(
                         row.get("form") in {"10-K", "10-K/A"}
-                        and re.search(r"Q[1-4]$", frame)
+                        and (
+                            re.search(r"Q[1-4]$", frame)
+                            or (
+                                str(row.get("accn") or ""),
+                                pd.to_datetime(row.get("start"), errors="coerce"),
+                                pd.to_datetime(row.get("end"), errors="coerce"),
+                                pd.to_datetime(row.get("filed"), errors="coerce"),
+                                float(pd.to_numeric(row.get("val"), errors="coerce")),
+                            ) in proven_unframed
+                        )
                     )
                 )
                 if not quarter_marked:
@@ -498,13 +605,37 @@ def parse_companyfacts_quarterly(symbol: str, payload: dict, fetched_at=None) ->
     )
     if len(frame):
         frame["_derived"] = frame["concept"].str.startswith("derived_")
+        duplicate_keys = [
+            "fiscal_end", "available_date", "metric", "accession"
+        ]
+        bank_rows = frame["concept"].str.startswith(
+            "derived_bank_revenue:", na=False
+        )
+        bank_keys = {
+            tuple(row)
+            for row in frame.loc[bank_rows, duplicate_keys].itertuples(
+                index=False, name=None
+            )
+        }
+        zero_generic_total = (
+            frame["metric"].eq("revenue")
+            & frame["concept"].isin({"Revenue", "Revenues"})
+            & frame["value"].eq(0)
+            & frame[duplicate_keys].apply(tuple, axis=1).isin(bank_keys)
+        )
+        # Some bank filings tag a zero-valued generic Revenues fact in the
+        # same context as valid net-interest and noninterest-income facts.
+        # A reported nonzero total still wins, but the zero placeholder must
+        # not suppress a same-filing derived bank revenue value.
+        frame["_priority"] = frame["_derived"].astype(int)
+        frame.loc[zero_generic_total, "_priority"] = 2
         frame = (
-            frame.sort_values("_derived")
+            frame.sort_values("_priority")
             .drop_duplicates(
-                ["fiscal_end", "available_date", "metric", "accession"],
+                duplicate_keys,
                 keep="first",
             )
-            .drop(columns="_derived")
+            .drop(columns=["_derived", "_priority"])
         )
     annual = parse_companyfacts_annual(symbol, payload, fetched_at)
     annual = annual.loc[annual["metric"].isin(QUARTERLY_METRICS)]
@@ -542,6 +673,17 @@ def parse_companyfacts_quarterly(symbol: str, payload: dict, fetched_at=None) ->
     combined = pd.concat([frame, pd.DataFrame(derived)], ignore_index=True)
     if combined.empty:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
+    combined["_derived_q4"] = combined["concept"].str.startswith(
+        "derived_q4:", na=False
+    )
+    combined = (
+        combined.sort_values("_derived_q4")
+        .drop_duplicates(
+            ["fiscal_end", "available_date", "metric", "accession"],
+            keep="first",
+        )
+        .drop(columns="_derived_q4")
+    )
     combined.insert(0, "ticker", symbol.upper())
     now = fetched_at or pd.Timestamp.now(tz="UTC")
     combined["fetched_at"] = pd.Timestamp(now).tz_localize(None).normalize()

@@ -12,6 +12,7 @@ NON_COMMON_SECURITY_PATTERN = (
     r"Depositary Shares? rep|Trust Preferred|Preferred Units|Senior Notes|Subordinated Notes|"
     r"\bETF\b|\bETNs?\b|\bExchange Traded Notes?\b|\bIndex Fund\b|"
     r"\bTest Stock\b|\bWhen[- ]Issued\b|"
+    r"\bLiberty Braves Common Stock\b|"
     r"\bStrategic Total Return\b|\bOpportunities Trust\b|\bClosed[- ]End\b|"
     r"\bL\.?P\.?\b|\bLimited Partnership\b|"
     r"\bAcquisition\b.*\b(?:Corp(?:oration)?|Co(?:mpany)?|Ltd\.?|Inc\.?|Group)\b|"

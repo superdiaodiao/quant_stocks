@@ -87,6 +87,11 @@ def test_candidate_financial_coverage_uses_shared_technical_filters(
     )
     monkeypatch.setattr(
         can_slim_validation,
+        "quarterly_profit_ttm_snapshot",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        can_slim_validation,
         "back_adjust_common_splits",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("pre-adjusted prices were ignored")
@@ -122,6 +127,42 @@ def test_candidate_financial_coverage_uses_shared_technical_filters(
         "reporting_profile"
     ] == "NO_PARSED_SEC_FINANCIALS"
     assert report["complete"] is False
+
+
+def test_candidate_financial_coverage_resolves_recent_ttm_loss(
+    monkeypatch,
+):
+    dates = pd.bdate_range("2024-01-02", periods=270)
+    close = pd.DataFrame({"LOSS": 20.0}, index=dates)
+    dollar_volume = pd.DataFrame({"LOSS": 20_000_000.0}, index=dates)
+    nasdaq = pd.Series(np.linspace(100.0, 200.0, len(dates)), index=dates)
+    monkeypatch.setattr(
+        can_slim_validation, "quarterly_growth_snapshot",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        can_slim_validation, "quarterly_profit_ttm_snapshot",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            {"net_income_ttm": [-10.0]}, index=["LOSS"]
+        ),
+    )
+    config = replace(
+        can_slim_validation.fixed_top3_config(),
+        end=dates[-1].strftime("%Y-%m-%d"), market_ma_days=2,
+    )
+    fundamentals = pd.DataFrame({
+        "ticker": ["LOSS"], "available_date": [dates[0]],
+        "metric": ["net_income"],
+    })
+    report = can_slim_validation.technical_candidate_financial_coverage(
+        close, dollar_volume, nasdaq, fundamentals,
+        {dates[0]: {"LOSS"}}, config,
+        start=dates[0].strftime("%Y-%m-%d"), adjusted_close=close,
+    )
+    assert report["missing_financial_observations"] == 0
+    assert report["known_nonpositive_profit_observations"] > 0
+    assert report["missing_financial_symbols"] == []
+    assert report["complete"] is True
 
 
 def test_cost_stress_selector_cache_ignores_only_transaction_cost(
@@ -296,6 +337,10 @@ def test_recommended_financial_data_action_uses_raw_cache_structure():
         "NO_PARSED_SEC_FINANCIALS", "US_GAAP_WITH_10Q"
     ) == "REVIEW_US_GAAP_PARSER"
     assert can_slim_validation._recommended_financial_data_action(
+        "SEC_QUARTERLY_PARTIAL",
+        "FDIC_EXCHANGE_ACT_NO_SEC_COMPANYFACTS",
+    ) == "NEEDS_FDIC_ARCHIVED_QUARTERLY_SOURCE"
+    assert can_slim_validation._recommended_financial_data_action(
         "SEC_ANNUAL_ONLY_OR_UNMAPPED_QUARTERLY",
         "US_GAAP_WITH_10Q",
         has_supported_revenue_source=True,
@@ -305,6 +350,17 @@ def test_recommended_financial_data_action_uses_raw_cache_structure():
         "US_GAAP_WITH_10Q",
         has_supported_revenue_source=False,
     ) == "CONFIRM_NO_OPERATING_REVENUE"
+
+
+def test_fdic_taxonomy_routes_non_sec_filer_away_from_companyfacts():
+    profile = can_slim_validation._effective_raw_financial_profile(
+        "NOT_CACHED", {"fdic-10q"}
+    )
+
+    assert profile == "FDIC_EXCHANGE_ACT_NO_SEC_COMPANYFACTS"
+    assert can_slim_validation._sec_cache_refresh_tier(
+        "SEC_QUARTERLY_PARTIAL", 17, profile
+    ) == 98
 
 
 def test_annual_cost_capacity_reports_bracketed_and_unprofitable_years():

@@ -65,6 +65,44 @@ def test_same_issuer_rename_retains_current_ticker_financial_continuity(
     ]
 
 
+def test_reverse_merger_financial_identity_uses_filing_cutover(tmp_path):
+    mapping = tmp_path / "identity.csv"
+    mapping.write_text(
+        "provider_ticker,historical_ticker,last_historical_date,current_ticker_first_date,source_url,verified_at,identity_type\n"
+        "NEGG,LLIT,2021-05-19,2021-05-20,https://www.sec.gov/example,2026-08-14T00:00:00Z,reverse_merger\n"
+    )
+    source = pd.DataFrame({
+        "ticker": ["NEGG", "NEGG", "NEGG"],
+        "period_end": ["2020-12-31", "2020-12-31", "2021-06-30"],
+        "available_date": ["2021-03-31", "2022-04-28", "2021-08-01"],
+        "value": [1.0, 2.0, 3.0],
+    })
+
+    result = normalize_point_in_time_tickers(source, mapping)
+
+    assert result["ticker"].tolist() == ["LLIT", "NEGG", "NEGG"]
+    assert result["value"].tolist() == [1.0, 2.0, 3.0]
+
+
+def test_reverse_merger_maps_provider_symbol_in_pre_cutover_universe():
+    identities = pd.DataFrame({
+        "provider_ticker": ["NEGG"],
+        "historical_ticker": ["LLIT"],
+        "last_historical_date": pd.to_datetime(["2021-05-19"]),
+        "current_ticker_first_date": pd.to_datetime(["2021-05-20"]),
+        "source_url": ["https://www.sec.gov/example"],
+        "verified_at": ["2026-08-14T00:00:00Z"],
+        "identity_type": ["reverse_merger"],
+    })
+
+    assert normalize_universe_symbols(
+        {"NEGG"}, pd.Timestamp("2021-05-19"), identities
+    ) == {"LLIT"}
+    assert normalize_universe_symbols(
+        {"NEGG"}, pd.Timestamp("2021-05-20"), identities
+    ) == {"NEGG"}
+
+
 def test_price_history_split_is_idempotent_and_preserves_existing_history(
     tmp_path,
 ):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 from io import StringIO
 import json
 import os
@@ -29,6 +30,8 @@ from src.io.financial_update import investable_common_equities
 from src.research.universe_history import load_universe_snapshots
 
 API = "https://api.nasdaq.com/api/quote/{symbol}/historical"
+CHART_API = "https://api.nasdaq.com/api/quote/{symbol}/chart"
+INFO_API = "https://api.nasdaq.com/api/quote/{symbol}/info"
 SCREENER_API = "https://api.nasdaq.com/api/screener/stocks"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 HISTORICAL_UNIVERSE_PATHS = (
@@ -151,7 +154,59 @@ def fetch_history(symbol: str, start: date, end: date, asset_class="stocks", ret
     raise RuntimeError(f"{symbol}: {error}")
 
 
-def refresh_universe(end: date, min_market_cap=300_000_000) -> dict:
+def fetch_closed_index_snapshot(symbol: str, session: date) -> dict:
+    """Read an official after-close index value when historical lags.
+
+    Nasdaq's chart/info endpoints are often current several hours before its
+    historical endpoint. Only the official close is retained; OHLC fields are
+    intentionally left blank rather than inferred from sampled chart points.
+    """
+    urls = {
+        "chart": CHART_API.format(symbol=symbol) + "?assetclass=index",
+        "info": INFO_API.format(symbol=symbol) + "?assetclass=index",
+    }
+    payloads = {}
+    for label, url in urls.items():
+        with urlopen(Request(url, headers=HEADERS), timeout=30) as response:
+            payloads[label] = json.load(response)
+    chart = payloads["chart"].get("data") or {}
+    info = payloads["info"].get("data") or {}
+    chart_date = pd.to_datetime(chart.get("timeAsOf"), errors="coerce")
+    trade_date = pd.to_datetime(
+        (info.get("primaryData") or {}).get("lastTradeTimestamp"),
+        errors="coerce",
+    )
+    expected = pd.Timestamp(session).normalize()
+    if info.get("marketStatus") != "Closed":
+        raise ValueError(f"{symbol} official index market is not closed")
+    if pd.isna(chart_date) or chart_date.normalize() != expected:
+        raise ValueError(f"{symbol} chart date does not match {session}")
+    if pd.isna(trade_date) or trade_date.normalize() != expected:
+        raise ValueError(f"{symbol} trade date does not match {session}")
+    close = _number(chart.get("lastSalePrice"))
+    if close is None or close <= 0:
+        raise ValueError(f"{symbol} official close is unavailable")
+    canonical = json.dumps(payloads, sort_keys=True, separators=(",", ":"))
+    return {
+        "date": expected.strftime("%Y-%m-%d"),
+        "close": close,
+        "source": "nasdaq_official_closed_chart_info",
+        "source_urls": urls,
+        "market_status": info["marketStatus"],
+        "chart_time_as_of": str(chart["timeAsOf"]),
+        "last_trade_timestamp": str(
+            (info.get("primaryData") or {})["lastTradeTimestamp"]
+        ),
+        "payload_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
+    }
+
+
+def refresh_universe(
+    end: date,
+    min_market_cap=300_000_000,
+    target_path: str | Path | None = None,
+    common_equities_only: bool = False,
+) -> dict:
     params = urlencode({"tableonly": "true", "limit": 10000, "exchange": "nasdaq"})
     request = Request(SCREENER_API + "?" + params, headers=HEADERS)
     with urlopen(request, timeout=60) as response:
@@ -166,23 +221,39 @@ def refresh_universe(end: date, min_market_cap=300_000_000) -> dict:
         "symbol": "Symbol", "name": "Name", "lastsale": "Last Sale",
         "netchange": "Net Change", "pctchange": "% Change",
     })
-    target = Path(NASDAQ_300M_STOCK_LIST_FILE)
-    old = pd.read_csv(target)
+    current = current.loc[
+        current["Symbol"].notna()
+        & current["Symbol"].astype(str).str.strip().ne("")
+    ].copy()
+    current["Symbol"] = current["Symbol"].astype(str).str.strip().str.upper()
+    target = Path(target_path or NASDAQ_300M_STOCK_LIST_FILE)
+    template = target if target.is_file() else Path(NASDAQ_300M_STOCK_LIST_FILE)
+    old = pd.read_csv(template, keep_default_na=False)
     columns = old.columns.tolist()
     old_by_symbol = old.set_index("Symbol")
     for column in columns:
         if column not in current:
             current[column] = current["Symbol"].map(old_by_symbol[column]).fillna("")
+    unfiltered_count = len(current)
+    if common_equities_only:
+        current = investable_common_equities(current)
     current = current[columns].sort_values("Symbol")
-    old_symbols, new_symbols = set(old["Symbol"]), set(current["Symbol"])
+    old_symbols = set(
+        old["Symbol"].dropna().astype(str).str.strip().str.upper()
+    ) - {""}
+    new_symbols = set(current["Symbol"])
     snapshot = target.parent / "snapshots" / f"nasdaq_300M_{end.isoformat()}.csv"
     snapshot.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     current.to_csv(snapshot, index=False)
     tmp = target.with_suffix(target.suffix + ".tmp")
     current.to_csv(tmp, index=False)
     os.replace(tmp, target)
     return {
         "count": len(current),
+        "unfiltered_count": unfiltered_count,
+        "excluded_non_common_securities": unfiltered_count - len(current),
+        "common_equities_only": common_equities_only,
         "added": sorted(new_symbols - old_symbols),
         "removed": sorted(old_symbols - new_symbols),
         "snapshot": str(snapshot),
@@ -476,10 +547,16 @@ def import_nasdaq_trader_git_history(
 
 
 def import_nasdaq_trader_files(
-    paths: list[str | Path], minimum_rows: int = 1000
+    paths: list[str | Path],
+    minimum_rows: int = 1000,
+    snapshot_dir: str | Path | None = None,
 ) -> dict:
     """Import independently archived Nasdaq Trader pipe-delimited snapshots."""
-    snapshot_dir = Path(NASDAQ_300M_STOCK_LIST_FILE).parent / "snapshots"
+    snapshot_dir = (
+        Path(snapshot_dir)
+        if snapshot_dir is not None
+        else Path(NASDAQ_300M_STOCK_LIST_FILE).parent / "snapshots"
+    )
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     imported, skipped = [], []
     for raw_path in paths:
@@ -851,8 +928,10 @@ def update_all(
     workers: int = 8,
     limit: int | None = None,
     tickers: list[str] | None = None,
+    price_dir: str | Path | None = None,
+    index_path: str | Path | None = None,
 ) -> dict:
-    price_dir = Path(CLEANED_PRICE_DATA_DIR)
+    price_dir = Path(price_dir or CLEANED_PRICE_DATA_DIR)
     targeted = list(dict.fromkeys(
         ticker.strip().upper()
         for ticker in (tickers or [])
@@ -860,7 +939,9 @@ def update_all(
     ))
     partial = bool(targeted) or limit is not None
     if partial:
-        current = pd.read_csv(NASDAQ_300M_STOCK_LIST_FILE)
+        current = pd.read_csv(
+            NASDAQ_300M_STOCK_LIST_FILE, keep_default_na=False
+        )
         universe = {
             "mode": "retained_for_partial_update",
             "count": len(current),
@@ -870,7 +951,9 @@ def update_all(
         }
     else:
         universe = refresh_universe(end)
-        current = pd.read_csv(NASDAQ_300M_STOCK_LIST_FILE)
+        current = pd.read_csv(
+            NASDAQ_300M_STOCK_LIST_FILE, keep_default_na=False
+        )
     requested = (
         targeted
         if targeted
@@ -891,7 +974,36 @@ def update_all(
             except Exception as exc:
                 results.append({"ticker": ticker, "status": "failed", "error": str(exc)})
 
-    index_path = Path(NASDAQ_INDEX_FILE)
+    failed_tickers = [
+        item["ticker"] for item in results if item["status"] == "failed"
+    ]
+    if failed_tickers:
+        # A full-universe close refresh can briefly trip Nasdaq's public API
+        # throttling. Retry only the failed tail with low concurrency after the
+        # main pool drains; successful rows are never requested twice.
+        time.sleep(2)
+        recovered = []
+        with ThreadPoolExecutor(max_workers=min(4, workers)) as pool:
+            futures = {
+                pool.submit(update_ticker, ticker, end, price_dir): ticker
+                for ticker in failed_tickers
+            }
+            for future in as_completed(futures):
+                ticker = futures[future]
+                try:
+                    recovered.append(future.result())
+                except Exception as exc:
+                    recovered.append({
+                        "ticker": ticker, "status": "failed", "error": str(exc)
+                    })
+        recovered_by_ticker = {item["ticker"]: item for item in recovered}
+        results = [
+            recovered_by_ticker.get(item["ticker"], item)
+            if item["status"] == "failed" else item
+            for item in results
+        ]
+
+    index_path = Path(index_path or NASDAQ_INDEX_FILE)
     index_old = pd.read_csv(index_path, parse_dates=["date"])
     index_start = index_old["date"].max().date() + timedelta(days=1)
     if index_start <= end:

@@ -27,6 +27,7 @@ from src.research.data_fingerprint import (
     build_data_manifest,
     can_slim_input_fingerprints,
     fingerprint_file,
+    fingerprint_tree,
 )
 from src.research.panel_data import load_ohlc_panel, load_panel
 from src.research.shadow_ledger import portfolio_source_columns
@@ -236,6 +237,10 @@ def generate_can_slim_shadow_recommendations(
     ),
     history_file: str | Path | None = None,
     refresh_parameters: bool = True,
+    price_dir: str | Path = CLEANED_PRICE_DATA_DIR,
+    index_file: str | Path = NASDAQ_INDEX_FILE,
+    universe_symbols: set[str] | None = None,
+    universe_file: str | Path | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     if refresh_parameters:
         summary, parameters_refreshed = refresh_parameter_snapshot_if_due(
@@ -259,13 +264,13 @@ def generate_can_slim_shadow_recommendations(
     )
     if needs_keltner:
         trade_close, dollar_volume, high, low = load_ohlc_panel(
-            CLEANED_PRICE_DATA_DIR,
+            price_dir,
             min(config.start for config in seed_configs),
             None,
         )
     else:
         trade_close, dollar_volume = load_panel(
-            CLEANED_PRICE_DATA_DIR,
+            price_dir,
             min(config.start for config in seed_configs),
             None,
         )
@@ -285,7 +290,7 @@ def generate_can_slim_shadow_recommendations(
             channel_config.keltner_window, channel_config.keltner_atr_window,
             channel_config.keltner_multiplier,
         )
-    index_close = pd.read_csv(NASDAQ_INDEX_FILE, index_col="date", parse_dates=True)["close"].sort_index()
+    index_close = pd.read_csv(index_file, index_col="date", parse_dates=True)["close"].sort_index()
     signal_frequency = summary.get(
         "signal_frequency", seed_configs[0].signal_frequency
     )
@@ -296,7 +301,11 @@ def generate_can_slim_shadow_recommendations(
     configs, active_snapshot = configs_for_decision_date(
         summary, parameter_date
     )
-    symbols = universe_as_of(load_universe_snapshots(), timing["signal_date"])
+    symbols = (
+        set(universe_symbols)
+        if universe_symbols is not None
+        else universe_as_of(load_universe_snapshots(), timing["signal_date"])
+    )
     if symbols is None:
         raise ValueError(f"No point-in-time universe for {timing['signal_date'].date()}")
     if configs:
@@ -368,6 +377,14 @@ def generate_can_slim_shadow_recommendations(
     scores.insert(10, "generated_at", generated_at)
     scores["portfolio_generated_at"] = generated_at
     input_fingerprints = can_slim_input_fingerprints()
+    if Path(price_dir).resolve() != Path(CLEANED_PRICE_DATA_DIR).resolve():
+        input_fingerprints["price_data"] = fingerprint_tree(Path(price_dir))
+    if Path(index_file).resolve() != Path(NASDAQ_INDEX_FILE).resolve():
+        input_fingerprints["nasdaq_index"] = fingerprint_file(Path(index_file))
+    if universe_file is not None:
+        input_fingerprints["universe_snapshots"] = fingerprint_file(
+            Path(universe_file)
+        )
     scores["portfolio_strategy_sha256"] = input_fingerprints[
         "strategy_code"
     ]["sha256"]

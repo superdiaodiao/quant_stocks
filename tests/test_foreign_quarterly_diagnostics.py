@@ -2,9 +2,34 @@ import pandas as pd
 
 from src.research.foreign_quarterly_diagnostics import (
     diagnose_foreign_payload,
+    foreign_quarterly_target_symbols,
     foreign_quarters_to_point_in_time,
     reconstruct_foreign_quarters,
 )
+
+
+def test_foreign_targets_include_action_or_reporting_profile():
+    priorities = pd.DataFrame([
+        {
+            "ticker": "ACTION",
+            "recommended_data_action": "NEEDS_FOREIGN_QUARTERLY_SOURCE",
+            "reporting_profile": "NO_PARSED_SEC_FINANCIALS",
+        },
+        {
+            "ticker": "profile",
+            "recommended_data_action": "REPARSE_OR_ACCEPT_HISTORY_LIMIT",
+            "reporting_profile": "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE",
+        },
+        {
+            "ticker": "SKIP",
+            "recommended_data_action": "REPARSE_OR_ACCEPT_HISTORY_LIMIT",
+            "reporting_profile": "SEC_QUARTERLY_PARTIAL",
+        },
+    ])
+
+    assert foreign_quarterly_target_symbols(priorities) == {
+        "ACTION", "PROFILE"
+    }
 
 
 def _fact(value, start, end, filed, form="6-K"):
@@ -158,3 +183,35 @@ def test_foreign_payload_rejects_unverified_concept_switch():
     assert result["longest_continuous_timely_paired_quarters"] == 8
     assert result["unverified_concept_transition_count"] == 1
     assert result["diagnostic_status"] == "UNVERIFIED_CONCEPT_TRANSITION"
+
+
+def test_foreign_payload_accepts_qualifying_stable_concept_suffix():
+    payload = _payload()
+    revenue = payload["facts"]["ifrs-full"].pop(
+        "RevenueFromContractWithCustomerExcludingAssessedTax"
+    )
+    old_rows = revenue["units"]["EUR"][:4]
+    new_rows = revenue["units"]["EUR"][4:]
+    income_rows = payload["facts"]["ifrs-full"]["ProfitLoss"]["units"]["EUR"]
+    for quarter, value in enumerate((10, 30, 60, 100), start=1):
+        end = ["03-31", "06-30", "09-30", "12-31"][quarter - 1]
+        form = "20-F" if quarter == 4 else "6-K"
+        filed = "2026-03-01" if quarter == 4 else (
+            pd.Timestamp(f"2025-{end}") + pd.Timedelta(days=30)
+        ).strftime("%Y-%m-%d")
+        new_rows.append(_fact(value, "2025-01-01", f"2025-{end}", filed, form))
+        income_rows.append(_fact(value / 10, "2025-01-01", f"2025-{end}", filed, form))
+    payload["facts"]["ifrs-full"]["Revenue"] = {"units": {"EUR": old_rows}}
+    payload["facts"]["ifrs-full"]["RevenueFromContractsWithCustomers"] = {
+        "units": {"EUR": new_rows}
+    }
+
+    result = diagnose_foreign_payload("STABLE", 1000, payload)
+
+    assert result["diagnostic_status"] == "PASS_DIAGNOSTIC_ONLY"
+    assert result["selection_method"] == "stable_single_concept_pair"
+    assert (
+        result["selected_revenue_concept"]
+        == "RevenueFromContractsWithCustomers"
+    )
+    assert result["unverified_concept_transition_count"] == 0

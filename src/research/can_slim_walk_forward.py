@@ -347,6 +347,9 @@ def run_walk_forward(
     adaptive_channel: bool = False,
     maximum_financial_age_days: tuple[int, ...] = (550,),
     quarterly_path: str | Path = POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE,
+    universe_snapshot_dir: str | Path | None = None,
+    allow_no_evidence_fallback: bool = True,
+    price_dir: str | Path = CLEANED_PRICE_DATA_DIR,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     configs = candidate_configs(
         signal_frequency,
@@ -361,11 +364,11 @@ def run_walk_forward(
     load_start = "2017-11-28"
     if adaptive_channel:
         close, dollar_volume, high, low = load_ohlc_panel(
-            CLEANED_PRICE_DATA_DIR, load_start, "2026-07-17"
+            price_dir, load_start, "2026-07-17"
         )
     else:
         close, dollar_volume = load_panel(
-            CLEANED_PRICE_DATA_DIR, load_start, "2026-07-17"
+            price_dir, load_start, "2026-07-17"
         )
         high = low = None
     nasdaq = pd.read_csv(NASDAQ_INDEX_FILE, index_col="date", parse_dates=True)["close"]
@@ -374,7 +377,7 @@ def run_walk_forward(
         load_quarterly_fundamentals(quarterly_path)
         if use_quarterly_fundamentals else None
     )
-    universe_snapshots = load_universe_snapshots()
+    universe_snapshots = load_universe_snapshots(universe_snapshot_dir)
     universe = lambda date: universe_as_of(universe_snapshots, date)
 
     candidate_rows = []
@@ -403,7 +406,10 @@ def run_walk_forward(
             candidate_results,
             candidate_groups=candidate_groups,
             train_end=train_end,
-            no_evidence_fallback_ids=core_fallback_ids(configs),
+            no_evidence_fallback_ids=(
+                core_fallback_ids(configs)
+                if allow_no_evidence_fallback else None
+            ),
         )
         ranking.insert(0, "effective_start", effective_start)
         ranking.insert(1, "training_end", train_end)
@@ -416,11 +422,12 @@ def run_walk_forward(
             "configs": rank_weighted_configs(configs, selected_ids),
         })
 
-    continuous = calculate_can_slim_scheduled_returns(
+    continuous, continuous_targets = calculate_can_slim_scheduled_returns(
         close, dollar_volume, nasdaq, eps, "2022-01-01", "2026-07-17",
         lambda date: configs_from_snapshots(model_snapshots, date),
         universe, signal_frequency, quarterly,
         high, low,
+        return_targets=True,
     )
     continuous_annual = _annual(continuous)
     walk_rows = []
@@ -472,6 +479,14 @@ def run_walk_forward(
                 "excess_vs_nasdaq": row.excess_vs_nasdaq,
             })
     cost_stress = pd.DataFrame(cost_rows)
+    continuous.to_csv(
+        f"output/can_slim_walk_forward_daily{artifact_suffix}.csv",
+        index_label="date",
+    )
+    continuous_targets.to_csv(
+        f"output/can_slim_walk_forward_targets{artifact_suffix}.csv",
+        index=False,
+    )
     summary = {
         "model_version": (
             "can-slim-v4-adaptive-channel"
@@ -480,14 +495,26 @@ def run_walk_forward(
         ),
         "method": (
             "36-month rolling selection with expanding-history stability ranks; "
-            "fixed CAN SLIM core fallback when no candidate has positive rolling "
-            "evidence; parameters updated annually and frozen between updates"
+            + (
+                "fixed CAN SLIM core fallback when no candidate has positive rolling "
+                "evidence; "
+                if allow_no_evidence_fallback else
+                "no fixed fallback; the stability ranking remains adaptive even "
+                "when all rolling evidence is weak; "
+            )
+            + "parameters updated annually and frozen between updates"
         ),
         "signal_frequency": signal_frequency,
         "parameter_update_frequency": "annual",
         "uses_quarterly_fundamentals": use_quarterly_fundamentals,
         "uses_adaptive_channel": adaptive_channel,
         "maximum_financial_age_days_grid": list(maximum_financial_age_days),
+        "universe_snapshot_dir": (
+            str(universe_snapshot_dir)
+            if universe_snapshot_dir is not None else "formal_default"
+        ),
+        "price_dir": str(price_dir),
+        "allow_no_evidence_fallback": allow_no_evidence_fallback,
         "candidate_count": len(configs),
         "ensemble_size": len(current_ids),
         "out_of_sample_years": len(walk),
@@ -540,6 +567,9 @@ def main() -> None:
         default=Path(POINT_IN_TIME_QUARTERLY_FUNDAMENTALS_FILE),
     )
     parser.add_argument(
+        "--price-dir", type=Path, default=Path(CLEANED_PRICE_DATA_DIR)
+    )
+    parser.add_argument(
         "--artifact-tag",
         help="Append a caller-supplied provenance tag to research outputs.",
     )
@@ -564,6 +594,7 @@ def main() -> None:
     candidates, walk, summary = run_walk_forward(
         args.signal_frequency, suffix, args.use_quarterly_fundamentals,
         args.adaptive_channel, financial_age_days, args.quarterly_input,
+        price_dir=args.price_dir,
     )
     output = Path("output")
     candidates.to_csv(output / f"can_slim_walk_forward_candidates{suffix}.csv", index=False)

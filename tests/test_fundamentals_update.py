@@ -13,7 +13,10 @@ from src.io.fundamentals_update import (
     parse_companyfacts_annual,
     parse_companyfacts_quarterly,
 )
-from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
+from src.financial.quarterly_fundamentals import (
+    quarterly_growth_snapshot,
+    quarterly_profit_ttm_snapshot,
+)
 
 
 def _fact(val, start=None, end="2025-12-31", filed="2026-02-15", form="10-K", fp="FY"):
@@ -133,6 +136,79 @@ def test_quarterly_parser_accepts_revenue_including_assessed_tax():
         quarter.loc["revenue", "concept"]
         == "RevenueFromContractWithCustomerIncludingAssessedTax"
     )
+
+
+def test_quarterly_parser_accepts_sales_revenue_goods_net():
+    revenue = _fact(
+        984_562_174,
+        "2017-12-31",
+        end="2018-03-31",
+        filed="2018-05-09",
+        form="10-Q",
+        fp="Q2",
+    )
+    profit = {**revenue, "val": 9_294_788}
+    payload = {"facts": {"us-gaap": {
+        "SalesRevenueGoodsNet": {"units": {"USD": [revenue]}},
+        "NetIncomeLoss": {"units": {"USD": [profit]}},
+    }}}
+
+    frame = parse_companyfacts_quarterly("IMKTA", payload)
+
+    selected = frame.loc[frame["metric"].eq("revenue")].iloc[0]
+    assert selected["value"] == 984_562_174
+    assert selected["concept"] == "SalesRevenueGoodsNet"
+    assert selected["available_date"] == pd.Timestamp("2018-05-09")
+
+
+def test_quarterly_parser_accepts_sales_revenue_services_net():
+    revenue = _fact(
+        1_021_511_000,
+        "2016-03-27",
+        end="2017-03-25",
+        filed="2017-05-24",
+        form="10-K",
+        fp="FY",
+    )
+    profit = {**revenue, "val": 61_526_000}
+    payload = {"facts": {"us-gaap": {
+        "SalesRevenueServicesNet": {"units": {"USD": [revenue]}},
+        "NetIncomeLoss": {"units": {"USD": [profit]}},
+    }}}
+
+    annual = parse_companyfacts_annual("MNRO", payload)
+
+    selected = annual.loc[annual["metric"].eq("revenue")].iloc[0]
+    assert selected["value"] == 1_021_511_000
+    assert selected["concept"] == "SalesRevenueServicesNet"
+    assert selected["available_date"] == pd.Timestamp("2017-05-24")
+
+
+def test_quarterly_parser_accepts_asset_manager_total_fee_revenue():
+    revenue = _fact(
+        1_113_600_000,
+        "2017-01-01",
+        end="2017-03-31",
+        filed="2017-04-25",
+        form="10-Q",
+        fp="Q1",
+    )
+    profit = {**revenue, "val": 385_900_000}
+    payload = {"facts": {"us-gaap": {
+        "InvestmentAdvisoryManagementAndAdministrativeFees": {
+            "units": {"USD": [revenue]}
+        },
+        "NetIncomeLoss": {"units": {"USD": [profit]}},
+    }}}
+
+    frame = parse_companyfacts_quarterly("TROW", payload)
+
+    selected = frame.loc[frame["metric"].eq("revenue")].iloc[0]
+    assert selected["value"] == 1_113_600_000
+    assert selected["concept"] == (
+        "InvestmentAdvisoryManagementAndAdministrativeFees"
+    )
+    assert selected["available_date"] == pd.Timestamp("2017-04-25")
 
 
 def test_companyfacts_parser_accepts_total_utility_operating_revenue():
@@ -3200,11 +3276,59 @@ def test_quarterly_parser_derives_bank_revenue_from_same_filing_components():
 
     revenue = frame.loc[frame["metric"].eq("revenue")].iloc[0]
     assert revenue["value"] == 250_000_000
-    assert revenue["concept"] == (
-        "derived_bank_revenue:"
-        "InterestIncomeExpenseNet+NoninterestIncome"
+
+
+def test_quarterly_parser_accepts_modern_bank_noninterest_revenue_concept():
+    net_interest = _fact(
+        180_000_000,
+        "2025-01-01",
+        end="2025-03-31",
+        filed="2025-05-01",
+        form="10-Q",
+        fp="Q1",
     )
-    assert revenue["available_date"] == pd.Timestamp("2025-05-01")
+    noninterest = {**net_interest, "val": 70_000_000}
+    payload = {"facts": {"us-gaap": {
+        "InterestIncomeExpenseNet": {"units": {"USD": [net_interest]}},
+        "RevenueNotFromContractWithCustomerExcludingInterestIncome": {
+            "units": {"USD": [noninterest]}
+        },
+    }}}
+
+    frame = parse_companyfacts_quarterly("BANK", payload)
+
+    revenue = frame.loc[frame["metric"].eq("revenue")].iloc[0]
+    assert revenue["value"] == 250_000_000
+    assert revenue["concept"] == (
+        "derived_bank_revenue:InterestIncomeExpenseNet+"
+        "RevenueNotFromContractWithCustomerExcludingInterestIncome"
+    )
+
+
+def test_modern_bank_noninterest_concept_wins_equal_overlap() -> None:
+    net_interest = _fact(
+        180_000_000,
+        "2025-01-01",
+        end="2025-03-31",
+        filed="2025-05-01",
+        form="10-Q",
+        fp="Q1",
+    )
+    noninterest = {**net_interest, "val": 70_000_000}
+    payload = {"facts": {"us-gaap": {
+        "InterestIncomeExpenseNet": {"units": {"USD": [net_interest]}},
+        "RevenueNotFromContractWithCustomerExcludingInterestIncome": {
+            "units": {"USD": [noninterest]}
+        },
+        "NoninterestIncome": {"units": {"USD": [dict(noninterest)]}},
+    }}}
+
+    frame = parse_companyfacts_quarterly("BANK", payload)
+
+    revenue = frame.loc[frame["metric"].eq("revenue")]
+    assert len(revenue) == 1
+    assert "RevenueNotFromContract" in revenue.iloc[0]["concept"]
+    assert revenue.iloc[0]["available_date"] == pd.Timestamp("2025-05-01")
 
 
 def test_cache_reparse_retains_derived_bank_revenue(tmp_path):
@@ -3283,6 +3407,68 @@ def test_quarterly_parser_prefers_reported_total_over_derived_bank_revenue():
     revenue = frame.loc[frame["metric"].eq("revenue")].iloc[0]
     assert revenue["value"] == 260_000_000
     assert revenue["concept"] == "Revenues"
+
+
+def test_quarterly_parser_rejects_zero_total_placeholder_for_bank_revenue():
+    total = _fact(
+        0,
+        "2025-01-01",
+        end="2025-03-31",
+        filed="2025-05-01",
+        form="10-Q",
+        fp="Q1",
+    )
+    net_interest = {**total, "val": 180_000_000}
+    noninterest = {**total, "val": 70_000_000}
+    payload = {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [total]}},
+        "InterestIncomeExpenseNet": {
+            "units": {"USD": [net_interest]}
+        },
+        "NoninterestIncome": {
+            "units": {"USD": [noninterest]}
+        },
+    }}}
+
+    frame = parse_companyfacts_quarterly("BANK", payload)
+
+    revenue = frame.loc[frame["metric"].eq("revenue")].iloc[0]
+    assert revenue["value"] == 250_000_000
+    assert revenue["concept"] == (
+        "derived_bank_revenue:"
+        "InterestIncomeExpenseNet+NoninterestIncome"
+    )
+
+
+def test_annual_parser_rejects_zero_total_placeholder_for_bank_revenue():
+    total = _fact(
+        0,
+        "2025-01-01",
+        end="2025-12-31",
+        filed="2026-02-20",
+        form="10-K",
+        fp="FY",
+    )
+    net_interest = {**total, "val": 720_000_000}
+    noninterest = {**total, "val": 280_000_000}
+    payload = {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [total]}},
+        "InterestIncomeExpenseNet": {
+            "units": {"USD": [net_interest]}
+        },
+        "NoninterestIncome": {
+            "units": {"USD": [noninterest]}
+        },
+    }}}
+
+    frame = parse_companyfacts_annual("BANK", payload)
+
+    revenue = frame.loc[frame["metric"].eq("revenue")].iloc[0]
+    assert revenue["value"] == 1_000_000_000
+    assert revenue["concept"] == (
+        "derived_bank_revenue:"
+        "InterestIncomeExpenseNet+NoninterestIncome"
+    )
 
 
 def test_quarterly_parser_uses_common_stockholder_income_as_fallback():
@@ -3510,6 +3696,59 @@ def test_quarterly_parser_accepts_comparative_quarters_embedded_in_10k():
     assert frame.iloc[0]["value"] == 2_460_000
 
 
+def test_quarterly_parser_accepts_complete_unframed_10k_quarter_run():
+    ends = ["2018-03-31", "2018-06-30", "2018-09-30", "2018-12-31"]
+    starts = ["2018-01-01", "2018-04-01", "2018-07-01", "2018-10-01"]
+    direct = [
+        _fact(
+            value,
+            start,
+            end=end,
+            filed="2019-03-01",
+            form="10-K",
+            fp="FY",
+        )
+        for value, start, end in zip([10, 20, 30, 41], starts, ends)
+    ]
+    annual = _fact(
+        100,
+        "2018-01-01",
+        end="2018-12-31",
+        filed="2019-03-01",
+        form="10-K",
+        fp="FY",
+    )
+    payload = {"facts": {"us-gaap": {
+        "NetIncomeLoss": {"units": {"USD": [*direct, annual]}}
+    }}}
+
+    frame = parse_companyfacts_quarterly("MPWR", payload)
+
+    income = frame.loc[frame["metric"].eq("net_income")].set_index(
+        "fiscal_end"
+    )
+    assert income["value"].tolist() == [10, 20, 30, 41]
+    assert income.loc[pd.Timestamp("2018-12-31"), "concept"] == "NetIncomeLoss"
+
+
+def test_quarterly_parser_rejects_isolated_unframed_10k_duration():
+    isolated = _fact(
+        41,
+        "2018-10-01",
+        end="2018-12-31",
+        filed="2019-03-01",
+        form="10-K",
+        fp="FY",
+    )
+    payload = {"facts": {"us-gaap": {
+        "NetIncomeLoss": {"units": {"USD": [isolated]}}
+    }}}
+
+    frame = parse_companyfacts_quarterly("AMBIG", payload)
+
+    assert frame.empty
+
+
 def test_quarterly_parser_accepts_quarter_length_10q_facts_mislabeled_fy():
     comparative = _fact(
         29_669_000,
@@ -3575,3 +3814,25 @@ def test_quarterly_growth_snapshot_returns_empty_when_metric_is_missing():
     snapshot = quarterly_growth_snapshot(frame, pd.Timestamp("2022-12-31"))
 
     assert snapshot.empty
+
+
+def test_quarterly_profit_ttm_needs_four_recent_consecutive_quarters():
+    ends = pd.date_range("2023-03-31", periods=4, freq="QE")
+    rows = [
+        {
+            "ticker": "LOSS", "fiscal_end": end,
+            "available_date": end + pd.Timedelta(days=40),
+            "metric": metric, "value": value,
+        }
+        for end in ends
+        for metric, value in (("revenue", 10.0), ("net_income", -3.0))
+    ]
+    frame = pd.DataFrame(rows)
+    assert quarterly_growth_snapshot(frame, pd.Timestamp("2024-02-15")).empty
+    snapshot = quarterly_profit_ttm_snapshot(frame, pd.Timestamp("2024-02-15"))
+    assert snapshot.loc["LOSS", "net_income_ttm"] == -12.0
+
+    sparse = frame.loc[~frame["fiscal_end"].eq(ends[1])]
+    assert quarterly_profit_ttm_snapshot(
+        sparse, pd.Timestamp("2024-02-15")
+    ).empty

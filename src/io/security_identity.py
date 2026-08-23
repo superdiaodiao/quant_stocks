@@ -25,7 +25,9 @@ def load_security_identity(path: str | Path = SECURITY_IDENTITY_FILE) -> pd.Data
     frame = frame.copy()
     if "identity_type" not in frame:
         frame["identity_type"] = "ticker_reuse"
-    allowed_identity_types = {"ticker_reuse", "issuer_rename"}
+    allowed_identity_types = {
+        "ticker_reuse", "issuer_rename", "reverse_merger",
+    }
     invalid_identity_types = set(frame["identity_type"]) - allowed_identity_types
     if invalid_identity_types:
         raise ValueError(
@@ -61,7 +63,7 @@ def normalize_universe_symbols(
     observed_at = pd.Timestamp(observed_at).normalize()
     for row in identities.itertuples(index=False):
         if (
-            row.identity_type == "ticker_reuse"
+            row.identity_type in {"ticker_reuse", "reverse_merger"}
             and observed_at <= row.last_historical_date
             and row.provider_ticker in result
         ):
@@ -101,12 +103,30 @@ def normalize_point_in_time_tickers(
     """
     result = frame.copy()
     period_end = pd.to_datetime(result["period_end"], errors="coerce")
+    available_date = (
+        pd.to_datetime(result["available_date"], errors="coerce")
+        if "available_date" in result
+        else None
+    )
     renamed_history = []
     for row in load_security_identity(path).itertuples(index=False):
-        mask = (
-            result["ticker"].astype(str).str.upper().eq(row.provider_ticker)
-            & period_end.le(row.last_historical_date)
+        provider_mask = result["ticker"].astype(str).str.upper().eq(
+            row.provider_ticker
         )
+        if row.identity_type == "reverse_merger":
+            if available_date is None:
+                raise ValueError(
+                    "reverse-merger financial normalization requires "
+                    "available_date"
+                )
+            # A reverse merger changes the accounting predecessor at the
+            # transaction cutover.  Period-end comparisons are unsafe here:
+            # post-close filings can legitimately restate pre-close periods
+            # for the new accounting acquirer.  Filing availability identifies
+            # whether a fact came from the old listed shell or the successor.
+            mask = provider_mask & available_date.le(row.last_historical_date)
+        else:
+            mask = provider_mask & period_end.le(row.last_historical_date)
         if row.identity_type == "issuer_rename":
             historical = result.loc[mask].copy()
             historical["ticker"] = row.historical_ticker
@@ -119,6 +139,7 @@ def normalize_point_in_time_tickers(
 def split_reused_ticker_price_histories(
     path: str | Path = SECURITY_IDENTITY_FILE,
     price_dir: str | Path = CLEANED_PRICE_DATA_DIR,
+    provider_tickers: set[str] | None = None,
 ) -> list[dict]:
     """Split a provider's continuous current-ticker file at sourced rename dates.
 
@@ -127,7 +148,13 @@ def split_reused_ticker_price_histories(
     """
     price_dir = Path(price_dir)
     results = []
-    for row in load_security_identity(path).itertuples(index=False):
+    identities = load_security_identity(path)
+    if provider_tickers is not None:
+        requested = {str(ticker).upper() for ticker in provider_tickers}
+        identities = identities.loc[
+            identities["provider_ticker"].isin(requested)
+        ]
+    for row in identities.itertuples(index=False):
         current_path = price_dir / f"{row.provider_ticker.lower()}.csv"
         historical_path = price_dir / f"{row.historical_ticker.lower()}.csv"
         current = pd.read_csv(current_path, parse_dates=["date"])

@@ -840,6 +840,116 @@ adaptive walk-forward 都只能作为诊断，不能替代它。
   2026-07-31，因此实跑返回 `WAITING_FOR_FIRST_POST_FREEZE_SIGNAL` 且不写任何账本；
   它不会把冻结前信号倒灌为 forward evidence，也不会写正式 v1 目录、启用 Workflow
   或外部下单；
+- v4 的研究专用晋级进度口径由
+  `PYTHONPATH=. .venv/bin/python scripts/research_v4_shadow_status.py` 单独输出。状态文件
+  绑定冻结摘要、数据 manifest、策略代码和 proven-only 季度输入 SHA，并分别列出
+  12 个完整前向月份、12 次月度信号、30 bps 后正超额、40% 最大回撤以及持续数据
+  完整性门槛；该脚本本身不会把 `promotion_eligible` 改为 true。2026-08-10 实跑仍为
+  0 个月、0 次信号、`BLOCKED`，没有倒灌 2026-07-31 的冻结前信号；
+- 在不改写 v4 的前提下，新增 research-v5 风险机制候选：当 v4 最近 63 个交易日
+  领先 QQQ 时保持 100% v4；当 v4 落后且 QQQ 位于 200 日均线上方时，下月使用
+  50% v4 + 50% QQQ；当 v4 落后且 QQQ 趋势关闭时，下月使用 50% v4 + 50% 现金。
+  所有判断只取上一个完整月末，按月再平衡。真实 Nasdaq QQQ close 路径在 30 bps
+  下仍为 4/5，2022–2026 中位超额约 12.91%，最差年度超额约 -25.34%，最大回撤
+  约 -23.88%，水下时间约 92.81%；50 bps 下仍为 4/5。QQQ 收益已纳入 Nasdaq
+  ex-date 现金分红并绑定原始 dividend payload SHA；月初旧持仓先走完当日收益，再
+  在收盘换仓，避免把下一期权重提前一天。相对 v4，最差年度改善约 7.22 个百分点、
+  水下时间略有改善，最大回撤基本持平，但中位超额下降约 6.36 个百分点；
+  该组合规则是在查看历史诊断后形成，明确标记为
+  `historical_selection_contaminated=true`、`BLOCKED`，只能作为新的并行 forward
+  challenger，不能替代独立验证。可复现入口为
+  `PYTHONPATH=. .venv/bin/python scripts/research_v5_trend_core_satellite.py --refresh-core-price`；
+- v5 的整股审计覆盖 2022-01 至 2026-07 的 55 个月度调度，其中 40 个月有股票
+  目标，共 398 个股票目标。`$10k` 账户有 32.5% 的有效选股月至少一只股票无法
+  买入，所有月份取整现金拖累中位约 6.80%、最大约 21.47%；`$25k` 对应
+  22.5%、3.06%、15.18%；`$100k` 所有股票目标至少能买 1 股，取整现金拖累中位
+  约 0.64%、最大约 4.00%。连续整股、月末收盘换仓、30 bps 回放中，三档资金仍均
+  为 4/5：`$10k/$25k/$100k` 中位年度超额分别约 7.02%/8.69%/10.26%，最差年度
+  约 -26.28%/-26.24%/-25.57%，最大回撤约 -22.65%/-23.16%/-23.43%。小账户
+  2026 相对分数股基线最多损失约 5.89 个百分点，因此分数股结果仍不能直接外推；
+  在 30 bps 成本之外再加 10 bps 不利滑点，并假设每次至少成交 75%、余单随后交易日
+  继续执行的压力场景中，三档账户仍为 4/5，但 `$10k/$25k/$100k` 中位年度超额
+  降至约 3.36%/5.88%/7.38%，最差年度约 -27.69%/-27.61%/-26.84%，最大回撤
+  约 -23.40%/-23.78%/-24.04%；
+  审计入口为
+  `PYTHONPATH=. .venv/bin/python scripts/research_v5_execution_sensitivity.py`。该结果只
+  使用收盘价并包含 QQQ 现金分红；部分成交和滑点只是确定性压力，不是券商真实
+  成交、截止时间、市场冲击或拒单证据；
+- v5 当前规则、研究摘要、QQQ/分红输入、连续整股结果和执行压力结果已冻结到
+  `output/research_v5_qqq_relative_trend_core_shadow_summary.json`，状态为
+  `FROZEN_FORWARD_ONLY`、`BLOCKED`，forward 起点为 2026-08-10，历史结果继续标记
+  `historical_selection_contaminated=true`。信号入口
+  `PYTHONPATH=. .venv/bin/python scripts/research_v5_shadow_signal.py --decision-date YYYY-MM-DD`
+  只接受真实 Nasdaq 月末，并要求冻结日起至少 63 个 v4/QQQ forward 收益间隔、同日
+  v4 冻结组合和完整 QQQ 200 日趋势窗口；当前 2026-08-10 实跑只返回
+  `WAITING_FOR_MONTH_END_SIGNAL`，期望首个月末为 2026-08-31，没有写入或倒灌信号；
+- v5 的 63-session warmup 不会使用冻结前历史补齐。每个真实交易日可先用
+  `scripts/shadow_forward_observation.py` 形成同日 v4 观测，再用
+  `PYTHONPATH=. .venv/bin/python scripts/research_v5_forward_state.py --v4-observation PATH`
+  追加一行相对强弱状态；状态行绑定 v4 观测、QQQ 输入和 v5 冻结摘要 SHA，保持
+  append-only，并明确写入 `counts_as_promotion_evidence=false`。这里的 v4 NAV 是
+  `chained_monthly_standalone_fixed_positions_with_full_entry_cost`：每个持仓月使用
+  独立固定持仓回报并重新计整仓入场成本，口径偏保守但不是 turnover-aware 的真实
+  连续账户净值，因此只能生成未来 v5 决策，不能单独作为晋级或实盘证据；
+- v6 research 将年度 time-frozen CAN SLIM walk-forward 组合降到总资金的 25%，
+  其余 75% 由两个等权风险子账户在 QQQ/现金间配置；两个子账户分别使用 42/45
+  session 相对强弱，并共同使用 QQQ 100-session 趋势，只以前一完整月末决定下月
+  配置。该规则仍是在查看 2022–2026 结果后形成，因此
+  `historical_selection_contaminated=true`，不会替代真实前向证据。50 bps 分数股诊断
+  为 4/5 跑赢 Nasdaq、最差年度超额约 -4.38%、最大回撤约 -19.17%；相对更严格的
+  QQQ 对照只有 3/5，最差年度约落后 9.13%，但全期年化/波动/最大回撤约为
+  19.47%/20.46%/-19.17%，同期 QQQ 约为 13.55%/23.38%/-34.83%。邻近 lookback
+  组合会退化到 3/5，说明阈值敏感性仍是重要风险，不能把历史结果解释成已验证；
+- v6 的连续整股 50 bps 回放在 `$10k/$25k/$100k` 均为 4/5；最差年度超额约
+  -4.55%/-4.38%/-4.11%，最大回撤约 -17.84%/-18.91%/-19.04%。额外 10 bps
+  不利滑点和每次至少 75% 成交的压力下仍为 4/5，最差年度约
+  -5.64%/-5.47%/-5.29%。不过 `$10k` 有 57.5% 的有股票目标月份至少一只股票无法
+  买入，`$25k` 为 35%，只有 `$100k` 降到 2.5%；因此小账户 canary 必须接受显著
+  取整偏差并逐笔对账。复现入口为
+  `PYTHONPATH=. .venv/bin/python scripts/research_v6_walkforward_defensive_ensemble.py`
+  和 `scripts/research_v6_execution_sensitivity.py`；
+- 为缩短原先 12 个月等待，v6 保持月度交易，但按周记录真实净值与 QQQ 对照。冻结
+  manifest 使用两级门槛：从首个可执行月度信号的执行日 `2026-09-01` 起，13 个完整
+  前向周、13 次周度盯市、至少 3 次月度决策后，只能进入有限 canary 审查；26 个完整
+  前向周、26 次周度盯市、至少 6 次月度决策后，才进入正式晋级审查。13 周并不被
+  描述为完整统计验证，任何券商连接、订单或资金上限仍需单独明确授权。直接改成周频、
+  双周频或 2–3 周确认的历史实验在 50 bps 下明显退化，因此没有用高换手人为制造更多
+  “信号”；门槛由 `scripts/research_v6_shadow_manifest.py` 固化；
+- v6 月末入口为
+  `PYTHONPATH=. .venv/bin/python scripts/research_v6_shadow_signal.py --decision-date YYYY-MM-DD`。
+  它只接受真实 Nasdaq 月末，使用 manifest 内冻结的年度配置快照和 proven quarterly
+  SHA，自动重放基础策略到决策日，再生成 25% 股票与 QQQ/现金目标；不会刷新参数、
+  连接券商或创建订单。2026-08-10 实跑为 `WAITING_FOR_MONTH_END_SIGNAL`；将日期提前
+  干跑到 2026-08-31 时，由于当前本地源数据只到 2026-08-07，返回
+  `WAITING_FOR_MONTH_END_SOURCE_DATA`，不会拿 2026-07-31 信号冒充前向信号；
+- 首次执行后，每个完整周末使用
+  `PYTHONPATH=. .venv/bin/python scripts/research_v6_weekly_mark.py --as-of YYYY-MM-DD`
+  重放 `$25k` 虚拟整股账户，固定使用 50 bps、额外 10 bps 滑点和 75% 分批成交，
+  同时绑定冻结 summary、全部目标文件和 QQQ 输入 SHA。非完整周末、缺失月度执行或
+  周末价格未到时只返回 WAITING，不会追加证据。`scripts/research_v6_forward_status.py`
+  从 append-only 周度 mark 和月度决策计算 13/26 周门槛，但始终保持
+  `release_status=BLOCKED`、`broker_action_authorized=false`；
+- 日常只需运行一个幂等入口：
+  `PYTHONPATH=. .venv/bin/python scripts/research_v6_observe.py --as-of YYYY-MM-DD`。
+  它依次尝试月末信号、完整周末整股 mark 和状态更新；普通交易日只返回相应 WAITING，
+  不制造观测。2026-08-10 真实干跑结果为 signal=`WAITING_FOR_MONTH_END_SIGNAL`、
+  weekly mark=`WAITING_FOR_WEEK_END`、0 周/0 决策、`broker_action_authorized=false`。
+  该入口目前只是手工 one-shot，没有启用 cron 或 GitHub Workflow；
+- 完整单次刷新与观察入口为
+  `PYTHONPATH=. .venv/bin/python scripts/research_v6_scheduled_run.py`。它按新加坡本地日期
+  自动解析前一个已完成的 Nasdaq session，先刷新隔离市场缓存，readiness 全部通过后
+  才调用 v6 observe；2026-08-10 实跑解析到 2026-08-07，市场 readiness=true，
+  signal=`WAITING_FOR_MONTH_END_SIGNAL`、weekly=`WAITING_FOR_FORWARD_START`，且正式市场/
+  财务文件均未修改；
+- macOS LaunchAgent 模板已准备在 `ops/com.quant-stocks.v6-shadow.plist`，计划周二至周六
+  新加坡时间 09:00 运行上述单次任务。该 plist 当前只是仓库文件，没有复制到
+  `~/Library/LaunchAgents`，也没有执行 `launchctl bootstrap`；启用会产生持续网络请求和
+  research-only 本地写入，必须在用户明确确认后执行；
+- LaunchAgent 操作入口为 `scripts/research_v6_launchd.py`：无参数只输出安装 dry-run，
+  `--status` 只读检查模板/已安装 SHA、launchctl loaded 状态和最后一次 scheduled run；
+  `--apply` 才会复制并 bootstrap。`--unload` 默认同样只 dry-run，配合 `--apply` 时仅
+  bootout、保留已安装 plist，便于恢复。当前实跑状态为 `PREPARED_NOT_INSTALLED`，最后
+  一次手工 scheduled run 的 market readiness=true、正式 release 仍为 BLOCKED；
 - 策略最大回撤仍可能较大；
 - 完整 2021–2026 净值路径的最大回撤为约 `-39.55%`：2021-02-09 高点后
   于 2021-03-08 触底，至 2021-08-09 恢复，峰值到恢复 125 个交易日、

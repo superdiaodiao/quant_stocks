@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.quant-stocks.v6-shadow</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/bytedance/code/quant_stocks/.venv/bin/python</string>
+    <string>/Users/bytedance/code/quant_stocks/scripts/research_v6_scheduled_run.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/bytedance/code/quant_stocks</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key>
+    <string>/Users/bytedance/code/quant_stocks</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/bytedance/code/quant_stocks/logs/research_v6_shadow.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/bytedance/code/quant_stocks/logs/research_v6_shadow.error.log</string>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

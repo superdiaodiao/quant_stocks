@@ -637,7 +637,8 @@ def calculate_can_slim_scheduled_returns(
     low: pd.DataFrame | None = None,
     adjust_splits: bool = True,
     eligibility_close: pd.DataFrame | None = None,
-) -> pd.DataFrame:
+    return_targets: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Replay a time-frozen parameter schedule without resetting the portfolio."""
     prices = (
         back_adjust_common_splits(close) if adjust_splits else close.copy()
@@ -745,6 +746,26 @@ def calculate_can_slim_scheduled_returns(
             turnover,
             int((position_values > 1e-8).sum()),
         ))
-    return pd.DataFrame(rows, index=prices.index, columns=[
+    result = pd.DataFrame(rows, index=prices.index, columns=[
         "strategy", "benchmark", "invested", "turnover", "holdings"
     ]).loc[start:end]
+    if not return_targets:
+        return result
+    target_rows = []
+    for effective_date, (target, cost_bps) in targets.items():
+        positive = target.loc[target.gt(0.0)]
+        if positive.empty:
+            target_rows.append({
+                "effective_date": effective_date,
+                "ticker": "__CASH__",
+                "target_weight": 0.0,
+                "base_transaction_cost_bps": float(cost_bps),
+            })
+        for ticker, target_weight in positive.items():
+            target_rows.append({
+                "effective_date": effective_date,
+                "ticker": str(ticker),
+                "target_weight": float(target_weight),
+                "base_transaction_cost_bps": float(cost_bps),
+            })
+    return result, pd.DataFrame(target_rows)

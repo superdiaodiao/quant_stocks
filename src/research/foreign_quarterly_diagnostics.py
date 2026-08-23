@@ -36,6 +36,7 @@ FOREIGN_METRIC_CONCEPTS = {
     ),
 }
 TARGET_ACTION = "NEEDS_FOREIGN_QUARTERLY_SOURCE"
+TARGET_PROFILE = "FOREIGN_ANNUAL_ONLY_NEEDS_QUARTERLY_SOURCE"
 DEFAULT_PRIORITY_FILE = Path(
     "output/can_slim_technical_candidate_financial_priorities.csv"
 )
@@ -271,6 +272,78 @@ def _concept_continuity(
     }
 
 
+def _paired_quarter_stats(
+    revenue: pd.DataFrame,
+    income: pd.DataFrame,
+) -> dict:
+    paired_frame = revenue[["end", "filed"]].merge(
+        income[["end", "filed"]],
+        on="end",
+        suffixes=("_revenue", "_net_income"),
+        validate="one_to_one",
+    )
+    paired_frame["available_date"] = paired_frame[
+        ["filed_revenue", "filed_net_income"]
+    ].max(axis=1)
+    paired_frame["availability_lag_days"] = (
+        paired_frame["available_date"] - paired_frame["end"]
+    ).dt.days
+    paired = sorted(paired_frame["end"])
+    timely = sorted(
+        paired_frame.loc[
+            paired_frame["availability_lag_days"].between(
+                0, MAX_AVAILABILITY_LAG_DAYS
+            ),
+            "end",
+        ]
+    )
+    return {
+        "paired_quarter_count": len(paired),
+        "longest_continuous_paired_quarters": _longest_continuous_chain(paired),
+        "timely_paired_quarter_count": len(timely),
+        "longest_continuous_timely_paired_quarters": (
+            _longest_continuous_chain(timely)
+        ),
+        "first_paired_quarter": (
+            min(paired).strftime("%Y-%m-%d") if paired else ""
+        ),
+        "last_paired_quarter": (
+            max(paired).strftime("%Y-%m-%d") if paired else ""
+        ),
+    }
+
+
+def _best_stable_concept_pair(
+    revenue: pd.DataFrame,
+    income: pd.DataFrame,
+) -> dict | None:
+    candidates = []
+    for revenue_concept in sorted(set(revenue["concept"])):
+        revenue_selected = revenue.loc[revenue["concept"].eq(revenue_concept)]
+        for income_concept in sorted(set(income["concept"])):
+            income_selected = income.loc[income["concept"].eq(income_concept)]
+            stats = _paired_quarter_stats(revenue_selected, income_selected)
+            candidates.append({
+                **stats,
+                "selected_revenue_concept": revenue_concept,
+                "selected_net_income_concept": income_concept,
+                "concept_priority": int(revenue_selected["priority"].min())
+                + int(income_selected["priority"].min()),
+            })
+    return max(
+        candidates,
+        key=lambda row: (
+            row["longest_continuous_timely_paired_quarters"],
+            row["timely_paired_quarter_count"],
+            row["longest_continuous_paired_quarters"],
+            -row["concept_priority"],
+            row["selected_revenue_concept"],
+            row["selected_net_income_concept"],
+        ),
+        default=None,
+    )
+
+
 def diagnose_foreign_payload(symbol: str, cik: int, payload: dict) -> dict:
     revenue = reconstruct_foreign_quarters(payload, "revenue")
     net_income = reconstruct_foreign_quarters(payload, "net_income")
@@ -282,43 +355,22 @@ def diagnose_foreign_payload(symbol: str, cik: int, payload: dict) -> dict:
     for unit in common_units:
         revenue_unit = revenue.loc[revenue["unit"].eq(unit)]
         income_unit = net_income.loc[net_income["unit"].eq(unit)]
-        paired_frame = revenue_unit[["end", "filed"]].merge(
-            income_unit[["end", "filed"]],
-            on="end",
-            suffixes=("_revenue", "_net_income"),
-            validate="one_to_one",
-        )
-        paired_frame["available_date"] = paired_frame[
-            ["filed_revenue", "filed_net_income"]
-        ].max(axis=1)
-        paired_frame["availability_lag_days"] = (
-            paired_frame["available_date"] - paired_frame["end"]
-        ).dt.days
-        paired = sorted(paired_frame["end"])
-        timely = sorted(
-            paired_frame.loc[
-                paired_frame["availability_lag_days"].between(
-                    0, MAX_AVAILABILITY_LAG_DAYS
-                ),
-                "end",
-            ]
-        )
+        overall = _paired_quarter_stats(revenue_unit, income_unit)
+        stable = _best_stable_concept_pair(revenue_unit, income_unit)
+        if stable and stable["longest_continuous_timely_paired_quarters"] >= 8:
+            selected = stable
+            selection_method = "stable_single_concept_pair"
+        else:
+            selected = {
+                **overall,
+                "selected_revenue_concept": "",
+                "selected_net_income_concept": "",
+            }
+            selection_method = "all_concepts_with_transition_validation"
         unit_results.append({
+            **selected,
             "unit": unit,
-            "paired_quarter_count": len(paired),
-            "longest_continuous_paired_quarters": (
-                _longest_continuous_chain(paired)
-            ),
-            "timely_paired_quarter_count": len(timely),
-            "longest_continuous_timely_paired_quarters": (
-                _longest_continuous_chain(timely)
-            ),
-            "first_paired_quarter": (
-                min(paired).strftime("%Y-%m-%d") if paired else ""
-            ),
-            "last_paired_quarter": (
-                max(paired).strftime("%Y-%m-%d") if paired else ""
-            ),
+            "selection_method": selection_method,
         })
     best = max(
         unit_results,
@@ -339,6 +391,14 @@ def diagnose_foreign_payload(symbol: str, cik: int, payload: dict) -> dict:
         net_income.loc[net_income["unit"].eq(selected_currency)]
         if selected_currency else net_income.iloc[0:0]
     )
+    if best and best["selected_revenue_concept"]:
+        revenue_selected = revenue_selected.loc[
+            revenue_selected["concept"].eq(best["selected_revenue_concept"])
+        ]
+    if best and best["selected_net_income_concept"]:
+        income_selected = income_selected.loc[
+            income_selected["concept"].eq(best["selected_net_income_concept"])
+        ]
     revenue_continuity = _concept_continuity(
         payload, "revenue", revenue_selected
     )
@@ -372,6 +432,13 @@ def diagnose_foreign_payload(symbol: str, cik: int, payload: dict) -> dict:
         "diagnostic_status": reason,
         "eligible_for_parser_research": reason == "PASS_DIAGNOSTIC_ONLY",
         "selected_currency": selected_currency,
+        "selection_method": best["selection_method"] if best else "",
+        "selected_revenue_concept": (
+            best["selected_revenue_concept"] if best else ""
+        ),
+        "selected_net_income_concept": (
+            best["selected_net_income_concept"] if best else ""
+        ),
         "paired_quarter_count": best["paired_quarter_count"] if best else 0,
         "longest_continuous_paired_quarters": (
             best["longest_continuous_paired_quarters"] if best else 0
@@ -420,6 +487,8 @@ def foreign_quarters_to_point_in_time(
     payload: dict,
     fetched_at,
     selected_currency: str | None = None,
+    selected_revenue_concept: str | None = None,
+    selected_net_income_concept: str | None = None,
 ) -> pd.DataFrame:
     """Convert diagnostic candidates to the normal quarterly row schema."""
     rows = []
@@ -428,6 +497,14 @@ def foreign_quarters_to_point_in_time(
         if selected_currency:
             candidates = candidates.loc[
                 candidates["unit"].eq(selected_currency)
+            ]
+        selected_concept = (
+            selected_revenue_concept
+            if metric == "revenue" else selected_net_income_concept
+        )
+        if selected_concept:
+            candidates = candidates.loc[
+                candidates["concept"].eq(selected_concept)
             ]
         for row in candidates.itertuples(index=False):
             rows.append({
@@ -456,12 +533,7 @@ def run_foreign_quarterly_diagnostics(
     cache_dir = Path(cache_dir)
     verification = verify_companyfacts_cache_manifest(cache_dir)
     priorities = pd.read_csv(priority_file)
-    targets = set(
-        priorities.loc[
-            priorities["recommended_data_action"].eq(TARGET_ACTION),
-            "ticker",
-        ].astype(str).str.upper()
-    )
+    targets = foreign_quarterly_target_symbols(priorities)
 
     payloads = {}
     for path in _companyfacts_cache_files(cache_dir):
@@ -502,6 +574,7 @@ def run_foreign_quarterly_diagnostics(
         "purpose": "read_only_foreign_quarterly_cache_diagnostic",
         "formal_fundamentals_modified": False,
         "target_action": TARGET_ACTION,
+        "target_profile": TARGET_PROFILE,
         "target_symbol_count": len(targets),
         "cached_target_count": len(payloads),
         "eligible_for_parser_research_count": int(
@@ -516,6 +589,22 @@ def run_foreign_quarterly_diagnostics(
         "cache_manifest_sha256": _sha256(Path(verification["manifest"])),
     }
     return detail, summary
+
+
+def foreign_quarterly_target_symbols(priorities: pd.DataFrame) -> set[str]:
+    """Select foreign-source candidates from action or reporting profile."""
+    required = {"ticker", "recommended_data_action", "reporting_profile"}
+    missing = required - set(priorities.columns)
+    if missing:
+        raise ValueError(
+            f"foreign priority input is missing columns: {sorted(missing)}"
+        )
+    selected = priorities.loc[
+        priorities["recommended_data_action"].eq(TARGET_ACTION)
+        | priorities["reporting_profile"].eq(TARGET_PROFILE),
+        "ticker",
+    ]
+    return set(selected.astype(str).str.strip().str.upper()) - {""}
 
 
 def main() -> None:
