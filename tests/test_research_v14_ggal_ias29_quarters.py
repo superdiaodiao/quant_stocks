@@ -5,15 +5,22 @@ import pytest
 
 from scripts.research_v14_ggal_ias29_quarters import (
     AVAILABLE_DATE,
+    BLOCKED_AUDIT_OBSERVATIONS,
     BLOCKED_SIGNALS,
+    BLOCKED_TEXT_CHECKS,
     EXPECTED_ANNUAL,
     EXPECTED_REPORTS,
+    SOURCES,
     TARGET_CPI,
     TARGET_FISCAL_ENDS,
     build_facts,
+    blocked_rejected_derivations,
     derive_quarters,
     parse_annual_xbrl,
     parse_report,
+    resolve_blocked_observations,
+    validate_audit_binding,
+    validate_blocked_source_text,
 )
 
 
@@ -95,3 +102,67 @@ def test_supplement_is_not_backdated_into_blocked_2019_signals() -> None:
     ).any()
     assert set(BLOCKED_SIGNALS) == {"2019-06-28", "2019-07-31"}
     assert all(not row["recoverable"] for row in BLOCKED_SIGNALS.values())
+
+
+def test_blocked_sources_lock_annual_basis_and_late_q2_report() -> None:
+    expected = {
+        "blocked_2018_20f": (
+            "2019-05-15",
+            "0001193125-19-146966",
+            "9d7bf111f3fea13dc0a6d5635646c34fe697b2faa97aa5e224b3aa01cdb78331",
+        ),
+        "blocked_2019_q1_report": (
+            "2019-05-16",
+            "0001193125-19-149579",
+            "5d065ea10e730deaa4ce44e97c047fe15a8c6ac9d20a354f12af1474b95a50b0",
+        ),
+        "blocked_2019_q2_report": (
+            "2019-08-14",
+            "0001193125-19-220829",
+            "948d3c38072ceef454db01c09e53837bd74be2af51f0cfe4f018ac9d9d046c47",
+        ),
+    }
+    assert {
+        name: (source["filed"], source["accession"], source["sha256"])
+        for name, source in SOURCES.items()
+        if name in expected
+    } == expected
+
+
+def test_blocked_disclosures_are_required_verbatim() -> None:
+    raw_by_source = {
+        name: (
+            "<html><body>" + " ".join(fragments) + "</body></html>"
+        ).encode()
+        for name, fragments in BLOCKED_TEXT_CHECKS.items()
+    }
+    assert len(validate_blocked_source_text(raw_by_source)) == 7
+    raw_by_source["blocked_2019_q1_report"] = b"<html>changed</html>"
+    with pytest.raises(RuntimeError, match="blocked-source disclosure changed"):
+        validate_blocked_source_text(raw_by_source)
+
+
+def test_all_twelve_2019_observations_are_explicit_unrecoverable() -> None:
+    assert len(BLOCKED_AUDIT_OBSERVATIONS) == 12
+    observations = resolve_blocked_observations()
+    assert len(observations) == 12
+    assert observations.groupby("scenario").size().eq(2).all()
+    assert not observations["resolved"].any()
+    assert set(observations["decision"]) == {
+        "unrecoverable_ias29_measurement_basis_conflict"
+    }
+    assert all(item["rejected"] for item in blocked_rejected_derivations())
+
+
+def test_current_audit_binding_covers_exact_twelve_observations() -> None:
+    from scripts import research_v14_ggal_ias29_quarters as ggal
+
+    binding = validate_audit_binding(
+        ggal.AUDIT_PATH,
+        ggal.EXPECTED_AUDIT_SHA256,
+    )
+    assert binding["scenario_count"] == 6
+    assert binding["missing_observation_count"] == 12
+    assert binding["signals"] == ["2019-06-28", "2019-07-31"]
+    SOURCES,
+    blocked_rejected_derivations,

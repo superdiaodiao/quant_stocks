@@ -28,7 +28,7 @@ BLOCKED_SIGNALS = {
         "recoverable": False,
         "reason": (
             "The 2019Q1 6-K explicitly says IAS 29 restatement was not used, "
-            "while the pre-signal 2018 20-F/A annual figures are stated at "
+            "while the pre-signal 2018 20-F annual figures are stated at "
             "December 2018 purchasing power. No eight-quarter actual chain "
             "exists on one ARS measurement basis."
         ),
@@ -48,6 +48,13 @@ TARGET_CPI = Decimal("483.6049")
 ANNUAL_CPI = Decimal("385.8826")
 SOURCE_DIR = Path("output/data_provenance/ggal_ias29_quarters")
 OUTPUT_DIR = Path("output/research_only/v14/ggal_ias29_quarters_2019q3_2021q2")
+AUDIT_PATH = Path(
+    "output/research_only/v14/"
+    "checkpoint_20260827_sy_glpg_rlmd_smpl_classified_financial_priorities.csv"
+)
+EXPECTED_AUDIT_SHA256 = (
+    "616ebd6a836bb1f0571ad690fbcd1b0bf56ae06b092041ac406eb976b6243e0e"
+)
 SEC_HEADERS = {"User-Agent": "quant-stocks-research contact@example.com"}
 
 
@@ -58,11 +65,12 @@ def _spec(
     sha256: str,
     *,
     accepted_at_utc: str | None = None,
+    form: str | None = None,
 ) -> dict:
     return {
         "accession": accession,
         "filed": filed,
-        "form": "20-F" if document.endswith(".xml") else "6-K",
+        "form": form or ("20-F" if document.endswith(".xml") else "6-K"),
         "document": document,
         "sha256": sha256,
         "accepted_at_utc": accepted_at_utc,
@@ -103,7 +111,45 @@ SOURCES = {
         "0001193125-19-149579", "2019-05-16", "d650008dex991.htm",
         "5d065ea10e730deaa4ce44e97c047fe15a8c6ac9d20a354f12af1474b95a50b0",
     ),
+    "blocked_2018_20f": _spec(
+        "0001193125-19-146966", "2019-05-15", "d728957d20f.htm",
+        "9d7bf111f3fea13dc0a6d5635646c34fe697b2faa97aa5e224b3aa01cdb78331",
+        form="20-F",
+    ),
+    "blocked_2019_q2_report": _spec(
+        "0001193125-19-220829", "2019-08-14", "d793034dex991.htm",
+        "948d3c38072ceef454db01c09e53837bd74be2af51f0cfe4f018ac9d9d046c47",
+    ),
 }
+
+BLOCKED_TEXT_CHECKS = {
+    "blocked_2018_20f": (
+        "financial statements whose functional currency is the Argentine peso, "
+        "have been prepared in accordance with IAS 29",
+        "results of operations for the year ended December 31, 2018 and 2017 "
+        "are reflected in terms of current purchasing power using the Consumer "
+        "Price Index",
+    ),
+    "blocked_2019_q1_report": (
+        "criteria for restating the financial information established in IAS 29 "
+        "have not been used",
+        "Its application would have widespread effects on the financial statements",
+    ),
+    "blocked_2019_q2_report": (
+        "announced its financial results for the second quarter that ended on "
+        "June 30, 2019",
+        "criteria for restating the financial information established in IAS 29 "
+        "has not been used",
+        "Its application would have widespread effects on the financial statements",
+    ),
+}
+
+BLOCKED_AUDIT_OBSERVATIONS = tuple(
+    (f"liq{liquidity}-age{age}-growth", signal, age)
+    for liquidity in (2_000_000, 10_000_000)
+    for age in (150, 365, 550)
+    for signal in BLOCKED_SIGNALS
+)
 
 # Triplets are current quarter, immediately preceding quarter, prior-year
 # quarter, in millions of ARS.  "revenue" is the issuer's Net operating income,
@@ -259,6 +305,99 @@ def parse_annual_xbrl(raw: bytes) -> dict[int, dict[str, Decimal]]:
     return result
 
 
+def validate_blocked_source_text(raw_by_source: dict[str, bytes]) -> list[dict]:
+    checked = []
+    for source_name, fragments in BLOCKED_TEXT_CHECKS.items():
+        text = _normal_text(raw_by_source[source_name]).casefold()
+        for fragment in fragments:
+            if fragment.casefold() not in text:
+                raise RuntimeError(
+                    f"GGAL blocked-source disclosure changed for "
+                    f"{source_name}: {fragment}"
+                )
+            checked.append({"source": source_name, "fragment": fragment})
+    return checked
+
+
+def resolve_blocked_observations() -> pd.DataFrame:
+    rows = []
+    for scenario, signal, maximum_age_days in BLOCKED_AUDIT_OBSERVATIONS:
+        rows.append({
+            "scenario": scenario,
+            "ticker": TICKER,
+            "signal_date": signal,
+            "maximum_age_days": maximum_age_days,
+            "resolved": False,
+            "decision": "unrecoverable_ias29_measurement_basis_conflict",
+            "reason": BLOCKED_SIGNALS[signal]["reason"],
+        })
+    return pd.DataFrame(rows)
+
+
+def blocked_rejected_derivations() -> list[dict]:
+    return [
+        {
+            "candidate": "combine 2018 IAS-29 annuals with nominal 2019Q1",
+            "rejected": True,
+            "reason": (
+                "annual results are in December-2018 purchasing power while "
+                "the issuer says Q1 did not use IAS 29"
+            ),
+        },
+        {
+            "candidate": "back-normalize nominal Q1 with an estimated CPI ratio",
+            "rejected": True,
+            "reason": (
+                "IAS 29 has widespread statement effects and no issuer-restated "
+                "eight-quarter chain existed by either signal"
+            ),
+        },
+        {
+            "candidate": "use 2019Q2 financial results",
+            "rejected": True,
+            "filed": SOURCES["blocked_2019_q2_report"]["filed"],
+            "accession": SOURCES["blocked_2019_q2_report"]["accession"],
+            "reason": "filed after both signals and still explicitly nominal",
+        },
+    ]
+
+
+def validate_audit_binding(path: Path, expected_sha256: str) -> dict:
+    path = Path(path)
+    actual_sha = _sha256(path)
+    if actual_sha != expected_sha256:
+        raise RuntimeError(f"GGAL audit binding changed: {actual_sha}")
+    priorities = pd.read_csv(path)
+    expected_scenarios = {
+        scenario for scenario, _, _ in BLOCKED_AUDIT_OBSERVATIONS
+    }
+    rows = priorities.loc[
+        priorities["ticker"].eq(TICKER)
+        & priorities["scenario"].isin(expected_scenarios)
+    ]
+    if set(rows["scenario"]) != expected_scenarios or len(rows) != len(
+        expected_scenarios
+    ):
+        raise RuntimeError("GGAL priority scenarios changed")
+    if not rows["missing_signal_count"].eq(len(BLOCKED_SIGNALS)).all():
+        raise RuntimeError("GGAL priority missing-signal counts changed")
+    if not rows["no_raw_pit_financial_facts_signal_count"].eq(
+        len(BLOCKED_SIGNALS)
+    ).all():
+        raise RuntimeError("GGAL priority raw-PIT classification changed")
+    if set(rows["first_missing_signal_date"]) != {min(BLOCKED_SIGNALS)}:
+        raise RuntimeError("GGAL first missing signal changed")
+    if set(rows["last_missing_signal_date"]) != {max(BLOCKED_SIGNALS)}:
+        raise RuntimeError("GGAL last missing signal changed")
+    return {
+        "path": str(path),
+        "sha256": actual_sha,
+        "scenario_count": len(rows),
+        "missing_observation_count": len(BLOCKED_AUDIT_OBSERVATIONS),
+        "signals": sorted(BLOCKED_SIGNALS),
+    }
+
+
 def _to_target(value_millions: Decimal, source_cpi: Decimal) -> Decimal:
     return value_millions * Decimal(1_000_000) * TARGET_CPI / source_cpi
 
@@ -394,6 +533,8 @@ def recover(
     source_dir: Path = SOURCE_DIR,
     output_dir: Path = OUTPUT_DIR,
     fetched_at: str | pd.Timestamp = "2026-08-23",
+    audit_path: Path = AUDIT_PATH,
+    expected_audit_sha256: str = EXPECTED_AUDIT_SHA256,
 ) -> dict:
     source_dir = Path(source_dir)
     output_dir = Path(output_dir)
@@ -417,12 +558,12 @@ def recover(
         for name, expected in EXPECTED_REPORTS.items()
     }
     annual = parse_annual_xbrl(paths["2020_20f"].read_bytes())
-    blocked_text = _normal_text(paths["blocked_2019_q1_report"].read_bytes())
-    if (
-        "criteria for restating the financial information established in ias 29 "
-        "have not been used" not in blocked_text.casefold()
-    ):
-        raise RuntimeError("GGAL 2019 IAS 29 blocker disclosure changed")
+    blocked_text_checks = validate_blocked_source_text({
+        name: paths[name].read_bytes() for name in BLOCKED_TEXT_CHECKS
+    })
+    audit_binding = validate_audit_binding(
+        audit_path, expected_audit_sha256
+    )
 
     quarters, identities, ttm = derive_quarters(reports, annual)
     facts = build_facts(quarters, fetched_at)
@@ -432,6 +573,14 @@ def recover(
     output_dir.mkdir(parents=True, exist_ok=True)
     facts_path = output_dir / "strict_quarterly_facts.csv"
     facts.to_csv(facts_path, index=False)
+    observations = resolve_blocked_observations()
+    observations_path = output_dir / "unrecoverable_observations.csv"
+    observations.to_csv(observations_path, index=False)
+    rejected = blocked_rejected_derivations()
+    rejected_path = output_dir / "rejected_derivations.json"
+    rejected_path.write_text(
+        json.dumps(rejected, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     decimal_json = lambda values: {
         key: float(value) if isinstance(value, Decimal) else value
         for key, value in values.items()
@@ -440,6 +589,7 @@ def recover(
         "schema_version": 1,
         "research_only": True,
         "point_in_time_proven": True,
+        "negative_evidence_source_locked": True,
         "parameters_frozen": False,
         "release_status": "BLOCKED",
         "promotion_eligible": False,
@@ -454,6 +604,13 @@ def recover(
         "accepted_fact_count": 16,
         "recoverable_signals": list(RECOVERABLE_SIGNALS),
         "blocked_signals": BLOCKED_SIGNALS,
+        "blocked_observation_count": len(observations),
+        "blocked_recovery_classification": (
+            "UNRECOVERABLE_IAS29_MEASUREMENT_BASIS_CONFLICT"
+        ),
+        "blocked_source_text_checks": blocked_text_checks,
+        "blocked_rejected_derivations": rejected,
+        "audit_binding": audit_binding,
         "annual_identity_checks": {
             str(year): decimal_json(values) for year, values in identities.items()
         },
@@ -461,9 +618,21 @@ def recover(
             name: decimal_json(values) for name, values in ttm.items()
         },
         "sources": source_report,
-        "outputs": {"strict_quarterly_facts": {
-            "path": str(facts_path), "sha256": _sha256(facts_path),
-        }},
+        "outputs": {
+            "strict_quarterly_facts": {
+                "path": str(facts_path), "sha256": _sha256(facts_path),
+                "row_count": len(facts),
+            },
+            "unrecoverable_observations": {
+                "path": str(observations_path),
+                "sha256": _sha256(observations_path),
+                "row_count": len(observations),
+            },
+            "rejected_derivations": {
+                "path": str(rejected_path), "sha256": _sha256(rejected_path),
+                "row_count": len(rejected),
+            },
+        },
         "guardrail": (
             "The supplement becomes available only with the 2021-08-31 Q2 "
             "6-K accepted at 14:39:09 UTC. All eight quarters use issuer IAS "
@@ -487,11 +656,17 @@ def main() -> None:
     parser.add_argument("--source-dir", type=Path, default=SOURCE_DIR)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--fetched-at", default="2026-08-23")
+    parser.add_argument("--audit-path", type=Path, default=AUDIT_PATH)
+    parser.add_argument(
+        "--expected-audit-sha256", default=EXPECTED_AUDIT_SHA256
+    )
     args = parser.parse_args()
     report = recover(
         source_dir=args.source_dir,
         output_dir=args.output_dir,
         fetched_at=args.fetched_at,
+        audit_path=args.audit_path,
+        expected_audit_sha256=args.expected_audit_sha256,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
 
