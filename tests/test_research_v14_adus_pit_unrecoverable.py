@@ -20,6 +20,7 @@ from scripts.research_v14_adus_pit_unrecoverable import (
     resolve_audit_observations,
     strict_quarterly_facts,
     validate_source_lock,
+    validate_audit_binding,
     validate_unrecoverable_conclusion,
 )
 
@@ -139,6 +140,9 @@ def test_three_age150_observations_remain_strictly_unrecoverable() -> None:
     assert resolved["financial_age_days"].tolist() == [203, 203, 266]
     assert set(resolved["latest_valid_fiscal_end"]) == {"2019-09-30"}
     assert set(resolved["latest_valid_available_date"]) == {"2019-11-08"}
+    assert set(resolved["decision"]) == {
+        "unrecoverable_reaudit_comparator_not_available"
+    }
 
 
 def test_no_quarter_growth_or_loss_fact_is_invented() -> None:
@@ -227,8 +231,31 @@ def test_build_downloads_missing_source_and_verifies_no_facts(
         tmp_path, monkeypatch, missing_source=missing
     )
     companyfacts_path = _companyfacts_fixture(tmp_path)
-    report = build(tmp_path, companyfacts_path)
+    audit = tmp_path / "priorities.csv"
+    pd.DataFrame([
+        {
+            "scenario": "liq10000000-age150-growth",
+            "ticker": "ADUS",
+            "missing_signal_count": 1,
+            "first_missing_signal_date": "2020-05-29",
+            "last_missing_signal_date": "2020-05-29",
+            "stale_growth_snapshot_signal_count": 1,
+        },
+        {
+            "scenario": "liq2000000-age150-growth",
+            "ticker": "ADUS",
+            "missing_signal_count": 2,
+            "first_missing_signal_date": "2020-05-29",
+            "last_missing_signal_date": "2020-07-31",
+            "stale_growth_snapshot_signal_count": 2,
+        },
+    ]).to_csv(audit, index=False)
+    audit_sha = hashlib.sha256(audit.read_bytes()).hexdigest()
+    report = build(tmp_path, companyfacts_path, audit, audit_sha)
     manifest = json.loads((tmp_path / "manifest.json").read_text())
+    first_manifest_sha = hashlib.sha256(
+        (tmp_path / "manifest.json").read_bytes()
+    ).hexdigest()
     facts = pd.read_csv(tmp_path / "strict_quarterly_facts.csv")
 
     assert download_calls == [sources[missing]["url"]]
@@ -238,10 +265,30 @@ def test_build_downloads_missing_source_and_verifies_no_facts(
     assert report["source_operand_verification_count"] == 29
     assert report["source_text_verification_count"] == 11
     assert facts.empty
-    assert manifest["sources"][missing]["downloaded"] is True
+    assert "downloaded" not in manifest["sources"][missing]
     assert manifest["sources"][missing]["actual_sha256"] == (
         sources[missing]["expected_sha256"]
     )
+    assert report["negative_evidence_source_locked"] is True
+    assert report["formal_financials_modified"] is False
+    assert report["release_status"] == "BLOCKED"
+    assert report["audit_binding"]["missing_observation_count"] == 3
+
+    build(tmp_path, companyfacts_path, audit, audit_sha)
+    assert hashlib.sha256((tmp_path / "manifest.json").read_bytes()).hexdigest() == (
+        first_manifest_sha
+    )
+    assert download_calls == [sources[missing]["url"]]
+
+
+def test_current_audit_binding_covers_exact_three_observations() -> None:
+    binding = validate_audit_binding(
+        adus_audit.AUDIT_PATH,
+        adus_audit.EXPECTED_AUDIT_SHA256,
+    )
+    assert binding["scenario_count"] == 2
+    assert binding["missing_observation_count"] == 3
+    assert binding["signals"] == ["2020-05-29", "2020-07-31"]
 
 
 def test_build_rejects_operand_drift(tmp_path, monkeypatch) -> None:

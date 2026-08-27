@@ -28,6 +28,13 @@ from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 
 OUTPUT_DIR = Path("output/research_only/v14/adus_pit_unrecoverable")
+AUDIT_PATH = Path(
+    "output/research_only/v14/"
+    "checkpoint_20260827_sy_glpg_rlmd_smpl_classified_financial_priorities.csv"
+)
+EXPECTED_AUDIT_SHA256 = (
+    "616ebd6a836bb1f0571ad690fbcd1b0bf56ae06b092041ac406eb976b6243e0e"
+)
 COMPANYFACTS_CACHE = Path(
     "cleaned_stocks_data/financial/sec_companyfacts_cache/"
     "CIK0001468328.json.gz"
@@ -374,12 +381,10 @@ def prepare_verified_sources(
         local_path = Path(output_dir) / source["local_path"]
         if local_path.exists():
             raw = local_path.read_bytes()
-            downloaded = False
         else:
             raw = _download_source(source["url"])
             local_path.parent.mkdir(parents=True, exist_ok=True)
             local_path.write_bytes(raw)
-            downloaded = True
         actual_sha = _sha256_bytes(raw)
         if actual_sha != source["expected_sha256"]:
             raise RuntimeError(
@@ -391,7 +396,6 @@ def prepare_verified_sources(
             "local_path": str(local_path),
             "actual_sha256": actual_sha,
             "bytes": len(raw),
-            "downloaded": downloaded,
         }
     return provenance, verify_source_evidence(raw_by_source)
 
@@ -506,7 +510,7 @@ def resolve_audit_observations(
             "latest_valid_available_date": LAST_VALID_AVAILABLE_DATE,
             "financial_age_days": age,
             "resolved": False,
-            "decision": "missing_financial",
+            "decision": "unrecoverable_reaudit_comparator_not_available",
             "reason": (
                 "latest valid quarterly growth snapshot is stale; preliminary "
                 "newer figures cannot form a same-basis exact TTM growth bundle"
@@ -533,15 +537,64 @@ def validate_unrecoverable_conclusion() -> None:
         raise RuntimeError("ADUS stale-snapshot classification changed")
 
 
+def validate_audit_binding(path: Path, expected_sha256: str) -> dict:
+    path = Path(path)
+    actual_sha = _sha256_bytes(path.read_bytes())
+    if actual_sha != expected_sha256:
+        raise RuntimeError(f"ADUS audit binding changed: {actual_sha}")
+    priorities = pd.read_csv(path)
+    expected = pd.DataFrame(
+        AUDIT_OBSERVATIONS,
+        columns=["scenario", "signal_date", "maximum_age_days"],
+    )
+    expected_counts = (
+        expected.groupby("scenario")["signal_date"]
+        .agg(["count", "min", "max"])
+        .to_dict("index")
+    )
+    rows = priorities.loc[
+        priorities["ticker"].eq(TICKER)
+        & priorities["scenario"].isin(expected_counts)
+    ]
+    if set(rows["scenario"]) != set(expected_counts) or len(rows) != len(
+        expected_counts
+    ):
+        raise RuntimeError("ADUS priority scenarios changed")
+    for row in rows.to_dict("records"):
+        expected_row = expected_counts[row["scenario"]]
+        if int(row["missing_signal_count"]) != int(expected_row["count"]):
+            raise RuntimeError("ADUS priority missing-signal count changed")
+        if row["first_missing_signal_date"] != expected_row["min"]:
+            raise RuntimeError("ADUS first missing signal changed")
+        if row["last_missing_signal_date"] != expected_row["max"]:
+            raise RuntimeError("ADUS last missing signal changed")
+        if int(row["stale_growth_snapshot_signal_count"]) != int(
+            expected_row["count"]
+        ):
+            raise RuntimeError("ADUS priority stale-snapshot class changed")
+    return {
+        "path": str(path),
+        "sha256": actual_sha,
+        "scenario_count": len(rows),
+        "missing_observation_count": len(AUDIT_OBSERVATIONS),
+        "signals": sorted(expected["signal_date"].unique()),
+    }
+
+
 def build(
     output_dir: Path = OUTPUT_DIR,
     companyfacts_cache: Path = COMPANYFACTS_CACHE,
+    audit_path: Path = AUDIT_PATH,
+    expected_audit_sha256: str = EXPECTED_AUDIT_SHA256,
 ) -> dict:
     validate_unrecoverable_conclusion()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     provenance, source_evidence = prepare_verified_sources(output_dir)
     companyfacts = companyfacts_pit_audit(companyfacts_cache)
+    audit_binding = validate_audit_binding(
+        audit_path, expected_audit_sha256
+    )
     facts = strict_quarterly_facts()
     observations = resolve_audit_observations()
     rejected = rejected_derivations()
@@ -556,7 +609,18 @@ def build(
         json.dumps(rejected, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     report = {
+        "schema_version": 2,
         "research_only": True,
+        "policy_status": "RESEARCH_PRETRAINING_ONLY_UNFROZEN",
+        "release_status": "BLOCKED",
+        "promotion_eligible": False,
+        "parameters_frozen": False,
+        "formal_financials_modified": False,
+        "point_in_time_proven": True,
+        "negative_evidence_source_locked": True,
+        "recovery_classification": (
+            "UNRECOVERABLE_REAUDIT_COMPARATOR_NOT_AVAILABLE"
+        ),
         "ticker": TICKER,
         "cik": CIK,
         "currency": CURRENCY,
@@ -571,13 +635,26 @@ def build(
         "source_operand_verification_count": len(source_evidence["operands"]),
         "source_text_verification_count": len(source_evidence["text_fragments"]),
         "companyfacts_pit_audit": companyfacts,
+        "audit_binding": audit_binding,
         "sources": provenance,
         "source_operands": source_evidence["operands"],
         "source_text_fragments": source_evidence["text_fragments"],
         "outputs": {
-            "strict_quarterly_facts": str(facts_path),
-            "unrecoverable_observations": str(observation_path),
-            "rejected_derivations": str(rejected_path),
+            "strict_quarterly_facts": {
+                "path": str(facts_path),
+                "sha256": _sha256_bytes(facts_path.read_bytes()),
+                "row_count": len(facts),
+            },
+            "unrecoverable_observations": {
+                "path": str(observation_path),
+                "sha256": _sha256_bytes(observation_path.read_bytes()),
+                "row_count": len(observations),
+            },
+            "rejected_derivations": {
+                "path": str(rejected_path),
+                "sha256": _sha256_bytes(rejected_path.read_bytes()),
+                "row_count": len(rejected),
+            },
         },
         "conclusion": (
             "No exact same-basis growth bundle or exact negative TTM was "
@@ -596,8 +673,17 @@ def main() -> None:
     parser.add_argument(
         "--companyfacts-cache", type=Path, default=COMPANYFACTS_CACHE
     )
+    parser.add_argument("--audit-path", type=Path, default=AUDIT_PATH)
+    parser.add_argument(
+        "--expected-audit-sha256", default=EXPECTED_AUDIT_SHA256
+    )
     args = parser.parse_args()
-    print(json.dumps(build(args.output_dir, args.companyfacts_cache), indent=2))
+    print(json.dumps(build(
+        args.output_dir,
+        args.companyfacts_cache,
+        args.audit_path,
+        args.expected_audit_sha256,
+    ), indent=2))
 
 
 if __name__ == "__main__":
