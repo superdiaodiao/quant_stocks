@@ -470,10 +470,31 @@ def _frozen_grid() -> list[dict]:
     ]
 
 
-def build(output_path: Path = OUTPUT_PATH) -> dict:
+def build(
+    output_path: Path = OUTPUT_PATH,
+    *,
+    allow_historical_code_drift: bool = False,
+) -> dict:
+    """Build the frozen payload; drift bypass is for non-executing tests only.
+
+    The default continues to reject any runtime-code mismatch.  The explicit
+    bypass preserves the already-frozen code hashes in a regenerated payload
+    so its structure can remain testable after later research code evolves.
+    Execution code must never enable it.
+    """
     inputs = _validate_candidate_and_audit()
     inputs["formal"] = _verify_bindings(FORMAL_BINDINGS)
-    inputs["code"] = _verify_bindings(CODE_BINDINGS)
+    inputs["code"] = (
+        {
+            name: {
+                "path": str(binding["path"]),
+                "sha256": binding["sha256"],
+            }
+            for name, binding in CODE_BINDINGS.items()
+        }
+        if allow_historical_code_drift
+        else _verify_bindings(CODE_BINDINGS)
+    )
     inputs["universe_negative_evidence"] = (
         _validate_universe_negative_evidence()
     )

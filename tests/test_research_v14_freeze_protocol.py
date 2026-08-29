@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 from scripts import research_v14_freeze_protocol as protocol
 
 
@@ -8,9 +10,9 @@ def test_protocol_build_is_deterministic_and_does_not_execute_results(
     tmp_path,
 ) -> None:
     output = tmp_path / "protocol.json"
-    first = protocol.build(output)
+    first = protocol.build(output, allow_historical_code_drift=True)
     first_sha = hashlib.sha256(output.read_bytes()).hexdigest()
-    second = protocol.build(output)
+    second = protocol.build(output, allow_historical_code_drift=True)
     second_sha = hashlib.sha256(output.read_bytes()).hexdigest()
 
     assert first_sha == second_sha == first["output"]["sha256"]
@@ -23,7 +25,9 @@ def test_protocol_build_is_deterministic_and_does_not_execute_results(
 
 
 def test_protocol_locks_exact_grid_selector_and_exclusions(tmp_path) -> None:
-    report = protocol.build(tmp_path / "protocol.json")
+    report = protocol.build(
+        tmp_path / "protocol.json", allow_historical_code_drift=True
+    )
     grid = report["model_grid"]
     configs = grid["configs"]
 
@@ -52,7 +56,9 @@ def test_protocol_locks_exact_grid_selector_and_exclusions(tmp_path) -> None:
 
 
 def test_protocol_accounts_for_all_live_financial_gaps(tmp_path) -> None:
-    report = protocol.build(tmp_path / "protocol.json")
+    report = protocol.build(
+        tmp_path / "protocol.json", allow_historical_code_drift=True
+    )
     evidence = report["input_bindings"]["financial_gap_evidence"]
 
     assert tuple(evidence) == protocol.EXPECTED_GAP_SYMBOLS
@@ -69,7 +75,9 @@ def test_protocol_accounts_for_all_live_financial_gaps(tmp_path) -> None:
 def test_protocol_labels_prior_human_exposure_and_predeclares_gates(
     tmp_path,
 ) -> None:
-    report = protocol.build(tmp_path / "protocol.json")
+    report = protocol.build(
+        tmp_path / "protocol.json", allow_historical_code_drift=True
+    )
     final_data = report["data_split"]["final_data_historical_confirmation"]
     gates = report["predeclared_gates"]
 
@@ -89,9 +97,14 @@ def test_protocol_labels_prior_human_exposure_and_predeclares_gates(
 
 def test_protocol_json_contains_no_execution_results(tmp_path) -> None:
     output = tmp_path / "protocol.json"
-    protocol.build(output)
+    protocol.build(output, allow_historical_code_drift=True)
     raw = json.loads(output.read_text(encoding="utf-8"))
 
     assert "walk_forward_results" not in raw
     assert "selected_config_ids" not in raw
     assert raw["final_data_replay_executed"] is False
+
+
+def test_protocol_default_still_rejects_runtime_code_drift(tmp_path) -> None:
+    with pytest.raises(RuntimeError, match="can_slim binding changed"):
+        protocol.build(tmp_path / "protocol.json")
