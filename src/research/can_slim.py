@@ -755,6 +755,10 @@ def _replay_can_slim_target_dict(
     end: str | pd.Timestamp,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Replay already-frozen targets and return exact single-name attribution."""
+    start = pd.Timestamp(start).normalize()
+    end = pd.Timestamp(end).normalize()
+    if start > end:
+        raise ValueError("Target replay start must not follow end")
     stock_returns = stock_returns_with_delisting_penalty(prices).fillna(0.0)
     position_values = pd.Series(0.0, index=prices.columns)
     cash = 1.0
@@ -764,7 +768,8 @@ def _replay_can_slim_target_dict(
     cost_contribution = pd.Series(0.0, index=prices.columns)
     for current_date, returns in stock_returns.iterrows():
         previous_nav = nav
-        if previous_nav:
+        attribution_active = start <= current_date <= end
+        if attribution_active and previous_nav:
             gross_contribution = gross_contribution.add(
                 position_values.mul(returns).div(previous_nav), fill_value=0.0
             )
@@ -792,7 +797,7 @@ def _replay_can_slim_target_dict(
                 if pre_trade_nav else 0.0
             )
             cost = float(trade_costs.sum())
-            if previous_nav:
+            if attribution_active and previous_nav:
                 cost_contribution = cost_contribution.add(
                     trade_costs.div(previous_nav), fill_value=0.0
                 )

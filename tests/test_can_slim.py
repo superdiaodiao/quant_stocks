@@ -352,6 +352,35 @@ def test_frozen_target_replay_attributes_and_removes_largest_name():
     assert removed.iloc[-1]["invested"] == pytest.approx(0.5)
 
 
+def test_frozen_target_attribution_only_counts_requested_window():
+    dates = pd.bdate_range("2022-01-03", periods=4)
+    close = pd.DataFrame({
+        "A": [100.0, 110.0, 121.0, 133.1],
+    }, index=dates)
+    index = pd.Series(1_000.0, index=dates)
+    targets = pd.DataFrame({
+        "effective_date": [dates[0]],
+        "ticker": ["A"],
+        "target_weight": [1.0],
+        "base_transaction_cost_bps": [0.0],
+    })
+
+    result, contributions = replay_can_slim_target_schedule(
+        close,
+        index,
+        targets,
+        dates[2],
+        dates[2],
+        adjust_splits=False,
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["strategy"] == pytest.approx(0.10)
+    assert contributions.iloc[0]["gross_return_contribution"] == pytest.approx(
+        0.10
+    )
+
+
 def test_trade_ledger_holds_fixed_shares_and_reconciles_portfolio_value(
     monkeypatch,
 ):
