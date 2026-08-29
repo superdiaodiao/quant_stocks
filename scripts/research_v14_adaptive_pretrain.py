@@ -71,6 +71,7 @@ def run(
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     price_dir: Path = DEFAULT_PRICE_DIR,
     artifact_tag: str = "research_v14_pretrain",
+    excluded_signal_dates: tuple[str, ...] = (),
 ) -> dict:
     data_audit = json.loads(data_audit_path.read_text(encoding="utf-8"))
     if not data_audit["gates"].get("research_pretraining_allowed"):
@@ -85,6 +86,7 @@ def run(
         universe_snapshot_dir=snapshot_dir,
         allow_no_evidence_fallback=False,
         price_dir=price_dir,
+        excluded_signal_dates=excluded_signal_dates,
     )
     summary = research_summary(raw_summary, data_audit)
     summary["input_bindings"] = {
@@ -98,6 +100,7 @@ def run(
         "snapshot_dir": str(snapshot_dir),
         "snapshot_file_count": len(list(snapshot_dir.glob("nasdaq_listed_*.csv"))),
         "price_directory": _price_directory_binding(price_dir),
+        "excluded_signal_dates": list(excluded_signal_dates),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     candidates_path = output_dir / "candidate_annual_results.csv"

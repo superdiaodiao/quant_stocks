@@ -179,8 +179,9 @@ def select_stable_ensemble(
                     "variant_combined_rank",
                     "rolling_worst_annual_excess",
                     "rolling_quality",
+                    "config_id",
                 ],
-                ascending=[True, False, False],
+                ascending=[True, False, False, True],
             )
             .groupby("candidate_group", sort=False)
             .head(1)["config_id"]
@@ -206,13 +207,23 @@ def select_stable_ensemble(
         (eligible_ranking["rolling_rank"] <= cutoff)
         & (eligible_ranking["expanding_rank"] <= cutoff)
     ].sort_values(
-        ["combined_rank", "rolling_worst_annual_excess", "rolling_quality"],
-        ascending=[True, False, False],
+        [
+            "combined_rank",
+            "rolling_worst_annual_excess",
+            "rolling_quality",
+            "config_id",
+        ],
+        ascending=[True, False, False, True],
     )
     if len(stable) < 2:
         stable = eligible_ranking.sort_values(
-            ["combined_rank", "rolling_worst_annual_excess", "rolling_quality"],
-            ascending=[True, False, False],
+            [
+                "combined_rank",
+                "rolling_worst_annual_excess",
+                "rolling_quality",
+                "config_id",
+            ],
+            ascending=[True, False, False, True],
         )
     if (
         no_evidence_fallback_ids
@@ -231,7 +242,15 @@ def select_stable_ensemble(
         )["config_id"].astype(int).tolist()
         ranking["selection_reason"] = "adaptive_stability_rank"
     ranking["selected"] = ranking["config_id"].isin(selected)
-    return selected, ranking.sort_values("combined_rank")
+    return selected, ranking.sort_values(
+        [
+            "combined_rank",
+            "rolling_worst_annual_excess",
+            "rolling_quality",
+            "config_id",
+        ],
+        ascending=[True, False, False, True],
+    )
 
 
 def annual_parameter_snapshot_periods(
@@ -350,6 +369,7 @@ def run_walk_forward(
     universe_snapshot_dir: str | Path | None = None,
     allow_no_evidence_fallback: bool = True,
     price_dir: str | Path = CLEANED_PRICE_DATA_DIR,
+    excluded_signal_dates: tuple[str | pd.Timestamp, ...] = (),
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     configs = candidate_configs(
         signal_frequency,
@@ -385,7 +405,8 @@ def run_walk_forward(
     candidate_results: dict[int, pd.DataFrame] = {}
     for config_id, config in enumerate(configs):
         result = calculate_can_slim_returns(
-            close, dollar_volume, nasdaq, eps, config, universe, quarterly, high, low
+            close, dollar_volume, nasdaq, eps, config, universe, quarterly,
+            high, low, excluded_signal_dates=excluded_signal_dates,
         )
         annual = _annual(result)
         candidate_results[config_id] = result
@@ -428,6 +449,7 @@ def run_walk_forward(
         universe, signal_frequency, quarterly,
         high, low,
         return_targets=True,
+        excluded_signal_dates=excluded_signal_dates,
     )
     continuous_annual = _annual(continuous)
     walk_rows = []
@@ -471,6 +493,7 @@ def run_walk_forward(
             ] or None,
             universe, signal_frequency, quarterly,
             high, low,
+            excluded_signal_dates=excluded_signal_dates,
         )
         for year, row in _annual(stressed).iterrows():
             cost_rows.append({
@@ -515,6 +538,10 @@ def run_walk_forward(
         ),
         "price_dir": str(price_dir),
         "allow_no_evidence_fallback": allow_no_evidence_fallback,
+        "excluded_signal_dates": [
+            pd.Timestamp(signal_date).normalize().strftime("%Y-%m-%d")
+            for signal_date in excluded_signal_dates
+        ],
         "candidate_count": len(configs),
         "ensemble_size": len(current_ids),
         "out_of_sample_years": len(walk),

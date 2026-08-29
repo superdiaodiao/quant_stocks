@@ -105,6 +105,32 @@ def test_dominated_extra_variant_cannot_change_other_group_winners():
     ) == {0, 2}
 
 
+def test_exact_selection_ties_use_config_id_not_mapping_order():
+    dates = pd.date_range("2019-01-31", "2021-12-31", freq="ME")
+    tied = pd.DataFrame({
+        "strategy": [0.02] * len(dates),
+        "benchmark": [0.01] * len(dates),
+    }, index=dates)
+    results = {9: tied, 7: tied.copy(), 3: tied.copy()}
+
+    selected, ranking = select_stable_ensemble(
+        results, 2022, ensemble_size=2
+    )
+    grouped_selected, grouped_ranking = select_stable_ensemble(
+        results,
+        2022,
+        ensemble_size=2,
+        candidate_groups={9: "a", 7: "b", 3: "a"},
+    )
+
+    assert selected == [3, 7]
+    assert ranking["config_id"].tolist() == [3, 7, 9]
+    assert grouped_selected == [3, 7]
+    assert grouped_ranking.loc[
+        grouped_ranking["variant_selected"], "config_id"
+    ].tolist() == [3, 7]
+
+
 def test_annual_parameter_periods_only_train_through_prior_day():
     periods = annual_parameter_snapshot_periods("2022-01-01", "2023-07-17")
 

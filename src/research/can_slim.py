@@ -70,6 +70,15 @@ class CanSlimConfig:
     ensemble_weight: float = 1.0
 
 
+def _excluded_signal_date_set(
+    excluded_signal_dates: tuple[str | pd.Timestamp, ...],
+) -> set[pd.Timestamp]:
+    return {
+        pd.Timestamp(signal_date).normalize()
+        for signal_date in excluded_signal_dates
+    }
+
+
 def build_can_slim_technical_cross_section(
     date: pd.Timestamp,
     close: pd.DataFrame,
@@ -339,12 +348,14 @@ def calculate_can_slim_returns(
     low: pd.DataFrame | None = None,
     adjust_splits: bool = True,
     eligibility_close: pd.DataFrame | None = None,
+    excluded_signal_dates: tuple[str | pd.Timestamp, ...] = (),
 ) -> pd.DataFrame:
     """Replay scheduled signals with a self-financing buy-and-hold portfolio."""
     result, _ = calculate_can_slim_returns_with_ledger(
         close, dollar_volume, index_close, eps, config, universe_as_of,
         quarterly_fundamentals, high, low, adjust_splits=adjust_splits,
         eligibility_close=eligibility_close,
+        excluded_signal_dates=excluded_signal_dates,
     )
     return result
 
@@ -363,6 +374,7 @@ def calculate_can_slim_returns_with_ledger(
     adjust_splits: bool = True,
     eligibility_close: pd.DataFrame | None = None,
     identity_transitions: pd.DataFrame | None = None,
+    excluded_signal_dates: tuple[str | pd.Timestamp, ...] = (),
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Replay the canonical policy and return its daily series and trade ledger.
 
@@ -398,9 +410,12 @@ def calculate_can_slim_returns_with_ledger(
         else identity_transitions
     )
     targets: dict[pd.Timestamp, tuple[pd.Series, pd.Timestamp, str]] = {}
+    excluded_signals = _excluded_signal_date_set(excluded_signal_dates)
     for signal_date in scheduled_signal_dates(
         prices.index, config.start, config.end, config.signal_frequency
     ):
+        if pd.Timestamp(signal_date).normalize() in excluded_signals:
+            continue
         symbols = universe_as_of(signal_date)
         if symbols is None:
             continue
@@ -638,6 +653,7 @@ def calculate_can_slim_scheduled_returns(
     adjust_splits: bool = True,
     eligibility_close: pd.DataFrame | None = None,
     return_targets: bool = False,
+    excluded_signal_dates: tuple[str | pd.Timestamp, ...] = (),
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Replay a time-frozen parameter schedule without resetting the portfolio."""
     prices = (
@@ -652,16 +668,18 @@ def calculate_can_slim_scheduled_returns(
         eligibility_close if eligibility_close is not None else close
     ).reindex_like(prices)
     index_close = index_close.reindex(prices.index).ffill()
-    stock_returns = stock_returns_with_delisting_penalty(prices).fillna(0.0)
     targets: dict[pd.Timestamp, tuple[pd.Series, float]] = {}
     # Include the signal immediately before ``start``.  A live run on the first
     # trading day of a new snapshot period scores the last completed
     # day/week/month with the newly effective frozen parameters and trades at
     # the next close; the walk-forward replay must do exactly the same.
     replay_start = pd.Timestamp(start) - pd.Timedelta(days=62)
+    excluded_signals = _excluded_signal_date_set(excluded_signal_dates)
     for signal_date in scheduled_signal_dates(
         prices.index, replay_start, end, signal_frequency
     ):
+        if pd.Timestamp(signal_date).normalize() in excluded_signals:
+            continue
         effective = next_trading_date(prices.index, signal_date)
         if (
             effective is None
@@ -704,51 +722,9 @@ def calculate_can_slim_scheduled_returns(
             target,
             sum(item.transaction_cost_bps for item in configs) / len(configs),
         )
-    position_values = pd.Series(0.0, index=prices.columns)
-    cash = 1.0
-    nav = 1.0
-    rows = []
-    for current_date, returns in stock_returns.iterrows():
-        previous_nav = nav
-        position_values = position_values.mul(1 + returns)
-        pre_trade_nav = float(cash + position_values.sum())
-        scheduled = targets.get(current_date)
-        target = scheduled[0] if scheduled is not None else None
-        turnover = 0.0
-        cost_bps = scheduled[1] if scheduled is not None else 0.0
-        if target is not None:
-            cost_rate = cost_bps / 10_000
-            post_trade_nav = pre_trade_nav
-            for _ in range(20):
-                desired = target * post_trade_nav
-                traded = float((desired - position_values).abs().sum())
-                updated = pre_trade_nav - traded * cost_rate
-                if abs(updated - post_trade_nav) < 1e-12:
-                    post_trade_nav = updated
-                    break
-                post_trade_nav = updated
-            desired = target * post_trade_nav
-            turnover = (
-                float((desired - position_values).abs().sum() / pre_trade_nav)
-                if pre_trade_nav else 0.0
-            )
-            cost = float((desired - position_values).abs().sum() * cost_rate)
-            cash = float(pre_trade_nav - desired.sum() - cost)
-            position_values = desired
-            nav = float(cash + position_values.sum())
-        else:
-            nav = pre_trade_nav
-        rows.append((
-            nav / previous_nav - 1 if previous_nav else 0.0,
-            float(index_close.pct_change(fill_method=None).loc[current_date])
-            if current_date != prices.index[0] else 0.0,
-            float(position_values.sum() / nav) if nav else 0.0,
-            turnover,
-            int((position_values > 1e-8).sum()),
-        ))
-    result = pd.DataFrame(rows, index=prices.index, columns=[
-        "strategy", "benchmark", "invested", "turnover", "holdings"
-    ]).loc[start:end]
+    result, _ = _replay_can_slim_target_dict(
+        prices, index_close, targets, start, end
+    )
     if not return_targets:
         return result
     target_rows = []
@@ -769,3 +745,147 @@ def calculate_can_slim_scheduled_returns(
                 "base_transaction_cost_bps": float(cost_bps),
             })
     return result, pd.DataFrame(target_rows)
+
+
+def _replay_can_slim_target_dict(
+    prices: pd.DataFrame,
+    index_close: pd.Series,
+    targets: dict[pd.Timestamp, tuple[pd.Series, float]],
+    start: str | pd.Timestamp,
+    end: str | pd.Timestamp,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Replay already-frozen targets and return exact single-name attribution."""
+    stock_returns = stock_returns_with_delisting_penalty(prices).fillna(0.0)
+    position_values = pd.Series(0.0, index=prices.columns)
+    cash = 1.0
+    nav = 1.0
+    rows = []
+    gross_contribution = pd.Series(0.0, index=prices.columns)
+    cost_contribution = pd.Series(0.0, index=prices.columns)
+    for current_date, returns in stock_returns.iterrows():
+        previous_nav = nav
+        if previous_nav:
+            gross_contribution = gross_contribution.add(
+                position_values.mul(returns).div(previous_nav), fill_value=0.0
+            )
+        position_values = position_values.mul(1 + returns)
+        pre_trade_nav = float(cash + position_values.sum())
+        scheduled = targets.get(current_date)
+        target = scheduled[0] if scheduled is not None else None
+        turnover = 0.0
+        cost_bps = scheduled[1] if scheduled is not None else 0.0
+        if target is not None:
+            cost_rate = cost_bps / 10_000
+            post_trade_nav = pre_trade_nav
+            for _ in range(20):
+                desired = target * post_trade_nav
+                traded = float((desired - position_values).abs().sum())
+                updated = pre_trade_nav - traded * cost_rate
+                if abs(updated - post_trade_nav) < 1e-12:
+                    post_trade_nav = updated
+                    break
+                post_trade_nav = updated
+            desired = target * post_trade_nav
+            trade_costs = (desired - position_values).abs() * cost_rate
+            turnover = (
+                float((desired - position_values).abs().sum() / pre_trade_nav)
+                if pre_trade_nav else 0.0
+            )
+            cost = float(trade_costs.sum())
+            if previous_nav:
+                cost_contribution = cost_contribution.add(
+                    trade_costs.div(previous_nav), fill_value=0.0
+                )
+            cash = float(pre_trade_nav - desired.sum() - cost)
+            position_values = desired
+            nav = float(cash + position_values.sum())
+        else:
+            nav = pre_trade_nav
+        rows.append((
+            nav / previous_nav - 1 if previous_nav else 0.0,
+            float(index_close.pct_change(fill_method=None).loc[current_date])
+            if current_date != prices.index[0] else 0.0,
+            float(position_values.sum() / nav) if nav else 0.0,
+            turnover,
+            int((position_values > 1e-8).sum()),
+        ))
+    result = pd.DataFrame(rows, index=prices.index, columns=[
+        "strategy", "benchmark", "invested", "turnover", "holdings"
+    ]).loc[start:end]
+    contributions = pd.DataFrame({
+        "ticker": prices.columns.astype(str),
+        "gross_return_contribution": gross_contribution.to_numpy(),
+        "transaction_cost_contribution": cost_contribution.to_numpy(),
+    })
+    contributions["net_return_contribution"] = (
+        contributions["gross_return_contribution"]
+        - contributions["transaction_cost_contribution"]
+    )
+    contributions = contributions.loc[
+        contributions["gross_return_contribution"].ne(0.0)
+        | contributions["transaction_cost_contribution"].ne(0.0)
+    ].sort_values(
+        ["net_return_contribution", "ticker"],
+        ascending=[False, True],
+    ).reset_index(drop=True)
+    return result, contributions
+
+
+def replay_can_slim_target_schedule(
+    close: pd.DataFrame,
+    index_close: pd.Series,
+    target_schedule: pd.DataFrame,
+    start: str | pd.Timestamp,
+    end: str | pd.Timestamp,
+    *,
+    excluded_tickers: tuple[str, ...] = (),
+    adjust_splits: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Replay frozen target rows, optionally leaving named weights in cash."""
+    required = {
+        "effective_date",
+        "ticker",
+        "target_weight",
+        "base_transaction_cost_bps",
+    }
+    missing = required - set(target_schedule.columns)
+    if missing:
+        raise ValueError(f"Target schedule columns missing: {sorted(missing)}")
+    prices = (
+        back_adjust_common_splits(close) if adjust_splits else close.copy()
+    ).sort_index()
+    index_close = index_close.reindex(prices.index).ffill()
+    schedule = target_schedule.copy()
+    schedule["effective_date"] = pd.to_datetime(
+        schedule["effective_date"], errors="raise"
+    ).dt.normalize()
+    schedule["ticker"] = schedule["ticker"].astype(str)
+    excluded = {str(ticker) for ticker in excluded_tickers}
+    unknown = set(schedule["ticker"]) - set(prices.columns.astype(str)) - {
+        "__CASH__"
+    }
+    if unknown:
+        raise ValueError(f"Target schedule has unknown tickers: {sorted(unknown)}")
+    targets: dict[pd.Timestamp, tuple[pd.Series, float]] = {}
+    for effective_date, group in schedule.groupby("effective_date", sort=True):
+        costs = group["base_transaction_cost_bps"].astype(float).unique()
+        if len(costs) != 1:
+            raise ValueError(
+                f"Multiple cost rates for target date {effective_date.date()}"
+            )
+        target = pd.Series(0.0, index=prices.columns)
+        active = group.loc[
+            ~group["ticker"].isin(excluded | {"__CASH__"})
+        ]
+        if active["ticker"].duplicated().any():
+            raise ValueError(f"Duplicate target ticker on {effective_date.date()}")
+        if len(active):
+            target.loc[active["ticker"]] = active["target_weight"].astype(
+                float
+            ).to_numpy()
+        if target.lt(0).any() or float(target.sum()) > 1.0 + 1e-9:
+            raise ValueError(f"Invalid target weights on {effective_date.date()}")
+        targets[pd.Timestamp(effective_date)] = (target, float(costs[0]))
+    return _replay_can_slim_target_dict(
+        prices, index_close, targets, start, end
+    )

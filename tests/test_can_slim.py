@@ -7,6 +7,7 @@ from src.research.can_slim import (
     calculate_can_slim_returns_with_ledger,
     calculate_can_slim_scheduled_returns,
     calculate_keltner_upper_panel,
+    replay_can_slim_target_schedule,
     select_can_slim_ensemble_portfolio,
     select_can_slim_portfolio,
 )
@@ -265,6 +266,90 @@ def test_scheduled_replay_uses_new_snapshot_on_prior_month_signal(
     assert result.loc["2023-01-02", "turnover"] == pytest.approx(
         1 / 1.001
     )
+
+
+def test_scheduled_replay_skips_unproven_signal_and_carries_holdings(
+    monkeypatch,
+):
+    dates = pd.bdate_range("2022-01-03", "2023-03-03")
+    close = pd.DataFrame({"A": 100.0}, index=dates)
+    volume = pd.DataFrame(20_000_000.0, index=dates, columns=["A"])
+    index = pd.Series(1_000.0, index=dates)
+    universe_calls = []
+
+    monkeypatch.setattr(
+        "src.research.can_slim.select_can_slim_ensemble_portfolio",
+        lambda *args, **kwargs: pd.DataFrame(
+            {"target_weight": [1.0]}, index=["A"]
+        ),
+    )
+    monkeypatch.setattr(
+        "src.research.can_slim.market_regime_is_on",
+        lambda *args, **kwargs: True,
+    )
+
+    def universe(signal_date):
+        universe_calls.append(pd.Timestamp(signal_date))
+        return {"A"}
+
+    result = calculate_can_slim_scheduled_returns(
+        close,
+        volume,
+        index,
+        pd.DataFrame(),
+        "2023-01-01",
+        "2023-03-03",
+        lambda effective: [CanSlimConfig(top_n=1)],
+        universe,
+        excluded_signal_dates=("2023-01-31",),
+    )
+
+    assert pd.Timestamp("2023-01-31") not in universe_calls
+    assert result.loc["2023-02-01", "turnover"] == pytest.approx(0.0)
+    assert result.loc["2023-02-01", "holdings"] == 1
+
+
+def test_frozen_target_replay_attributes_and_removes_largest_name():
+    dates = pd.bdate_range("2022-01-03", periods=2)
+    close = pd.DataFrame({
+        "A": [100.0, 110.0],
+        "B": [100.0, 100.0],
+    }, index=dates)
+    index = pd.Series([1_000.0, 1_000.0], index=dates)
+    targets = pd.DataFrame({
+        "effective_date": [dates[0], dates[0]],
+        "ticker": ["A", "B"],
+        "target_weight": [0.5, 0.5],
+        "base_transaction_cost_bps": [0.0, 0.0],
+    })
+
+    baseline, contributions = replay_can_slim_target_schedule(
+        close,
+        index,
+        targets,
+        dates[0],
+        dates[-1],
+        adjust_splits=False,
+    )
+    removed, _ = replay_can_slim_target_schedule(
+        close,
+        index,
+        targets,
+        dates[0],
+        dates[-1],
+        excluded_tickers=("A",),
+        adjust_splits=False,
+    )
+
+    assert (1 + baseline["strategy"]).prod() - 1 == pytest.approx(0.05)
+    assert contributions.iloc[0].to_dict() == {
+        "ticker": "A",
+        "gross_return_contribution": pytest.approx(0.05),
+        "transaction_cost_contribution": 0.0,
+        "net_return_contribution": pytest.approx(0.05),
+    }
+    assert (1 + removed["strategy"]).prod() - 1 == pytest.approx(0.0)
+    assert removed.iloc[-1]["invested"] == pytest.approx(0.5)
 
 
 def test_trade_ledger_holds_fixed_shares_and_reconciles_portfolio_value(
