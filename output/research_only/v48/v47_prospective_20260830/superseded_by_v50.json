@@ -1,0 +1,19 @@
+{
+  "reason": "source-locked price, eligibility, stop-precedence, timeliness, and portable-binding defects were repaired before any signal",
+  "recorded_at": "2026-08-30T17:07:17+00:00",
+  "schema_version": 1,
+  "status": "SUPERSEDED_BEFORE_FIRST_SIGNAL",
+  "successor_protocol": {
+    "path": "output/research_only/v50/corrected_v47_20260831_r1/frozen_protocol.json",
+    "sha256": "b9ea71eb5f6b3cd1104648e50c321356bf6d8c198f58673bd71821dc47b9502a"
+  },
+  "v48_ledger": {
+    "path": "output/research_only/v48/v47_prospective_20260830/prospective_ledger.jsonl",
+    "sha256": "3afdc0149ae2f9945d21bb1cf0bb33c674d85240917c328010eaf3e22680f2a1"
+  },
+  "v48_protocol": {
+    "path": "output/research_only/v48/v47_prospective_20260830/frozen_protocol.json",
+    "sha256": "e717ff441b9b3804579df35fc470d5f961d8b09402691a3704de1dca649978ef"
+  },
+  "v48_signal_count": 0
+}
