@@ -1,0 +1,85 @@
+{
+  "2026_used_for_threshold_selection": false,
+  "benchmark": "NASDAQ_COMPOSITE",
+  "candidate_count": 1,
+  "correction_specification": {
+    "coincident_stop_and_rebalance": "stop_vetoes_same_close_reentry",
+    "input_binding_location": "repository_relative",
+    "minimum_price_units": "contemporaneous nominal price",
+    "missing_monthly_entry_close": "fail_closed",
+    "new_threshold_search": false,
+    "price_return_units": "sourced confirmed corporate actions only",
+    "risk_thresholds": {
+      "entry_loss_fraction": 0.2,
+      "portfolio_trailing_stop_fraction": 0.25
+    },
+    "selector": "v30 fixed Top-5 monthly selector",
+    "signal_universe_staging": "same_utc_date_as_signal_only",
+    "unresolved_ranked_pool_action": "fail_closed",
+    "unresolved_target_action": "fail_closed"
+  },
+  "cost_bps": [
+    10,
+    30,
+    50
+  ],
+  "development_window": {
+    "end": "2025-12-31",
+    "start": "2020-01-01",
+    "years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "frozen_at": "2026-08-30T17:02:39+00:00",
+  "input_bindings": {
+    "corporate_action_validation": {
+      "path": "output/can_slim_all_corporate_action_validation.csv",
+      "sha256": "d2b4fba34677b4c63010c0a7e75e2c5f0610d98a41203a5a19a4b0511d947649"
+    },
+    "corrected_policy": {
+      "path": "src/research/corrected_stock_policy.py",
+      "sha256": "1f1d3f7ce3be57884e5c7609381da0658ddb51c39b6a5c90a9a93c12aa226551"
+    },
+    "reviewed_market_moves": {
+      "path": "stocks_list_dir/nasdaq/reviewed_market_moves.csv",
+      "sha256": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47"
+    },
+    "runner": {
+      "path": "scripts/research_v50_corrected_v47.py",
+      "sha256": "3631cb04eda5c68aa8c097103770052f88ec50f04ab88bdb95bbc69bd40c49eb"
+    },
+    "v30_manifest": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/manifest.json",
+      "sha256": "43a4b27c0f7a717ace0858535c9017a6e8ca11793f32762b2c32ece7e7f2a146"
+    },
+    "v30_protocol": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/frozen_protocol.json",
+      "sha256": "6c5e3dfd17953cf10a5f2e5c7eacc4881481cae3a2ea3bad37019895c1b6b3d3"
+    },
+    "v30_targets": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_targets.csv",
+      "sha256": "e9b523c47aa047026addf5533024b9a45ba24d6a40e2568891b2d05c2cfc83bd"
+    },
+    "v47_manifest": {
+      "path": "output/research_only/v47/hybrid_entry_portfolio_stop_20260830/development_results/manifest.json",
+      "sha256": "58f67e1c0294557925c6c0b21849d39d145612039b3bc0bbe80c681165c0a336"
+    },
+    "v47_protocol": {
+      "path": "output/research_only/v47/hybrid_entry_portfolio_stop_20260830/frozen_protocol.json",
+      "sha256": "bac6799132340cbb855f6aa4b1f829dde05e586507202d90d4be65a189388190"
+    }
+  },
+  "objective": "Repair externally identified data and stop-execution defects without searching a new selector or risk threshold.",
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "schema_version": 1,
+  "stage": "V50_CORRECTED_V47_PRECOMMITMENT",
+  "status": "FROZEN_NOT_DEVELOPED",
+  "v48_signal_count_at_freeze": 0
+}
