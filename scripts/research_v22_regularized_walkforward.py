@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit a conservative v22 overlay and freeze a future-only shadow protocol.
+"""Fit a conservative v22 overlay and freeze its development evidence.
 
 This is a new research generation after the v20 recent holdout was inspected.
 The 2025 result is deliberately reclassified as development data; it is never
@@ -13,8 +13,9 @@ The overlay is diagnosed with expanding, next-year pseudo-out-of-sample folds:
 * train on 2022-2023, test 2024;
 * train on 2022-2024, test 2025.
 
-The final forward configuration is selected on 2022-2025 and may observe only
-market data after 2026-08-30.  Earlier 2026 data is intentionally excluded.
+The final configuration is selected on 2022-2025.  A separate, precommitted
+observation protocol may evaluate 2026 data that the v22 algorithm did not use,
+while explicitly distinguishing prior human exposure from genuinely new data.
 No broker connection, account access, order, or capital allocation occurs.
 """
 
@@ -42,10 +43,11 @@ WALK_FORWARD_FOLDS = (
 NEAR_BEST_TOLERANCE = 0.015
 PRIMARY_TOTAL_COST_BPS = 30.0
 ROBUSTNESS_STRESS_COST_BPS = 50.0
-FORWARD_DATA_START_EXCLUSIVE = "2026-08-30"
-FROZEN_AT = "2026-08-30T11:38:44+08:00"
+MODEL_EXCLUDED_OBSERVATION_START = "2026-01-01"
+RESEARCHER_EXPOSED_OBSERVATION_END = v20.HOLDOUT_END
+FROZEN_AT = "2026-08-30T12:54:37+08:00"
 OUTPUT_DIR = Path(
-    "output/research_only/v22/regularized_walkforward_20260830"
+    "output/research_only/v22/regularized_walkforward_reviewed_20260830"
 )
 
 INPUT_BINDINGS = {
@@ -471,10 +473,12 @@ def run(output_dir: Path = OUTPUT_DIR) -> dict:
         },
         "walk_forward_diagnostic": walk_forward,
         "walk_forward_status": (
-            "PASS"
+            "RETROSPECTIVE_DIAGNOSTIC_PASS"
             if walk_forward["all_walk_forward_folds_passed"]
             else "BLOCKED"
         ),
+        "walk_forward_independent_confirmation": False,
+        "walk_forward_tolerance_selected_post_hoc": True,
         "selected_variant": selected,
         "selected_configuration": {
             "lookback_sessions": selected_lookback,
@@ -485,10 +489,15 @@ def run(output_dir: Path = OUTPUT_DIR) -> dict:
         "development_status": "PASS" if development_passed else "BLOCKED",
         "ibkr_cost_envelope": _ibkr_cost_envelope(v21_calibration),
         "future_forward_protocol": {
-            "status": "FROZEN_NOT_STARTED",
-            "data_must_be_later_than": FORWARD_DATA_START_EXCLUSIVE,
-            "minimum_operational_months": 3,
-            "target_decision_months": 6,
+            "status": "REQUIRES_SEPARATE_FROZEN_OBSERVATION_PROTOCOL",
+            "model_excluded_observation_start": (
+                MODEL_EXCLUDED_OBSERVATION_START
+            ),
+            "researcher_exposed_observation_end": (
+                RESEARCHER_EXPOSED_OBSERVATION_END
+            ),
+            "performance_acceptance_gates_frozen": False,
+            "observation_runner_bound": False,
             "parameters_must_remain_frozen": True,
             "primary_total_cost_bps": PRIMARY_TOTAL_COST_BPS,
             "robustness_stress_total_cost_bps": ROBUSTNESS_STRESS_COST_BPS,
@@ -497,10 +506,9 @@ def run(output_dir: Path = OUTPUT_DIR) -> dict:
             "broker_connection_authorized": False,
             "orders_authorized": False,
         },
-        "research_forward_observation_ready": bool(
-            development_passed
-            and walk_forward["all_walk_forward_folds_passed"]
-        ),
+        "research_forward_observation_ready": False,
+        "historical_observation_protocol_ready": False,
+        "real_time_shadow_ready": False,
         "input_bindings": {
             **bindings,
             "price_directory": price_binding,
@@ -513,10 +521,12 @@ def run(output_dir: Path = OUTPUT_DIR) -> dict:
         "interpretation_guardrail": (
             "v22 legitimately uses 2025 as development data and therefore "
             "cannot use it as confirmation. The expanding next-year folds are "
-            "a no-lookahead replay but remain historically human-exposed. Only "
-            "data after 2026-08-30 can provide new forward evidence. The IBKR "
-            "envelope includes published base commission, not realized spread "
-            "or slippage, and does not authorize account access or trading."
+            "a post-hoc, tolerance-sensitive no-lookahead replay and are not "
+            "independent confirmation. 2026 data was excluded from algorithmic "
+            "selection and may be evaluated only under a separately frozen "
+            "protocol that discloses prior human exposure. The IBKR envelope "
+            "includes published base commission, not realized spread or "
+            "slippage, and does not authorize account access or trading."
         ),
     }
     protocol_path = output_dir / "frozen_protocol.json"

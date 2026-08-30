@@ -77,20 +77,30 @@ def test_ibkr_envelope_preserves_noncommission_budget():
     assert envelope["includes_realized_spread_or_slippage"] is False
 
 
-def test_v22_full_run_freezes_future_only_protocol(tmp_path):
+def test_v22_full_run_requires_separate_observation_protocol(tmp_path):
     report = v22.run(tmp_path / "freeze")
 
     assert report["selected_variant"] == "lookback_84_crowded_stock_0.10"
-    assert report["walk_forward_status"] == "PASS"
+    assert report["walk_forward_status"] == "RETROSPECTIVE_DIAGNOSTIC_PASS"
     assert report["walk_forward_diagnostic"]["passed_fold_count"] == 3
+    assert report["walk_forward_independent_confirmation"] is False
+    assert report["walk_forward_tolerance_selected_post_hoc"] is True
     assert report["development_status"] == "PASS"
-    assert report["research_forward_observation_ready"] is True
+    assert report["research_forward_observation_ready"] is False
+    assert report["historical_observation_protocol_ready"] is False
+    assert report["real_time_shadow_ready"] is False
     assert report["development_data"][
         "existing_2026_data_used_for_selection_or_evaluation"
     ] is False
     assert report["future_forward_protocol"][
-        "data_must_be_later_than"
-    ] == "2026-08-30"
+        "model_excluded_observation_start"
+    ] == "2026-01-01"
+    assert report["future_forward_protocol"][
+        "researcher_exposed_observation_end"
+    ] == "2026-07-17"
+    assert report["future_forward_protocol"][
+        "performance_acceptance_gates_frozen"
+    ] is False
     assert report["release_status"] == "BLOCKED"
     assert report["promotion_eligible"] is False
     assert report["brokerage_or_trading_authorized"] is False
