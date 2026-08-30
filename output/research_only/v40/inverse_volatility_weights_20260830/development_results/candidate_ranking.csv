@@ -1,0 +1,4 @@
+candidate,training_eligible,selection_years,required_positive_training_years,positive_training_years_50bps,worst_annual_training_excess_50bps,compounded_training_excess_30bps,compounded_training_excess_50bps,strategy_drawdown_50bps,drawdown_lag_50bps,turnover_50bps,average_invested_50bps,final_evidence,rank
+inverse_volatility_weight_power_1.5,False,"[2020, 2021, 2022, 2023, 2024, 2025]",4,5,-0.1948004149734357,2.54745214105485,1.8709386319584556,-0.3141814858229075,0.0,70.35260634782404,0.7917771883289124,False,1
+inverse_volatility_weight_power_1,False,"[2020, 2021, 2022, 2023, 2024, 2025]",4,5,-0.15466906972943661,2.8459543459852505,2.146597970993104,-0.31782532039878864,0.0,68.62576219401777,0.7917771883289124,False,2
+inverse_volatility_weight_power_0.5,False,"[2020, 2021, 2022, 2023, 2024, 2025]",4,5,-0.08465625043075709,3.194236875646881,2.477991131558927,-0.32177030682029883,0.0,65.87442432294573,0.7917771883289123,False,3

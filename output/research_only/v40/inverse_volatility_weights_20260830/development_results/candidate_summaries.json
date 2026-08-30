@@ -1,0 +1,494 @@
+{
+  "inverse_volatility_weight_power_0.5": {
+    "costs": {
+      "10": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.49481214803417894,
+            "strategy": 0.9312166210477741,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.1529865169445257,
+            "strategy": 0.36687758925515435,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24220558418256688,
+            "strategy": -0.08879467138198971,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.02204802708592779,
+            "strategy": 0.41218301258323686,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.14097552425822268,
+            "strategy": 0.42738799108957504,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.15801534860619681,
+            "strategy": 0.36159059314175357,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 4.011380218003756,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 5.601709780909921,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.31504556532164096,
+        "turnover": 66.01238694125217,
+        "worst_annual_training_excess_vs_nasdaq": -0.02204802708592779
+      },
+      "30": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.44750699883362755,
+            "strategy": 0.8839114718472227,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.11663742818147349,
+            "strategy": 0.33052850049210214,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.23887142090346158,
+            "strategy": -0.092128834661095,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.05370150426541387,
+            "strategy": 0.3805295354037508,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.0974644805255791,
+            "strategy": 0.38387694735693145,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.12693658701085098,
+            "strategy": 0.33051183154640773,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 3.194236875646881,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.784566438553045,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.3171658668969729,
+        "turnover": 65.9425651436695,
+        "worst_annual_training_excess_vs_nasdaq": -0.05370150426541387
+      },
+      "50": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.40136568911220105,
+            "strategy": 0.8377701621257962,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.08123550815293723,
+            "strategy": 0.2951265804635659,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.23554482447599845,
+            "strategy": -0.09545543108855814,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.08465625043075709,
+            "strategy": 0.34957478923840757,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.05525949075972081,
+            "strategy": 0.34167195759107316,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.09655662526645004,
+            "strategy": 0.3001318698020068,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289123,
+        "compounded_excess_vs_nasdaq": 2.477991131558927,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.068320694465092,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.32177030682029883,
+        "turnover": 65.87442432294573,
+        "worst_annual_training_excess_vs_nasdaq": -0.08465625043075709
+      }
+    },
+    "final_comparison_years": [],
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true
+  },
+  "inverse_volatility_weight_power_1": {
+    "costs": {
+      "10": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.47114863031418075,
+            "strategy": 0.907553103327776,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.13650478938458943,
+            "strategy": 0.3503958616952181,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24715524537787248,
+            "strategy": -0.08384501018668411,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.0914363126659199,
+            "strategy": 0.34279472700324476,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.1582145436904081,
+            "strategy": 0.44462701052176046,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.15919421716225757,
+            "strategy": 0.3627694616978143,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 3.648375250873323,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 5.238704813779488,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.310814901633918,
+        "turnover": 68.78403769319029,
+        "worst_annual_training_excess_vs_nasdaq": -0.0914363126659199
+      },
+      "30": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.42221815889220604,
+            "strategy": 0.8586226319058012,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.0998036435713654,
+            "strategy": 0.31369471588199405,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24368337771235882,
+            "strategy": -0.08731687785219777,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.12343135806107641,
+            "strategy": 0.31079968160808824,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.11266464534772935,
+            "strategy": 0.3990771121790817,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.12662939088552405,
+            "strategy": 0.3302046354210808,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289123,
+        "compounded_excess_vs_nasdaq": 2.8459543459852505,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.436283908891415,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.313078463612519,
+        "turnover": 68.70477642836101,
+        "worst_annual_training_excess_vs_nasdaq": -0.12343135806107641
+      },
+      "50": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.374541211573985,
+            "strategy": 0.8109456845875802,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.06408587606022564,
+            "strategy": 0.2779769483708543,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24022004316119938,
+            "strategy": -0.09078021240335721,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.15466906972943661,
+            "strategy": 0.27956196993972804,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.06854914578165938,
+            "strategy": 0.35496161261301173,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.09483251348947364,
+            "strategy": 0.2984077580250304,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 2.146597970993104,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 3.7369275338992685,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.31782532039878864,
+        "turnover": 68.62576219401777,
+        "worst_annual_training_excess_vs_nasdaq": -0.15466906972943661
+      }
+    },
+    "final_comparison_years": [],
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true
+  },
+  "inverse_volatility_weight_power_1.5": {
+    "costs": {
+      "10": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.43809509457950147,
+            "strategy": 0.8744995675930967,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.13246497313467254,
+            "strategy": 0.3463560454453012,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.2520132582418505,
+            "strategy": -0.07898699732270609,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.1310619921409386,
+            "strategy": 0.30316904752822604,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.15069583887767002,
+            "strategy": 0.43710830570902237,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.15560326529462354,
+            "strategy": 0.3591785098301803,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 3.3263464085183547,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.916675971424519,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.30715931106207517,
+        "turnover": 70.5180742190408,
+        "worst_annual_training_excess_vs_nasdaq": -0.1310619921409386
+      },
+      "30": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.3888314093930165,
+            "strategy": 0.8252358824066117,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.095271621314722,
+            "strategy": 0.30916269362535065,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24840196812563375,
+            "strategy": -0.08259828743892283,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.16332602755300907,
+            "strategy": 0.2709050121161556,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.10434234600189685,
+            "strategy": 0.3907548128332492,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.12241344112994201,
+            "strategy": 0.32598868566549877,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289123,
+        "compounded_excess_vs_nasdaq": 2.54745214105485,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.137781703961014,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.3094113217740946,
+        "turnover": 70.43520944642071,
+        "worst_annual_training_excess_vs_nasdaq": -0.16332602755300907
+      },
+      "50": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.3408603462593145,
+            "strategy": 0.7772648192729097,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.05910124763049529,
+            "strategy": 0.27299231994112394,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.24480023133788498,
+            "strategy": -0.08620002422667161,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": -0.1948004149734357,
+            "strategy": 0.23943062469572896,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.05947230419293059,
+            "strategy": 0.34588477102428294,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.09002223431254808,
+            "strategy": 0.29359747884810483,
+            "year": 2025
+          }
+        ],
+        "average_invested": 0.7917771883289124,
+        "compounded_excess_vs_nasdaq": 1.8709386319584556,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 3.46126819486462,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 5,
+        "strategy_maximum_drawdown": -0.3141814858229075,
+        "turnover": 70.35260634782404,
+        "worst_annual_training_excess_vs_nasdaq": -0.1948004149734357
+      }
+    },
+    "final_comparison_years": [],
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true
+  }
+}

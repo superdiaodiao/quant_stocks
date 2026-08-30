@@ -1,0 +1,5 @@
+selection_years,test_year,selected_candidate,training_gates_passed,test_excess_vs_nasdaq_50bps,test_status,final_evidence
+"[2020, 2021]",2022,inverse_volatility_weight_power_1.5,False,0.24480023133788498,PASS,False
+"[2020, 2021, 2022]",2023,inverse_volatility_weight_power_1.5,False,-0.1948004149734357,BLOCKED,False
+"[2020, 2021, 2022, 2023]",2024,inverse_volatility_weight_power_1.5,False,0.05947230419293059,PASS,False
+"[2020, 2021, 2022, 2023, 2024]",2025,inverse_volatility_weight_power_1.5,False,0.09002223431254808,PASS,False

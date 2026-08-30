@@ -1,0 +1,179 @@
+{
+  "benchmark": "NASDAQ_COMPOSITE",
+  "brokerage_or_trading_authorized": false,
+  "candidate_count": 3,
+  "candidate_grid": [
+    {
+      "key": "weekly_breadth_40pct_above_sma20",
+      "minimum_healthy_holding_fraction": 0.4,
+      "moving_average_trading_days": 20,
+      "risk_off_asset": "CASH",
+      "risk_rebalance_frequency": "weekly",
+      "stock_selection_frequency": "monthly_frozen"
+    },
+    {
+      "key": "weekly_breadth_60pct_above_sma20",
+      "minimum_healthy_holding_fraction": 0.6,
+      "moving_average_trading_days": 20,
+      "risk_off_asset": "CASH",
+      "risk_rebalance_frequency": "weekly",
+      "stock_selection_frequency": "monthly_frozen"
+    },
+    {
+      "key": "weekly_breadth_80pct_above_sma20",
+      "minimum_healthy_holding_fraction": 0.8,
+      "moving_average_trading_days": 20,
+      "risk_off_asset": "CASH",
+      "risk_rebalance_frequency": "weekly",
+      "stock_selection_frequency": "monthly_frozen"
+    }
+  ],
+  "contains_index_etf_holdings": false,
+  "cost_bps": [
+    10,
+    30,
+    50
+  ],
+  "evaluation_boundary": {
+    "2026_used_for_parameter_selection": false,
+    "architecture_isolated_from_2026": false,
+    "development_end": "2025-12-31",
+    "development_start": "2020-01-01",
+    "final_comparison_years": [],
+    "parameter_isolated_from_2026": true,
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true,
+    "true_prospective_start": "2026-08-31"
+  },
+  "frozen_at": "2026-08-30T16:58:01+08:00",
+  "input_bindings": {
+    "data_quality": {
+      "path": "src/research/data_quality.py",
+      "sha256": "dcf1ded4f60024dba43e0c0bb648c23d0734a189bacdfb17f4a985540e66768c"
+    },
+    "nasdaq_index": {
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e"
+    },
+    "price_directory": {
+      "content_manifest_sha256": "a8b944e74470afb377c22a7b533ddf1207397d3a285bd8ab0ca548235c13c715",
+      "file_count": 4403,
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/price",
+      "pattern": "*.csv"
+    },
+    "runner": {
+      "path": "scripts/research_v38_weekly_holding_breadth_development.py",
+      "sha256": "fa4b9e3c9207b7bb2d953f7d1d6e67d2886914877239c8fb857228d4a2cf21c7"
+    },
+    "target_replay": {
+      "path": "src/research/can_slim.py",
+      "sha256": "f08797f5b1b07b3d6f41251cd259cab503a6e8e4e2ba43a936a18b7c217c42e5"
+    },
+    "v30_manifest": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/manifest.json",
+      "sha256": "43a4b27c0f7a717ace0858535c9017a6e8ca11793f32762b2c32ece7e7f2a146"
+    },
+    "v30_targets": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_targets.csv",
+      "sha256": "e9b523c47aa047026addf5533024b9a45ba24d6a40e2568891b2d05c2cfc83bd"
+    },
+    "v35_evaluation_helpers": {
+      "path": "scripts/research_v35_weekly_volatility_budget_development.py",
+      "sha256": "08d7ac7c93d867ccd9ab3073727888b3c4777503e3b4ceda5f84d19cb9d4292a"
+    },
+    "v37_manifest": {
+      "path": "output/research_only/v37/breadth_stop_development_20260830/development_results/manifest.json",
+      "sha256": "c6a4589c9d329f53bfc9871081a14d28ba51437c04b321ba8427d08ad0656760"
+    }
+  },
+  "parameters_frozen_before_development": true,
+  "policy": {
+    "forbidden_index_etfs": [
+      "ONEQ",
+      "PSQ",
+      "QLD",
+      "QQQ",
+      "QQQM",
+      "SPY",
+      "SQQQ",
+      "TQQQ"
+    ],
+    "health_signal": "prior close above prior 20-session moving average",
+    "risk_decision": "minimum healthy fraction among selected names",
+    "risk_off_asset": "CASH",
+    "risk_on_exposure": 1.0,
+    "risk_rebalance": "weekly next trading close",
+    "stock_selection": "frozen v30 monthly Top-5 targets"
+  },
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "schema_version": 1,
+  "selection_order": [
+    "training eligible first",
+    "absolute drawdown at 50bps ascending",
+    "drawdown lag at 50bps ascending",
+    "worst annual training excess at 50bps descending",
+    "compounded training excess at 50bps descending",
+    "turnover at 50bps ascending",
+    "candidate key ascending"
+  ],
+  "source_diagnosis": {
+    "2026_used_for_breadth_threshold_selection": false,
+    "2026_used_to_motivate_architecture": true,
+    "base_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "v37_breadth_stop_grid_rejected_before_observation": true
+  },
+  "stage": "V38_WEEKLY_HOLDING_BREADTH_PRECOMMITMENT",
+  "status": "FROZEN_NOT_DEVELOPED",
+  "training_eligibility_gates": {
+    "label": "TRAINING_DIAGNOSTIC_NOT_FINAL_EVIDENCE",
+    "maximum_absolute_drawdown_percentage_points_at_50bps": 25.0,
+    "maximum_drawdown_lag_percentage_points_at_50bps": 10.0,
+    "minimum_positive_training_year_rate_at_50bps": 0.6666666666666666,
+    "positive_compounded_excess_at_30_and_50bps": true
+  },
+  "walk_forward_folds": [
+    {
+      "selection_years": [
+        2020,
+        2021
+      ],
+      "test_year": 2022
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022
+      ],
+      "test_year": 2023
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_year": 2024
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_year": 2025
+    }
+  ]
+}
