@@ -1,0 +1,187 @@
+{
+  "broker_connection_used": false,
+  "capital_allocated": false,
+  "code_commit": "4c01ef25cc901df9fb1096f3e7f8ef6f9a2f90fd",
+  "contains_index_etf_holdings": false,
+  "development_evidence": {
+    "development_status": "PASS",
+    "maximum_allowed_drawdown_50bps": 0.33640750863040947,
+    "positive_training_years_50bps": 6,
+    "strategy_drawdown_50bps": 0.3281230050021945,
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_counted_as_official_wins": 0,
+    "v47_manifest": {
+      "path": "output/research_only/v47/hybrid_entry_portfolio_stop_20260830/development_results/manifest.json",
+      "sha256": "58f67e1c0294557925c6c0b21849d39d145612039b3bc0bbe80c681165c0a336"
+    }
+  },
+  "evaluation": {
+    "official_score_requires_complete_prospective_periods": true,
+    "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
+    "researcher_exposed_2026_diagnostic_is_never_counted_as_a_win": true,
+    "secondary_benchmark": "QQQ_TOTAL_RETURN_REFERENCE_ONLY",
+    "training_years_are_never_counted_as_wins": true,
+    "transaction_cost_bps": [
+      10,
+      30,
+      50
+    ]
+  },
+  "evidence_partition": {
+    "2019": {
+      "counts_as_official_comparison": false,
+      "role": "BASE_SELECTOR_AND_ADJUDICATED_SELECTION_PATH"
+    },
+    "2020_2025": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "TRAINING_AND_MODEL_SELECTION_ONLY",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    "2026_01_07": {
+      "counts_as_official_comparison": false,
+      "end": "2026-07-31",
+      "official_year_wins": 0,
+      "role": "RESEARCHER_EXPOSED_REUSED_DIAGNOSTIC",
+      "start": "2026-01-01"
+    },
+    "prospective": {
+      "counts_as_official_comparison": true,
+      "first_signal_date": "2026-08-31",
+      "performance_start": "first common trading-session close after frozen signal"
+    }
+  },
+  "frozen_at": "2026-08-30T14:12:10+00:00",
+  "immutability": {
+    "deterministic_signal_recovery_allowed": true,
+    "ledger_mode": "append_only_sha256_chain",
+    "protocol_overwrite_allowed": false,
+    "signal_overwrite_allowed": false
+  },
+  "input_bindings": {
+    "runner": {
+      "path": "scripts/research_v48_isolated_prospective_v47_observation.py",
+      "sha256": "38f2c31835c52d1bb2fe6b835b83ebec34346cb0a05e821e4ff5a370ea7e8108"
+    },
+    "v42_calculation_core": {
+      "path": "/Users/bytedance/code/quant_stocks/scripts/research_v42_prospective_v28_observation.py",
+      "sha256": "6c68022ee64aa9c7241ef4c05783e68c9110a8f18fb0148e5acbb2264bc74c35"
+    },
+    "v43_ledger": {
+      "path": "output/research_only/v43/v28_prospective_20260830/prospective_ledger.jsonl",
+      "sha256": "7217fcda0b1f661e5c2626987306d3c5ca2fc7be30c490fffa3e75a93df60017"
+    },
+    "v43_protocol": {
+      "path": "output/research_only/v43/v28_prospective_20260830/frozen_protocol.json",
+      "sha256": "80ab6be99b67e4cc88d862121c45927fb1faae8c223b925726ada6914c42f805"
+    },
+    "v43_runtime_core": {
+      "path": "/Users/bytedance/code/quant_stocks/scripts/research_v43_isolated_prospective_v28_observation.py",
+      "sha256": "329b876362ab0f49bf9a642fd4b27b8fadcfdb6ed7bbbe57d3abb7280f05442c"
+    },
+    "v47_manifest": {
+      "path": "output/research_only/v47/hybrid_entry_portfolio_stop_20260830/development_results/manifest.json",
+      "sha256": "58f67e1c0294557925c6c0b21849d39d145612039b3bc0bbe80c681165c0a336"
+    },
+    "v47_protocol": {
+      "path": "output/research_only/v47/hybrid_entry_portfolio_stop_20260830/frozen_protocol.json",
+      "sha256": "bac6799132340cbb855f6aa4b1f829dde05e586507202d90d4be65a189388190"
+    },
+    "v47_runner": {
+      "path": "/Users/bytedance/code/quant_stocks/scripts/research_v47_hybrid_entry_portfolio_stop.py",
+      "sha256": "d8c6ad318ace401783e79af3b48ebabc16eed723845928e23ab41c1b3c963a77"
+    }
+  },
+  "model": {
+    "risk_specification": {
+      "entry_loss_fraction": 0.2,
+      "entry_reference": "adjusted close at latest monthly rebalance",
+      "execution": "next_trading_close",
+      "key": "entry_loss_20pct_plus_portfolio_trailing_stop_25pct",
+      "portfolio_peak_reset": "latest monthly rebalance",
+      "portfolio_trailing_stop_fraction": 0.25,
+      "reentry": "next_frozen_monthly_target_only",
+      "risk_off_asset": "CASH",
+      "signal_frequency": "daily_close",
+      "trailing_stop_fraction": 0.25
+    },
+    "selector_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "selector_specification": {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    }
+  },
+  "model_version": "v48-isolated-v47-entry20-portfolio25",
+  "order_created": false,
+  "parameters_frozen_before_prospective_data": true,
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_policy": {
+    "entry_loss_fraction": 0.2,
+    "entry_reference": "adjusted close at latest monthly rebalance",
+    "execution": "next common trading-session close",
+    "portfolio_peak_reset": "latest monthly rebalance",
+    "portfolio_trailing_stop_fraction": 0.25,
+    "reentry": "next frozen monthly target only",
+    "signal_frequency": "daily completed close"
+  },
+  "runtime_isolation": {
+    "companyfacts_cache_mode": "hardlink_clone_then_atomic_replace",
+    "formal_financial_files_writable": false,
+    "formal_market_files_writable": false,
+    "qqq_rows_after_bundle_as_of_allowed": false,
+    "shared_companyfacts_cache_writable": false
+  },
+  "schema_version": 1,
+  "signal_policy": {
+    "chronology": "strictly_increasing_signal_and_execution_dates",
+    "execution": "next common trading-session close",
+    "forbidden_etfs": [
+      "ONEQ",
+      "PSQ",
+      "QLD",
+      "QQQ",
+      "QQQM",
+      "SPY",
+      "SQQQ",
+      "TQQQ"
+    ],
+    "frequency": "completed calendar-month final Nasdaq session",
+    "holdings": "individual common equities or cash only"
+  },
+  "status": "FROZEN_WAITING_FOR_FIRST_SIGNAL",
+  "supersedes": {
+    "ledger": {
+      "path": "output/research_only/v43/v28_prospective_20260830/prospective_ledger.jsonl",
+      "sha256": "7217fcda0b1f661e5c2626987306d3c5ca2fc7be30c490fffa3e75a93df60017"
+    },
+    "model_version": "v43-isolated-v28-stock-only-trailing-stop-25pct",
+    "protocol": {
+      "path": "output/research_only/v43/v28_prospective_20260830/frozen_protocol.json",
+      "sha256": "80ab6be99b67e4cc88d862121c45927fb1faae8c223b925726ada6914c42f805"
+    },
+    "reason": "v47 passed every frozen training and drawdown gate before the first v43 prospective signal",
+    "v43_signal_count": 0
+  }
+}

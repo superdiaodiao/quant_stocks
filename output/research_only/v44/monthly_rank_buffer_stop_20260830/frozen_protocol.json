@@ -1,0 +1,222 @@
+{
+  "benchmark": "NASDAQ_COMPOSITE",
+  "broker_connection_used": false,
+  "brokerage_or_trading_authorized": false,
+  "candidate_count": 3,
+  "candidate_grid": [
+    {
+      "individual_trailing_stop_fraction": 0.25,
+      "key": "rank_buffer_1x_individual_stop_25pct",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "stopped_position_reentry": "next_monthly_rebalance_only",
+      "top_n": 5,
+      "weighting": "equal_weight"
+    },
+    {
+      "individual_trailing_stop_fraction": 0.25,
+      "key": "rank_buffer_2x_individual_stop_25pct",
+      "rank_buffer_multiple": 2,
+      "signal_frequency": "monthly",
+      "stopped_position_reentry": "next_monthly_rebalance_only",
+      "top_n": 5,
+      "weighting": "equal_weight"
+    },
+    {
+      "individual_trailing_stop_fraction": 0.25,
+      "key": "rank_buffer_3x_individual_stop_25pct",
+      "rank_buffer_multiple": 3,
+      "signal_frequency": "monthly",
+      "stopped_position_reentry": "next_monthly_rebalance_only",
+      "top_n": 5,
+      "weighting": "equal_weight"
+    }
+  ],
+  "capital_allocated": false,
+  "contains_index_etf_holdings": false,
+  "controlled_dimension": {
+    "rank_buffer_multiple": [
+      1,
+      2,
+      3
+    ],
+    "retention_rule": "retain an existing target while it remains inside Top-N times rank_buffer_multiple at the completed monthly signal"
+  },
+  "cost_bps": [
+    10,
+    30,
+    50
+  ],
+  "evaluation_boundary": {
+    "2019_role": "base selector development and source-locked selection-path adjudication; not rank-buffer parameter selection",
+    "2026_used_for_parameter_selection": false,
+    "architecture_isolated_from_2026": false,
+    "development_end": "2025-12-31",
+    "development_start": "2020-01-01",
+    "final_comparison_years": [],
+    "parameter_isolated_from_2026": true,
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true,
+    "true_prospective_start": "2026-08-31"
+  },
+  "fixed_model": {
+    "forbidden_index_etfs": [
+      "ONEQ",
+      "PSQ",
+      "QLD",
+      "QQQ",
+      "QQQM",
+      "SPY",
+      "SQQQ",
+      "TQQQ"
+    ],
+    "individual_trailing_stop_fraction": 0.25,
+    "reentry": "next frozen monthly target only",
+    "risk_off_asset": "CASH",
+    "selector": {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    "stop_execution": "next trading close after completed daily close signal",
+    "stopped_weight": "CASH",
+    "top_n": 5,
+    "weighting": "equal 20 percent slots; missing slots remain cash"
+  },
+  "frozen_at": "2026-08-30T21:39:03+08:00",
+  "input_bindings": {
+    "nasdaq_index": {
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e"
+    },
+    "price_directory": {
+      "content_manifest_sha256": "a8b944e74470afb377c22a7b533ddf1207397d3a285bd8ab0ca548235c13c715",
+      "file_count": 4403,
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/price",
+      "pattern": "*.csv"
+    },
+    "runner": {
+      "path": "scripts/research_v44_monthly_rank_buffer_stop_development.py",
+      "sha256": "472e3a2b09e90339e00bda9cf95f1c831f6a647914524c9a28abe7948e538d00"
+    },
+    "universe_snapshots": {
+      "content_manifest_sha256": "d3687b546ac56db5fe6e98d50cba17fd6c5253a6d89cfd040dd51006c1c8087e",
+      "file_count": 370,
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/snapshots",
+      "pattern": "nasdaq_listed_*.csv"
+    },
+    "v26_selector": {
+      "path": "scripts/research_v26_large_liquid_stock_momentum.py",
+      "sha256": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf"
+    },
+    "v28_stop_replay": {
+      "path": "scripts/research_v28_stock_trailing_stop_development.py",
+      "sha256": "2c16e113c2f5901b1297b3cb94dba4ac4820b009ff2bbd4f30286b19b8cb7ac2"
+    },
+    "v30_manifest": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/manifest.json",
+      "sha256": "43a4b27c0f7a717ace0858535c9017a6e8ca11793f32762b2c32ece7e7f2a146"
+    },
+    "v30_targets": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_targets.csv",
+      "sha256": "e9b523c47aa047026addf5533024b9a45ba24d6a40e2568891b2d05c2cfc83bd"
+    },
+    "v33_evaluation_helpers": {
+      "path": "scripts/research_v33_portfolio_stop_development.py",
+      "sha256": "1c2e0609fc8dea16465914e180c81cf16ebea95a6d65165149f9a0f51ac2f340"
+    },
+    "v43_ledger": {
+      "path": "output/research_only/v43/v28_prospective_20260830/prospective_ledger.jsonl",
+      "sha256": "7217fcda0b1f661e5c2626987306d3c5ca2fc7be30c490fffa3e75a93df60017"
+    },
+    "v43_protocol": {
+      "path": "output/research_only/v43/v28_prospective_20260830/frozen_protocol.json",
+      "sha256": "80ab6be99b67e4cc88d862121c45927fb1faae8c223b925726ada6914c42f805"
+    }
+  },
+  "objective": "Reduce monthly replacement churn without changing the frozen stock selector, equal weights, or 25 percent individual stop.",
+  "order_created": false,
+  "parameters_frozen_before_development": true,
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "schema_version": 1,
+  "selection_order": [
+    "eligible first",
+    "worst annual training excess at 50bps descending",
+    "absolute strategy drawdown at 50bps ascending",
+    "turnover at 50bps ascending",
+    "compounded training excess at 50bps descending",
+    "candidate key ascending"
+  ],
+  "source_diagnosis": {
+    "2026_used_for_buffer_selection": false,
+    "2026_used_to_motivate_architecture": true,
+    "base_risk_policy": "individual_trailing_stop_25pct",
+    "base_selector": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "v30_2019_selection_path_complete": true,
+    "v43_signal_count_at_freeze": 0
+  },
+  "stage": "V44_MONTHLY_RANK_BUFFER_STOP_PRECOMMITMENT",
+  "status": "FROZEN_NOT_DEVELOPED",
+  "training_eligibility_gates": {
+    "all_expanding_next_year_diagnostics_pass": true,
+    "label": "TRAINING_DIAGNOSTIC_NOT_FINAL_EVIDENCE",
+    "positive_compounded_excess_at_30_and_50bps": true,
+    "positive_each_training_year_at_50bps": true,
+    "strategy_drawdown_at_50bps_no_worse_than_1x_baseline": true
+  },
+  "v43_replacement_rule": {
+    "development_pass_does_not_authorize_broker_or_orders": true,
+    "v43_must_still_have_zero_signal_events_at_replacement": true,
+    "v43_remains_frozen_baseline_unless_v44_development_status_passes": true
+  },
+  "walk_forward_folds": [
+    {
+      "selection_years": [
+        2020,
+        2021
+      ],
+      "test_year": 2022
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022
+      ],
+      "test_year": 2023
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_year": 2024
+    },
+    {
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_year": 2025
+    }
+  ]
+}

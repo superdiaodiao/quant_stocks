@@ -1,0 +1,5 @@
+selection_years,test_year,selected_candidate,training_gates_passed,test_excess_vs_nasdaq_50bps,test_status,final_evidence
+"[2020, 2021]",2022,monthly_entry_loss_stop_25pct,True,0.20942373107099765,PASS,False
+"[2020, 2021, 2022]",2023,monthly_entry_loss_stop_25pct,True,-0.029913448979546287,BLOCKED,False
+"[2020, 2021, 2022, 2023]",2024,monthly_entry_loss_stop_20pct,True,0.07351524606803816,PASS,False
+"[2020, 2021, 2022, 2023, 2024]",2025,monthly_entry_loss_stop_20pct,True,0.02285046555974901,PASS,False

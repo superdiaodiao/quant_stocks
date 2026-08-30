@@ -1,0 +1,19 @@
+{
+  "reason": "v47 passed every predeclared development gate; no v43 prospective signal, execution, or valuation was discarded",
+  "recorded_at": "2026-08-30T14:12:12+00:00",
+  "schema_version": 1,
+  "status": "SUPERSEDED_BEFORE_FIRST_SIGNAL",
+  "successor_protocol": {
+    "path": "output/research_only/v48/v47_prospective_20260830/frozen_protocol.json",
+    "sha256": "e717ff441b9b3804579df35fc470d5f961d8b09402691a3704de1dca649978ef"
+  },
+  "v43_ledger": {
+    "path": "output/research_only/v43/v28_prospective_20260830/prospective_ledger.jsonl",
+    "sha256": "7217fcda0b1f661e5c2626987306d3c5ca2fc7be30c490fffa3e75a93df60017"
+  },
+  "v43_protocol": {
+    "path": "output/research_only/v43/v28_prospective_20260830/frozen_protocol.json",
+    "sha256": "80ab6be99b67e4cc88d862121c45927fb1faae8c223b925726ada6914c42f805"
+  },
+  "v43_signal_count": 0
+}
