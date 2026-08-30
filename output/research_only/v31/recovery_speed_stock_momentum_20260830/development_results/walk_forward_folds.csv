@@ -1,0 +1,5 @@
+selection_years,test_year,selected_candidate,training_gates_passed,test_excess_vs_nasdaq_50bps,test_status
+"[2019, 2020, 2021]",2022,mom63_marketma0_liquid25_top10_profitable_monthly,False,0.04876037947654965,PASS
+"[2019, 2020, 2021, 2022]",2023,mom63_marketma0_liquid25_top10_profitable_monthly,False,-0.13855579057321976,BLOCKED
+"[2019, 2020, 2021, 2022, 2023]",2024,mom63_marketma200_liquid25_top5_profitable_monthly,False,0.05970945733747146,PASS
+"[2019, 2020, 2021, 2022, 2023, 2024]",2025,mom63_marketma200_liquid25_top5_profitable_monthly,False,0.09227010197062624,PASS

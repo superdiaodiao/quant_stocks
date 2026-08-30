@@ -1,0 +1,379 @@
+{
+  "2026_used_for_threshold_selection": false,
+  "all_walk_forward_folds_passed": false,
+  "brokerage_or_trading_authorized": false,
+  "contains_index_etf_holdings": false,
+  "development_status": "PASS",
+  "evaluation_boundary": {
+    "2026_used_for_threshold_selection": false,
+    "architecture_isolated_from_2026": false,
+    "development_end": "2025-12-31",
+    "development_start": "2020-01-01",
+    "final_comparison_years": [],
+    "threshold_isolated_from_2026": true,
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true,
+    "true_prospective_start": "2026-08-31"
+  },
+  "final_comparison_years": [],
+  "outputs": {
+    "candidate_ranking": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/candidate_ranking.csv",
+      "sha256": "53f2c6e1ed3338b65c7152c40b9c752d4cfff197a3c75fb8661f24a1a8b88814"
+    },
+    "candidate_summaries": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/candidate_summaries.json",
+      "sha256": "d59a527faee79ff57fa4f38931aba0f6eaa723f7922065afa6c972ef3a0af486"
+    },
+    "selected_daily_10bps": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/selected_daily_10bps.csv",
+      "sha256": "0881c049b5773242a80777c3100e4dcf4de65240aedc4c933b02ca39c4d0d867"
+    },
+    "selected_daily_30bps": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/selected_daily_30bps.csv",
+      "sha256": "01450e8a3b4165c94dbac6edaac625eabfc5dca5180745b7812488d92d779de1"
+    },
+    "selected_daily_50bps": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/selected_daily_50bps.csv",
+      "sha256": "003449f8d3864def23ded9e0e18523024b23a6e086cc4c1aea55ea50d964b329"
+    },
+    "walk_forward_training_diagnostics": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/walk_forward_training_diagnostics.csv",
+      "sha256": "1bd19ff5d0f3823ffc9c3a3c5786e5fbc811f04ca2b43570ff2384d8cd641499"
+    }
+  },
+  "promotion_eligible": false,
+  "protocol": {
+    "path": "output/research_only/v33/portfolio_stop_development_20260830/frozen_protocol.json",
+    "sha256": "eedeb83442633954fd6e0a83018440b7647dd58341c10f81734a600c3fc88a1f"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_off_asset": "CASH",
+  "schema_version": 1,
+  "selected_candidate": "portfolio_trailing_stop_25pct",
+  "selected_specification": {
+    "execution": "next_trading_close",
+    "key": "portfolio_trailing_stop_25pct",
+    "portfolio_trailing_stop_fraction": 0.25,
+    "reentry": "next_frozen_monthly_target_only",
+    "sale_scope": "entire_stock_portfolio",
+    "signal_frequency": "daily_close"
+  },
+  "selected_summary": {
+    "costs": {
+      "10": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.3472474518028339,
+            "strategy": 0.7836519248164291,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.1771863664757385,
+            "strategy": 0.39107743878636714,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.2371553156113515,
+            "strategy": -0.09384493995320509,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.06748272508075481,
+            "strategy": 0.5017137647499195,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.1436791535928308,
+            "strategy": 0.43009162042418314,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.1884896831453311,
+            "strategy": 0.39206492768088785,
+            "year": 2025
+          }
+        ],
+        "compounded_excess_vs_nasdaq": 4.13129806186916,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 5.721627624775325,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 6,
+        "stop_exits": 2,
+        "strategy_maximum_drawdown": -0.3219549233127973,
+        "turnover": 64.13429652100277,
+        "worst_annual_training_excess_vs_nasdaq": 0.06748272508075481
+      },
+      "30": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.30602794659406496,
+            "strategy": 0.7424324196076602,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.14124379557806144,
+            "strategy": 0.3551348678886901,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.23387743635191915,
+            "strategy": -0.09712281921263743,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.03572223635685279,
+            "strategy": 0.46995327602601744,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.10106727909636604,
+            "strategy": 0.3874797459277184,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.15603684445200883,
+            "strategy": 0.3596120889875656,
+            "year": 2025
+          }
+        ],
+        "compounded_excess_vs_nasdaq": 3.321369795674572,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.911699358580736,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 6,
+        "stop_exits": 2,
+        "strategy_maximum_drawdown": -0.32362506337385677,
+        "turnover": 64.07747298072997,
+        "worst_annual_training_excess_vs_nasdaq": 0.03572223635685279
+      },
+      "50": {
+        "annual_training_diagnostics": [
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.2657437484890737,
+            "strategy": 0.7021482215026689,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.10620359671660418,
+            "strategy": 0.3200946690272328,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.2306065972179313,
+            "strategy": -0.10039365834662528,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.00461098405725191,
+            "strategy": 0.43884202372641656,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.05970945733746991,
+            "strategy": 0.34612192416882226,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.12432280825662745,
+            "strategy": 0.3278980527921842,
+            "year": 2025
+          }
+        ],
+        "compounded_excess_vs_nasdaq": 2.608639177374114,
+        "compounded_nasdaq": 1.5903295629061645,
+        "compounded_strategy": 4.198968740280279,
+        "drawdown_lag_vs_nasdaq": 0.0,
+        "nasdaq_maximum_drawdown": -0.3639528038019767,
+        "positive_training_years_vs_nasdaq": 6,
+        "stop_exits": 2,
+        "strategy_maximum_drawdown": -0.3252912070878117,
+        "turnover": 64.02158427544278,
+        "worst_annual_training_excess_vs_nasdaq": 0.00461098405725191
+      }
+    },
+    "final_comparison_years": [],
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true
+  },
+  "stage": "V33_PORTFOLIO_STOP_DEVELOPMENT_RESULT",
+  "training_ranking": [
+    {
+      "candidate": "portfolio_trailing_stop_25pct",
+      "compounded_training_excess_30bps": 3.321369795674572,
+      "compounded_training_excess_50bps": 2.608639177374114,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 6,
+      "rank": 1,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "training_eligible": true,
+      "turnover_50bps": 64.02158427544278,
+      "worst_annual_training_excess_50bps": 0.00461098405725191
+    },
+    {
+      "candidate": "portfolio_trailing_stop_20pct",
+      "compounded_training_excess_30bps": 3.2875600041456567,
+      "compounded_training_excess_50bps": 2.578905586639562,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 6,
+      "rank": 2,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "training_eligible": true,
+      "turnover_50bps": 64.02158427544278,
+      "worst_annual_training_excess_50bps": 0.0046109840572508
+    },
+    {
+      "candidate": "portfolio_trailing_stop_15pct",
+      "compounded_training_excess_30bps": 1.9474638154713309,
+      "compounded_training_excess_50bps": 1.34163909789482,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 4,
+      "rank": 3,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "training_eligible": true,
+      "turnover_50bps": 71.42237197883472,
+      "worst_annual_training_excess_50bps": -0.09703410600314855
+    },
+    {
+      "candidate": "portfolio_trailing_stop_10pct",
+      "compounded_training_excess_30bps": 0.8952114847531201,
+      "compounded_training_excess_50bps": 0.37244637167151806,
+      "drawdown_lag_50bps": 0.026233298158459872,
+      "final_evidence": false,
+      "positive_training_years_50bps": 3,
+      "rank": 4,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "training_eligible": false,
+      "turnover_50bps": 81.00382857503122,
+      "worst_annual_training_excess_50bps": -0.19591474593657798
+    }
+  ],
+  "training_years_counted_as_final_wins": false,
+  "walk_forward_pass_count": 3,
+  "walk_forward_training_diagnostics": [
+    {
+      "final_evidence": false,
+      "selected_candidate": "portfolio_trailing_stop_15pct",
+      "selection_years": [
+        2020,
+        2021
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.18490971246619303,
+      "test_status": "PASS",
+      "test_year": 2022,
+      "training_gates_passed": true
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "portfolio_trailing_stop_15pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022
+      ],
+      "test_excess_vs_nasdaq_50bps": -0.09703410600314855,
+      "test_status": "BLOCKED",
+      "test_year": 2023,
+      "training_gates_passed": true
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "portfolio_trailing_stop_25pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.05970945733746991,
+      "test_status": "PASS",
+      "test_year": 2024,
+      "training_gates_passed": true
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "portfolio_trailing_stop_25pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.12432280825662745,
+      "test_status": "PASS",
+      "test_year": 2025,
+      "training_gates_passed": true
+    }
+  ]
+}

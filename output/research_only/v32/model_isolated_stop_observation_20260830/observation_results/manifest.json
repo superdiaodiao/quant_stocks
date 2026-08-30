@@ -1,0 +1,289 @@
+{
+  "brokerage_or_trading_authorized": false,
+  "evaluation": {
+    "all_precommitted_gates_passed": false,
+    "costs": {
+      "10": {
+        "compounded_excess_vs_nasdaq": 0.2328835374119007,
+        "compounded_excess_vs_qqq": 0.2020367044919975,
+        "compounded_nasdaq": 0.09172450379678976,
+        "compounded_qqq": 0.12257133671669296,
+        "compounded_strategy": 0.32460804120869047,
+        "drawdown_lag_vs_nasdaq": 0.1720414498677728,
+        "monthly": [
+          {
+            "benchmark": 0.009458312304582828,
+            "excess_vs_nasdaq": 0.052812784519417066,
+            "month": "2026-01",
+            "qqq": 0.012306490208526366,
+            "strategy": 0.062271096823999894
+          },
+          {
+            "benchmark": -0.033825594092871336,
+            "excess_vs_nasdaq": 0.1902209007939326,
+            "month": "2026-02",
+            "qqq": -0.02344541463649974,
+            "strategy": 0.15639530670106128
+          },
+          {
+            "benchmark": -0.04753705740329761,
+            "excess_vs_nasdaq": -0.023787910761692843,
+            "month": "2026-03",
+            "qqq": -0.04839642491237106,
+            "strategy": -0.07132496816499045
+          },
+          {
+            "benchmark": 0.15292189250614685,
+            "excess_vs_nasdaq": -0.10298979566217414,
+            "month": "2026-04",
+            "qqq": 0.1569007935132889,
+            "strategy": 0.049932096843972706
+          },
+          {
+            "benchmark": 0.08357239645496928,
+            "excess_vs_nasdaq": 0.1183466657619392,
+            "month": "2026-05",
+            "qqq": 0.1056848473956924,
+            "strategy": 0.20191906221690847
+          },
+          {
+            "benchmark": -0.02813593933403602,
+            "excess_vs_nasdaq": 0.30477998135721995,
+            "month": "2026-06",
+            "qqq": -0.0014874763516965483,
+            "strategy": 0.27664404202318393
+          },
+          {
+            "benchmark": -0.0320393290231229,
+            "excess_vs_nasdaq": -0.24722556883837388,
+            "month": "2026-07",
+            "qqq": -0.06573872895165667,
+            "strategy": -0.2792648978614968
+          }
+        ],
+        "monthly_wins_vs_nasdaq": 4,
+        "nasdaq_maximum_drawdown": -0.12837960469371235,
+        "qqq_maximum_drawdown": -0.11724869684091721,
+        "stop_exits": 6,
+        "strategy_maximum_drawdown": -0.30042105456148516,
+        "turnover": 6.820223776563472
+      },
+      "30": {
+        "compounded_excess_vs_nasdaq": 0.21485463965416418,
+        "compounded_excess_vs_qqq": 0.18400780673426098,
+        "compounded_nasdaq": 0.09172450379678976,
+        "compounded_qqq": 0.12257133671669296,
+        "compounded_strategy": 0.30657914345095394,
+        "drawdown_lag_vs_nasdaq": 0.1738101747145172,
+        "monthly": [
+          {
+            "benchmark": 0.009458312304582828,
+            "excess_vs_nasdaq": 0.05069459688866118,
+            "month": "2026-01",
+            "qqq": 0.012306490208526366,
+            "strategy": 0.06015290919324401
+          },
+          {
+            "benchmark": -0.033825594092871336,
+            "excess_vs_nasdaq": 0.18743996635869675,
+            "month": "2026-02",
+            "qqq": -0.02344541463649974,
+            "strategy": 0.15361437226582542
+          },
+          {
+            "benchmark": -0.04753705740329761,
+            "excess_vs_nasdaq": -0.025564694202336535,
+            "month": "2026-03",
+            "qqq": -0.04839642491237106,
+            "strategy": -0.07310175160563415
+          },
+          {
+            "benchmark": 0.15292189250614685,
+            "excess_vs_nasdaq": -0.10434212351041361,
+            "month": "2026-04",
+            "qqq": 0.1569007935132889,
+            "strategy": 0.04857976899573324
+          },
+          {
+            "benchmark": 0.08357239645496928,
+            "excess_vs_nasdaq": 0.11595001758204493,
+            "month": "2026-05",
+            "qqq": 0.1056848473956924,
+            "strategy": 0.1995224140370142
+          },
+          {
+            "benchmark": -0.02813593933403602,
+            "excess_vs_nasdaq": 0.30273407867322943,
+            "month": "2026-06",
+            "qqq": -0.0014874763516965483,
+            "strategy": 0.2745981393391934
+          },
+          {
+            "benchmark": -0.0320393290231229,
+            "excess_vs_nasdaq": -0.24902278472726314,
+            "month": "2026-07",
+            "qqq": -0.06573872895165667,
+            "strategy": -0.28106211375038603
+          }
+        ],
+        "monthly_wins_vs_nasdaq": 4,
+        "nasdaq_maximum_drawdown": -0.12837960469371235,
+        "qqq_maximum_drawdown": -0.11724869684091721,
+        "stop_exits": 6,
+        "strategy_maximum_drawdown": -0.30218977940822955,
+        "turnover": 6.81516867027487
+      },
+      "50": {
+        "compounded_excess_vs_nasdaq": 0.19706972537782996,
+        "compounded_excess_vs_qqq": 0.16622289245792676,
+        "compounded_nasdaq": 0.09172450379678976,
+        "compounded_qqq": 0.12257133671669296,
+        "compounded_strategy": 0.2887942291746197,
+        "drawdown_lag_vs_nasdaq": 0.17557628511952483,
+        "monthly": [
+          {
+            "benchmark": 0.009458312304582828,
+            "excess_vs_nasdaq": 0.04858483985544071,
+            "month": "2026-01",
+            "qqq": 0.012306490208526366,
+            "strategy": 0.05804315216002354
+          },
+          {
+            "benchmark": -0.033825594092871336,
+            "excess_vs_nasdaq": 0.1846656862032665,
+            "month": "2026-02",
+            "qqq": -0.02344541463649974,
+            "strategy": 0.15084009211039517
+          },
+          {
+            "benchmark": -0.04753705740329761,
+            "excess_vs_nasdaq": -0.02733722432577712,
+            "month": "2026-03",
+            "qqq": -0.04839642491237106,
+            "strategy": -0.07487428172907473
+          },
+          {
+            "benchmark": 0.15292189250614685,
+            "excess_vs_nasdaq": -0.10569638770790668,
+            "month": "2026-04",
+            "qqq": 0.1569007935132889,
+            "strategy": 0.04722550479824017
+          },
+          {
+            "benchmark": 0.08357239645496928,
+            "excess_vs_nasdaq": 0.11356290830037952,
+            "month": "2026-05",
+            "qqq": 0.1056848473956924,
+            "strategy": 0.1971353047553488
+          },
+          {
+            "benchmark": -0.02813593933403602,
+            "excess_vs_nasdaq": 0.30068653762873254,
+            "month": "2026-06",
+            "qqq": -0.0014874763516965483,
+            "strategy": 0.2725505982946965
+          },
+          {
+            "benchmark": -0.0320393290231229,
+            "excess_vs_nasdaq": -0.25081735410138417,
+            "month": "2026-07",
+            "qqq": -0.06573872895165667,
+            "strategy": -0.28285668312450707
+          }
+        ],
+        "monthly_wins_vs_nasdaq": 4,
+        "nasdaq_maximum_drawdown": -0.12837960469371235,
+        "qqq_maximum_drawdown": -0.11724869684091721,
+        "stop_exits": 6,
+        "strategy_maximum_drawdown": -0.3039558898132372,
+        "turnover": 6.8101364995802784
+      }
+    },
+    "decision_months": [
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
+    ],
+    "gates": {
+      "all_decision_months_present": true,
+      "all_observation_months_present": true,
+      "drawdown_vs_nasdaq_50bps": false,
+      "monthly_wins_vs_nasdaq_50bps": true,
+      "no_forbidden_etf_targets": true,
+      "positive_excess_vs_nasdaq_30bps": true,
+      "positive_excess_vs_nasdaq_50bps": true
+    },
+    "observed_months": [
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
+    ],
+    "training_years_excluded_from_comparison": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "evaluation_boundary": {
+    "architecture_contamination_reason": "v28 trailing stops were introduced after viewing the v27 2026 drawdown failure",
+    "architecture_isolated_from_2026": false,
+    "observation_end": "2026-07-31",
+    "observation_months": [
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
+    ],
+    "observation_start": "2026-01-01",
+    "pristine_forward_test": false,
+    "threshold_isolated_from_2026": true,
+    "training_years_excluded_from_comparison": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "true_prospective_start": "2026-08-31"
+  },
+  "observation_status": "BLOCKED",
+  "outputs": {
+    "observed_daily_10bps": {
+      "path": "output/research_only/v32/model_isolated_stop_observation_20260830/observation_results/observed_daily_10bps.csv",
+      "sha256": "7640328a3236f66322f67317488c6912bf7d52540d973b6ec78b97de8d48844e"
+    },
+    "observed_daily_30bps": {
+      "path": "output/research_only/v32/model_isolated_stop_observation_20260830/observation_results/observed_daily_30bps.csv",
+      "sha256": "9d988986ec366e44638a9ebe1d8cfeed94a205423ff969b4d70fc60b184a0901"
+    },
+    "observed_daily_50bps": {
+      "path": "output/research_only/v32/model_isolated_stop_observation_20260830/observation_results/observed_daily_50bps.csv",
+      "sha256": "50d55e8218bc7995467acdbc1805b6e1f5a978b21f2a7f9eb3c207d373635369"
+    }
+  },
+  "promotion_eligible": false,
+  "protocol": {
+    "path": "output/research_only/v32/model_isolated_stop_observation_20260830/frozen_protocol.json",
+    "sha256": "85fde8d5ae6f49fa3ccee249a4ea7f94fa1db0fadfd36bed98039bca0b80233b"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "schema_version": 1,
+  "selected_stop": "individual_trailing_stop_25pct",
+  "stage": "V32_MODEL_ISOLATED_STOP_OBSERVATION_RESULT"
+}

@@ -1,0 +1,1083 @@
+{
+  "2026_used_for_development_or_selection": false,
+  "audit": {
+    "full_exchange_membership_recovered": false,
+    "identity_evidence": {
+      "current_ticker_first_date": "2022-06-09",
+      "historical_ticker": "FB",
+      "identity_type": "issuer_rename",
+      "last_historical_date": "2022-06-08",
+      "provider_ticker": "META",
+      "source_accession": "0001326801-22-000070",
+      "source_fact": "The 2022-05-31 Form 8-K states that Class A common stock would begin trading on Nasdaq under META before market open on 2022-06-09.",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1326801/000132680122000070/fb-20220531.htm"
+    },
+    "records": [
+      {
+        "adjudicated_universe_policy": "BOUNDING_SNAPSHOT_INTERSECTION",
+        "market_regime_on": true,
+        "next_snapshot_date": "2019-06-17",
+        "prior_snapshot_date": "2019-02-22",
+        "scenario_liquid_pool": {
+          "intersection": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL",
+            "CHTR",
+            "MSFT",
+            "LRCX",
+            "PYPL",
+            "CSCO",
+            "CSX",
+            "ADBE",
+            "CMCSA",
+            "AMZN",
+            "INTU",
+            "AVGO",
+            "ADI",
+            "PEP",
+            "LULU",
+            "MDLZ",
+            "TXN",
+            "COST",
+            "SBUX",
+            "AMAT",
+            "EBAY"
+          ],
+          "next": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL",
+            "CHTR",
+            "MSFT",
+            "LRCX",
+            "PYPL",
+            "CSCO",
+            "CSX",
+            "ADBE",
+            "CMCSA",
+            "AMZN",
+            "INTU",
+            "AVGO",
+            "ADI",
+            "PEP",
+            "LULU",
+            "MDLZ",
+            "TXN",
+            "COST",
+            "SBUX",
+            "AMAT",
+            "EBAY"
+          ],
+          "prior": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL",
+            "CHTR",
+            "MSFT",
+            "LRCX",
+            "PYPL",
+            "CSCO",
+            "CSX",
+            "ADBE",
+            "CMCSA",
+            "AMZN",
+            "INTU",
+            "AVGO",
+            "ADI",
+            "PEP",
+            "LULU",
+            "MDLZ",
+            "TXN",
+            "COST",
+            "SBUX",
+            "AMAT",
+            "EBAY"
+          ],
+          "union": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL",
+            "CHTR",
+            "MSFT",
+            "LRCX",
+            "PYPL",
+            "CSCO",
+            "CSX",
+            "ADBE",
+            "CMCSA",
+            "AMZN",
+            "INTU",
+            "AVGO",
+            "ADI",
+            "PEP",
+            "LULU",
+            "MDLZ",
+            "TXN",
+            "COST",
+            "SBUX",
+            "AMAT",
+            "EBAY"
+          ],
+          "unrestricted_price_panel": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL",
+            "CHTR",
+            "MSFT",
+            "LRCX",
+            "PYPL",
+            "HON",
+            "CSCO",
+            "CSX",
+            "ADBE",
+            "CMCSA",
+            "AMZN",
+            "INTU",
+            "AVGO",
+            "PEP",
+            "LULU",
+            "MDLZ",
+            "TXN",
+            "COST",
+            "SBUX",
+            "AMAT",
+            "EBAY"
+          ]
+        },
+        "scenario_selections": {
+          "intersection": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL"
+          ],
+          "next": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL"
+          ],
+          "prior": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL"
+          ],
+          "union": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL"
+          ],
+          "unrestricted_price_panel": [
+            "QCOM",
+            "ALGN",
+            "AMD",
+            "META",
+            "AAPL"
+          ]
+        },
+        "selection": [
+          "QCOM",
+          "ALGN",
+          "AMD",
+          "META",
+          "AAPL"
+        ],
+        "signal_date": "2019-04-30",
+        "status": "PASS_TOP5_STABLE_ACROSS_BOUNDING_AND_UNRESTRICTED"
+      },
+      {
+        "market_regime_on": false,
+        "next_snapshot_date": "2019-06-17",
+        "prior_snapshot_date": "2019-02-22",
+        "selection": [],
+        "signal_date": "2019-05-31",
+        "status": "PASS_RISK_OFF_NO_UNIVERSE_REQUIRED"
+      },
+      {
+        "adjudicated_universe_policy": "BOUNDING_SNAPSHOT_INTERSECTION",
+        "market_regime_on": true,
+        "next_snapshot_date": "2019-10-02",
+        "prior_snapshot_date": "2019-07-15",
+        "scenario_liquid_pool": {
+          "intersection": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST",
+            "AMGN",
+            "INTU",
+            "AAPL",
+            "BKNG",
+            "TXN",
+            "QCOM",
+            "ROST",
+            "MSFT",
+            "ADI",
+            "GOOG",
+            "GOOGL",
+            "AMD",
+            "EBAY",
+            "META",
+            "CME",
+            "AVGO",
+            "LULU",
+            "ADBE",
+            "ADP",
+            "CMCSA"
+          ],
+          "next": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST",
+            "AMGN",
+            "INTU",
+            "AAPL",
+            "BKNG",
+            "TXN",
+            "QCOM",
+            "ROST",
+            "MSFT",
+            "ADI",
+            "GOOG",
+            "GOOGL",
+            "AMD",
+            "EBAY",
+            "META",
+            "CME",
+            "AVGO",
+            "LULU",
+            "ADBE",
+            "ADP",
+            "CMCSA"
+          ],
+          "prior": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST",
+            "AMGN",
+            "INTU",
+            "AAPL",
+            "BKNG",
+            "TXN",
+            "QCOM",
+            "ROST",
+            "MSFT",
+            "ADI",
+            "GOOG",
+            "GOOGL",
+            "AMD",
+            "EBAY",
+            "META",
+            "CME",
+            "AVGO",
+            "LULU",
+            "ADBE",
+            "ADP",
+            "CMCSA"
+          ],
+          "union": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST",
+            "AMGN",
+            "INTU",
+            "AAPL",
+            "BKNG",
+            "TXN",
+            "QCOM",
+            "ROST",
+            "MSFT",
+            "ADI",
+            "GOOG",
+            "GOOGL",
+            "AMD",
+            "EBAY",
+            "META",
+            "CME",
+            "AVGO",
+            "LULU",
+            "ADBE",
+            "ADP",
+            "CMCSA"
+          ],
+          "unrestricted_price_panel": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST",
+            "AMGN",
+            "INTU",
+            "AAPL",
+            "BKNG",
+            "TXN",
+            "QCOM",
+            "ROST",
+            "MSFT",
+            "ADI",
+            "GOOG",
+            "GOOGL",
+            "AMD",
+            "EBAY",
+            "META",
+            "CME",
+            "AVGO",
+            "LULU",
+            "ADBE",
+            "ADP",
+            "CMCSA"
+          ]
+        },
+        "scenario_selections": {
+          "intersection": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST"
+          ],
+          "next": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST"
+          ],
+          "prior": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST"
+          ],
+          "union": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST"
+          ],
+          "unrestricted_price_panel": [
+            "MU",
+            "SBUX",
+            "AMAT",
+            "LRCX",
+            "COST"
+          ]
+        },
+        "selection": [
+          "MU",
+          "SBUX",
+          "AMAT",
+          "LRCX",
+          "COST"
+        ],
+        "signal_date": "2019-08-30",
+        "status": "PASS_TOP5_STABLE_ACROSS_BOUNDING_AND_UNRESTRICTED"
+      },
+      {
+        "adjudicated_universe_policy": "BOUNDING_SNAPSHOT_INTERSECTION",
+        "market_regime_on": true,
+        "next_snapshot_date": "2019-10-02",
+        "prior_snapshot_date": "2019-07-15",
+        "scenario_liquid_pool": {
+          "intersection": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG",
+            "GOOGL",
+            "TXN",
+            "AMAT",
+            "COST",
+            "INTC",
+            "CME",
+            "LULU",
+            "MU",
+            "ORLY",
+            "CMCSA",
+            "SBUX",
+            "PEP",
+            "AMGN",
+            "CHTR",
+            "BKNG",
+            "MSFT",
+            "ISRG",
+            "MDLZ",
+            "INTU",
+            "QCOM"
+          ],
+          "next": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG",
+            "GOOGL",
+            "TXN",
+            "AMAT",
+            "COST",
+            "INTC",
+            "CME",
+            "LULU",
+            "MU",
+            "CMCSA",
+            "SBUX",
+            "PEP",
+            "AMGN",
+            "CHTR",
+            "BKNG",
+            "MSFT",
+            "ISRG",
+            "MDLZ",
+            "EXC",
+            "INTU",
+            "QCOM"
+          ],
+          "prior": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG",
+            "GOOGL",
+            "TXN",
+            "AMAT",
+            "COST",
+            "INTC",
+            "CME",
+            "LULU",
+            "MU",
+            "ORLY",
+            "CMCSA",
+            "SBUX",
+            "PEP",
+            "AMGN",
+            "CHTR",
+            "BKNG",
+            "MSFT",
+            "ISRG",
+            "MDLZ",
+            "INTU",
+            "QCOM"
+          ],
+          "union": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG",
+            "GOOGL",
+            "TXN",
+            "AMAT",
+            "COST",
+            "INTC",
+            "CME",
+            "LULU",
+            "MU",
+            "CMCSA",
+            "SBUX",
+            "PEP",
+            "AMGN",
+            "CHTR",
+            "BKNG",
+            "MSFT",
+            "ISRG",
+            "MDLZ",
+            "EXC",
+            "INTU",
+            "QCOM"
+          ],
+          "unrestricted_price_panel": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG",
+            "GOOGL",
+            "TXN",
+            "AMAT",
+            "COST",
+            "INTC",
+            "CME",
+            "LULU",
+            "MU",
+            "CMCSA",
+            "SBUX",
+            "PEP",
+            "AMGN",
+            "CHTR",
+            "BKNG",
+            "MSFT",
+            "ISRG",
+            "MDLZ",
+            "EXC",
+            "INTU",
+            "QCOM"
+          ]
+        },
+        "scenario_selections": {
+          "intersection": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG"
+          ],
+          "next": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG"
+          ],
+          "prior": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG"
+          ],
+          "union": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG"
+          ],
+          "unrestricted_price_panel": [
+            "KLAC",
+            "LRCX",
+            "EQIX",
+            "AAPL",
+            "GOOG"
+          ]
+        },
+        "selection": [
+          "KLAC",
+          "LRCX",
+          "EQIX",
+          "AAPL",
+          "GOOG"
+        ],
+        "signal_date": "2019-09-30",
+        "status": "PASS_TOP5_STABLE_ACROSS_BOUNDING_AND_UNRESTRICTED"
+      }
+    ],
+    "schema_version": 1,
+    "status": "PASS",
+    "strategy_selection_path_complete": true
+  },
+  "brokerage_or_trading_authorized": false,
+  "outputs": {
+    "gap_selection_path_audit": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/gap_selection_path_audit.json",
+      "sha256": "cf2fece07e4acb4511021da1e9a25476b41f67edf53af8041835b9315a588a72"
+    },
+    "selected_daily_10bps": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_daily_10bps.csv",
+      "sha256": "9327bbba45b81b75b0ee5b255afbfd92cf9ce26a3e54aef42fb5101967cb81f4"
+    },
+    "selected_daily_30bps": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_daily_30bps.csv",
+      "sha256": "493bc55e2fcfcc35eb6d54d6fc480dedfb567cc3a8dd23d426102759b35b520b"
+    },
+    "selected_daily_50bps": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_daily_50bps.csv",
+      "sha256": "0ecc9bc0fb247bfbf31e8fef360f0d98e70c5027b39263de9444b1c084e461f8"
+    },
+    "selected_targets": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/selected_targets.csv",
+      "sha256": "e9b523c47aa047026addf5533024b9a45ba24d6a40e2568891b2d05c2cfc83bd"
+    }
+  },
+  "promotion_eligible": false,
+  "protocol": {
+    "path": "output/research_only/v30/selection_path_adjudication_20260830/frozen_protocol.json",
+    "sha256": "6c5e3dfd17953cf10a5f2e5c7eacc4881481cae3a2ea3bad37019895c1b6b3d3"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "schema_version": 1,
+  "selected_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+  "selected_summary": {
+    "costs": {
+      "10": {
+        "annual": [
+          {
+            "benchmark": 0.35225640371638733,
+            "excess_vs_nasdaq": -0.3608097361905148,
+            "excess_vs_qqq": -0.39815095866092964,
+            "qqq": 0.38959762618680216,
+            "strategy": -0.008553332474127484,
+            "year": 2019
+          },
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.5281225062093138,
+            "excess_vs_qqq": 0.4783393014530364,
+            "qqq": 0.4861876777698726,
+            "strategy": 0.964526979222909,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.17718636647573915,
+            "excess_vs_qqq": 0.11687402613315934,
+            "qqq": 0.27420341265320847,
+            "strategy": 0.3910774387863678,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.23715531561135084,
+            "excess_vs_qqq": 0.2319406978010785,
+            "qqq": -0.32578563775428426,
+            "strategy": -0.09384493995320575,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.06748272508075592,
+            "excess_vs_qqq": -0.0468128035012898,
+            "qqq": 0.5485265682512104,
+            "strategy": 0.5017137647499206,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.14367915359283323,
+            "excess_vs_qqq": 0.1743272123543358,
+            "qqq": 0.2557644080698498,
+            "strategy": 0.4300916204241856,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.1505635309405009,
+            "excess_vs_qqq": 0.14648166641157467,
+            "qqq": 0.20765710906448298,
+            "strategy": 0.35413877547605765,
+            "year": 2025
+          }
+        ],
+        "annual_wins_vs_qqq": 5,
+        "compounded_excess_vs_nasdaq": 3.6371636959436664,
+        "compounded_excess_vs_qqq": 2.9734671524227263,
+        "compounded_nasdaq": 2.5027897391757383,
+        "compounded_qqq": 3.1664862826966784,
+        "compounded_strategy": 6.139953435119405,
+        "drawdown_lag_vs_qqq": 0.0,
+        "periods": {
+          "2019-2019": {
+            "compounded_excess_vs_nasdaq": -0.3608097361905148,
+            "compounded_excess_vs_qqq": -0.39815095866092964,
+            "compounded_nasdaq": 0.35225640371638733,
+            "compounded_qqq": 0.38959762618680216,
+            "compounded_strategy": -0.008553332474127484,
+            "drawdown_lag_vs_qqq": 0.13014313276886313,
+            "qqq_maximum_drawdown": -0.10983203390717333,
+            "strategy_maximum_drawdown": -0.23997516667603647,
+            "turnover": 11.046980623020179
+          },
+          "2019-2020": {
+            "compounded_excess_vs_nasdaq": 0.005336579855721668,
+            "compounded_excess_vs_qqq": -0.11747914228187506,
+            "compounded_nasdaq": 0.9423871469594991,
+            "compounded_qqq": 1.0652028690970958,
+            "compounded_strategy": 0.9477237268152208,
+            "drawdown_lag_vs_qqq": 0.03636120232368378,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.32195492331279674,
+            "turnover": 22.95873294821208
+          },
+          "2019-2021": {
+            "compounded_excess_vs_nasdaq": 0.35158811669650003,
+            "compounded_excess_vs_qqq": 0.07794598973683886,
+            "compounded_nasdaq": 1.3578464166650517,
+            "compounded_qqq": 1.6314885436247129,
+            "compounded_strategy": 1.7094345333615517,
+            "drawdown_lag_vs_qqq": 0.03636120232368378,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.32195492331279674,
+            "turnover": 36.0323791956219
+          },
+          "2019-2022": {
+            "compounded_excess_vs_nasdaq": 0.877769162104151,
+            "compounded_excess_vs_qqq": 0.6809804420742522,
+            "compounded_nasdaq": 0.577398650166945,
+            "compounded_qqq": 0.7741873701968438,
+            "compounded_strategy": 1.455167812271096,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32195492331279674,
+            "turnover": 37.84150335444537
+          },
+          "2019-2023": {
+            "compounded_excess_vs_nasdaq": 1.4246051924567769,
+            "compounded_excess_vs_qqq": 0.9395830186528995,
+            "compounded_nasdaq": 1.2623541060016792,
+            "compounded_qqq": 1.7473762798055565,
+            "compounded_strategy": 2.686959298458456,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32195492331279674,
+            "turnover": 48.51817621925453
+          },
+          "2019-2024": {
+            "compounded_excess_vs_nasdaq": 2.362369071222799,
+            "compounded_excess_vs_qqq": 1.8226322498152938,
+            "compounded_nasdaq": 1.9103205263476624,
+            "compounded_qqq": 2.4500573477551675,
+            "compounded_strategy": 4.272689597570461,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32195492331279674,
+            "turnover": 63.62804750714492
+          },
+          "2019-2025": {
+            "compounded_excess_vs_nasdaq": 3.6371636959436664,
+            "compounded_excess_vs_qqq": 2.9734671524227263,
+            "compounded_nasdaq": 2.5027897391757383,
+            "compounded_qqq": 3.1664862826966784,
+            "compounded_strategy": 6.139953435119405,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.3279546951333193,
+            "turnover": 74.61183908054662
+          }
+        },
+        "qqq_maximum_drawdown": -0.35122525674823357,
+        "strategy_maximum_drawdown": -0.3279546951333193,
+        "turnover": 74.61183908054662,
+        "worst_annual_excess_vs_qqq": -0.39815095866092964
+      },
+      "30": {
+        "annual": [
+          {
+            "benchmark": 0.35225640371638733,
+            "excess_vs_nasdaq": -0.3824875008741717,
+            "excess_vs_qqq": -0.41982872334458654,
+            "qqq": 0.38959762618680216,
+            "strategy": -0.03023109715778438,
+            "year": 2019
+          },
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.48183992126035613,
+            "excess_vs_qqq": 0.43205671650407873,
+            "qqq": 0.4861876777698726,
+            "strategy": 0.9182443942739513,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.141243795578059,
+            "excess_vs_qqq": 0.08093145523547918,
+            "qqq": 0.27420341265320847,
+            "strategy": 0.35513486788868764,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.2338774363519195,
+            "excess_vs_qqq": 0.22866281854164716,
+            "qqq": -0.32578563775428426,
+            "strategy": -0.0971228192126371,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.035722236356850345,
+            "excess_vs_qqq": -0.07857329222519538,
+            "qqq": 0.5485265682512104,
+            "strategy": 0.469953276026015,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.10106727909636759,
+            "excess_vs_qqq": 0.13171533785787015,
+            "qqq": 0.2557644080698498,
+            "strategy": 0.38747974592771994,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.1211075850487704,
+            "excess_vs_qqq": 0.11702572051984417,
+            "qqq": 0.20765710906448298,
+            "strategy": 0.32468282958432715,
+            "year": 2025
+          }
+        ],
+        "annual_wins_vs_qqq": 5,
+        "compounded_excess_vs_nasdaq": 2.6465073829170818,
+        "compounded_excess_vs_qqq": 1.9828108393961417,
+        "compounded_nasdaq": 2.5027897391757383,
+        "compounded_qqq": 3.1664862826966784,
+        "compounded_strategy": 5.14929712209282,
+        "drawdown_lag_vs_qqq": 0.0,
+        "periods": {
+          "2019-2019": {
+            "compounded_excess_vs_nasdaq": -0.3824875008741717,
+            "compounded_excess_vs_qqq": -0.41982872334458654,
+            "compounded_nasdaq": 0.35225640371638733,
+            "compounded_qqq": 0.38959762618680216,
+            "compounded_strategy": -0.03023109715778438,
+            "drawdown_lag_vs_qqq": 0.13705882244306,
+            "qqq_maximum_drawdown": -0.10983203390717333,
+            "strategy_maximum_drawdown": -0.24689085635023333,
+            "turnover": 11.033291735301573
+          },
+          "2019-2020": {
+            "compounded_excess_vs_nasdaq": -0.08213338534121872,
+            "compounded_excess_vs_qqq": -0.20494910747881545,
+            "compounded_nasdaq": 0.9423871469594991,
+            "compounded_qqq": 1.0652028690970958,
+            "compounded_strategy": 0.8602537616182804,
+            "drawdown_lag_vs_qqq": 0.03803134238474426,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.3236250633738572,
+            "turnover": 22.933797138657802
+          },
+          "2019-2021": {
+            "compounded_excess_vs_nasdaq": 0.16304831882496673,
+            "compounded_excess_vs_qqq": -0.11059380813469444,
+            "compounded_nasdaq": 1.3578464166650517,
+            "compounded_qqq": 1.6314885436247129,
+            "compounded_strategy": 1.5208947354900184,
+            "drawdown_lag_vs_qqq": 0.03803134238474426,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.3236250633738572,
+            "turnover": 35.996949385185964
+          },
+          "2019-2022": {
+            "compounded_excess_vs_nasdaq": 0.6986596816739878,
+            "compounded_excess_vs_qqq": 0.5018709616440891,
+            "compounded_nasdaq": 0.577398650166945,
+            "compounded_qqq": 0.7741873701968438,
+            "compounded_strategy": 1.2760583318409329,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.3236250633738572,
+            "turnover": 37.80575008841925
+          },
+          "2019-2023": {
+            "compounded_excess_vs_nasdaq": 1.0833452953142095,
+            "compounded_excess_vs_qqq": 0.5983231215103322,
+            "compounded_nasdaq": 1.2623541060016792,
+            "compounded_qqq": 1.7473762798055565,
+            "compounded_strategy": 2.3456994013158887,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.3236250633738572,
+            "turnover": 48.47495417111734
+          },
+          "2019-2024": {
+            "compounded_excess_vs_nasdaq": 1.7317696289406244,
+            "compounded_excess_vs_qqq": 1.1920328075331192,
+            "compounded_nasdaq": 1.9103205263476624,
+            "compounded_qqq": 2.4500573477551675,
+            "compounded_strategy": 3.6420901552882867,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.3236250633738572,
+            "turnover": 63.56653212487319
+          },
+          "2019-2025": {
+            "compounded_excess_vs_nasdaq": 2.6465073829170818,
+            "compounded_excess_vs_qqq": 1.9828108393961417,
+            "compounded_nasdaq": 2.5027897391757383,
+            "compounded_qqq": 3.1664862826966784,
+            "compounded_strategy": 5.14929712209282,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32956825025518155,
+            "turnover": 74.54238083114419
+          }
+        },
+        "qqq_maximum_drawdown": -0.35122525674823357,
+        "strategy_maximum_drawdown": -0.32956825025518155,
+        "turnover": 74.54238083114419,
+        "worst_annual_excess_vs_qqq": -0.41982872334458654
+      },
+      "50": {
+        "annual": [
+          {
+            "benchmark": 0.35225640371638733,
+            "excess_vs_nasdaq": -0.40369605088875427,
+            "excess_vs_qqq": -0.4410372733591691,
+            "qqq": 0.38959762618680216,
+            "strategy": -0.05143964717236693,
+            "year": 2019
+          },
+          {
+            "benchmark": 0.4364044730135952,
+            "excess_vs_nasdaq": 0.4366283251955507,
+            "excess_vs_qqq": 0.3868451204392733,
+            "qqq": 0.4861876777698726,
+            "strategy": 0.8730327982091459,
+            "year": 2020
+          },
+          {
+            "benchmark": 0.21389107231062865,
+            "excess_vs_nasdaq": 0.10620359671660218,
+            "excess_vs_qqq": 0.04589125637402236,
+            "qqq": 0.27420341265320847,
+            "strategy": 0.3200946690272308,
+            "year": 2021
+          },
+          {
+            "benchmark": -0.3310002555645566,
+            "excess_vs_nasdaq": 0.2306065972179311,
+            "excess_vs_qqq": 0.22539197940765876,
+            "qqq": -0.32578563775428426,
+            "strategy": -0.1003936583466255,
+            "year": 2022
+          },
+          {
+            "benchmark": 0.43423103966916465,
+            "excess_vs_nasdaq": 0.00461098405725191,
+            "excess_vs_qqq": -0.10968454452479381,
+            "qqq": 0.5485265682512104,
+            "strategy": 0.43884202372641656,
+            "year": 2023
+          },
+          {
+            "benchmark": 0.28641246683135235,
+            "excess_vs_nasdaq": 0.05970945733747146,
+            "excess_vs_qqq": 0.09035751609897402,
+            "qqq": 0.2557644080698498,
+            "strategy": 0.3461219241688238,
+            "year": 2024
+          },
+          {
+            "benchmark": 0.20357524453555675,
+            "excess_vs_nasdaq": 0.09227010197062624,
+            "excess_vs_qqq": 0.08818823744170001,
+            "qqq": 0.20765710906448298,
+            "strategy": 0.295845346506183,
+            "year": 2025
+          }
+        ],
+        "annual_wins_vs_qqq": 5,
+        "compounded_excess_vs_nasdaq": 1.7928522969880696,
+        "compounded_excess_vs_qqq": 1.1291557534671295,
+        "compounded_nasdaq": 2.5027897391757383,
+        "compounded_qqq": 3.1664862826966784,
+        "compounded_strategy": 4.295642036163808,
+        "drawdown_lag_vs_qqq": 0.0,
+        "periods": {
+          "2019-2019": {
+            "compounded_excess_vs_nasdaq": -0.40369605088875427,
+            "compounded_excess_vs_qqq": -0.4410372733591691,
+            "compounded_nasdaq": 0.35225640371638733,
+            "compounded_qqq": 0.38959762618680216,
+            "compounded_strategy": -0.05143964717236693,
+            "drawdown_lag_vs_qqq": 0.1448583103133314,
+            "qqq_maximum_drawdown": -0.10983203390717333,
+            "strategy_maximum_drawdown": -0.25469034422050474,
+            "turnover": 11.02068319817171
+          },
+          "2019-2020": {
+            "compounded_excess_vs_nasdaq": -0.16570249503250145,
+            "compounded_excess_vs_qqq": -0.2885182171700982,
+            "compounded_nasdaq": 0.9423871469594991,
+            "compounded_qqq": 1.0652028690970958,
+            "compounded_strategy": 0.7766846519269976,
+            "drawdown_lag_vs_qqq": 0.039972479651937176,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.32556620064105013,
+            "turnover": 22.910751789418
+          },
+          "2019-2021": {
+            "compounded_excess_vs_nasdaq": -0.01245447911371489,
+            "compounded_excess_vs_qqq": -0.28609660607337606,
+            "compounded_nasdaq": 1.3578464166650517,
+            "compounded_qqq": 1.6314885436247129,
+            "compounded_strategy": 1.3453919375513368,
+            "drawdown_lag_vs_qqq": 0.039972479651937176,
+            "qqq_maximum_drawdown": -0.28559372098911295,
+            "strategy_maximum_drawdown": -0.32556620064105013,
+            "turnover": 35.96343713288687
+          },
+          "2019-2022": {
+            "compounded_excess_vs_nasdaq": 0.5325308105169329,
+            "compounded_excess_vs_qqq": 0.3357420904870341,
+            "compounded_nasdaq": 0.577398650166945,
+            "compounded_qqq": 0.7741873701968438,
+            "compounded_strategy": 1.1099294606838779,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32556620064105013,
+            "turnover": 37.77191463903595
+          },
+          "2019-2023": {
+            "compounded_excess_vs_nasdaq": 0.7735010691287032,
+            "compounded_excess_vs_qqq": 0.28847889532482585,
+            "compounded_nasdaq": 1.2623541060016792,
+            "compounded_qqq": 1.7473762798055565,
+            "compounded_strategy": 2.0358551751303824,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32556620064105013,
+            "turnover": 48.43366711946135
+          },
+          "2019-2024": {
+            "compounded_excess_vs_nasdaq": 1.1763106834967316,
+            "compounded_excess_vs_qqq": 0.6365738620892265,
+            "compounded_nasdaq": 1.9103205263476624,
+            "compounded_qqq": 2.4500573477551675,
+            "compounded_strategy": 3.086631209844394,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.32556620064105013,
+            "turnover": 63.50700478114462
+          },
+          "2019-2025": {
+            "compounded_excess_vs_nasdaq": 1.7928522969880696,
+            "compounded_excess_vs_qqq": 1.1291557534671295,
+            "compounded_nasdaq": 2.5027897391757383,
+            "compounded_qqq": 3.1664862826966784,
+            "compounded_strategy": 4.295642036163808,
+            "drawdown_lag_vs_qqq": 0.0,
+            "qqq_maximum_drawdown": -0.35122525674823357,
+            "strategy_maximum_drawdown": -0.33118051582249985,
+            "turnover": 74.47493204596971
+          }
+        },
+        "qqq_maximum_drawdown": -0.35122525674823357,
+        "strategy_maximum_drawdown": -0.33118051582249985,
+        "turnover": 74.47493204596971,
+        "worst_annual_excess_vs_qqq": -0.4410372733591691
+      }
+    }
+  },
+  "stage": "V30_2019_SELECTION_PATH_ADJUDICATION_RESULT"
+}

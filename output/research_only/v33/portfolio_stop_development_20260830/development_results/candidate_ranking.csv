@@ -1,0 +1,5 @@
+candidate,training_eligible,selection_years,required_positive_training_years,positive_training_years_50bps,worst_annual_training_excess_50bps,compounded_training_excess_30bps,compounded_training_excess_50bps,drawdown_lag_50bps,turnover_50bps,final_evidence,rank
+portfolio_trailing_stop_25pct,True,"[2020, 2021, 2022, 2023, 2024, 2025]",4,6,0.00461098405725191,3.321369795674572,2.608639177374114,0.0,64.02158427544278,False,1
+portfolio_trailing_stop_20pct,True,"[2020, 2021, 2022, 2023, 2024, 2025]",4,6,0.0046109840572508,3.2875600041456567,2.578905586639562,0.0,64.02158427544278,False,2
+portfolio_trailing_stop_15pct,True,"[2020, 2021, 2022, 2023, 2024, 2025]",4,4,-0.09703410600314855,1.9474638154713309,1.34163909789482,0.0,71.42237197883472,False,3
+portfolio_trailing_stop_10pct,False,"[2020, 2021, 2022, 2023, 2024, 2025]",4,3,-0.19591474593657798,0.8952114847531201,0.37244637167151806,0.026233298158459872,81.00382857503122,False,4

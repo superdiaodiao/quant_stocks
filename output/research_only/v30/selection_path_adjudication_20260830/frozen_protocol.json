@@ -1,0 +1,63 @@
+{
+  "2026_used_for_development_or_selection": false,
+  "brokerage_or_trading_authorized": false,
+  "frozen_at": "2026-08-30T15:39:42+08:00",
+  "identity_evidence": {
+    "current_ticker_first_date": "2022-06-09",
+    "historical_ticker": "FB",
+    "identity_type": "issuer_rename",
+    "last_historical_date": "2022-06-08",
+    "provider_ticker": "META",
+    "source_accession": "0001326801-22-000070",
+    "source_fact": "The 2022-05-31 Form 8-K states that Class A common stock would begin trading on Nasdaq under META before market open on 2022-06-09.",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1326801/000132680122000070/fb-20220531.htm"
+  },
+  "input_bindings": {
+    "formal_security_identity": {
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/security_identity.csv",
+      "sha256": "21758d99b6331dbbab7394444e0cb210e2eaa83b45478f6ea0f5484e7a52a7b3"
+    },
+    "runner": {
+      "path": "scripts/research_v30_2019_selection_path_adjudication.py",
+      "sha256": "21743b1a033b0a33818542d041e22880c8483730ea1a60c1058e4f096f08177d"
+    },
+    "v26_candidate_helpers": {
+      "path": "scripts/research_v26_large_liquid_stock_momentum.py",
+      "sha256": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf"
+    },
+    "v29_manifest": {
+      "path": "output/research_only/v29/recovered_2019_stock_momentum_20260830/development_results/manifest.json",
+      "sha256": "e173de0cce8543c716d00d025a746e79cdd955c3e5ac814296a8f1d53858945d"
+    },
+    "v29_recovered_universe_helpers": {
+      "path": "scripts/research_v29_recovered_2019_stock_momentum.py",
+      "sha256": "14b9c354505847d75d8cbc1b683f65d7477dcbc88ca22fd1c3eabeafc6bb6f7a"
+    }
+  },
+  "objective": "Prove the selected stock path for four unresolved 2019 signals without claiming full exchange-membership recovery.",
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_off_gap_signals": [
+    "2019-05-31"
+  ],
+  "risk_on_gap_signals": [
+    "2019-04-30",
+    "2019-08-30",
+    "2019-09-30"
+  ],
+  "schema_version": 1,
+  "selected_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+  "selected_specification": {
+    "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "liquid_pool_size": 25,
+    "lookback_sessions": 63,
+    "quality_mode": "profitable",
+    "rank_buffer_multiple": 1,
+    "signal_frequency": "monthly",
+    "skip_recent_sessions": 0,
+    "top_n": 5
+  },
+  "stage": "V30_2019_SELECTION_PATH_ADJUDICATION_PRECOMMITMENT",
+  "status": "FROZEN_NOT_RUN"
+}

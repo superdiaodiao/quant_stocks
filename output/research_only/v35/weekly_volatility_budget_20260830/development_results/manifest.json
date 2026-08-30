@@ -1,0 +1,205 @@
+{
+  "2026_used_for_parameter_selection": false,
+  "all_walk_forward_folds_passed": false,
+  "brokerage_or_trading_authorized": false,
+  "contains_index_etf_holdings": false,
+  "development_status": "BLOCKED",
+  "evaluation_boundary": {
+    "2026_used_for_parameter_selection": false,
+    "architecture_isolated_from_2026": false,
+    "development_end": "2025-12-31",
+    "development_start": "2020-01-01",
+    "final_comparison_years": [],
+    "parameter_isolated_from_2026": true,
+    "training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "training_years_excluded_from_final_comparison": true,
+    "true_prospective_start": "2026-08-31"
+  },
+  "final_comparison_years": [],
+  "outputs": {
+    "candidate_ranking": {
+      "path": "output/research_only/v35/weekly_volatility_budget_20260830/development_results/candidate_ranking.csv",
+      "sha256": "203332df630b32d1f2e4c00c350212bce951cbfcfd29e947d40a79b61e83ce8d"
+    },
+    "candidate_summaries": {
+      "path": "output/research_only/v35/weekly_volatility_budget_20260830/development_results/candidate_summaries.json",
+      "sha256": "8e8ceccdab2db66e0ccc357b7d9b2e2c696dd13fa71bf793a54c5d60d8cf9cff"
+    },
+    "walk_forward_training_diagnostics": {
+      "path": "output/research_only/v35/weekly_volatility_budget_20260830/development_results/walk_forward_training_diagnostics.csv",
+      "sha256": "b730abc1c112e22728a2fc9a273945166c7b0f5dfd94d82fb857d28849d92c08"
+    }
+  },
+  "promotion_eligible": false,
+  "protocol": {
+    "path": "output/research_only/v35/weekly_volatility_budget_20260830/frozen_protocol.json",
+    "sha256": "9f42c5fbf71d08569c9ccc3b3988f3b57ae584eaeb3bfc9082935669bd117e76"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_off_asset": "CASH",
+  "schema_version": 1,
+  "selected_candidate": null,
+  "selected_specification": null,
+  "selected_summary": null,
+  "stage": "V35_WEEKLY_VOLATILITY_BUDGET_DEVELOPMENT_RESULT",
+  "training_ranking": [
+    {
+      "average_invested_50bps": 0.22817686634151801,
+      "candidate": "weekly_vol_target_10pct",
+      "compounded_training_excess_30bps": -0.9299496705888524,
+      "compounded_training_excess_50bps": -1.007318856095331,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 1,
+      "rank": 1,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "strategy_drawdown_50bps": -0.11892889374916404,
+      "training_eligible": false,
+      "turnover_50bps": 23.836979962434228,
+      "worst_annual_training_excess_50bps": -0.330767063667871
+    },
+    {
+      "average_invested_50bps": 0.34155849712498165,
+      "candidate": "weekly_vol_target_15pct",
+      "compounded_training_excess_30bps": -0.4945273037238791,
+      "compounded_training_excess_50bps": -0.6384835875214325,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 1,
+      "rank": 2,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "strategy_drawdown_50bps": -0.17381214030597936,
+      "training_eligible": false,
+      "turnover_50bps": 35.53172731613532,
+      "worst_annual_training_excess_50bps": -0.28043018715802304
+    },
+    {
+      "average_invested_50bps": 0.44717513926895147,
+      "candidate": "weekly_vol_target_20pct",
+      "compounded_training_excess_30bps": 0.015889631013104477,
+      "compounded_training_excess_50bps": -0.21412863091043421,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 2,
+      "rank": 3,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "strategy_drawdown_50bps": -0.22589956384492094,
+      "training_eligible": false,
+      "turnover_50bps": 46.11812339267698,
+      "worst_annual_training_excess_50bps": -0.23262609388121458
+    },
+    {
+      "average_invested_50bps": 0.5446604317182158,
+      "candidate": "weekly_vol_target_25pct",
+      "compounded_training_excess_30bps": 0.5709921801916669,
+      "compounded_training_excess_50bps": 0.2382978330202663,
+      "drawdown_lag_50bps": 0.0,
+      "final_evidence": false,
+      "positive_training_years_50bps": 2,
+      "rank": 4,
+      "required_positive_training_years": 4,
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "strategy_drawdown_50bps": -0.2741881290431827,
+      "training_eligible": false,
+      "turnover_50bps": 55.48441612022555,
+      "worst_annual_training_excess_50bps": -0.1661027473963521
+    }
+  ],
+  "training_years_counted_as_final_wins": false,
+  "walk_forward_pass_count": 1,
+  "walk_forward_training_diagnostics": [
+    {
+      "final_evidence": false,
+      "selected_candidate": "weekly_vol_target_10pct",
+      "selection_years": [
+        2020,
+        2021
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.3019011762673046,
+      "test_status": "PASS",
+      "test_year": 2022,
+      "training_gates_passed": false
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "weekly_vol_target_20pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022
+      ],
+      "test_excess_vs_nasdaq_50bps": -0.16310401813483977,
+      "test_status": "BLOCKED",
+      "test_year": 2023,
+      "training_gates_passed": true
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "weekly_vol_target_10pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_excess_vs_nasdaq_50bps": -0.20187251880594848,
+      "test_status": "BLOCKED",
+      "test_year": 2024,
+      "training_gates_passed": false
+    },
+    {
+      "final_evidence": false,
+      "selected_candidate": "weekly_vol_target_10pct",
+      "selection_years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_excess_vs_nasdaq_50bps": -0.1457015837773259,
+      "test_status": "BLOCKED",
+      "test_year": 2025,
+      "training_gates_passed": false
+    }
+  ]
+}

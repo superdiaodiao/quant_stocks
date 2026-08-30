@@ -1,0 +1,434 @@
+{
+  "2026_used_for_development_or_selection": false,
+  "brokerage_or_trading_authorized": false,
+  "candidate_count": 18,
+  "candidate_grid": [
+    {
+      "key": "mom63_skip0_liquid25_top3_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_skip0_liquid50_top3_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom63_skip0_liquid50_top5_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_skip0_liquid100_top3_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom63_skip0_liquid100_top5_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom126_skip0_liquid25_top3_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom126_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom126_skip0_liquid50_top3_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom126_skip0_liquid50_top5_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom126_skip0_liquid100_top3_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 3
+    },
+    {
+      "key": "mom126_skip0_liquid100_top5_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 126,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom252_skip21_liquid25_top3_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 3
+    },
+    {
+      "key": "mom252_skip21_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 5
+    },
+    {
+      "key": "mom252_skip21_liquid50_top3_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 3
+    },
+    {
+      "key": "mom252_skip21_liquid50_top5_profitable_monthly",
+      "liquid_pool_size": 50,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 5
+    },
+    {
+      "key": "mom252_skip21_liquid100_top3_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 3
+    },
+    {
+      "key": "mom252_skip21_liquid100_top5_profitable_monthly",
+      "liquid_pool_size": 100,
+      "lookback_sessions": 252,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 21,
+      "top_n": 5
+    }
+  ],
+  "change_isolation": {
+    "base_grid": "v26",
+    "formal_snapshot_files_modified": false,
+    "only_added_snapshot_dates": [
+      "2019-02-22",
+      "2019-07-15",
+      "2019-10-02",
+      "2019-12-31"
+    ],
+    "unresolved_signal_policy": "CASH"
+  },
+  "cost_bps": [
+    10,
+    30,
+    50
+  ],
+  "coverage_adjudication": {
+    "evidence": [
+      {
+        "signal_date": "2019-01-31",
+        "snapshot_age_days": 22,
+        "snapshot_date": "2019-01-09"
+      },
+      {
+        "signal_date": "2019-02-28",
+        "snapshot_age_days": 6,
+        "snapshot_date": "2019-02-22"
+      },
+      {
+        "signal_date": "2019-03-29",
+        "snapshot_age_days": 35,
+        "snapshot_date": "2019-02-22"
+      },
+      {
+        "signal_date": "2019-04-30",
+        "snapshot_age_days": 67,
+        "snapshot_date": "2019-02-22"
+      },
+      {
+        "signal_date": "2019-05-31",
+        "snapshot_age_days": 98,
+        "snapshot_date": "2019-02-22"
+      },
+      {
+        "signal_date": "2019-06-28",
+        "snapshot_age_days": 11,
+        "snapshot_date": "2019-06-17"
+      },
+      {
+        "signal_date": "2019-07-31",
+        "snapshot_age_days": 16,
+        "snapshot_date": "2019-07-15"
+      },
+      {
+        "signal_date": "2019-08-30",
+        "snapshot_age_days": 46,
+        "snapshot_date": "2019-07-15"
+      },
+      {
+        "signal_date": "2019-09-30",
+        "snapshot_age_days": 77,
+        "snapshot_date": "2019-07-15"
+      },
+      {
+        "signal_date": "2019-10-31",
+        "snapshot_age_days": 29,
+        "snapshot_date": "2019-10-02"
+      },
+      {
+        "signal_date": "2019-11-29",
+        "snapshot_age_days": 23,
+        "snapshot_date": "2019-11-06"
+      },
+      {
+        "signal_date": "2019-12-31",
+        "snapshot_age_days": 0,
+        "snapshot_date": "2019-12-31"
+      }
+    ],
+    "expected_signal_count": 12,
+    "maximum_snapshot_age_days": 40,
+    "missing_signal_dates": [
+      "2019-04-30",
+      "2019-05-31",
+      "2019-08-30",
+      "2019-09-30"
+    ],
+    "missing_universe_policy": "CASH_NO_BACKFILL_NO_STALE_EXTENSION",
+    "usable_signal_count": 8,
+    "usable_signal_dates": [
+      "2019-01-31",
+      "2019-02-28",
+      "2019-03-29",
+      "2019-06-28",
+      "2019-07-31",
+      "2019-10-31",
+      "2019-11-29",
+      "2019-12-31"
+    ]
+  },
+  "development_window": {
+    "end": "2025-12-31",
+    "start": "2019-01-01",
+    "years": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "frozen_at": "2026-08-30T15:17:14+08:00",
+  "input_bindings": {
+    "formal_universe_snapshots": {
+      "content_manifest_sha256": "d3687b546ac56db5fe6e98d50cba17fd6c5253a6d89cfd040dd51006c1c8087e",
+      "file_count": 370,
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/snapshots",
+      "pattern": "nasdaq_listed_*.csv"
+    },
+    "nasdaq_index": {
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e"
+    },
+    "price_directory": {
+      "content_manifest_sha256": "a8b944e74470afb377c22a7b533ddf1207397d3a285bd8ab0ca548235c13c715",
+      "file_count": 4403,
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/price",
+      "pattern": "*.csv"
+    },
+    "qqq_history": {
+      "path": "output/research_only/qqq_nasdaq_history.csv",
+      "sha256": "ebfb0caf80fcf539e1e3254daf368acce2012eadffa1b7e0f8e82fee1a3fd0d0"
+    },
+    "quarterly_fundamentals": {
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv",
+      "sha256": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69"
+    },
+    "recovered_snapshot_20190222": {
+      "path": "output/research_only/v14/universe_snapshots/nasdaq_listed_2019-02-22.csv",
+      "sha256": "c5931c61daf0b61c7814c751410625aa41ed709313d73156fa448484320f4199"
+    },
+    "recovered_snapshot_20190715": {
+      "path": "output/research_only/v14/universe_snapshots/nasdaq_listed_2019-07-15.csv",
+      "sha256": "4140db4c38d67ef4abf8dad83a3102a826fe5fb76747b6c9bf3a445170add8f6"
+    },
+    "recovered_snapshot_20191002": {
+      "path": "output/research_only/v14/universe_snapshots/nasdaq_listed_2019-10-02.csv",
+      "sha256": "4b038b6f7fbc0c686ece430e9131a80b94fbed10256264c3c101bf9797689140"
+    },
+    "recovered_snapshot_20191231": {
+      "path": "output/research_only/v14/universe_snapshots/nasdaq_listed_2019-12-31.csv",
+      "sha256": "810dca390880511b53c9dd2a9540997544d9ad8c708df42ab8c3b4b353a3ec4b"
+    },
+    "recovery_manifest_1": {
+      "path": "output/research_only/v14/universe_snapshots/github_recovery_manifest.json",
+      "sha256": "183ac4c8f98580e7838167295530b295be8dbcf40ec0dd877a525851b5322399"
+    },
+    "recovery_manifest_2": {
+      "path": "output/research_only/v14/universe_snapshots/github_pinned_gap_recovery_manifest.json",
+      "sha256": "891672888ce97dcbc3276493679d70c53a7d254134e68663183c5ec8a65540a4"
+    },
+    "recovery_manifest_3": {
+      "path": "output/research_only/v14/universe_snapshots/nasdaq_trader_file_import_manifest.json",
+      "sha256": "931f38b719ba641da1c1ab84c1b62e64a9c30f6cddc95a8d2877dd05d50572dd"
+    },
+    "runner": {
+      "path": "scripts/research_v29_recovered_2019_stock_momentum.py",
+      "sha256": "14b9c354505847d75d8cbc1b683f65d7477dcbc88ca22fd1c3eabeafc6bb6f7a"
+    },
+    "universe_history": {
+      "path": "src/research/universe_history.py",
+      "sha256": "fa8527f631d658a6592fcf30534d53633127d6acbe79085cebe62bec24fc35d8"
+    },
+    "v23_evaluation_helpers": {
+      "path": "scripts/research_v23_stock_only_frequency.py",
+      "sha256": "435fe4fded671ed25718dea6eb994ea0da3c3fe2766ae7378a09b5aa74ceed7f"
+    },
+    "v24_signal_helpers": {
+      "path": "scripts/research_v24_stock_momentum_development.py",
+      "sha256": "2f2355a10005753419f238f60d28e2c53431ca8c6f861bfc3e06a5d3d361a162"
+    },
+    "v26_candidate_helpers": {
+      "path": "scripts/research_v26_large_liquid_stock_momentum.py",
+      "sha256": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf"
+    }
+  },
+  "objective": "Measure the isolated effect of wiring source-locked 2019 PIT snapshots into the frozen v26 stock-only candidate grid.",
+  "parameters_frozen_before_development": true,
+  "primary_benchmark": "QQQ_TOTAL_RETURN",
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "reserved_observation_start": "2026-01-01",
+  "schema_version": 1,
+  "secondary_benchmark": "NASDAQ_COMPOSITE",
+  "selection_order": [
+    "eligible first",
+    "annual wins versus QQQ at 50bps descending",
+    "worst annual excess versus QQQ at 50bps descending",
+    "compounded excess versus QQQ at 50bps descending",
+    "turnover at 50bps ascending",
+    "candidate key ascending"
+  ],
+  "stage": "V29_RECOVERED_2019_STOCK_MOMENTUM_PRECOMMITMENT",
+  "status": "FROZEN_NOT_DEVELOPED",
+  "walk_forward_folds": [
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021
+      ],
+      "test_year": 2022
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022
+      ],
+      "test_year": 2023
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_year": 2024
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_year": 2025
+    }
+  ]
+}

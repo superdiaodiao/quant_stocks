@@ -1,0 +1,512 @@
+{
+  "2026_used_for_development_or_selection": false,
+  "brokerage_or_trading_authorized": false,
+  "candidate_count": 30,
+  "candidate_grid": [
+    {
+      "key": "mom21_marketma0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom21_marketma0_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom21_marketma50_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom21_marketma50_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom21_marketma100_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom21_marketma100_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom21_marketma150_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom21_marketma150_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom21_marketma200_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom21_marketma200_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 21,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom42_marketma0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom42_marketma0_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom42_marketma50_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom42_marketma50_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom42_marketma100_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom42_marketma100_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom42_marketma150_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom42_marketma150_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom42_marketma200_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom42_marketma200_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 42,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom63_marketma0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_marketma0_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 0,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom63_marketma50_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_marketma50_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 50,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom63_marketma100_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_marketma100_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 100,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom63_marketma150_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_marketma150_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 150,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    },
+    {
+      "key": "mom63_marketma200_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    },
+    {
+      "key": "mom63_marketma200_liquid25_top10_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "market_ma_days": 200,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 10
+    }
+  ],
+  "contains_index_etf_holdings": false,
+  "controlled_dimensions": {
+    "liquid_pool_size": 25,
+    "lookback_sessions": [
+      21,
+      42,
+      63
+    ],
+    "market_ma_days": [
+      0,
+      50,
+      100,
+      150,
+      200
+    ],
+    "signal_frequency": "monthly",
+    "top_n": [
+      5,
+      10
+    ]
+  },
+  "cost_bps": [
+    10,
+    30,
+    50
+  ],
+  "development_window": {
+    "end": "2025-12-31",
+    "start": "2019-01-01",
+    "years": [
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "eligibility_gates": {
+    "annual_wins_vs_nasdaq_at_50bps": 7,
+    "forbidden_etfs_absent": true,
+    "maximum_drawdown_lag_vs_qqq_percentage_points": 10.0,
+    "positive_compounded_excess_vs_nasdaq_at_30_and_50bps": true
+  },
+  "frozen_at": "2026-08-30T15:46:02+08:00",
+  "gap_universe_policy": {
+    "resolution": "BOUNDING_SNAPSHOT_INTERSECTION",
+    "selected_winner_requires_post_selection_scenario_audit": true,
+    "signal_dates": [
+      "2018-12-31",
+      "2019-04-30",
+      "2019-05-31",
+      "2019-08-30",
+      "2019-09-30"
+    ]
+  },
+  "input_bindings": {
+    "formal_universe_snapshots": {
+      "content_manifest_sha256": "d3687b546ac56db5fe6e98d50cba17fd6c5253a6d89cfd040dd51006c1c8087e",
+      "file_count": 370,
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/snapshots",
+      "pattern": "nasdaq_listed_*.csv"
+    },
+    "nasdaq_index": {
+      "path": "/Users/bytedance/code/quant_stocks/stocks_list_dir/nasdaq/nasdaq_index.csv",
+      "sha256": "b800b4f4d2d321b507d5b1291e97f30d6e40fad0ea2668a23ef9879841381e3e"
+    },
+    "price_directory": {
+      "content_manifest_sha256": "a8b944e74470afb377c22a7b533ddf1207397d3a285bd8ab0ca548235c13c715",
+      "file_count": 4403,
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/price",
+      "pattern": "*.csv"
+    },
+    "qqq_history": {
+      "path": "output/research_only/qqq_nasdaq_history.csv",
+      "sha256": "ebfb0caf80fcf539e1e3254daf368acce2012eadffa1b7e0f8e82fee1a3fd0d0"
+    },
+    "quarterly_fundamentals": {
+      "path": "/Users/bytedance/code/quant_stocks/cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv",
+      "sha256": "1be16a6342217d6771eca7d2ca49156e726b424ebfbfe7b90dfa6c232ea8bf69"
+    },
+    "runner": {
+      "path": "scripts/research_v31_recovery_speed_stock_momentum.py",
+      "sha256": "5f4536fe81efea12ab8052a3b0a107f8e74797c85726626ca60e541e4f46ba21"
+    },
+    "v23_evaluation_helpers": {
+      "path": "scripts/research_v23_stock_only_frequency.py",
+      "sha256": "435fe4fded671ed25718dea6eb994ea0da3c3fe2766ae7378a09b5aa74ceed7f"
+    },
+    "v26_candidate_helpers": {
+      "path": "scripts/research_v26_large_liquid_stock_momentum.py",
+      "sha256": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf"
+    },
+    "v29_recovered_universe_helpers": {
+      "path": "scripts/research_v29_recovered_2019_stock_momentum.py",
+      "sha256": "14b9c354505847d75d8cbc1b683f65d7477dcbc88ca22fd1c3eabeafc6bb6f7a"
+    },
+    "v30_manifest": {
+      "path": "output/research_only/v30/selection_path_adjudication_20260830/results/manifest.json",
+      "sha256": "43a4b27c0f7a717ace0858535c9017a6e8ca11793f32762b2c32ece7e7f2a146"
+    },
+    "v30_selection_path_helpers": {
+      "path": "scripts/research_v30_2019_selection_path_adjudication.py",
+      "sha256": "21743b1a033b0a33818542d041e22880c8483730ea1a60c1058e4f096f08177d"
+    }
+  },
+  "objective": "Beat Nasdaq in every 2019-2025 year with pure stocks at 50bps without using 2026 for parameter selection.",
+  "parameters_frozen_before_development": true,
+  "primary_benchmark": "NASDAQ_COMPOSITE",
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "reserved_observation_start": "2026-01-01",
+  "schema_version": 1,
+  "secondary_benchmark": "QQQ_TOTAL_RETURN",
+  "selection_order": [
+    "eligible first",
+    "annual wins versus Nasdaq at 50bps descending",
+    "worst annual excess versus Nasdaq at 50bps descending",
+    "compounded excess versus Nasdaq at 50bps descending",
+    "drawdown lag versus QQQ ascending",
+    "turnover ascending",
+    "candidate key ascending"
+  ],
+  "source_diagnosis": {
+    "base_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "full_exchange_membership_recovered": false,
+    "nasdaq_failure_years_50bps": [
+      2019
+    ],
+    "strategy_selection_path_complete": true
+  },
+  "stage": "V31_RECOVERY_SPEED_STOCK_MOMENTUM_PRECOMMITMENT",
+  "status": "FROZEN_NOT_DEVELOPED",
+  "walk_forward_folds": [
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021
+      ],
+      "test_year": 2022
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022
+      ],
+      "test_year": 2023
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_year": 2024
+    },
+    {
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_year": 2025
+    }
+  ]
+}

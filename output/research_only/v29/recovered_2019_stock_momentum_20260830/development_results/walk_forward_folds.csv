@@ -1,0 +1,5 @@
+selection_years,test_year,selected_candidate,training_gates_passed,test_excess_vs_qqq_50bps,test_status
+"[2019, 2020, 2021]",2022,mom126_skip0_liquid50_top3_profitable_monthly,False,0.1664509572679438,PASS
+"[2019, 2020, 2021, 2022]",2023,mom126_skip0_liquid25_top3_profitable_monthly,True,-0.017791814071378642,BLOCKED
+"[2019, 2020, 2021, 2022, 2023]",2024,mom63_skip0_liquid25_top3_profitable_monthly,False,0.4101885869719706,PASS
+"[2019, 2020, 2021, 2022, 2023, 2024]",2025,mom63_skip0_liquid25_top3_profitable_monthly,False,0.145483101288441,PASS

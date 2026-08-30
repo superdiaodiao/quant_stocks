@@ -1,0 +1,96 @@
+{
+  "brokerage_or_trading_authorized": false,
+  "contains_index_etf_holdings": false,
+  "evaluation_boundary": {
+    "architecture_contamination_reason": "portfolio stops were introduced after viewing the v32 2026 drawdown failure",
+    "architecture_isolated_from_2026": false,
+    "observation_end": "2026-07-31",
+    "observation_months": [
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
+    ],
+    "observation_start": "2026-01-01",
+    "pristine_forward_test": false,
+    "threshold_isolated_from_2026": true,
+    "training_years_excluded_from_comparison": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "true_prospective_start": "2026-08-31"
+  },
+  "frozen_at": "2026-08-30T16:25:01+08:00",
+  "input_bindings": {
+    "runner": {
+      "path": "scripts/research_v34_portfolio_stop_observation.py",
+      "sha256": "f2dfbd876c84e0255d7da962c278c94b26658d1878072d5a24962ae558cdcb82"
+    },
+    "v27_manifest": {
+      "path": "output/research_only/v27/stock_only_model_isolated_2026_20260830/observation_results/manifest.json",
+      "sha256": "bf2a598d15a4618ab1e4b893bd268ac349896323afe41e76efe5f54501c98b29"
+    },
+    "v27_observation_helpers": {
+      "path": "scripts/research_v27_stock_only_2026_observation.py",
+      "sha256": "87b568a57bfa9c275bda08dc757108322677f2dc75273455e258667b8374532a"
+    },
+    "v27_targets": {
+      "path": "output/research_only/v27/stock_only_model_isolated_2026_20260830/observation_results/observed_targets.csv",
+      "sha256": "62024c2ab6a1e5901e53c0f49b1af68b659f01fb84cf9a4578f7989502dabb89"
+    },
+    "v33_manifest": {
+      "path": "output/research_only/v33/portfolio_stop_development_20260830/development_results/manifest.json",
+      "sha256": "8d4a88ce14379aa7a87e81c55c0de5285c5d219948420fa0d1195fa95558b1e3"
+    },
+    "v33_portfolio_stop_helpers": {
+      "path": "scripts/research_v33_portfolio_stop_development.py",
+      "sha256": "1c2e0609fc8dea16465914e180c81cf16ebea95a6d65165149f9a0f51ac2f340"
+    }
+  },
+  "parameters_frozen_before_observation": true,
+  "precommitted_gates": {
+    "all_observation_months_present": true,
+    "maximum_drawdown_lag_vs_nasdaq_percentage_points": 10.0,
+    "minimum_monthly_wins_vs_nasdaq_at_50bps": 4,
+    "no_forbidden_etf_targets": true,
+    "positive_excess_vs_nasdaq_at_30bps": true,
+    "positive_excess_vs_nasdaq_at_50bps": true
+  },
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_policy": {
+    "execution": "next trading close",
+    "reentry": "next frozen monthly target only",
+    "risk_off_asset": "CASH",
+    "sale_scope": "entire stock portfolio",
+    "signal": "portfolio NAV drawdown from peak since monthly rebalance",
+    "threshold": 0.25
+  },
+  "schema_version": 1,
+  "stage": "V34_PORTFOLIO_STOP_OBSERVATION_PRECOMMITMENT",
+  "status": "FROZEN_NOT_OBSERVED",
+  "training_source": {
+    "all_walk_forward_training_folds_passed": false,
+    "portfolio_stop_fraction": 0.25,
+    "selected_stop": "portfolio_trailing_stop_25pct",
+    "threshold_training_years": [
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "threshold_used_2026": false,
+    "training_years_counted_as_final_wins": false,
+    "walk_forward_training_pass_count": 3
+  }
+}

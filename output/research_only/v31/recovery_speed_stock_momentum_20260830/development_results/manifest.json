@@ -1,0 +1,93 @@
+{
+  "2026_used_for_development_or_selection": false,
+  "all_walk_forward_folds_passed": false,
+  "best_ranked_candidate": "mom63_marketma200_liquid25_top5_profitable_monthly",
+  "best_ranked_wins_vs_nasdaq_50bps": 6,
+  "brokerage_or_trading_authorized": false,
+  "contains_index_etf_holdings": false,
+  "development_status": "BLOCKED",
+  "outputs": {
+    "candidate_ranking": {
+      "path": "output/research_only/v31/recovery_speed_stock_momentum_20260830/development_results/candidate_ranking.csv",
+      "sha256": "7ef357744bddf6ebbb22613c3731752cb01e8223f67db602343521c5bdec7834"
+    },
+    "candidate_summaries": {
+      "path": "output/research_only/v31/recovery_speed_stock_momentum_20260830/development_results/candidate_summaries.json",
+      "sha256": "735a0e87abba2ea83885540c0b9f942ddb78a5555a6cbeb149a6bdc1fb945a84"
+    },
+    "walk_forward_folds": {
+      "path": "output/research_only/v31/recovery_speed_stock_momentum_20260830/development_results/walk_forward_folds.csv",
+      "sha256": "4346c114a0d75bd5f53971c9320e7e7999814da62f59f7a5e6dcc873321cb663"
+    }
+  },
+  "promotion_eligible": false,
+  "protocol": {
+    "path": "output/research_only/v31/recovery_speed_stock_momentum_20260830/frozen_protocol.json",
+    "sha256": "441f818b50135d0db9723a0f6353862862b1e7fbfe5bba4400069d86d7ce4987"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_off_asset": "CASH",
+  "schema_version": 1,
+  "selected_candidate": null,
+  "selected_specification": null,
+  "selected_summary": null,
+  "stage": "V31_RECOVERY_SPEED_STOCK_MOMENTUM_RESULT",
+  "walk_forward_folds": [
+    {
+      "selected_candidate": "mom63_marketma0_liquid25_top10_profitable_monthly",
+      "selection_years": [
+        2019,
+        2020,
+        2021
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.04876037947654965,
+      "test_status": "PASS",
+      "test_year": 2022,
+      "training_gates_passed": false
+    },
+    {
+      "selected_candidate": "mom63_marketma0_liquid25_top10_profitable_monthly",
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022
+      ],
+      "test_excess_vs_nasdaq_50bps": -0.13855579057321976,
+      "test_status": "BLOCKED",
+      "test_year": 2023,
+      "training_gates_passed": false
+    },
+    {
+      "selected_candidate": "mom63_marketma200_liquid25_top5_profitable_monthly",
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.05970945733747146,
+      "test_status": "PASS",
+      "test_year": 2024,
+      "training_gates_passed": false
+    },
+    {
+      "selected_candidate": "mom63_marketma200_liquid25_top5_profitable_monthly",
+      "selection_years": [
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ],
+      "test_excess_vs_nasdaq_50bps": 0.09227010197062624,
+      "test_status": "PASS",
+      "test_year": 2025,
+      "training_gates_passed": false
+    }
+  ],
+  "walk_forward_pass_count": 3
+}
