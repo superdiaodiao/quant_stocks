@@ -104,13 +104,15 @@ v50r1 修正回放保持了 v30/v47 的 348 个冻结月度目标，目标差异
 `output/research_only/v50/corrected_v47_20260831_r1/`；当前协议状态为
 `WAITING_FOR_FIRST_PROSPECTIVE_SIGNAL`。第一笔允许进入账本的信号日期是
 `2026-08-31`，必须在该日 Nasdaq 收盘后且 UTC 日期仍为 2026-08-31 时创建。
+换算为北京时间/新加坡时间，实际窗口是 **2026-09-01 04:00–08:00**，不是
+2026-08-31 凌晨。
 
 当前操作入口：
 
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py status
 
-# 仅在 2026-08-31 Nasdaq 收盘后、UTC 仍为 2026-08-31 时执行：
+# 仅在北京时间/新加坡时间 2026-09-01 04:00–08:00 执行：
 PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \
   stage-bundle --as-of 2026-08-31 --purpose SIGNAL
 PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \

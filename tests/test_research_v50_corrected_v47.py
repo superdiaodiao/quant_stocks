@@ -1,12 +1,53 @@
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
+import subprocess
 
 import pandas as pd
 import pytest
 
 from scripts import research_v43_isolated_prospective_v28_observation as v43
 from scripts import research_v50_corrected_v47 as v50
+
+
+def test_frozen_runtime_binding_closure_is_tracked_and_hash_bound() -> None:
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=v50.REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    protocols = (
+        Path(
+            "output/research_only/v50/corrected_v47_20260831_r1/"
+            "frozen_protocol.json"
+        ),
+        Path(
+            "output/research_only/v42/v28_prospective_20260830/"
+            "frozen_protocol.json"
+        ),
+        Path(
+            "output/research_only/v43/v28_prospective_20260830/"
+            "frozen_protocol.json"
+        ),
+    )
+
+    for protocol_path in protocols:
+        protocol = json.loads(
+            (v50.REPO_ROOT / protocol_path).read_text(encoding="utf-8")
+        )
+        for name, binding in protocol["input_bindings"].items():
+            relative = binding["path"]
+            assert not Path(relative).is_absolute(), (
+                f"{protocol_path}:{name} is checkout-absolute"
+            )
+            assert relative in tracked, f"clean checkout is missing {relative}"
+            payload = (v50.REPO_ROOT / relative).read_bytes()
+            assert hashlib.sha256(payload).hexdigest() == binding["sha256"]
 
 
 def test_development_protocol_uses_portable_repository_bindings(
