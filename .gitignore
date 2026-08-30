@@ -23,3 +23,5 @@ output/ibkr_stock_orders*.csv
 # v42 的可重建行情/财务暂存包体积很大；冻结协议、信号和哈希账本仍保留。
 output/research_only/v42/v28_prospective_20260830/bundles/
 output/research_only/v42/v28_prospective_20260830/staging_work/
+output/research_only/v43/v28_prospective_20260830/bundles/
+output/research_only/v43/v28_prospective_20260830/staging_work/
