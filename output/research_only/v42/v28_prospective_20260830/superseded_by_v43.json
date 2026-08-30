@@ -1,0 +1,19 @@
+{
+  "reason": "runtime isolation and chronological-ledger defects found in preflight; no prospective observation was discarded",
+  "recorded_at": "2026-08-30T09:49:02+00:00",
+  "schema_version": 1,
+  "status": "SUPERSEDED_BEFORE_FIRST_SIGNAL",
+  "successor_protocol": {
+    "path": "output/research_only/v43/v28_prospective_20260830/frozen_protocol.json",
+    "sha256": "80ab6be99b67e4cc88d862121c45927fb1faae8c223b925726ada6914c42f805"
+  },
+  "v42_ledger": {
+    "path": "output/research_only/v42/v28_prospective_20260830/prospective_ledger.jsonl",
+    "sha256": "b2256e660fe9a66c60869958fba1f87e5b2e1efc7c93912d88c8f9ec8053f050"
+  },
+  "v42_protocol": {
+    "path": "output/research_only/v42/v28_prospective_20260830/frozen_protocol.json",
+    "sha256": "29e5400369ff3fe52857974c04cf8e7281f0e651f22753f608a8abcabfdc9f06"
+  },
+  "v42_signal_count": 0
+}
