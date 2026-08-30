@@ -1,0 +1,138 @@
+{
+  "broker_connection_used": false,
+  "capital_allocated": false,
+  "code_commit": "c148caabcc53d39cb85a8037594afe2cd820285b",
+  "contains_index_etf_holdings": false,
+  "evaluation": {
+    "objective": "win every complete prospective comparison period versus Nasdaq at 50bps without changing the frozen model on observed results",
+    "official_score_requires_complete_prospective_periods": true,
+    "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
+    "researcher_exposed_2026_diagnostic_is_never_counted_as_a_win": true,
+    "secondary_benchmark": "QQQ_TOTAL_RETURN_REFERENCE_ONLY",
+    "training_years_are_never_counted_as_wins": true,
+    "transaction_cost_bps": [
+      10,
+      30,
+      50
+    ]
+  },
+  "evidence_partition": {
+    "2019": {
+      "counts_as_official_comparison": false,
+      "role": "EXCLUDED_PARTIAL_PIT_COVERAGE",
+      "signals_available": 4,
+      "signals_expected": 12
+    },
+    "2020_2025": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "TRAINING_AND_MODEL_SELECTION_ONLY",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    "2026_01_07": {
+      "counts_as_official_comparison": false,
+      "end": "2026-07-31",
+      "official_year_wins": 0,
+      "role": "RESEARCHER_EXPOSED_REUSED_DIAGNOSTIC",
+      "start": "2026-01-01"
+    },
+    "prospective": {
+      "counts_as_official_comparison": true,
+      "first_signal_date": "2026-08-31",
+      "performance_start": "first common trading-session close after the frozen signal"
+    }
+  },
+  "frozen_at": "2026-08-30T09:37:40+00:00",
+  "immutability": {
+    "historical_valuation_overwrite_allowed": false,
+    "ledger_mode": "append_only_sha256_chain",
+    "protocol_overwrite_allowed": false,
+    "signal_overwrite_allowed": false
+  },
+  "input_bindings": {
+    "data_quality": {
+      "path": "src/research/data_quality.py",
+      "sha256": "dcf1ded4f60024dba43e0c0bb648c23d0734a189bacdfb17f4a985540e66768c"
+    },
+    "runner": {
+      "path": "scripts/research_v42_prospective_v28_observation.py",
+      "sha256": "6c68022ee64aa9c7241ef4c05783e68c9110a8f18fb0148e5acbb2264bc74c35"
+    },
+    "v24_signal_helpers": {
+      "path": "scripts/research_v24_stock_momentum_development.py",
+      "sha256": "2f2355a10005753419f238f60d28e2c53431ca8c6f861bfc3e06a5d3d361a162"
+    },
+    "v26_manifest": {
+      "path": "output/research_only/v26/large_liquid_stock_momentum_20260830/development_results/manifest.json",
+      "sha256": "a2dc0880f1090128d79b4f05b1763f09faa94f46264cdcb06b2561351af901b0"
+    },
+    "v26_selector": {
+      "path": "scripts/research_v26_large_liquid_stock_momentum.py",
+      "sha256": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf"
+    },
+    "v28_manifest": {
+      "path": "output/research_only/v28/stock_trailing_stop_20260830/development_results/manifest.json",
+      "sha256": "ce586207effa9cb9418d95242d1c57afd2f51e101f28752b6d7279140bfb2a53"
+    },
+    "v28_risk_replay": {
+      "path": "scripts/research_v28_stock_trailing_stop_development.py",
+      "sha256": "2c16e113c2f5901b1297b3cb94dba4ac4820b009ff2bbd4f30286b19b8cb7ac2"
+    }
+  },
+  "model": {
+    "risk_specification": {
+      "key": "individual_trailing_stop_25pct",
+      "reentry_policy": "next_monthly_rebalance_only",
+      "stop_signal_frequency": "daily",
+      "trailing_stop_fraction": 0.25
+    },
+    "selector_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "selector_specification": {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    }
+  },
+  "model_version": "v28-stock-only-individual-trailing-stop-25pct",
+  "order_created": false,
+  "parameters_frozen_before_prospective_data": true,
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_policy": {
+    "execution": "next common trading-session close",
+    "reentry": "next frozen monthly target only",
+    "signal_frequency": "daily completed close",
+    "trailing_stop_fraction": 0.25
+  },
+  "schema_version": 1,
+  "signal_policy": {
+    "execution": "next common trading-session close",
+    "forbidden_etfs": [
+      "ONEQ",
+      "PSQ",
+      "QLD",
+      "QQQ",
+      "QQQM",
+      "SPY",
+      "SQQQ",
+      "TQQQ"
+    ],
+    "frequency": "completed calendar-month final Nasdaq session",
+    "holdings": "individual common equities or cash only",
+    "residual_asset": "CASH"
+  },
+  "status": "FROZEN_WAITING_FOR_FIRST_SIGNAL"
+}
