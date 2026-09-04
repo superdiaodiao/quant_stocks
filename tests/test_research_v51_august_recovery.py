@@ -116,7 +116,8 @@ def test_source_locked_universe_repairs_literal_na_ticker(
     snapshot = tmp_path / "snapshot.csv"
     snapshot.write_text(
         "Symbol,Name,ETF,Test Issue,Observed At\n"
-        ",Nano Labs Ltd - Class A Ordinary Shares,N,N,2026-07-01\n",
+        ",Nano Labs Ltd - Class A Ordinary Shares,N,N,2026-07-01\n"
+        "BNBX,BNB Plus Corp,N,N,2026-07-01\n",
         encoding="utf-8",
     )
     evidence = tmp_path / "evidence.csv"
@@ -132,6 +133,8 @@ def test_source_locked_universe_repairs_literal_na_ticker(
     assert frame["Symbol"].tolist() == ["NA"]
     assert repairs[0]["to"] == "NA"
     assert repairs[0]["evidence"]["sha256"] == v51._sha256(evidence)
+    assert repairs[1]["ticker"] == "BNBX"
+    assert repairs[1]["action"] == "EXCLUDE_NOT_NASDAQ_AS_OF_SIGNAL"
 
 
 def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
