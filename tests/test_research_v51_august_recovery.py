@@ -85,6 +85,29 @@ def test_source_locked_universe_rejects_future_observation(
         v51._replace_bundle_universe(bundle)
 
 
+def test_source_locked_universe_is_injected_before_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "snapshot.csv"
+    snapshot.write_text(
+        "Symbol,ETF,Test Issue,Observed At\nAAA,N,N,2026-07-01\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "work" / "current_universe.csv"
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+
+    result = v51._source_locked_universe_refresh(
+        v51.SOURCE_SIGNAL_DATE,
+        min_market_cap=0,
+        target_path=target,
+        common_equities_only=True,
+    )
+
+    assert target.read_bytes() == snapshot.read_bytes()
+    assert result["status"] == "SOURCE_LOCKED_PRE_SIGNAL_UNIVERSE"
+    assert result["rows"] == 1
+
+
 def test_build_diagnostic_never_mutates_v50_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

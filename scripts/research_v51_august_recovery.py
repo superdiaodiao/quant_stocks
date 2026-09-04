@@ -28,13 +28,15 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r1-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
 NEXT_OFFICIAL_SIGNAL_DATE = pd.Timestamp("2026-09-30")
 REPO_ROOT = Path(__file__).resolve().parents[1]
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904")
+FAILED_OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904")
+FAILED_PROTOCOL_PATH = FAILED_OUTPUT_DIR / "frozen_recovery_protocol.json"
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r1")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -106,6 +108,7 @@ def recovery_specification() -> dict:
 def _input_bindings() -> dict:
     return {
         "runner": _file_binding(__file__),
+        "failed_v51_protocol": _file_binding(FAILED_PROTOCOL_PATH),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
         "v50_ledger": _file_binding(v50.LEDGER_PATH),
@@ -149,6 +152,15 @@ def freeze_recovery_protocol(
         "status": "FROZEN_LATE_DIAGNOSTIC_ONLY",
         "frozen_at": observed.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "code_commit": _git_head(),
+        "supersedes_failed_attempt": {
+            "protocol": _file_binding(FAILED_PROTOCOL_PATH),
+            "target_was_generated": False,
+            "reason": (
+                "the first recovery attempt refreshed fundamentals against the "
+                "September current universe before replacing it with the "
+                "source-locked pre-signal snapshot"
+            ),
+        },
         "recovery_specification": recovery_specification(),
         "input_bindings": _input_bindings(),
         "v50_ledger_must_remain_unchanged": True,
@@ -187,11 +199,47 @@ def _validated_recovery_protocol(
 def _late_diagnostic_runtime():
     """Use v50's runner identity without enabling v50's timeliness claim."""
     original_model_version = v43.MODEL_VERSION
+    original_refresh_universe = v43.v42.refresh_universe
     try:
         v43.MODEL_VERSION = v50.MODEL_VERSION
+        v43.v42.refresh_universe = _source_locked_universe_refresh
         yield
     finally:
+        v43.v42.refresh_universe = original_refresh_universe
         v43.MODEL_VERSION = original_model_version
+
+
+def _source_locked_universe_refresh(
+    as_of,
+    *,
+    min_market_cap,
+    target_path,
+    common_equities_only,
+) -> dict:
+    """Inject the pre-signal universe before any prices or fundamentals refresh."""
+    stamp = pd.Timestamp(as_of).normalize()
+    if stamp != SOURCE_SIGNAL_DATE:
+        raise RuntimeError("v51r1 universe refresh only supports the August cutoff")
+    source = _resolve_path(UNIVERSE_SNAPSHOT)
+    frame = pd.read_csv(source, keep_default_na=False)
+    required = {"Symbol", "ETF", "Test Issue", "Observed At"}
+    if not required.issubset(frame.columns):
+        raise RuntimeError("source-locked universe snapshot schema changed")
+    observed_dates = pd.to_datetime(frame["Observed At"], errors="raise")
+    if observed_dates.max().normalize() > SOURCE_SIGNAL_DATE:
+        raise RuntimeError("source-locked universe snapshot is future-dated")
+    target = Path(target_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return {
+        "status": "SOURCE_LOCKED_PRE_SIGNAL_UNIVERSE",
+        "as_of": stamp.strftime("%Y-%m-%d"),
+        "source": _file_binding(source),
+        "output": _portable_path(target),
+        "rows": int(len(frame)),
+        "minimum_market_cap_ignored": min_market_cap == 0,
+        "common_equities_filtered_by_stager": bool(common_equities_only),
+    }
 
 
 def _stage_late_bundle(
