@@ -21,6 +21,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import numpy as np
 import pandas as pd
 
 from scripts import research_v43_isolated_prospective_v28_observation as v43
@@ -28,7 +29,7 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51r8-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r9-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
@@ -77,7 +78,13 @@ SUPERSEDED_R7_OUTPUT_DIR = Path(
 SUPERSEDED_R7_PROTOCOL_PATH = (
     SUPERSEDED_R7_OUTPUT_DIR / "frozen_recovery_protocol.json"
 )
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r8")
+SUPERSEDED_R8_OUTPUT_DIR = Path(
+    "output/research_only/v51/august_recovery_20260904_r8"
+)
+SUPERSEDED_R8_PROTOCOL_PATH = (
+    SUPERSEDED_R8_OUTPUT_DIR / "frozen_recovery_protocol.json"
+)
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r9")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -205,6 +212,9 @@ def _input_bindings() -> dict:
         "recovered_v51r6_protocol": _file_binding(RECOVERED_R6_PROTOCOL_PATH),
         "superseded_v51r7_protocol": _file_binding(
             SUPERSEDED_R7_PROTOCOL_PATH
+        ),
+        "superseded_v51r8_protocol": _file_binding(
+            SUPERSEDED_R8_PROTOCOL_PATH
         ),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
@@ -368,6 +378,15 @@ def freeze_recovery_protocol(
                     "the frozen 68-name signal-date eligibility exclusion list"
                 ),
             },
+            {
+                "protocol": _file_binding(SUPERSEDED_R8_PROTOCOL_PATH),
+                "target_was_generated": False,
+                "reason": (
+                    "the staged data passed readiness gates, but the inherited "
+                    "v42 manifest writer could not serialize a NumPy boolean; "
+                    "no bundle or target was generated"
+                ),
+            },
         ],
         "sec_unmapped_policy": {
             "expected_tickers": _recovered_unmapped_tickers(),
@@ -423,17 +442,45 @@ def _late_diagnostic_runtime():
     original_model_version = v43.MODEL_VERSION
     original_refresh_universe = v43.v42.refresh_universe
     original_refresh_fundamentals = v43._refresh_fundamentals_isolated
+    original_v42_json = v43.v42.json
     try:
         v43.MODEL_VERSION = v50.MODEL_VERSION
         v43.v42.refresh_universe = _source_locked_universe_refresh
         v43._refresh_fundamentals_isolated = (
             _source_locked_fundamentals_refresh
         )
+        v43.v42.json = _JsonScalarProxy(original_v42_json)
         yield
     finally:
+        v43.v42.json = original_v42_json
         v43._refresh_fundamentals_isolated = original_refresh_fundamentals
         v43.v42.refresh_universe = original_refresh_universe
         v43.MODEL_VERSION = original_model_version
+
+
+class _JsonScalarProxy:
+    """Delegate json operations while normalizing NumPy scalar values."""
+
+    def __init__(self, delegate):
+        self._delegate = delegate
+
+    def dumps(self, value, *args, **kwargs):
+        original_default = kwargs.get("default")
+
+        def normalize(item):
+            if isinstance(item, np.generic):
+                return item.item()
+            if original_default is not None:
+                return original_default(item)
+            raise TypeError(
+                f"Object of type {item.__class__.__name__} is not JSON serializable"
+            )
+
+        kwargs["default"] = normalize
+        return self._delegate.dumps(value, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
 
 
 def _source_locked_universe_refresh(
@@ -446,7 +493,7 @@ def _source_locked_universe_refresh(
     """Inject the pre-signal universe before any prices or fundamentals refresh."""
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r8 universe refresh only supports the August cutoff")
+        raise RuntimeError("v51r9 universe refresh only supports the August cutoff")
     source = _resolve_path(UNIVERSE_SNAPSHOT)
     frame, repairs = _normalized_source_locked_universe()
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
@@ -608,33 +655,33 @@ def _source_locked_fundamentals_refresh(
     del workers
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r8 fundamentals only support the August cutoff")
+        raise RuntimeError("v51r9 fundamentals only support the August cutoff")
     received = pd.read_csv(universe_path, keep_default_na=False)
     expected, _repairs = _normalized_source_locked_universe()
     if not received.equals(expected):
-        raise RuntimeError("v51r8 fundamentals received the wrong universe")
+        raise RuntimeError("v51r9 fundamentals received the wrong universe")
     audit_path = Path(work) / "coverage.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
-        raise RuntimeError("v51r8 recovered fundamentals have the wrong cutoff")
+        raise RuntimeError("v51r9 recovered fundamentals have the wrong cutoff")
     if not audit.get("parsed_outputs_written"):
-        raise RuntimeError("v51r8 recovered fundamentals were not written")
+        raise RuntimeError("v51r9 recovered fundamentals were not written")
     if int(audit.get("deferred_by_limit_ticker_count", 0)) != 0:
-        raise RuntimeError("v51r8 recovered fundamentals contain deferred work")
+        raise RuntimeError("v51r9 recovered fundamentals contain deferred work")
     quarterly = pd.read_csv(Path(work) / "quarterly.csv")
     available = pd.to_datetime(quarterly["available_date"], errors="coerce")
     if not available.dropna().le(SOURCE_SIGNAL_DATE).all():
-        raise RuntimeError("v51r8 recovered fundamentals contain future data")
+        raise RuntimeError("v51r9 recovered fundamentals contain future data")
     unmapped = sorted(set(audit.get("unmapped_universe_tickers", [])))
     if unmapped != _recovered_unmapped_tickers():
-        raise RuntimeError("v51r8 SEC-unmapped audit changed")
+        raise RuntimeError("v51r9 SEC-unmapped audit changed")
     documented_exclusions = {
         item["ticker"] for item in _signal_date_stale_price_exclusion_summary()
     }
     unexplained_absences = set(unmapped) - set(tickers) - documented_exclusions
     if unexplained_absences:
         raise RuntimeError(
-            "v51r8 unmapped tickers left the source universe without evidence: "
+            "v51r9 unmapped tickers left the source universe without evidence: "
             + ", ".join(sorted(unexplained_absences))
         )
     audit["late_recovery_unmapped_policy"] = {
@@ -658,10 +705,10 @@ def _materialize_recovered_work(target: Path) -> dict:
     target = _resolve_path(target)
     source = _resolve_path(RECOVERED_R2_WORK_DIR)
     if target.exists():
-        raise RuntimeError(f"v51r8 recovered work already exists: {target}")
+        raise RuntimeError(f"v51r9 recovered work already exists: {target}")
     temporary = target.with_name(target.name + ".copy_tmp")
     if temporary.exists():
-        raise RuntimeError(f"stale v51r8 recovered-work copy exists: {temporary}")
+        raise RuntimeError(f"stale v51r9 recovered-work copy exists: {temporary}")
     (temporary / "fundamentals").mkdir(parents=True)
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         shutil.copy2(

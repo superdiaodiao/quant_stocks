@@ -186,6 +186,14 @@ def test_normalized_universe_excludes_predeclared_stale_prices(
     assert adjustments[-1]["tickers"][0]["ticker"] == "OLD"
 
 
+def test_json_scalar_proxy_serializes_pandas_boolean() -> None:
+    value = pd.Series([True]).all()
+
+    encoded = v51._JsonScalarProxy(json).dumps({"gate": value})
+
+    assert json.loads(encoded) == {"gate": True}
+
+
 def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
