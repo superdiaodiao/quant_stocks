@@ -28,7 +28,7 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51r4-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r5-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
@@ -54,7 +54,13 @@ SUPERSEDED_R3_OUTPUT_DIR = Path(
 SUPERSEDED_R3_PROTOCOL_PATH = (
     SUPERSEDED_R3_OUTPUT_DIR / "frozen_recovery_protocol.json"
 )
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r4")
+SUPERSEDED_R4_OUTPUT_DIR = Path(
+    "output/research_only/v51/august_recovery_20260904_r4"
+)
+SUPERSEDED_R4_PROTOCOL_PATH = (
+    SUPERSEDED_R4_OUTPUT_DIR / "frozen_recovery_protocol.json"
+)
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r5")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -62,6 +68,9 @@ WORK_DIR = OUTPUT_DIR / "staging_work"
 UNUSED_SIGNALS_DIR = OUTPUT_DIR / "unused_signals"
 UNIVERSE_SNAPSHOT = Path(
     "stocks_list_dir/nasdaq/snapshots/nasdaq_listed_2026-07-01.csv"
+)
+SYMBOL_REPAIR_EVIDENCE = Path(
+    "stocks_list_dir/nasdaq/snapshots/nasdaq_listed_2026-02-21.csv"
 )
 RECOVERED_FUNDAMENTAL_FILES = (
     "fundamentals.csv",
@@ -117,6 +126,9 @@ def recovery_specification() -> dict:
         "model_parameters_changed": False,
         "universe_policy": "latest source-locked snapshot on or before source date",
         "universe_snapshot": _portable_path(UNIVERSE_SNAPSHOT),
+        "universe_symbol_repairs": {
+            "Nano Labs Ltd - Class A Ordinary Shares": "NA",
+        },
         "price_and_fundamental_cutoff": SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"),
         "missed_sessions_counted_as_strategy_return": False,
         "eligible_for_original_august_prospective_score": False,
@@ -141,11 +153,15 @@ def _input_bindings() -> dict:
         "superseded_v51r3_protocol": _file_binding(
             SUPERSEDED_R3_PROTOCOL_PATH
         ),
+        "superseded_v51r4_protocol": _file_binding(
+            SUPERSEDED_R4_PROTOCOL_PATH
+        ),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
         "v50_ledger": _file_binding(v50.LEDGER_PATH),
         "v43_isolated_staging": _file_binding(v43.__file__),
         "source_locked_universe": _file_binding(UNIVERSE_SNAPSHOT),
+        "symbol_repair_evidence": _file_binding(SYMBOL_REPAIR_EVIDENCE),
         "corporate_action_validation": _file_binding(VALIDATION_PATH),
     }
     for filename in RECOVERED_FUNDAMENTAL_FILES:
@@ -258,6 +274,15 @@ def freeze_recovery_protocol(
                     "the build before any target was generated"
                 ),
             },
+            {
+                "protocol": _file_binding(SUPERSEDED_R4_PROTOCOL_PATH),
+                "target_was_generated": False,
+                "reason": (
+                    "the source snapshot serialized ticker NA as an empty "
+                    "symbol; the missing-price gate stopped the build before "
+                    "any target was generated"
+                ),
+            },
         ],
         "sec_unmapped_policy": {
             "expected_tickers": _recovered_unmapped_tickers(),
@@ -336,9 +361,9 @@ def _source_locked_universe_refresh(
     """Inject the pre-signal universe before any prices or fundamentals refresh."""
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r4 universe refresh only supports the August cutoff")
+        raise RuntimeError("v51r5 universe refresh only supports the August cutoff")
     source = _resolve_path(UNIVERSE_SNAPSHOT)
-    frame = pd.read_csv(source, keep_default_na=False)
+    frame, repairs = _normalized_source_locked_universe()
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
     if not required.issubset(frame.columns):
         raise RuntimeError("source-locked universe snapshot schema changed")
@@ -347,16 +372,50 @@ def _source_locked_universe_refresh(
         raise RuntimeError("source-locked universe snapshot is future-dated")
     target = Path(target_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, target)
+    frame.to_csv(target, index=False)
     return {
         "status": "SOURCE_LOCKED_PRE_SIGNAL_UNIVERSE",
         "as_of": stamp.strftime("%Y-%m-%d"),
         "source": _file_binding(source),
         "output": _portable_path(target),
         "rows": int(len(frame)),
+        "symbol_repairs": repairs,
         "minimum_market_cap_ignored": min_market_cap == 0,
         "common_equities_filtered_by_stager": bool(common_equities_only),
     }
+
+
+def _normalized_source_locked_universe() -> tuple[pd.DataFrame, list[dict]]:
+    """Repair the literal ticker NA that older pandas ingestion blanked."""
+    source = _resolve_path(UNIVERSE_SNAPSHOT)
+    frame = pd.read_csv(source, keep_default_na=False)
+    blank = frame["Symbol"].astype(str).str.strip().eq("")
+    if not blank.any():
+        return frame, []
+    blank_rows = frame.loc[blank]
+    expected_name = "Nano Labs Ltd - Class A Ordinary Shares"
+    if len(blank_rows) != 1 or blank_rows.iloc[0]["Name"] != expected_name:
+        raise RuntimeError("unexpected blank symbol in source-locked universe")
+    evidence = pd.read_csv(
+        _resolve_path(SYMBOL_REPAIR_EVIDENCE), keep_default_na=False
+    )
+    supported = evidence.loc[
+        evidence["Symbol"].eq("NA")
+        & evidence["Name"].astype(str).str.contains("Nano Labs", regex=False)
+    ]
+    if len(supported) != 1:
+        raise RuntimeError("source-locked evidence does not support Nano Labs=NA")
+    frame = frame.copy()
+    frame.loc[blank, "Symbol"] = "NA"
+    return frame, [
+        {
+            "name": expected_name,
+            "from": "",
+            "to": "NA",
+            "reason": "literal NA ticker was serialized as a missing value",
+            "evidence": _file_binding(SYMBOL_REPAIR_EVIDENCE),
+        }
+    ]
 
 
 def _source_locked_fundamentals_refresh(
@@ -371,26 +430,28 @@ def _source_locked_fundamentals_refresh(
     del workers
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r4 fundamentals only support the August cutoff")
-    if _sha256(universe_path) != _sha256(UNIVERSE_SNAPSHOT):
-        raise RuntimeError("v51r4 fundamentals received the wrong universe")
+        raise RuntimeError("v51r5 fundamentals only support the August cutoff")
+    received = pd.read_csv(universe_path, keep_default_na=False)
+    expected, _repairs = _normalized_source_locked_universe()
+    if not received.equals(expected):
+        raise RuntimeError("v51r5 fundamentals received the wrong universe")
     audit_path = Path(work) / "coverage.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
-        raise RuntimeError("v51r4 recovered fundamentals have the wrong cutoff")
+        raise RuntimeError("v51r5 recovered fundamentals have the wrong cutoff")
     if not audit.get("parsed_outputs_written"):
-        raise RuntimeError("v51r4 recovered fundamentals were not written")
+        raise RuntimeError("v51r5 recovered fundamentals were not written")
     if int(audit.get("deferred_by_limit_ticker_count", 0)) != 0:
-        raise RuntimeError("v51r4 recovered fundamentals contain deferred work")
+        raise RuntimeError("v51r5 recovered fundamentals contain deferred work")
     quarterly = pd.read_csv(Path(work) / "quarterly.csv")
     available = pd.to_datetime(quarterly["available_date"], errors="coerce")
     if not available.dropna().le(SOURCE_SIGNAL_DATE).all():
-        raise RuntimeError("v51r4 recovered fundamentals contain future data")
+        raise RuntimeError("v51r5 recovered fundamentals contain future data")
     unmapped = sorted(set(audit.get("unmapped_universe_tickers", [])))
     if unmapped != _recovered_unmapped_tickers():
-        raise RuntimeError("v51r4 SEC-unmapped audit changed")
+        raise RuntimeError("v51r5 SEC-unmapped audit changed")
     if not set(unmapped).issubset(set(tickers)):
-        raise RuntimeError("v51r4 unmapped tickers left the source universe")
+        raise RuntimeError("v51r5 unmapped tickers left the source universe")
     audit["late_recovery_unmapped_policy"] = {
         "classification": "SEC_CIK_UNAVAILABLE_NOT_DROPPED_OR_GUESSED",
         "explicit_stage_ticker_count": len(tickers),
@@ -409,10 +470,10 @@ def _materialize_recovered_work(target: Path) -> dict:
     target = _resolve_path(target)
     source = _resolve_path(RECOVERED_R2_WORK_DIR)
     if target.exists():
-        raise RuntimeError(f"v51r4 recovered work already exists: {target}")
+        raise RuntimeError(f"v51r5 recovered work already exists: {target}")
     temporary = target.with_name(target.name + ".copy_tmp")
     if temporary.exists():
-        raise RuntimeError(f"stale v51r4 recovered-work copy exists: {temporary}")
+        raise RuntimeError(f"stale v51r5 recovered-work copy exists: {temporary}")
     (temporary / "fundamentals").mkdir(parents=True)
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         shutil.copy2(
@@ -443,9 +504,8 @@ def _materialize_recovered_work(target: Path) -> dict:
                 filtered["available_date"], errors="raise"
             )
         )
-    current = v43.v42.investable_common_equities(
-        pd.read_csv(_resolve_path(UNIVERSE_SNAPSHOT), keep_default_na=False)
-    )
+    normalized_universe, _repairs = _normalized_source_locked_universe()
+    current = v43.v42.investable_common_equities(normalized_universe)
     universe = current["Symbol"].dropna().astype(str).str.upper().tolist()
     coverage_path = temporary / "fundamentals" / "coverage.json"
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
@@ -516,7 +576,7 @@ def _stage_late_bundle(
 
 
 def _replace_bundle_universe(bundle: Path) -> dict:
-    snapshot = pd.read_csv(_resolve_path(UNIVERSE_SNAPSHOT), keep_default_na=False)
+    snapshot, repairs = _normalized_source_locked_universe()
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
     if not required.issubset(snapshot.columns):
         raise RuntimeError("source-locked universe snapshot schema changed")
@@ -524,7 +584,7 @@ def _replace_bundle_universe(bundle: Path) -> dict:
     if observed_dates.max().normalize() > SOURCE_SIGNAL_DATE:
         raise RuntimeError("source-locked universe snapshot is future-dated")
     universe_path = bundle / "current_universe.csv"
-    shutil.copy2(_resolve_path(UNIVERSE_SNAPSHOT), universe_path)
+    snapshot.to_csv(universe_path, index=False)
 
     manifest_path = bundle / "bundle_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -532,6 +592,7 @@ def _replace_bundle_universe(bundle: Path) -> dict:
     manifest["late_diagnostic_recovery"] = {
         "classification": "SOURCE_LOCKED_UNIVERSE_REPLACED_AFTER_LATE_STAGING",
         "snapshot": _file_binding(UNIVERSE_SNAPSHOT),
+        "symbol_repairs": repairs,
         "future_current_universe_used_for_selection": False,
         "eligible_for_original_prospective_score": False,
     }

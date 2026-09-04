@@ -110,6 +110,30 @@ def test_source_locked_universe_is_injected_before_refresh(
     assert result["rows"] == 1
 
 
+def test_source_locked_universe_repairs_literal_na_ticker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "snapshot.csv"
+    snapshot.write_text(
+        "Symbol,Name,ETF,Test Issue,Observed At\n"
+        ",Nano Labs Ltd - Class A Ordinary Shares,N,N,2026-07-01\n",
+        encoding="utf-8",
+    )
+    evidence = tmp_path / "evidence.csv"
+    evidence.write_text(
+        "Symbol,Name\nNA,Nano Labs Ltd Class A Ordinary Shares\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+    monkeypatch.setattr(v51, "SYMBOL_REPAIR_EVIDENCE", evidence)
+
+    frame, repairs = v51._normalized_source_locked_universe()
+
+    assert frame["Symbol"].tolist() == ["NA"]
+    assert repairs[0]["to"] == "NA"
+    assert repairs[0]["evidence"]["sha256"] == v51._sha256(evidence)
+
+
 def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
