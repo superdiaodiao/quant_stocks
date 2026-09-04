@@ -108,6 +108,54 @@ def test_source_locked_universe_is_injected_before_refresh(
     assert result["rows"] == 1
 
 
+def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def fake_refresh(**kwargs):
+        calls.append(kwargs)
+        return {
+            "unmapped_universe_tickers": list(
+                reversed(v51.EXPECTED_SEC_UNMAPPED_TICKERS)
+            )
+        }
+
+    monkeypatch.setattr(v51, "V43_REFRESH_FUNDAMENTALS", fake_refresh)
+    result = v51._source_locked_fundamentals_refresh(
+        as_of=v51.SOURCE_SIGNAL_DATE,
+        universe_path=tmp_path / "universe.csv",
+        tickers=["AAA", *v51.EXPECTED_SEC_UNMAPPED_TICKERS],
+        work=tmp_path / "work",
+        workers=2,
+    )
+
+    assert calls[0]["tickers"] == []
+    policy = result["late_recovery_unmapped_policy"]
+    assert policy["kept_in_source_locked_universe"] is True
+    assert policy["invented_cik_count"] == 0
+    assert policy["selection_missing_value_policy_changed"] is False
+
+
+def test_source_locked_fundamentals_refresh_rejects_mapping_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        v51,
+        "V43_REFRESH_FUNDAMENTALS",
+        lambda **_kwargs: {"unmapped_universe_tickers": ["HIFS"]},
+    )
+
+    with pytest.raises(RuntimeError, match="SEC-unmapped universe changed"):
+        v51._source_locked_fundamentals_refresh(
+            as_of=v51.SOURCE_SIGNAL_DATE,
+            universe_path=tmp_path / "universe.csv",
+            tickers=["AAA"],
+            work=tmp_path / "work",
+            workers=2,
+        )
+
+
 def test_build_diagnostic_never_mutates_v50_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
