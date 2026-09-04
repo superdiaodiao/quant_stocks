@@ -8,6 +8,17 @@ import pytest
 from scripts import research_v51_august_recovery as v51
 
 
+@pytest.fixture(autouse=True)
+def no_external_stale_price_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        v51,
+        "_signal_date_stale_price_exclusion_summary",
+        lambda frame=None: [],
+    )
+
+
 def test_recovery_protocol_is_late_only_and_keeps_release_blocked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -135,6 +146,44 @@ def test_source_locked_universe_repairs_literal_na_ticker(
     assert repairs[0]["evidence"]["sha256"] == v51._sha256(evidence)
     assert repairs[1]["ticker"] == "BNBX"
     assert repairs[1]["action"] == "EXCLUDE_NOT_NASDAQ_AS_OF_SIGNAL"
+
+
+def test_normalized_universe_excludes_predeclared_stale_prices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = pd.DataFrame(
+        [
+            {"Symbol": "AAA", "Name": "AAA Corp"},
+            {"Symbol": "OLD", "Name": "Old Corp"},
+        ]
+    )
+    monkeypatch.setattr(
+        v51,
+        "_source_locked_universe_with_known_actions",
+        lambda: (frame, []),
+    )
+    monkeypatch.setattr(
+        v51,
+        "_signal_date_stale_price_exclusion_summary",
+        lambda _frame=None: [
+            {
+                "ticker": "OLD",
+                "last_price_date": "2026-07-17",
+                "absent_from_current_official_nasdaq_evidence": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        v51,
+        "_file_binding",
+        lambda _path: {"path": "fixture", "sha256": "a" * 64},
+    )
+
+    result, adjustments = v51._normalized_source_locked_universe()
+
+    assert result["Symbol"].tolist() == ["AAA"]
+    assert adjustments[-1]["count"] == 1
+    assert adjustments[-1]["tickers"][0]["ticker"] == "OLD"
 
 
 def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(

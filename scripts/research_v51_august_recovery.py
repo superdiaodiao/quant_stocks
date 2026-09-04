@@ -28,7 +28,7 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51r6-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r7-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
@@ -66,7 +66,12 @@ SUPERSEDED_R5_OUTPUT_DIR = Path(
 SUPERSEDED_R5_PROTOCOL_PATH = (
     SUPERSEDED_R5_OUTPUT_DIR / "frozen_recovery_protocol.json"
 )
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r6")
+RECOVERED_R6_OUTPUT_DIR = Path(
+    "output/research_only/v51/august_recovery_20260904_r6"
+)
+RECOVERED_R6_PROTOCOL_PATH = RECOVERED_R6_OUTPUT_DIR / "frozen_recovery_protocol.json"
+RECOVERED_R6_MARKET_DIR = RECOVERED_R6_OUTPUT_DIR / "staging_work" / "market"
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r7")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -81,6 +86,14 @@ SYMBOL_REPAIR_EVIDENCE = Path(
 BNBX_SEC_EVIDENCE_URL = (
     "https://www.sec.gov/Archives/edgar/data/744452/"
     "000110465926088139/tm2621525d1_8k.htm"
+)
+NASDAQ_CURRENT_EVIDENCE = Path(
+    "output/research_only/v51/source_evidence/"
+    "nasdaq_screener_2026-09-04.json"
+)
+NASDAQ_CURRENT_EVIDENCE_URL = (
+    "https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000"
+    "&exchange=NASDAQ&download=true"
 )
 RECOVERED_FUNDAMENTAL_FILES = (
     "fundamentals.csv",
@@ -150,6 +163,9 @@ def recovery_specification() -> dict:
                 "effective_before_signal_date": True,
             }
         },
+        "signal_date_price_eligibility_exclusions": (
+            _signal_date_stale_price_exclusion_summary()
+        ),
         "price_and_fundamental_cutoff": SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"),
         "missed_sessions_counted_as_strategy_return": False,
         "eligible_for_original_august_prospective_score": False,
@@ -180,17 +196,26 @@ def _input_bindings() -> dict:
         "superseded_v51r5_protocol": _file_binding(
             SUPERSEDED_R5_PROTOCOL_PATH
         ),
+        "recovered_v51r6_protocol": _file_binding(RECOVERED_R6_PROTOCOL_PATH),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
         "v50_ledger": _file_binding(v50.LEDGER_PATH),
         "v43_isolated_staging": _file_binding(v43.__file__),
         "source_locked_universe": _file_binding(UNIVERSE_SNAPSHOT),
         "symbol_repair_evidence": _file_binding(SYMBOL_REPAIR_EVIDENCE),
+        "current_nasdaq_membership_evidence": _file_binding(
+            NASDAQ_CURRENT_EVIDENCE
+        ),
         "corporate_action_validation": _file_binding(VALIDATION_PATH),
     }
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         bindings[f"recovered_v51r2_{filename}"] = _file_binding(
             RECOVERED_R2_FUNDAMENTAL_DIR / filename
+        )
+    for item in _signal_date_stale_price_exclusion_summary():
+        ticker = item["ticker"]
+        bindings[f"stale_price_{ticker}"] = _file_binding(
+            RECOVERED_R6_MARKET_DIR / "prices" / f"{ticker.lower()}.csv"
         )
     return bindings
 
@@ -316,6 +341,15 @@ def freeze_recovery_protocol(
                     "price gate stopped the build before any target was generated"
                 ),
             },
+            {
+                "protocol": _file_binding(RECOVERED_R6_PROTOCOL_PATH),
+                "target_was_generated": False,
+                "reason": (
+                    "all price files existed, but 68 July-snapshot names had no "
+                    "2026-08-31 price; the 98 percent freshness gate stopped the "
+                    "build before any target was generated"
+                ),
+            },
         ],
         "sec_unmapped_policy": {
             "expected_tickers": _recovered_unmapped_tickers(),
@@ -394,7 +428,7 @@ def _source_locked_universe_refresh(
     """Inject the pre-signal universe before any prices or fundamentals refresh."""
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r6 universe refresh only supports the August cutoff")
+        raise RuntimeError("v51r7 universe refresh only supports the August cutoff")
     source = _resolve_path(UNIVERSE_SNAPSHOT)
     frame, repairs = _normalized_source_locked_universe()
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
@@ -418,8 +452,8 @@ def _source_locked_universe_refresh(
     }
 
 
-def _normalized_source_locked_universe() -> tuple[pd.DataFrame, list[dict]]:
-    """Repair literal NA and apply signal-date-valid Nasdaq delistings."""
+def _source_locked_universe_with_known_actions() -> tuple[pd.DataFrame, list[dict]]:
+    """Repair literal NA and apply the individually sourced BNBX delisting."""
     source = _resolve_path(UNIVERSE_SNAPSHOT)
     frame = pd.read_csv(source, keep_default_na=False)
     blank = frame["Symbol"].astype(str).str.strip().eq("")
@@ -466,6 +500,84 @@ def _normalized_source_locked_universe() -> tuple[pd.DataFrame, list[dict]]:
     return frame.reset_index(drop=True), adjustments
 
 
+def _current_official_nasdaq_symbols() -> set[str]:
+    payload = json.loads(
+        _resolve_path(NASDAQ_CURRENT_EVIDENCE).read_text(encoding="utf-8")
+    )
+    rows = ((payload.get("data") or {}).get("rows") or [])
+    symbols = {
+        str(row.get("symbol", "")).strip().upper()
+        for row in rows
+        if str(row.get("symbol", "")).strip()
+    }
+    if len(symbols) < 3000:
+        raise RuntimeError("current Nasdaq membership evidence is incomplete")
+    return symbols
+
+
+def _signal_date_stale_price_exclusion_summary(
+    frame: pd.DataFrame | None = None,
+) -> list[dict]:
+    """Find non-current names whose final trade predates the signal date."""
+    if frame is None:
+        frame, _adjustments = _source_locked_universe_with_known_actions()
+    current = v43.v42.investable_common_equities(frame)
+    tickers = sorted(
+        set(current["Symbol"].dropna().astype(str).str.strip().str.upper())
+        - v43.v42.FORBIDDEN_ETFS
+    )
+    present_now = _current_official_nasdaq_symbols()
+    exclusions = []
+    still_listed = []
+    for ticker in tickers:
+        path = _resolve_path(
+            RECOVERED_R6_MARKET_DIR / "prices" / f"{ticker.lower()}.csv"
+        )
+        latest = v43.v42._latest_date(path) if path.is_file() else None
+        if latest == SOURCE_SIGNAL_DATE:
+            continue
+        if ticker in present_now:
+            still_listed.append(ticker)
+            continue
+        exclusions.append({
+            "ticker": ticker,
+            "last_price_date": (
+                latest.strftime("%Y-%m-%d") if latest is not None else None
+            ),
+            "absent_from_current_official_nasdaq_evidence": True,
+        })
+    if still_listed:
+        raise RuntimeError(
+            "stale-price tickers remain in current Nasdaq evidence: "
+            + ", ".join(still_listed)
+        )
+    if len(exclusions) != 68:
+        raise RuntimeError(
+            f"unexpected signal-date stale-price exclusion count: {len(exclusions)}"
+        )
+    return exclusions
+
+
+def _normalized_source_locked_universe() -> tuple[pd.DataFrame, list[dict]]:
+    """Build the signal-date universe before any target is calculated."""
+    frame, adjustments = _source_locked_universe_with_known_actions()
+    exclusions = _signal_date_stale_price_exclusion_summary(frame)
+    excluded = {item["ticker"] for item in exclusions}
+    frame = frame.loc[
+        ~frame["Symbol"].astype(str).str.upper().isin(excluded)
+    ].copy()
+    adjustments.append({
+        "action": "EXCLUDE_NO_SIGNAL_DATE_PRICE_AND_NOT_CURRENT_NASDAQ",
+        "count": len(exclusions),
+        "tickers": exclusions,
+        "official_nasdaq_evidence": {
+            **_file_binding(NASDAQ_CURRENT_EVIDENCE),
+            "url": NASDAQ_CURRENT_EVIDENCE_URL,
+        },
+    })
+    return frame.reset_index(drop=True), adjustments
+
+
 def _source_locked_fundamentals_refresh(
     *,
     as_of: pd.Timestamp,
@@ -478,28 +590,28 @@ def _source_locked_fundamentals_refresh(
     del workers
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r6 fundamentals only support the August cutoff")
+        raise RuntimeError("v51r7 fundamentals only support the August cutoff")
     received = pd.read_csv(universe_path, keep_default_na=False)
     expected, _repairs = _normalized_source_locked_universe()
     if not received.equals(expected):
-        raise RuntimeError("v51r6 fundamentals received the wrong universe")
+        raise RuntimeError("v51r7 fundamentals received the wrong universe")
     audit_path = Path(work) / "coverage.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
-        raise RuntimeError("v51r6 recovered fundamentals have the wrong cutoff")
+        raise RuntimeError("v51r7 recovered fundamentals have the wrong cutoff")
     if not audit.get("parsed_outputs_written"):
-        raise RuntimeError("v51r6 recovered fundamentals were not written")
+        raise RuntimeError("v51r7 recovered fundamentals were not written")
     if int(audit.get("deferred_by_limit_ticker_count", 0)) != 0:
-        raise RuntimeError("v51r6 recovered fundamentals contain deferred work")
+        raise RuntimeError("v51r7 recovered fundamentals contain deferred work")
     quarterly = pd.read_csv(Path(work) / "quarterly.csv")
     available = pd.to_datetime(quarterly["available_date"], errors="coerce")
     if not available.dropna().le(SOURCE_SIGNAL_DATE).all():
-        raise RuntimeError("v51r6 recovered fundamentals contain future data")
+        raise RuntimeError("v51r7 recovered fundamentals contain future data")
     unmapped = sorted(set(audit.get("unmapped_universe_tickers", [])))
     if unmapped != _recovered_unmapped_tickers():
-        raise RuntimeError("v51r6 SEC-unmapped audit changed")
+        raise RuntimeError("v51r7 SEC-unmapped audit changed")
     if not set(unmapped).issubset(set(tickers)):
-        raise RuntimeError("v51r6 unmapped tickers left the source universe")
+        raise RuntimeError("v51r7 unmapped tickers left the source universe")
     audit["late_recovery_unmapped_policy"] = {
         "classification": "SEC_CIK_UNAVAILABLE_NOT_DROPPED_OR_GUESSED",
         "explicit_stage_ticker_count": len(tickers),
@@ -518,10 +630,10 @@ def _materialize_recovered_work(target: Path) -> dict:
     target = _resolve_path(target)
     source = _resolve_path(RECOVERED_R2_WORK_DIR)
     if target.exists():
-        raise RuntimeError(f"v51r6 recovered work already exists: {target}")
+        raise RuntimeError(f"v51r7 recovered work already exists: {target}")
     temporary = target.with_name(target.name + ".copy_tmp")
     if temporary.exists():
-        raise RuntimeError(f"stale v51r6 recovered-work copy exists: {temporary}")
+        raise RuntimeError(f"stale v51r7 recovered-work copy exists: {temporary}")
     (temporary / "fundamentals").mkdir(parents=True)
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         shutil.copy2(
@@ -587,11 +699,13 @@ def _materialize_recovered_work(target: Path) -> dict:
         json.dumps(quarterly_coverage, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    shutil.copytree(source / "market", temporary / "market")
+    market_source = _resolve_path(RECOVERED_R6_MARKET_DIR)
+    shutil.copytree(market_source, temporary / "market")
     os.replace(temporary, target)
     return {
         "status": "COPIED_COMPLETED_R2_INPUTS",
         "source": _portable_path(source),
+        "market_source": _portable_path(market_source),
         "target": _portable_path(target),
         "raw_companyfacts_cache_copied": False,
         "available_date_filters": filters,
