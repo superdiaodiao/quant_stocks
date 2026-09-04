@@ -26,6 +26,7 @@ def test_recovery_protocol_is_late_only_and_keeps_release_blocked(
         "_input_bindings",
         lambda: {"fixture": {"path": "fixture", "sha256": "b" * 64}},
     )
+    monkeypatch.setattr(v51, "_recovered_unmapped_tickers", lambda: ["AAA"])
     path = tmp_path / "protocol.json"
 
     result = v51.freeze_recovery_protocol(
@@ -111,26 +112,37 @@ def test_source_locked_universe_is_injected_before_refresh(
 def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = []
-
-    def fake_refresh(**kwargs):
-        calls.append(kwargs)
-        return {
-            "unmapped_universe_tickers": list(
-                reversed(v51.EXPECTED_SEC_UNMAPPED_TICKERS)
-            )
-        }
-
-    monkeypatch.setattr(v51, "V43_REFRESH_FUNDAMENTALS", fake_refresh)
+    snapshot = tmp_path / "universe.csv"
+    snapshot.write_text(
+        "Symbol,ETF,Test Issue,Observed At\nAAA,N,N,2026-07-01\n",
+        encoding="utf-8",
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "coverage.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-08-31",
+                "parsed_outputs_written": True,
+                "deferred_by_limit_ticker_count": 0,
+                "unmapped_universe_tickers": ["AAA"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "quarterly.csv").write_text(
+        "ticker,available_date\nBBB,2026-08-29\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+    monkeypatch.setattr(v51, "_recovered_unmapped_tickers", lambda: ["AAA"])
     result = v51._source_locked_fundamentals_refresh(
         as_of=v51.SOURCE_SIGNAL_DATE,
-        universe_path=tmp_path / "universe.csv",
-        tickers=["AAA", *v51.EXPECTED_SEC_UNMAPPED_TICKERS],
-        work=tmp_path / "work",
+        universe_path=snapshot,
+        tickers=["AAA", "BBB"],
+        work=work,
         workers=2,
     )
 
-    assert calls[0]["tickers"] == []
     policy = result["late_recovery_unmapped_policy"]
     assert policy["kept_in_source_locked_universe"] is True
     assert policy["invented_cik_count"] == 0
@@ -140,18 +152,36 @@ def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
 def test_source_locked_fundamentals_refresh_rejects_mapping_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        v51,
-        "V43_REFRESH_FUNDAMENTALS",
-        lambda **_kwargs: {"unmapped_universe_tickers": ["HIFS"]},
+    snapshot = tmp_path / "universe.csv"
+    snapshot.write_text(
+        "Symbol,ETF,Test Issue,Observed At\nAAA,N,N,2026-07-01\n",
+        encoding="utf-8",
     )
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "coverage.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-08-31",
+                "parsed_outputs_written": True,
+                "deferred_by_limit_ticker_count": 0,
+                "unmapped_universe_tickers": ["AAA"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "quarterly.csv").write_text(
+        "ticker,available_date\nBBB,2026-08-29\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+    monkeypatch.setattr(v51, "_recovered_unmapped_tickers", lambda: ["CCC"])
 
-    with pytest.raises(RuntimeError, match="SEC-unmapped universe changed"):
+    with pytest.raises(RuntimeError, match="SEC-unmapped audit changed"):
         v51._source_locked_fundamentals_refresh(
             as_of=v51.SOURCE_SIGNAL_DATE,
-            universe_path=tmp_path / "universe.csv",
+            universe_path=snapshot,
             tickers=["AAA"],
-            work=tmp_path / "work",
+            work=work,
             workers=2,
         )
 
