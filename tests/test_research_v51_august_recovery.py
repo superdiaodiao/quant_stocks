@@ -27,6 +27,7 @@ def test_recovery_protocol_is_late_only_and_keeps_release_blocked(
         lambda: {"fixture": {"path": "fixture", "sha256": "b" * 64}},
     )
     monkeypatch.setattr(v51, "_recovered_unmapped_tickers", lambda: ["AAA"])
+    monkeypatch.setattr(v51, "_recovered_future_date_summary", lambda: {})
     path = tmp_path / "protocol.json"
 
     result = v51.freeze_recovery_protocol(
@@ -114,7 +115,8 @@ def test_source_locked_fundamentals_refresh_keeps_unmapped_tickers(
 ) -> None:
     snapshot = tmp_path / "universe.csv"
     snapshot.write_text(
-        "Symbol,ETF,Test Issue,Observed At\nAAA,N,N,2026-07-01\n",
+        "Symbol,Name,ETF,Test Issue,Observed At\n"
+        "AAA,AAA Corp,N,N,2026-07-01\n",
         encoding="utf-8",
     )
     work = tmp_path / "work"
@@ -186,6 +188,52 @@ def test_source_locked_fundamentals_refresh_rejects_mapping_drift(
         )
 
 
+def test_materialize_recovered_work_removes_future_available_dates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    fundamental = source / "fundamentals"
+    market = source / "market"
+    fundamental.mkdir(parents=True)
+    market.mkdir()
+    snapshot = tmp_path / "universe.csv"
+    snapshot.write_text(
+        "Symbol,Name,ETF,Test Issue,Observed At\n"
+        "AAA,AAA Corp,N,N,2026-07-01\n",
+        encoding="utf-8",
+    )
+    rows = (
+        "ticker,available_date,metric\n"
+        "AAA,2026-08-31,revenue\n"
+        "AAA,2026-09-01,net_income\n"
+    )
+    for filename in ("fundamentals.csv", "quarterly.csv"):
+        (fundamental / filename).write_text(rows, encoding="utf-8")
+    audit = {
+        "as_of": "2026-08-31",
+        "parsed_outputs_written": True,
+        "deferred_by_limit_ticker_count": 0,
+        "unmapped_universe_tickers": [],
+    }
+    for filename in ("coverage.json", "quarterly_coverage.json"):
+        (fundamental / filename).write_text(
+            json.dumps(audit), encoding="utf-8"
+        )
+    (fundamental / "refresh_state.json").write_text("{}", encoding="utf-8")
+    (market / "qqq.csv").write_text("date,close\n", encoding="utf-8")
+    monkeypatch.setattr(v51, "RECOVERED_R2_WORK_DIR", source)
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+
+    target = tmp_path / "target"
+    result = v51._materialize_recovered_work(target)
+
+    filtered = pd.read_csv(target / "fundamentals" / "quarterly.csv")
+    assert filtered["available_date"].tolist() == ["2026-08-31"]
+    assert result["available_date_filters"]["quarterly.csv"][
+        "removed_future_rows"
+    ] == 1
+
+
 def test_build_diagnostic_never_mutates_v50_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -203,6 +251,11 @@ def test_build_diagnostic_never_mutates_v50_ledger(
     )
     monkeypatch.setattr(v51.v50, "LEDGER_PATH", ledger)
     monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+    monkeypatch.setattr(
+        v51,
+        "_materialize_recovered_work",
+        lambda _target: {"status": "fixture"},
+    )
     monkeypatch.setattr(
         v51,
         "_validated_recovery_protocol",

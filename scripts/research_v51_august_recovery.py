@@ -28,7 +28,7 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51r3-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r4-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
@@ -48,7 +48,13 @@ RECOVERED_R2_OUTPUT_DIR = Path(
 RECOVERED_R2_PROTOCOL_PATH = RECOVERED_R2_OUTPUT_DIR / "frozen_recovery_protocol.json"
 RECOVERED_R2_WORK_DIR = RECOVERED_R2_OUTPUT_DIR / "staging_work"
 RECOVERED_R2_FUNDAMENTAL_DIR = RECOVERED_R2_WORK_DIR / "fundamentals"
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r3")
+SUPERSEDED_R3_OUTPUT_DIR = Path(
+    "output/research_only/v51/august_recovery_20260904_r3"
+)
+SUPERSEDED_R3_PROTOCOL_PATH = (
+    SUPERSEDED_R3_OUTPUT_DIR / "frozen_recovery_protocol.json"
+)
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r4")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -132,6 +138,9 @@ def _input_bindings() -> dict:
             SUPERSEDED_R1_PROTOCOL_PATH
         ),
         "recovered_v51r2_protocol": _file_binding(RECOVERED_R2_PROTOCOL_PATH),
+        "superseded_v51r3_protocol": _file_binding(
+            SUPERSEDED_R3_PROTOCOL_PATH
+        ),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
         "v50_ledger": _file_binding(v50.LEDGER_PATH),
@@ -155,6 +164,26 @@ def _recovered_unmapped_tickers() -> list[str]:
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
         raise RuntimeError("recovered v51r2 fundamentals have the wrong cutoff")
     return sorted(set(audit.get("unmapped_universe_tickers", [])))
+
+
+def _recovered_future_date_summary() -> dict:
+    summary = {}
+    for filename in ("fundamentals.csv", "quarterly.csv"):
+        frame = pd.read_csv(
+            _resolve_path(RECOVERED_R2_FUNDAMENTAL_DIR / filename),
+            usecols=["ticker", "available_date"],
+        )
+        available = pd.to_datetime(frame["available_date"], errors="raise")
+        future = frame.loc[available > SOURCE_SIGNAL_DATE]
+        summary[filename] = {
+            "source_rows": int(len(frame)),
+            "future_rows_to_remove": int(len(future)),
+            "future_ticker_count": int(future["ticker"].nunique()),
+            "maximum_source_available_date": available.max().strftime(
+                "%Y-%m-%d"
+            ),
+        }
+    return summary
 
 
 def freeze_recovery_protocol(
@@ -220,6 +249,15 @@ def freeze_recovery_protocol(
                     "generated"
                 ),
             },
+            {
+                "protocol": _file_binding(SUPERSEDED_R3_PROTOCOL_PATH),
+                "target_was_generated": False,
+                "reason": (
+                    "the recovered parsed files contained records first "
+                    "available after 2026-08-31; the future-date gate stopped "
+                    "the build before any target was generated"
+                ),
+            },
         ],
         "sec_unmapped_policy": {
             "expected_tickers": _recovered_unmapped_tickers(),
@@ -227,6 +265,13 @@ def freeze_recovery_protocol(
             "invent_or_guess_cik": False,
             "refresh_mapped_tickers_only": True,
             "selection_missing_value_policy_changed": False,
+        },
+        "as_of_filter_policy": {
+            "field": "available_date",
+            "maximum_allowed": SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"),
+            "operation": "deterministically remove later rows before staging",
+            "source_summary": _recovered_future_date_summary(),
+            "selection_parameters_changed": False,
         },
         "recovery_specification": recovery_specification(),
         "input_bindings": _input_bindings(),
@@ -291,7 +336,7 @@ def _source_locked_universe_refresh(
     """Inject the pre-signal universe before any prices or fundamentals refresh."""
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r3 universe refresh only supports the August cutoff")
+        raise RuntimeError("v51r4 universe refresh only supports the August cutoff")
     source = _resolve_path(UNIVERSE_SNAPSHOT)
     frame = pd.read_csv(source, keep_default_na=False)
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
@@ -326,26 +371,26 @@ def _source_locked_fundamentals_refresh(
     del workers
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r3 fundamentals only support the August cutoff")
+        raise RuntimeError("v51r4 fundamentals only support the August cutoff")
     if _sha256(universe_path) != _sha256(UNIVERSE_SNAPSHOT):
-        raise RuntimeError("v51r3 fundamentals received the wrong universe")
+        raise RuntimeError("v51r4 fundamentals received the wrong universe")
     audit_path = Path(work) / "coverage.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
-        raise RuntimeError("v51r3 recovered fundamentals have the wrong cutoff")
+        raise RuntimeError("v51r4 recovered fundamentals have the wrong cutoff")
     if not audit.get("parsed_outputs_written"):
-        raise RuntimeError("v51r3 recovered fundamentals were not written")
+        raise RuntimeError("v51r4 recovered fundamentals were not written")
     if int(audit.get("deferred_by_limit_ticker_count", 0)) != 0:
-        raise RuntimeError("v51r3 recovered fundamentals contain deferred work")
+        raise RuntimeError("v51r4 recovered fundamentals contain deferred work")
     quarterly = pd.read_csv(Path(work) / "quarterly.csv")
     available = pd.to_datetime(quarterly["available_date"], errors="coerce")
     if not available.dropna().le(SOURCE_SIGNAL_DATE).all():
-        raise RuntimeError("v51r3 recovered fundamentals contain future data")
+        raise RuntimeError("v51r4 recovered fundamentals contain future data")
     unmapped = sorted(set(audit.get("unmapped_universe_tickers", [])))
     if unmapped != _recovered_unmapped_tickers():
-        raise RuntimeError("v51r3 SEC-unmapped audit changed")
+        raise RuntimeError("v51r4 SEC-unmapped audit changed")
     if not set(unmapped).issubset(set(tickers)):
-        raise RuntimeError("v51r3 unmapped tickers left the source universe")
+        raise RuntimeError("v51r4 unmapped tickers left the source universe")
     audit["late_recovery_unmapped_policy"] = {
         "classification": "SEC_CIK_UNAVAILABLE_NOT_DROPPED_OR_GUESSED",
         "explicit_stage_ticker_count": len(tickers),
@@ -364,16 +409,76 @@ def _materialize_recovered_work(target: Path) -> dict:
     target = _resolve_path(target)
     source = _resolve_path(RECOVERED_R2_WORK_DIR)
     if target.exists():
-        raise RuntimeError(f"v51r3 recovered work already exists: {target}")
+        raise RuntimeError(f"v51r4 recovered work already exists: {target}")
     temporary = target.with_name(target.name + ".copy_tmp")
     if temporary.exists():
-        raise RuntimeError(f"stale v51r3 recovered-work copy exists: {temporary}")
+        raise RuntimeError(f"stale v51r4 recovered-work copy exists: {temporary}")
     (temporary / "fundamentals").mkdir(parents=True)
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         shutil.copy2(
             source / "fundamentals" / filename,
             temporary / "fundamentals" / filename,
         )
+    filters = {}
+    parsed_frames = {}
+    for filename in ("fundamentals.csv", "quarterly.csv"):
+        path = temporary / "fundamentals" / filename
+        frame = pd.read_csv(path, low_memory=False)
+        available = pd.to_datetime(frame["available_date"], errors="raise")
+        keep = available <= SOURCE_SIGNAL_DATE
+        filtered = frame.loc[keep].copy()
+        output = path.with_suffix(path.suffix + ".tmp")
+        filtered.to_csv(output, index=False)
+        os.replace(output, path)
+        filters[filename] = {
+            "source_rows": int(len(frame)),
+            "retained_rows": int(len(filtered)),
+            "removed_future_rows": int((~keep).sum()),
+            "maximum_retained_available_date": pd.to_datetime(
+                filtered["available_date"], errors="raise"
+            ).max().strftime("%Y-%m-%d"),
+        }
+        parsed_frames[filename] = filtered.assign(
+            available_date=pd.to_datetime(
+                filtered["available_date"], errors="raise"
+            )
+        )
+    current = v43.v42.investable_common_equities(
+        pd.read_csv(_resolve_path(UNIVERSE_SNAPSHOT), keep_default_na=False)
+    )
+    universe = current["Symbol"].dropna().astype(str).str.upper().tolist()
+    coverage_path = temporary / "fundamentals" / "coverage.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage.update(
+        v43.fundamentals_update.audit_fundamentals_coverage(
+            parsed_frames["fundamentals.csv"],
+            universe,
+            SOURCE_SIGNAL_DATE.date(),
+        )
+    )
+    coverage["late_recovery_as_of_filter"] = filters
+    coverage_path.write_text(
+        json.dumps(coverage, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    quarterly_coverage_path = (
+        temporary / "fundamentals" / "quarterly_coverage.json"
+    )
+    quarterly_coverage = json.loads(
+        quarterly_coverage_path.read_text(encoding="utf-8")
+    )
+    quarterly_coverage.update(
+        v43.fundamentals_update.audit_quarterly_coverage(
+            parsed_frames["quarterly.csv"],
+            universe,
+            SOURCE_SIGNAL_DATE.date(),
+        )
+    )
+    quarterly_coverage["late_recovery_as_of_filter"] = filters
+    quarterly_coverage_path.write_text(
+        json.dumps(quarterly_coverage, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     shutil.copytree(source / "market", temporary / "market")
     os.replace(temporary, target)
     return {
@@ -381,6 +486,7 @@ def _materialize_recovered_work(target: Path) -> dict:
         "source": _portable_path(source),
         "target": _portable_path(target),
         "raw_companyfacts_cache_copied": False,
+        "available_date_filters": filters,
         "fundamental_bindings": {
             filename: _file_binding(target / "fundamentals" / filename)
             for filename in RECOVERED_FUNDAMENTAL_FILES
