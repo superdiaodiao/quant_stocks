@@ -264,6 +264,52 @@ def test_source_locked_fundamentals_refresh_rejects_mapping_drift(
         )
 
 
+def test_fundamentals_allow_documented_unmapped_price_exclusion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "universe.csv"
+    snapshot.write_text(
+        "Symbol,Name,ETF,Test Issue,Observed At\n"
+        "BBB,BBB Corp,N,N,2026-07-01\n",
+        encoding="utf-8",
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "coverage.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-08-31",
+                "parsed_outputs_written": True,
+                "deferred_by_limit_ticker_count": 0,
+                "unmapped_universe_tickers": ["AAA"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "quarterly.csv").write_text(
+        "ticker,available_date\nBBB,2026-08-29\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(v51, "UNIVERSE_SNAPSHOT", snapshot)
+    monkeypatch.setattr(v51, "_recovered_unmapped_tickers", lambda: ["AAA"])
+    monkeypatch.setattr(
+        v51,
+        "_signal_date_stale_price_exclusion_summary",
+        lambda frame=None: [{"ticker": "AAA"}],
+    )
+
+    result = v51._source_locked_fundamentals_refresh(
+        as_of=v51.SOURCE_SIGNAL_DATE,
+        universe_path=snapshot,
+        tickers=["BBB"],
+        work=work,
+        workers=2,
+    )
+
+    assert result["late_recovery_unmapped_policy"][
+        "unmapped_tickers_removed_by_documented_price_eligibility"
+    ] == ["AAA"]
+
+
 def test_materialize_recovered_work_removes_future_available_dates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

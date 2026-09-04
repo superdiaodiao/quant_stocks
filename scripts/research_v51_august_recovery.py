@@ -28,7 +28,7 @@ from scripts import research_v50_corrected_v47 as v50
 from src.research.corrected_stock_policy import VALIDATION_PATH
 
 
-MODEL_VERSION = "v51r7-v50r1-august-late-recovery"
+MODEL_VERSION = "v51r8-v50r1-august-late-recovery"
 SOURCE_SIGNAL_DATE = pd.Timestamp("2026-08-31")
 ORIGINAL_SIGNAL_DEADLINE = pd.Timestamp("2026-09-01T00:00:00Z")
 EARLIEST_RECOVERY_SHADOW_EXECUTION_DATE = pd.Timestamp("2026-09-04")
@@ -71,7 +71,13 @@ RECOVERED_R6_OUTPUT_DIR = Path(
 )
 RECOVERED_R6_PROTOCOL_PATH = RECOVERED_R6_OUTPUT_DIR / "frozen_recovery_protocol.json"
 RECOVERED_R6_MARKET_DIR = RECOVERED_R6_OUTPUT_DIR / "staging_work" / "market"
-OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r7")
+SUPERSEDED_R7_OUTPUT_DIR = Path(
+    "output/research_only/v51/august_recovery_20260904_r7"
+)
+SUPERSEDED_R7_PROTOCOL_PATH = (
+    SUPERSEDED_R7_OUTPUT_DIR / "frozen_recovery_protocol.json"
+)
+OUTPUT_DIR = Path("output/research_only/v51/august_recovery_20260904_r8")
 PROTOCOL_PATH = OUTPUT_DIR / "frozen_recovery_protocol.json"
 REPORT_PATH = OUTPUT_DIR / "august_2026_late_diagnostic.json"
 BUNDLES_DIR = OUTPUT_DIR / "diagnostic_bundles"
@@ -197,6 +203,9 @@ def _input_bindings() -> dict:
             SUPERSEDED_R5_PROTOCOL_PATH
         ),
         "recovered_v51r6_protocol": _file_binding(RECOVERED_R6_PROTOCOL_PATH),
+        "superseded_v51r7_protocol": _file_binding(
+            SUPERSEDED_R7_PROTOCOL_PATH
+        ),
         "v50_runner": _file_binding(v50.__file__),
         "v50_protocol": _file_binding(v50.PROTOCOL_PATH),
         "v50_ledger": _file_binding(v50.LEDGER_PATH),
@@ -350,6 +359,15 @@ def freeze_recovery_protocol(
                     "build before any target was generated"
                 ),
             },
+            {
+                "protocol": _file_binding(SUPERSEDED_R7_PROTOCOL_PATH),
+                "target_was_generated": False,
+                "reason": (
+                    "the fundamentals guard did not yet permit a SEC-unmapped "
+                    "ticker to leave the universe when that same ticker was in "
+                    "the frozen 68-name signal-date eligibility exclusion list"
+                ),
+            },
         ],
         "sec_unmapped_policy": {
             "expected_tickers": _recovered_unmapped_tickers(),
@@ -428,7 +446,7 @@ def _source_locked_universe_refresh(
     """Inject the pre-signal universe before any prices or fundamentals refresh."""
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r7 universe refresh only supports the August cutoff")
+        raise RuntimeError("v51r8 universe refresh only supports the August cutoff")
     source = _resolve_path(UNIVERSE_SNAPSHOT)
     frame, repairs = _normalized_source_locked_universe()
     required = {"Symbol", "ETF", "Test Issue", "Observed At"}
@@ -590,28 +608,35 @@ def _source_locked_fundamentals_refresh(
     del workers
     stamp = pd.Timestamp(as_of).normalize()
     if stamp != SOURCE_SIGNAL_DATE:
-        raise RuntimeError("v51r7 fundamentals only support the August cutoff")
+        raise RuntimeError("v51r8 fundamentals only support the August cutoff")
     received = pd.read_csv(universe_path, keep_default_na=False)
     expected, _repairs = _normalized_source_locked_universe()
     if not received.equals(expected):
-        raise RuntimeError("v51r7 fundamentals received the wrong universe")
+        raise RuntimeError("v51r8 fundamentals received the wrong universe")
     audit_path = Path(work) / "coverage.json"
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     if audit.get("as_of") != SOURCE_SIGNAL_DATE.strftime("%Y-%m-%d"):
-        raise RuntimeError("v51r7 recovered fundamentals have the wrong cutoff")
+        raise RuntimeError("v51r8 recovered fundamentals have the wrong cutoff")
     if not audit.get("parsed_outputs_written"):
-        raise RuntimeError("v51r7 recovered fundamentals were not written")
+        raise RuntimeError("v51r8 recovered fundamentals were not written")
     if int(audit.get("deferred_by_limit_ticker_count", 0)) != 0:
-        raise RuntimeError("v51r7 recovered fundamentals contain deferred work")
+        raise RuntimeError("v51r8 recovered fundamentals contain deferred work")
     quarterly = pd.read_csv(Path(work) / "quarterly.csv")
     available = pd.to_datetime(quarterly["available_date"], errors="coerce")
     if not available.dropna().le(SOURCE_SIGNAL_DATE).all():
-        raise RuntimeError("v51r7 recovered fundamentals contain future data")
+        raise RuntimeError("v51r8 recovered fundamentals contain future data")
     unmapped = sorted(set(audit.get("unmapped_universe_tickers", [])))
     if unmapped != _recovered_unmapped_tickers():
-        raise RuntimeError("v51r7 SEC-unmapped audit changed")
-    if not set(unmapped).issubset(set(tickers)):
-        raise RuntimeError("v51r7 unmapped tickers left the source universe")
+        raise RuntimeError("v51r8 SEC-unmapped audit changed")
+    documented_exclusions = {
+        item["ticker"] for item in _signal_date_stale_price_exclusion_summary()
+    }
+    unexplained_absences = set(unmapped) - set(tickers) - documented_exclusions
+    if unexplained_absences:
+        raise RuntimeError(
+            "v51r8 unmapped tickers left the source universe without evidence: "
+            + ", ".join(sorted(unexplained_absences))
+        )
     audit["late_recovery_unmapped_policy"] = {
         "classification": "SEC_CIK_UNAVAILABLE_NOT_DROPPED_OR_GUESSED",
         "explicit_stage_ticker_count": len(tickers),
@@ -621,6 +646,9 @@ def _source_locked_fundamentals_refresh(
         "mapped_tickers_refreshed": True,
         "selection_missing_value_policy_changed": False,
         "reused_completed_v51r2_refresh": True,
+        "unmapped_tickers_removed_by_documented_price_eligibility": sorted(
+            set(unmapped) & documented_exclusions
+        ),
     }
     return audit
 
@@ -630,10 +658,10 @@ def _materialize_recovered_work(target: Path) -> dict:
     target = _resolve_path(target)
     source = _resolve_path(RECOVERED_R2_WORK_DIR)
     if target.exists():
-        raise RuntimeError(f"v51r7 recovered work already exists: {target}")
+        raise RuntimeError(f"v51r8 recovered work already exists: {target}")
     temporary = target.with_name(target.name + ".copy_tmp")
     if temporary.exists():
-        raise RuntimeError(f"stale v51r7 recovered-work copy exists: {temporary}")
+        raise RuntimeError(f"stale v51r8 recovered-work copy exists: {temporary}")
     (temporary / "fundamentals").mkdir(parents=True)
     for filename in RECOVERED_FUNDAMENTAL_FILES:
         shutil.copy2(
