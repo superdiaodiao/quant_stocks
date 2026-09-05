@@ -142,6 +142,23 @@ PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
 
 `freeze-signal` 之后立即 push：r2 账本没有外部锚，git 远端是它唯一的外部时间戳。
 
+**推荐用调度入口代替手工输入日期。** `scripts/research_v50r2_scheduled_run.py`
+只依据 UTC 时钟、Nasdaq 日历（含提前收盘）和 append-only 账本判断该做什么，
+任何调度器（cron / launchd / Actions）每小时调用一次即可，不需要自己换算时区：
+
+```bash
+# 只判断不执行；若某个 SIGNAL 窗口已错过则退出码为 2（dead-man 检查）
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_scheduled_run.py check
+
+# 判断并执行到期的 SIGNAL（stage-bundle + freeze-signal）或 MARK（stage-bundle + append-mark）
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_scheduled_run.py run
+```
+
+规则：SIGNAL 窗口 = 月末交易日官方收盘后 30 分钟起，至该日 23:59:59 UTC 止；
+MARK = 最近一个已完成（收盘后 30 分钟）、晚于最新冻结信号日且尚未估值的交易日；
+错过的 SIGNAL 窗口永不回填，只报告。把 `check` 的非零退出码接到告警上，
+"没有跑"就不再是静默故障。
+
 如果错过 SIGNAL 的同日 UTC 窗口，程序会拒绝事后补建；不得通过修改日期或复用未来
 股票池绕过。这一限制是为了让前瞻证据可复核，不影响历史训练数据继续用于诊断。
 
