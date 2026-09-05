@@ -1,0 +1,38 @@
+name: v50r2 signal watchdog
+
+# Dead-man check for the prospective observation. The r2 ledger is committed
+# after every freeze-signal, so this job can decide from the repository alone
+# whether the latest month-end SIGNAL window was met. It runs hourly around
+# each month end; a missed window makes the job fail (exit 2), which GitHub
+# reports to the repository owner. It never stages or backfills anything.
+
+on:
+  schedule:
+    - cron: "15 * 28-31,1-3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Check whether a SIGNAL or MARK is due or was missed
+      run: |
+        PYTHONPATH=. python scripts/research_v50r2_scheduled_run.py check

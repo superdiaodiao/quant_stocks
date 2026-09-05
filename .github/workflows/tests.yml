@@ -1,0 +1,55 @@
+name: Portable tests
+
+# Runs the part of the test suite that does not need the local data release,
+# research staging artifacts, or external archives. The exclusion list lives in
+# tests/data_dependent_test_files.txt; everything else must pass on a clean
+# checkout. This is what catches checkout-absolute bindings, untracked frozen
+# artifacts, and runtime regressions in the prospective runners before a
+# signal window, which the production workflow never exercises.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt pytest
+
+    - name: Byte-compile runtime, scripts, and tests
+      run: |
+        python -m compileall -q src scripts tests
+
+    - name: Verify frozen prospective protocols on a clean checkout
+      run: |
+        PYTHONPATH=. python scripts/research_v50_corrected_v47.py status
+        PYTHONPATH=. python scripts/research_v50r2_corrected_v47.py status
+
+    - name: Run portable test files
+      run: |
+        mapfile -t excluded < <(grep -v '^#' tests/data_dependent_test_files.txt)
+        mapfile -t portable < <(ls tests/test_*.py | grep -vxF -f <(printf '%s\n' "${excluded[@]}"))
+        echo "portable test files: ${#portable[@]}; excluded: ${#excluded[@]}"
+        python -m pytest "${portable[@]}" -o addopts='' -q -p no:cacheprovider

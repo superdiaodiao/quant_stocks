@@ -156,8 +156,14 @@ PYTHONPATH=. .venv/bin/python scripts/research_v50r2_scheduled_run.py run
 
 规则：SIGNAL 窗口 = 月末交易日官方收盘后 30 分钟起，至该日 23:59:59 UTC 止；
 MARK = 最近一个已完成（收盘后 30 分钟）、晚于最新冻结信号日且尚未估值的交易日；
-错过的 SIGNAL 窗口永不回填，只报告。把 `check` 的非零退出码接到告警上，
-"没有跑"就不再是静默故障。
+错过的 SIGNAL 窗口永不回填，只报告。
+
+仓库自带两个 GitHub Actions：`.github/workflows/tests.yml` 在每次 push/PR 上跑
+不依赖本地数据包的测试子集（排除清单见 `tests/data_dependent_test_files.txt`），
+并在干净 checkout 上复验 r1/r2 冻结协议；`.github/workflows/signal_watchdog.yml`
+在每月月末前后每小时跑一次 `check`——因为账本在 `freeze-signal` 后会被 push，
+它只凭仓库内容就能判断窗口是否错过，错过即失败并由 GitHub 通知仓库所有者，
+是独立于本机的 dead-man switch。
 
 如果错过 SIGNAL 的同日 UTC 窗口，程序会拒绝事后补建；不得通过修改日期或复用未来
 股票池绕过。这一限制是为了让前瞻证据可复核，不影响历史训练数据继续用于诊断。
