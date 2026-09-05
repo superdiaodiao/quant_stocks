@@ -1,0 +1,208 @@
+{
+  "broker_connection_used": false,
+  "capital_allocated": false,
+  "code_commit": "2cd06c698fd8b8d8a86b7d421ddeb0949628a999",
+  "corrected_training_positive_years_50bps": 6,
+  "evaluation": {
+    "official_score_requires_complete_prospective_periods": true,
+    "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
+    "secondary_benchmark": "QQQ_TOTAL_RETURN_REFERENCE_ONLY",
+    "training_years_are_never_counted_as_wins": true,
+    "transaction_cost_bps": [
+      10,
+      30,
+      50
+    ]
+  },
+  "evidence_partition": {
+    "2020_2025": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "CORRECTED_TRAINING_DIAGNOSTIC_ONLY",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    "2026_01_07": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "RESEARCHER_EXPOSED_REUSED_DIAGNOSTIC"
+    },
+    "2026_08": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "MISSED_WINDOW_NOT_BACKFILLED"
+    },
+    "prospective": {
+      "counts_as_official_comparison": true,
+      "first_signal_date": "2026-09-30"
+    }
+  },
+  "frozen_at": "2026-09-05T01:37:52+00:00",
+  "immutability": {
+    "input_binding_location": "repository_relative",
+    "ledger_mode": "append_only_sha256_chain",
+    "protocol_overwrite_allowed": false,
+    "signal_overwrite_allowed": false
+  },
+  "input_bindings": {
+    "corporate_action_validation": {
+      "path": "output/can_slim_all_corporate_action_validation.csv",
+      "sha256": "d2b4fba34677b4c63010c0a7e75e2c5f0610d98a41203a5a19a4b0511d947649"
+    },
+    "corrected_policy": {
+      "path": "src/research/corrected_stock_policy.py",
+      "sha256": "1f1d3f7ce3be57884e5c7609381da0658ddb51c39b6a5c90a9a93c12aa226551"
+    },
+    "development_manifest": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/development_results/manifest.json",
+      "sha256": "17ecbf2c2c772b6e56a4464e3c3e0626a0e4695fba999a3b7fd4d44934ec9c9e"
+    },
+    "development_protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/development_protocol.json",
+      "sha256": "474d8a9646c5fce589c7bd8dcfd83c872238e2904b6eadcb79a96ef47465e323"
+    },
+    "r1_runner": {
+      "path": "scripts/research_v50_corrected_v47.py",
+      "sha256": "3631cb04eda5c68aa8c097103770052f88ec50f04ab88bdb95bbc69bd40c49eb"
+    },
+    "reviewed_market_moves": {
+      "path": "stocks_list_dir/nasdaq/reviewed_market_moves.csv",
+      "sha256": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47"
+    },
+    "runner": {
+      "path": "scripts/research_v50r2_corrected_v47.py",
+      "sha256": "f91a3b0831ee4ca339ff84ca532c8e4ed20883a928f6ebbb799812558a7f39d7"
+    },
+    "v42_calculation_core": {
+      "path": "scripts/research_v42_prospective_v28_observation.py",
+      "sha256": "6c68022ee64aa9c7241ef4c05783e68c9110a8f18fb0148e5acbb2264bc74c35"
+    },
+    "v43_runtime_core": {
+      "path": "scripts/research_v43_isolated_prospective_v28_observation.py",
+      "sha256": "329b876362ab0f49bf9a642fd4b27b8fadcfdb6ed7bbbe57d3abb7280f05442c"
+    },
+    "v48_ledger": {
+      "path": "output/research_only/v48/v47_prospective_20260830/prospective_ledger.jsonl",
+      "sha256": "3afdc0149ae2f9945d21bb1cf0bb33c674d85240917c328010eaf3e22680f2a1"
+    },
+    "v48_protocol": {
+      "path": "output/research_only/v48/v47_prospective_20260830/frozen_protocol.json",
+      "sha256": "e717ff441b9b3804579df35fc470d5f961d8b09402691a3704de1dca649978ef"
+    },
+    "v50r1_ledger": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/prospective_ledger.jsonl",
+      "sha256": "55336d125e68ddca4ba89119055d1ad5d7beac9dd86e52d81e2dcb61cf426b53"
+    },
+    "v50r1_protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/frozen_protocol.json",
+      "sha256": "b9ea71eb5f6b3cd1104648e50c321356bf6d8c198f58673bd71821dc47b9502a"
+    }
+  },
+  "model": {
+    "correction_specification": {
+      "coincident_stop_and_rebalance": "stop_vetoes_same_close_reentry",
+      "input_binding_location": "repository_relative",
+      "minimum_price_units": "contemporaneous nominal price",
+      "missing_monthly_entry_close": "fail_closed",
+      "new_threshold_search": false,
+      "price_return_units": "sourced confirmed corporate actions only",
+      "risk_thresholds": {
+        "entry_loss_fraction": 0.2,
+        "portfolio_trailing_stop_fraction": 0.25
+      },
+      "selector": "v30 fixed Top-5 monthly selector",
+      "signal_universe_staging": "same_utc_date_as_signal_only",
+      "unresolved_ranked_pool_action": "fail_closed",
+      "unresolved_target_action": "fail_closed"
+    },
+    "risk_specification": {
+      "entry_loss_fraction": 0.2,
+      "entry_reference": "adjusted close at latest monthly rebalance",
+      "execution": "next_trading_close",
+      "key": "entry_loss_20pct_plus_portfolio_trailing_stop_25pct",
+      "portfolio_peak_reset": "latest monthly rebalance",
+      "portfolio_trailing_stop_fraction": 0.25,
+      "reentry": "next_frozen_monthly_target_only",
+      "risk_off_asset": "CASH",
+      "signal_frequency": "daily_close",
+      "trailing_stop_fraction": 0.25
+    },
+    "selector_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "selector_specification": {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    }
+  },
+  "model_version": "v50r2-corrected-v47-sourced-actions",
+  "order_created": false,
+  "parameters_frozen_before_prospective_data": true,
+  "price_policy": {
+    "automatic_heuristic_adjustment_allowed": false,
+    "confirmed_actions_only": true,
+    "reviewed_market_moves_preserved": true,
+    "unresolved_rank_or_target_event": "fail_closed"
+  },
+  "promotion_eligible": false,
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_policy": {
+    "coincident_stop_precedence": "stop_vetoes_same_close_reentry",
+    "entry_loss_fraction": 0.2,
+    "entry_reference": "adjusted close at latest monthly rebalance",
+    "missing_entry_close": "fail_closed",
+    "portfolio_peak_reset": "latest monthly rebalance",
+    "portfolio_trailing_stop_fraction": 0.25,
+    "stop_checked_before_rebalance": true
+  },
+  "runtime_repair": {
+    "bundle_manifest_scalars": "numpy_scalars_normalized_to_python",
+    "development_replay": "reused_from_v50r1_unchanged",
+    "first_prospective_signal_date": "2026-09-30",
+    "missed_signal_backfill_allowed": false,
+    "missed_signal_dates": [
+      "2026-08-31"
+    ],
+    "new_threshold_search": false,
+    "r1_runner_modified": false
+  },
+  "schema_version": 3,
+  "signal_policy": {
+    "execution": "next common trading-session close",
+    "frequency": "completed calendar-month final Nasdaq session",
+    "late_signal_bundle_allowed": false,
+    "missed_signal_backfill_allowed": false,
+    "missed_signal_dates": [
+      "2026-08-31"
+    ],
+    "universe_staging": "same UTC date as signal"
+  },
+  "status": "FROZEN_WAITING_FOR_FIRST_SIGNAL",
+  "supersedes": {
+    "ledger": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/prospective_ledger.jsonl",
+      "sha256": "55336d125e68ddca4ba89119055d1ad5d7beac9dd86e52d81e2dcb61cf426b53"
+    },
+    "model_version": "v50r1-corrected-v47-sourced-actions",
+    "protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/frozen_protocol.json",
+      "sha256": "b9ea71eb5f6b3cd1104648e50c321356bf6d8c198f58673bd71821dc47b9502a"
+    },
+    "reason": [
+      "the inherited v42 bundle-manifest writer could not serialize the NumPy boolean fundamentals readiness gate, so every SIGNAL staging would have failed after its downloads",
+      "the 2026-08-31 window was missed by the external scheduler and is recorded as missed, never backfilled"
+    ],
+    "v50r1_signal_count": 0
+  }
+}

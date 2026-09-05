@@ -1,0 +1,22 @@
+{
+  "missed_signal_dates": [
+    "2026-08-31"
+  ],
+  "reason": "the v42 bundle-manifest writer could not serialize the NumPy boolean readiness gate; the r1 development replay is reused unchanged and the missed 2026-08-31 window is never backfilled",
+  "recorded_at": "2026-09-05T01:37:52+00:00",
+  "schema_version": 1,
+  "status": "SUPERSEDED_BEFORE_FIRST_SIGNAL",
+  "successor_protocol": {
+    "path": "output/research_only/v50/corrected_v47_20260905_r2/frozen_protocol.json",
+    "sha256": "48fef8da7ae8a7e221bdac4dff7b551c2485961ade11afa72d86539f0a69a4e7"
+  },
+  "v50r1_ledger": {
+    "path": "output/research_only/v50/corrected_v47_20260831_r1/prospective_ledger.jsonl",
+    "sha256": "55336d125e68ddca4ba89119055d1ad5d7beac9dd86e52d81e2dcb61cf426b53"
+  },
+  "v50r1_protocol": {
+    "path": "output/research_only/v50/corrected_v47_20260831_r1/frozen_protocol.json",
+    "sha256": "b9ea71eb5f6b3cd1104648e50c321356bf6d8c198f58673bd71821dc47b9502a"
+  },
+  "v50r1_signal_count": 0
+}

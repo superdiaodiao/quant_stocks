@@ -1,7 +1,7 @@
 # quant_stocks
 
 这是一个面向 Nasdaq 股票的量化研究与每日选股项目。当前唯一处于前瞻观察入口的
-候选是 `v50r1-corrected-v47-sourced-actions`：固定使用月度 Top 5 股票选择器、
+候选是 `v50r2-corrected-v47-sourced-actions`（r2 只修运行时、不改模型）：固定使用月度 Top 5 股票选择器、
 20% 建仓损失止损和 25% 组合回撤止损，并与 **Nasdaq Composite** 比较。
 早期 `can-slim-top3-v1` 及 v14-v49 产物继续保留为历史审计和对照证据，但不再是
 当前运行入口。
@@ -28,8 +28,9 @@
 
 ### 2.1 选股规则
 
-当前冻结入口是 `scripts/research_v50_corrected_v47.py`，选择与风险参数均未因本次
-数据修复重新搜索：
+当前冻结入口是 `scripts/research_v50r2_corrected_v47.py`（r1 的
+`scripts/research_v50_corrected_v47.py` 与其开发回放保持不变、可独立复验），
+选择与风险参数均未因本次数据修复重新搜索：
 
 - 股票池：信号日当时已知的 Nasdaq 普通股历史快照；
 - 先按 63 个交易日相对 Nasdaq 动量和 50 日中位成交额排序，取流动性池前 25；
@@ -100,32 +101,46 @@ v50r1 修正回放保持了 v30/v47 的 348 个冻结月度目标，目标差异
 约 1 个基点，不能称为强稳健性。这些结果全部是修正后的训练诊断，不计入正式前瞻
 胜场，也不解除 `BLOCKED`。
 
-可审计产物位于
-`output/research_only/v50/corrected_v47_20260831_r1/`；当前协议状态为
-`WAITING_FOR_FIRST_PROSPECTIVE_SIGNAL`。第一笔允许进入账本的信号日期是
-`2026-08-31`，必须在该日 Nasdaq 收盘后且 UTC 日期仍为 2026-08-31 时创建。
-换算为北京时间/新加坡时间，实际窗口是 **2026-09-01 04:00–08:00**，不是
-2026-08-31 凌晨。
+开发回放产物位于 `output/research_only/v50/corrected_v47_20260831_r1/`（r1，
+不可变）；前瞻协议与账本位于
+`output/research_only/v50/corrected_v47_20260905_r2/`（r2）。当前协议状态为
+`WAITING_FOR_FIRST_PROSPECTIVE_SIGNAL`。
+
+**2026-08-31 的原始窗口已被错过**（外部 cron 显示新加坡时间但按 UTC 执行）。
+该月记录为 `MISSED_WINDOW_NOT_BACKFILLED`，永不回填；r2 的 `stage-bundle` 对任何
+早于 2026-09-30 的 SIGNAL 日期直接拒绝。第一笔允许进入账本的信号日期是
+`2026-09-30`，必须在该日 Nasdaq 收盘后且 UTC 日期仍为 2026-09-30 时创建；换算为
+北京时间/新加坡时间是 **2026-10-01 04:00–08:00**。建议不早于 04:30 执行，避免把
+供应商的临时收盘价冻结进账本。
+
+r2 相对 r1 只修一个运行时缺陷：继承自 v42 的 bundle manifest 写入器会把
+`Series.all()` 得到的 NumPy 布尔就绪门直接交给 `json.dumps`，导致每次 SIGNAL
+staging 都会在下载完成后崩溃并丢弃已下载数据（v51 的 r8 尝试正是这样失败的）。
+r2 在隔离运行时内把 NumPy 标量规范化为 Python 标量；可序列化的载荷逐字节不变，
+账本哈希不受影响。r1 的 runner、开发回放、选股器与 20%/25% 阈值全部原样复用。
 
 当前操作入口：
 
 ```bash
-PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py status
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py status
 
-# 仅在北京时间/新加坡时间 2026-09-01 04:00–08:00 执行：
-PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \
-  stage-bundle --as-of 2026-08-31 --purpose SIGNAL
-PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \
+# 仅在北京时间/新加坡时间 2026-10-01 04:30–08:00 执行：
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
+  stage-bundle --as-of 2026-09-30 --purpose SIGNAL
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
   freeze-signal --bundle \
-  output/research_only/v50/corrected_v47_20260831_r1/bundles/2026-08-31_signal
+  output/research_only/v50/corrected_v47_20260905_r2/bundles/2026-09-30_signal
+git add output/research_only/v50/corrected_v47_20260905_r2 && git commit -m "research: freeze 2026-09-30 v50r2 signal" && git push
 
 # 后续估值日分别创建 MARK 包并追加；YYYY-MM-DD 必须是实际估值日：
-PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
   stage-bundle --as-of YYYY-MM-DD --purpose MARK
-PYTHONPATH=. .venv/bin/python scripts/research_v50_corrected_v47.py \
+PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
   append-mark --bundle \
-  output/research_only/v50/corrected_v47_20260831_r1/bundles/YYYY-MM-DD_mark
+  output/research_only/v50/corrected_v47_20260905_r2/bundles/YYYY-MM-DD_mark
 ```
+
+`freeze-signal` 之后立即 push：r2 账本没有外部锚，git 远端是它唯一的外部时间戳。
 
 如果错过 SIGNAL 的同日 UTC 窗口，程序会拒绝事后补建；不得通过修改日期或复用未来
 股票池绕过。这一限制是为了让前瞻证据可复核，不影响历史训练数据继续用于诊断。
