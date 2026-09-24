@@ -182,3 +182,31 @@ def test_full_update_retries_only_failed_tickers_at_lower_concurrency(
     assert attempts == {"ABC": 1, "DEF": 2}
     assert result["counts"] == {"current": 2}
     assert result["failures"] == []
+
+
+def test_history_requests_bypass_nasdaqs_per_query_cache(monkeypatch) -> None:
+    urls = []
+    payload = {"data": {"tradesTable": {"rows": [
+        {"date": "09/23/2026", "open": "1", "high": "1", "low": "1",
+         "close": "26,936.04", "volume": "--"},
+    ]}}}
+
+    def fake_urlopen(request, **_kwargs):
+        urls.append(request.full_url)
+        if len(urls) == 1:
+            raise OSError("transient")
+        return _JsonResponse(payload)
+
+    monkeypatch.setattr(nasdaq_update, "urlopen", fake_urlopen)
+    monkeypatch.setattr(nasdaq_update.time, "sleep", lambda _seconds: None)
+    frame = nasdaq_update.fetch_history(
+        "COMP", date(2026, 9, 13), date(2026, 9, 23), asset_class="index"
+    )
+
+    assert frame["close"].tolist() == [26936.04]
+    # Each attempt, including the retry, is a distinct query.
+    assert len(urls) == 2 and urls[0] != urls[1]
+    for url in urls:
+        assert "fromdate=2026-09-13&todate=2026-09-23" in url
+        assert "&_=" in url
+    assert nasdaq_update.uncached("https://x.test/a").startswith("https://x.test/a?_=")

@@ -120,6 +120,17 @@ def _number(value):
     return float(str(value).replace("$", "").replace(",", ""))
 
 
+def uncached(url: str) -> str:
+    """Return ``url`` with a unique query parameter.
+
+    Nasdaq's public API keeps serving a cached response per query for hours
+    despite its no-cache headers, so a retry for a session repeats a response
+    fetched before that session was published.  A unique parameter bypasses
+    that cache.
+    """
+    return f"{url}{'&' if '?' in url else '?'}_={time.time_ns()}"
+
+
 def fetch_history(symbol: str, start: date, end: date, asset_class="stocks", retries=3) -> pd.DataFrame:
     params = urlencode({
         "assetclass": asset_class,
@@ -127,10 +138,11 @@ def fetch_history(symbol: str, start: date, end: date, asset_class="stocks", ret
         "todate": end.isoformat(),
         "limit": 5000,
     })
-    request = Request(API.format(symbol=symbol) + "?" + params, headers=HEADERS)
+    url = API.format(symbol=symbol) + "?" + params
     error = None
     for attempt in range(retries):
         try:
+            request = Request(uncached(url), headers=HEADERS)
             with urlopen(request, timeout=30) as response:
                 payload = json.load(response)
             data = payload.get("data") or {}
@@ -167,7 +179,7 @@ def fetch_closed_index_snapshot(symbol: str, session: date) -> dict:
     }
     payloads = {}
     for label, url in urls.items():
-        with urlopen(Request(url, headers=HEADERS), timeout=30) as response:
+        with urlopen(Request(uncached(url), headers=HEADERS), timeout=30) as response:
             payloads[label] = json.load(response)
     chart = payloads["chart"].get("data") or {}
     info = payloads["info"].get("data") or {}
@@ -208,7 +220,7 @@ def refresh_universe(
     common_equities_only: bool = False,
 ) -> dict:
     params = urlencode({"tableonly": "true", "limit": 10000, "exchange": "nasdaq"})
-    request = Request(SCREENER_API + "?" + params, headers=HEADERS)
+    request = Request(uncached(SCREENER_API + "?" + params), headers=HEADERS)
     with urlopen(request, timeout=60) as response:
         payload = json.load(response)
     rows = (((payload.get("data") or {}).get("table") or {}).get("rows") or [])

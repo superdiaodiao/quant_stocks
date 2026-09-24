@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 import pandas as pd
 
-from src.io.nasdaq_update import fetch_history
+from src.io.nasdaq_update import fetch_history, uncached
 
 
 MODEL_VERSION = "can-slim-v5-qqq-relative-trend-core-research"
@@ -60,7 +60,7 @@ def _nasdaq_dividend_history(
         "https://api.nasdaq.com/api/quote/QQQ/dividends"
         "?assetclass=etf&limit=500"
     )
-    with urlopen(Request(url, headers=NASDAQ_HEADERS), timeout=30) as response:
+    with urlopen(Request(uncached(url), headers=NASDAQ_HEADERS), timeout=30) as response:
         payload = response.read()
     data = json.loads(payload.decode("utf-8")).get("data") or {}
     rows = ((data.get("dividends") or {}).get("rows") or [])

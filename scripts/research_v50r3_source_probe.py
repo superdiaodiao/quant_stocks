@@ -82,7 +82,8 @@ def _quote_fields(symbol: str, asset_class: str) -> dict:
         url = api.format(symbol=symbol) + f"?assetclass={asset_class}"
         try:
             with urlopen(
-                Request(url, headers=nasdaq_update.HEADERS), timeout=30
+                Request(nasdaq_update.uncached(url), headers=nasdaq_update.HEADERS),
+                timeout=30,
             ) as response:
                 data = json.load(response).get("data") or {}
         except Exception as exc:
