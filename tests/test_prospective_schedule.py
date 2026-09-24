@@ -28,17 +28,37 @@ def _decide(text: str, events: list[dict], first=FIRST, missed=MISSED) -> dict:
     )
 
 
-def test_windows_use_the_calendar_close_in_both_seasons() -> None:
+def test_windows_close_when_the_next_session_premarket_opens() -> None:
     assert schedule.signal_window(pd.Timestamp("2026-09-30")) == (
         _at("2026-09-30T20:30:00Z"),
-        _at("2026-09-30T23:59:59Z"),
+        _at("2026-10-01T08:00:00Z"),
     )
-    assert schedule.signal_window(pd.Timestamp("2026-11-30"))[0] == _at(
-        "2026-11-30T21:30:00Z"
+    assert schedule.signal_window(pd.Timestamp("2026-11-30")) == (
+        _at("2026-11-30T21:30:00Z"),
+        _at("2026-12-01T09:00:00Z"),
+    )
+    # A Friday month end stays open over the weekend; US clocks change on
+    # 2026-11-01, so Monday's 04:00 New York pre-market is 09:00 UTC.
+    assert schedule.signal_window(pd.Timestamp("2026-10-30"))[1] == _at(
+        "2026-11-02T09:00:00Z"
+    )
+    # New Year's Day and the weekend both pass before the next session.
+    assert schedule.signal_window(pd.Timestamp("2026-12-31"))[1] == _at(
+        "2027-01-04T09:00:00Z"
     )
     assert schedule.session_close_utc(pd.Timestamp("2026-11-27")) == _at(
         "2026-11-27T18:00:00Z"
     )
+    # Any session has a staging window; Thanksgiving is skipped.
+    assert schedule.staging_window(pd.Timestamp("2026-11-25")) == (
+        _at("2026-11-25T21:30:00Z"),
+        _at("2026-11-27T09:00:00Z"),
+    )
+    assert schedule.next_session(pd.Timestamp("2026-11-25")) == pd.Timestamp(
+        "2026-11-27"
+    )
+    with pytest.raises(ValueError, match="not a Nasdaq session"):
+        schedule.premarket_open_utc(pd.Timestamp("2026-11-26"))
     with pytest.raises(ValueError, match="not a month-end"):
         schedule.signal_window(pd.Timestamp("2026-10-15"))
     with pytest.raises(ValueError, match="timezone-aware"):
@@ -78,15 +98,24 @@ def test_signal_lifecycle_and_remaining_window() -> None:
     inside = _decide("2026-09-30T20:45:00Z", [])
     assert inside["action"] == "RUN_SIGNAL"
     assert inside["as_of"] == "2026-09-30"
-    assert inside["minutes_left_in_window"] == pytest.approx(195.0, abs=0.1)
-    assert _decide("2026-09-30T23:59:59Z", [])["action"] == "RUN_SIGNAL"
+    assert inside["minutes_left_in_window"] == pytest.approx(675.0, abs=0.1)
+    assert inside["signal_window_utc"] == {
+        "opens": "2026-09-30T20:30:00+00:00",
+        "closes": "2026-10-01T08:00:00+00:00",
+    }
+    # The UTC date rolling over does not close the window.
+    next_day = _decide("2026-10-01T02:00:00Z", [])
+    assert next_day["action"] == "RUN_SIGNAL"
+    assert next_day["as_of"] == "2026-09-30"
+    assert _decide("2026-10-01T07:59:59Z", [])["action"] == "RUN_SIGNAL"
+    assert _decide("2026-10-01T08:00:00Z", [])["action"] == "SIGNAL_WINDOW_MISSED"
     assert _decide("2026-09-30T22:00:00Z", [_signal("2026-09-30")])["action"] == (
         "NO_ACTION"
     )
 
 
 def test_missed_window_is_reported_and_never_backfilled() -> None:
-    missed = _decide("2026-10-01T00:30:00Z", [])
+    missed = _decide("2026-10-01T08:30:00Z", [])
     assert missed["action"] == "SIGNAL_WINDOW_MISSED"
     assert missed["as_of"] is None
     assert missed["missed_signal_dates"] == ["2026-08-31", "2026-09-30"]
@@ -110,4 +139,9 @@ def test_later_first_signal_date_comes_from_the_protocol() -> None:
     assert before["missed_signal_dates"] == ["2026-08-31", "2026-09-30"]
     assert _decide("2026-10-30T21:00:00Z", [], first, missed)["action"] == (
         "RUN_SIGNAL"
+    )
+    sunday = _decide("2026-11-01T12:00:00Z", [], first, missed)
+    assert sunday["action"] == "RUN_SIGNAL" and sunday["as_of"] == "2026-10-30"
+    assert _decide("2026-11-02T09:00:00Z", [], first, missed)["action"] == (
+        "SIGNAL_WINDOW_MISSED"
     )

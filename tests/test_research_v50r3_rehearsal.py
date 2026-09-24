@@ -21,20 +21,23 @@ def test_rehearsal_stays_out_of_a_live_month_end_window() -> None:
     assert blocked == {
         "signal_date": "2026-09-30",
         "opens": "2026-09-30T20:30:00+00:00",
-        "closes": "2026-09-30T23:59:59+00:00",
+        "closes": "2026-10-01T08:00:00+00:00",
     }
-    assert rehearsal.blocking_window(_at("2026-09-30T23:59:00Z")) is not None
-    assert rehearsal.blocking_window(_at("2026-10-01T00:01:00Z")) is None
+    assert rehearsal.blocking_window(_at("2026-10-01T07:59:00Z")) == blocked
+    assert rehearsal.blocking_window(_at("2026-10-01T08:00:00Z")) is None
+    # A Friday month-end window stays open over the weekend.
+    weekend = rehearsal.blocking_window(_at("2026-11-01T12:00:00Z"))
+    assert weekend is not None and weekend["signal_date"] == "2026-10-30"
 
 
 def test_window_fit_requires_room_for_one_retry() -> None:
     fit = rehearsal.window_fit(40 * 60, pd.Timestamp("2026-09-30"))
-    assert fit["window_minutes"] == 210.0
-    assert fit["attempts_that_fit"] == 5
+    assert fit["window_minutes"] == 690.0
+    assert fit["attempts_that_fit"] == 17
     assert fit["fits_with_one_retry"] is True
-    assert fit["latest_start_for_one_attempt_utc"] == "2026-09-30T23:19:59+00:00"
-    slow = rehearsal.window_fit(120 * 60, pd.Timestamp("2026-11-30"))
-    assert slow["window_minutes"] == 150.0
+    assert fit["latest_start_for_one_attempt_utc"] == "2026-10-01T07:20:00+00:00"
+    slow = rehearsal.window_fit(400 * 60, pd.Timestamp("2026-11-30"))
+    assert slow["window_minutes"] == 690.0
     assert slow["fits_with_one_retry"] is False
 
 
@@ -83,13 +86,13 @@ def test_rehearsal_runtime_restores_every_patched_function() -> None:
         assert v42._is_month_end_signal(pd.Timestamp("2026-09-30")) is True
         assert v43.MODEL_VERSION == r3.MODEL_VERSION
         assert v43._refresh_fundamentals_isolated is not r3._refresh_fundamentals_isolated
-        assert r3._REFRESH_OPTIONS["enforce_signal_utc_date"] is False
+        assert r3._REFRESH_OPTIONS["enforce_signal_window"] is False
     assert v42._is_month_end_signal is before["month_end"]
     assert {name: getattr(module, attribute)
             for name, (module, attribute) in rehearsal.TIMED_FUNCTIONS.items()} == before["timed"]
     assert v43._refresh_fundamentals_isolated is before["refresh"]
     assert v43.MODEL_VERSION == before["model"]
-    assert r3._REFRESH_OPTIONS["enforce_signal_utc_date"] is True
+    assert r3._REFRESH_OPTIONS["enforce_signal_window"] is True
 
 
 def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage) -> dict:
@@ -163,7 +166,7 @@ def test_successful_rehearsal_reports_selection_and_warnings(
 
     assert report["staging"]["status"] == "FROZEN_ISOLATED_INPUT_BUNDLE"
     assert report["selection"]["diagnostic_targets"][0]["ticker"] == "AAA"
-    assert report["created_on_as_of_utc_date"] is True
+    assert report["created_inside_session_window"] is True
     assert report["fundamentals"]["sec_unmapped_policy"]["unmapped_ticker_count"] == 7
     assert report["verdict"] == "WARN"
     assert any("never reviewed" in warning for warning in report["warnings"])

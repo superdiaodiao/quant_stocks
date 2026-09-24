@@ -4,14 +4,16 @@ Pure functions only.  Given an aware instant, the Nasdaq calendar (including
 early closes), the events already in an append-only ledger, and the dates a
 frozen protocol declares, decide whether a month-end SIGNAL or a daily MARK is
 due.  A SIGNAL window opens a buffer after the official close (so a
-provisional close is not frozen) and closes at 23:59:59 UTC of the same date,
-the same-UTC-date staging rule.  Missed windows are reported, never
-backfilled.
+provisional close is not frozen) and closes, exclusively, when pre-market
+trading starts on the next session (04:00 New York time).  The signal executes
+at that next session's close, so the window ends before any trade of the
+execution session.  Missed windows are reported, never backfilled.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -21,6 +23,10 @@ from src.research.shadow_evaluation import nasdaq_calendar_for_year
 SIGNAL_WINDOW_OPEN_BUFFER = timedelta(minutes=30)
 MARK_READY_BUFFER = timedelta(minutes=30)
 MONTH_END_SEARCH_DAYS = 400
+NEW_YORK = ZoneInfo("America/New_York")
+# Nasdaq pre-market trading starts at 04:00 New York time.
+PREMARKET_OPEN = time(4, 0)
+NEXT_SESSION_SEARCH_DAYS = 15
 
 
 def as_utc(moment: datetime) -> datetime:
@@ -65,18 +71,44 @@ def session_close_utc(session: pd.Timestamp) -> datetime:
     return close.to_pydatetime().astimezone(timezone.utc)
 
 
+def next_session(session: pd.Timestamp) -> pd.Timestamp:
+    """The first Nasdaq session after ``session``."""
+    stamp = pd.Timestamp(session).normalize()
+    later = sessions_between(
+        stamp + pd.Timedelta(days=1),
+        stamp + pd.Timedelta(days=NEXT_SESSION_SEARCH_DAYS),
+    )
+    if not len(later):
+        raise RuntimeError(f"no Nasdaq session follows {stamp:%Y-%m-%d}")
+    return later[0]
+
+
+def premarket_open_utc(session: pd.Timestamp) -> datetime:
+    """Start of Nasdaq pre-market trading on ``session`` as an aware UTC datetime."""
+    stamp = pd.Timestamp(session).normalize()
+    if not is_session(stamp):
+        raise ValueError(f"{stamp:%Y-%m-%d} is not a Nasdaq session")
+    local = datetime.combine(stamp.date(), PREMARKET_OPEN, tzinfo=NEW_YORK)
+    return local.astimezone(timezone.utc)
+
+
+def staging_window(session: pd.Timestamp) -> tuple[datetime, datetime]:
+    """Return the [open, close) UTC window for staging ``session``'s close.
+
+    It opens a buffer after the official close and closes when pre-market
+    trading starts on the next session.
+    """
+    stamp = pd.Timestamp(session).normalize()
+    opens = session_close_utc(stamp) + SIGNAL_WINDOW_OPEN_BUFFER
+    return opens, premarket_open_utc(next_session(stamp))
+
+
 def signal_window(signal_date: pd.Timestamp) -> tuple[datetime, datetime]:
-    """Return the (open, close) UTC window in which a SIGNAL may be staged."""
+    """Return the [open, close) UTC window in which a SIGNAL may be frozen."""
     stamp = pd.Timestamp(signal_date).normalize()
     if not is_month_end_session(stamp):
         raise ValueError(f"{stamp:%Y-%m-%d} is not a month-end Nasdaq session")
-    opens = session_close_utc(stamp) + SIGNAL_WINDOW_OPEN_BUFFER
-    closes = datetime(
-        stamp.year, stamp.month, stamp.day, 23, 59, 59, tzinfo=timezone.utc
-    )
-    if opens >= closes:
-        raise ValueError("signal window closes before the session close buffer")
-    return opens, closes
+    return staging_window(stamp)
 
 
 def month_end_sessions(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
@@ -185,7 +217,7 @@ def decide(
         if now < opens:
             decision["action"] = "WAIT_FOR_SIGNAL_WINDOW"
             return decision
-        if now <= closes:
+        if now < closes:
             decision["action"] = "RUN_SIGNAL"
             decision["as_of"] = f"{due:%Y-%m-%d}"
             decision["minutes_left_in_window"] = round(

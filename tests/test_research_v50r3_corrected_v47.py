@@ -202,30 +202,31 @@ def test_signal_refresh_refuses_a_broken_sec_map(
         )
 
 
-def test_signal_refresh_fails_fast_after_the_utc_date_rolls_over(
+def test_signal_refresh_fails_fast_once_the_signal_window_closes(
     isolated_refresh: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-01T00:00:05Z"))
+    def refresh() -> dict:
+        return r3._refresh_fundamentals_isolated(
+            as_of=pd.Timestamp("2026-09-30"),
+            universe_path=isolated_refresh["universe"],
+            tickers=["AAPL"],
+            work=isolated_refresh["work"],
+            workers=1,
+        )
+
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-01T08:00:05Z"))
     with pytest.raises(RuntimeError, match="could never be frozen"):
-        r3._refresh_fundamentals_isolated(
-            as_of=pd.Timestamp("2026-09-30"),
-            universe_path=isolated_refresh["universe"],
-            tickers=["AAPL"],
-            work=isolated_refresh["work"],
-            workers=1,
-        )
+        refresh()
     assert isolated_refresh["fetched"] == []
-    # A rehearsal of a completed session is allowed to run after its date.
+    # A rehearsal of a completed session is allowed to run after its window.
     with r3._runtime(rehearsal=True):
-        audit = r3._refresh_fundamentals_isolated(
-            as_of=pd.Timestamp("2026-09-30"),
-            universe_path=isolated_refresh["universe"],
-            tickers=["AAPL"],
-            work=isolated_refresh["work"],
-            workers=1,
-        )
+        audit = refresh()
     assert audit["sec_unmapped_policy"]["unmapped_tickers"] == []
-    assert r3._REFRESH_OPTIONS["enforce_signal_utc_date"] is True
+    assert r3._REFRESH_OPTIONS["enforce_signal_window"] is True
+
+    # The UTC date has rolled over, but pre-market has not opened yet.
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-01T07:30:00Z"))
+    assert refresh()["refresh_started_at"] == "2026-10-01T07:30:00+00:00"
 
 
 def test_sec_ticker_map_fetch_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -338,11 +339,12 @@ def test_stage_bundle_validates_dates_then_recovers_and_stages(
             as_of="2026-08-31", purpose="SIGNAL",
             observed_at=_at("2026-08-31T22:00:00Z"), **kwargs,
         )
-    with pytest.raises(RuntimeError, match="refuses late SIGNAL"):
-        r3.stage_bundle(
-            as_of="2026-09-30", purpose="SIGNAL",
-            observed_at=_at("2026-10-01T00:10:00Z"), **kwargs,
-        )
+    for outside in ("2026-09-30T20:10:00Z", "2026-10-01T08:10:00Z"):
+        with pytest.raises(RuntimeError, match="only inside its window"):
+            r3.stage_bundle(
+                as_of="2026-09-30", purpose="SIGNAL",
+                observed_at=_at(outside), **kwargs,
+            )
 
     stale = r3.stale_build_paths(kwargs["work_dir"], "2026-09-30_signal")[0]
     stale.mkdir(parents=True)
@@ -358,7 +360,7 @@ def test_stage_bundle_validates_dates_then_recovers_and_stages(
     monkeypatch.setattr(v43, "stage_bundle", fake_stage)
     result = r3.stage_bundle(
         as_of="2026-09-30", purpose="SIGNAL",
-        observed_at=_at("2026-09-30T20:45:00Z"), **kwargs,
+        observed_at=_at("2026-10-01T02:00:00Z"), **kwargs,
     )
 
     assert seen["stale_present"] is False
@@ -389,9 +391,12 @@ def test_signal_bundle_validator_requires_repaired_refresh_and_timeliness(
     validated, _sha = r3._validated_bundle(tmp_path, "SIGNAL")
     assert validated is manifest
 
-    manifest["created_at"] = "2026-10-01T00:00:01+00:00"
-    with pytest.raises(RuntimeError, match="staged after"):
-        r3._validated_bundle(tmp_path, "SIGNAL")
+    manifest["created_at"] = "2026-10-01T07:59:59+00:00"
+    assert r3._validated_bundle(tmp_path, "SIGNAL")[0] is manifest
+    for outside in ("2026-09-30T20:29:59+00:00", "2026-10-01T08:00:00+00:00"):
+        manifest["created_at"] = outside
+        with pytest.raises(RuntimeError, match="not staged inside its SIGNAL window"):
+            r3._validated_bundle(tmp_path, "SIGNAL")
     manifest["created_at"] = "2026-09-30T21:05:00+00:00"
 
     manifest["as_of"] = "2026-08-31"
@@ -406,6 +411,55 @@ def test_signal_bundle_validator_requires_repaired_refresh_and_timeliness(
     manifest["runner_version"] = r2.MODEL_VERSION
     with pytest.raises(RuntimeError, match="not frozen by the v50r3 runner"):
         r3._validated_bundle(tmp_path, "SIGNAL")
+
+
+def test_signal_frozen_event_is_refused_once_the_window_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "bundle_manifest.json").write_text(
+        json.dumps({"as_of": "2026-09-30"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        r3, "_validated_protocol",
+        lambda _path=None: ({"signal_policy": SIGNAL_POLICY}, "a" * 64),
+    )
+    appended = []
+
+    def fake_append(**kwargs) -> None:
+        appended.append(kwargs)
+
+    monkeypatch.setattr(v43, "append_event", fake_append)
+
+    def fake_freeze(**_kwargs):
+        v43.append_event(
+            path="ledger", protocol_sha256="a" * 64,
+            event_type="SIGNAL_FROZEN", payload={},
+        )
+        return {"status": "FROZEN_PROSPECTIVE_SIGNAL"}
+
+    monkeypatch.setattr(v43, "freeze_signal", fake_freeze)
+    kwargs = {"bundle": bundle, "lock_path": tmp_path / "staging.lock"}
+
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-01T07:59:59Z"))
+    assert r3.freeze_signal(**kwargs)["status"] == "FROZEN_PROSPECTIVE_SIGNAL"
+    assert appended[-1]["recorded_at"] == "2026-10-01T07:59:59+00:00"
+
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-01T08:00:00Z"))
+    with pytest.raises(RuntimeError, match="window closed"):
+        r3.freeze_signal(**kwargs)
+    assert len(appended) == 1
+    assert v43.append_event is fake_append
+
+    # Only the SIGNAL_FROZEN event is gated: marks keep flowing.
+    with r3._signal_deadline(pd.Timestamp("2026-09-30")):
+        v43.append_event(
+            path="ledger", protocol_sha256="a" * 64,
+            event_type="VALUATION_APPENDED", payload={},
+        )
+    assert appended[-1]["event_type"] == "VALUATION_APPENDED"
+    assert "recorded_at" not in appended[-1]
 
 
 def _freeze(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, now: str) -> dict:
@@ -450,6 +504,11 @@ def test_freeze_binds_closure_supersedes_r2_and_dates_the_first_signal(
     assert result["code_closure"]["sha256"] == "e" * 64
     assert result["signal_policy"]["first_prospective_signal_date"] == "2026-09-30"
     assert result["signal_policy"]["missed_signal_dates"] == ["2026-08-31"]
+    assert result["signal_policy"]["first_signal_window_utc"] == {
+        "opens": "2026-09-30T20:30:00+00:00",
+        "closes": "2026-10-01T08:00:00+00:00",
+    }
+    assert result["signal_policy"]["signal_frozen_before_window_closes"] is True
     assert result["release_status"] == "BLOCKED"
     assert result["promotion_eligible"] is False
     assert {"runner", "scheduler", "r2_runner", "v50r2_protocol", "v50r2_ledger"} <= set(

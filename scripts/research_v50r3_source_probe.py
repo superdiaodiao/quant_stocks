@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Read-only probe: are the SIGNAL data sources ready for a session right now?
 
-The same-UTC-date SIGNAL window (official close + 30 minutes to 23:59:59 UTC)
-falls inside Nasdaq's after-hours session.  Staging needs, for the signal
-session, a Nasdaq Composite close (historical row, or the official-close
-fallback that requires the info endpoint to report ``Closed``), a QQQ
-historical row, and the session row for at least 98% of the universe.  This
+The SIGNAL window opens 30 minutes after the official close, while Nasdaq's
+after-hours session is still trading, and closes when pre-market trading opens
+on the next session.  Staging needs, for the signal session, a Nasdaq
+Composite close (historical row, or the official-close fallback that requires
+the info endpoint to report ``Closed``), a QQQ historical row, and the session
+row for at least 98% of the universe.  This
 probe records what the public sources return at this moment without staging
 anything, so the window can be checked before a run starts.
 

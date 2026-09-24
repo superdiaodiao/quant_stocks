@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Rehearse the exact v50r3 SIGNAL staging and selection on a completed session.
 
-A prospective SIGNAL must be staged inside a short same-UTC-date window, and
-the v51 August recovery needed nine attempts because gates that nobody had
+A prospective SIGNAL must be staged and frozen inside its window (30 minutes
+after the month-end close until pre-market trading opens on the next session),
+and the v51 August recovery needed nine attempts because gates that nobody had
 exercised failed one after another.  This script runs the r3 staging path
 (current universe, price and index downloads, QQQ, the isolated SEC refresh,
 the readiness gates) and the r3 selector on a completed session in a scratch
@@ -129,18 +130,20 @@ def _rehearsal_runtime(as_of: pd.Timestamp, timings: dict | None = None):
 
 
 def blocking_window(now: datetime) -> dict | None:
-    """Return today's month-end window if a rehearsal would compete with it."""
+    """Return the month-end window a rehearsal would compete with, if any."""
     now = schedule.as_utc(now)
     today = pd.Timestamp(now.date())
-    if not schedule.is_month_end_session(today):
-        return None
-    opens, closes = schedule.signal_window(today)
-    if opens - QUIET_BEFORE_WINDOW <= now <= closes:
-        return {
-            "signal_date": f"{today:%Y-%m-%d}",
-            "opens": opens.isoformat(timespec="seconds"),
-            "closes": closes.isoformat(timespec="seconds"),
-        }
+    recent = schedule.month_end_sessions(
+        today - pd.Timedelta(days=schedule.NEXT_SESSION_SEARCH_DAYS), today
+    )
+    for session in recent:
+        opens, closes = schedule.signal_window(session)
+        if opens - QUIET_BEFORE_WINDOW <= now < closes:
+            return {
+                "signal_date": f"{session:%Y-%m-%d}",
+                "opens": opens.isoformat(timespec="seconds"),
+                "closes": closes.isoformat(timespec="seconds"),
+            }
     return None
 
 
@@ -370,8 +373,11 @@ def rehearse(
                 "failure_sample": (refresh.get("failures") or [])[:20],
             }
             created_at = pd.Timestamp(manifest["created_at"]).tz_convert("UTC")
+            opens, closes = schedule.staging_window(as_of)
             report["bundle_created_at"] = created_at.isoformat()
-            report["created_on_as_of_utc_date"] = created_at.date() == as_of.date()
+            report["created_inside_session_window"] = (
+                opens <= created_at.to_pydatetime() < closes
+            )
             try:
                 protocol = {
                     "model": r3._selected_model(),

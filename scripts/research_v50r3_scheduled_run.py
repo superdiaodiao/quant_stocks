@@ -2,15 +2,17 @@
 """Clock-and-calendar driven entry point for the v50r3 prospective observation.
 
 Any scheduler (cron, launchd, GitHub Actions) may invoke this hourly from any
-working directory: it switches to the repository root and decides from the
-UTC clock, the Nasdaq calendar, the append-only ledger, and the dates in the
-frozen r3 protocol whether a SIGNAL or MARK is due.  It never backfills a
-missed signal.
+working directory, and a person may run it by hand at any time: it switches to
+the repository root and decides from the UTC clock, the Nasdaq calendar, the
+append-only ledger, and the dates in the frozen r3 protocol whether a SIGNAL
+or MARK is due.  A SIGNAL window runs from 30 minutes after the month-end
+close until pre-market trading opens on the next session.  It never backfills
+a missed signal.
 
 ``run --commit`` records the result in git right after a successful freeze or
 mark, committing only the ledger and the new signal file; ``--push`` also
 pushes the current branch.  The GitHub watchdog reads the default branch, so
-the ledger must reach it before 00:15 UTC after the signal date.
+the ledger must reach it before the SIGNAL window closes.
 
 Exit codes: 0 nothing due, done, or another staging holds the lock; 1 an
 error, including a failed git record; 2 a SIGNAL window was missed; 3 the r3
@@ -79,7 +81,7 @@ def record_in_git(
             if default and default != f"{remote}/{branch}":
                 result["warning"] = (
                     f"pushed {branch}, but the watchdog reads {default}; merge "
-                    "the ledger there before 00:15 UTC"
+                    "the ledger there before the SIGNAL window closes"
                 )
     except subprocess.CalledProcessError as exc:
         result["error"] = (exc.stderr or exc.stdout or str(exc)).strip()

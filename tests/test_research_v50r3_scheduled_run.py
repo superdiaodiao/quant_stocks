@@ -93,7 +93,8 @@ def test_run_stages_then_freezes_under_one_lock(
     assert checked["action"] == "RUN_SIGNAL" and checked["executed"] is False
     assert calls == []
 
-    executed = sched.run(now=_at("2026-09-30T21:00:00Z"), execute=True, **frozen)
+    # 10:00 Beijing time the next day: the UTC date has rolled, the window has not.
+    executed = sched.run(now=_at("2026-10-01T02:00:00Z"), execute=True, **frozen)
     assert executed["executed"] is True
     assert executed["result_status"] == "FROZEN_PROSPECTIVE_SIGNAL"
     assert executed["targets"] == [{"ticker": "AAA"}]
@@ -127,7 +128,7 @@ def test_missed_window_is_never_staged_and_exits_two(
     monkeypatch.setattr(
         r3, "stage_bundle", lambda **_kwargs: pytest.fail("backfill attempted")
     )
-    decision = sched.run(now=_at("2026-10-01T03:00:00Z"), execute=True, **frozen)
+    decision = sched.run(now=_at("2026-10-01T08:30:00Z"), execute=True, **frozen)
     assert decision["action"] == "SIGNAL_WINDOW_MISSED"
     assert decision["executed"] is False
     assert sched.exit_code(decision) == sched.MISSED_EXIT_CODE

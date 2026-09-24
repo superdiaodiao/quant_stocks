@@ -21,6 +21,13 @@ Defects found before the first prospective signal:
 * a failed or interrupted attempt left build directories that blocked every
   retry in the same window.  r3 serialises staging behind an exclusive lock
   and quarantines never-promoted build directories before retrying;
+* the inherited same-UTC-date window lasted about 3.5 hours, all of it during
+  Nasdaq after-hours trading, while the Composite official-close fallback
+  requires Nasdaq to report the market as Closed, so the window depended on a
+  history row that can lag the close by hours.  The signal executes at the
+  next session's close; r3's window runs from 30 minutes after the official
+  close until pre-market trading opens on that next session (04:00 New York),
+  and no SIGNAL_FROZEN event is written after it closes;
 * inherited paths are repository-relative, so launching from another working
   directory read an empty ledger.  r3 entry points run from the repository
   root;
@@ -101,12 +108,11 @@ _sha256 = r1._sha256
 _portable_path = r1._portable_path
 _file_binding = r1._file_binding
 _git_head = r1._git_head
-_signal_staging_is_timely = r1._signal_staging_is_timely
 _hybrid_replay_adapter = r1._hybrid_replay_adapter
 
 # Rehearsals stage a completed non-month-end session after the fact, so they
-# relax only the same-UTC-date check inside the fundamentals refresh.
-_REFRESH_OPTIONS = {"enforce_signal_utc_date": True}
+# relax only the SIGNAL-window check inside the fundamentals refresh.
+_REFRESH_OPTIONS = {"enforce_signal_window": True}
 _HELD_LOCKS: dict[str, int] = {}
 
 
@@ -138,6 +144,10 @@ def runtime_repair_specification() -> dict:
         "stale_build_recovery": (
             "quarantine_never_promoted_builds_under_exclusive_lock"
         ),
+        "signal_window": (
+            "official_close_plus_30_minutes_until_next_session_premarket_open"
+        ),
+        "signal_frozen_after_window_allowed": False,
         "working_directory": "repository_root",
         "code_binding": "complete_project_import_closure",
         "selection_missing_value_policy_changed": False,
@@ -261,9 +271,11 @@ def _validated_bundle(
             raise RuntimeError(
                 "v50r3 refuses a SIGNAL bundle for a missed or pre-r3 date"
             )
-        if created_at.tz_convert("UTC").date() != as_of.date():
+        opens, closes = schedule.signal_window(as_of)
+        if not opens <= created_at.tz_convert("UTC").to_pydatetime() < closes:
             raise RuntimeError(
-                "v50r3 SIGNAL bundle was staged after its declared UTC date"
+                "v50r3 SIGNAL bundle was not staged inside its SIGNAL window "
+                f"[{_iso(opens)}, {_iso(closes)})"
             )
     return manifest, manifest_sha
 
@@ -279,6 +291,20 @@ def _build_signal_payload(**kwargs) -> dict:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _iso(moment: datetime) -> str:
+    return moment.isoformat(timespec="seconds")
+
+
+def _signal_staging_is_timely(
+    stamp: str | pd.Timestamp,
+    observed_at: datetime | None = None,
+) -> bool:
+    """Whether a SIGNAL for ``stamp`` may start staging at ``observed_at``."""
+    observed = schedule.as_utc(observed_at or _utc_now())
+    opens, closes = schedule.signal_window(pd.Timestamp(stamp))
+    return opens <= observed < closes
 
 
 def _fetch_sec_ticker_map() -> dict[str, int]:
@@ -360,15 +386,14 @@ def _refresh_fundamentals_isolated(
     """v43's isolated SEC refresh, restricted to CIK-mapped names."""
     stamp = pd.Timestamp(as_of).normalize()
     started = _utc_now()
-    if (
-        _REFRESH_OPTIONS["enforce_signal_utc_date"]
-        and started.date() != stamp.date()
-    ):
-        raise RuntimeError(
-            f"v50r3 SIGNAL staging reached the fundamentals refresh on UTC "
-            f"{started:%Y-%m-%d}, after its {stamp:%Y-%m-%d} window; the "
-            "bundle could never be frozen"
-        )
+    if _REFRESH_OPTIONS["enforce_signal_window"]:
+        _opens, closes = schedule.signal_window(stamp)
+        if started >= closes:
+            raise RuntimeError(
+                f"v50r3 SIGNAL staging reached the fundamentals refresh at "
+                f"{_iso(started)}, after its {stamp:%Y-%m-%d} window closed at "
+                f"{_iso(closes)}; the bundle could never be frozen"
+            )
     timings: dict[str, float] = {}
     before = v43._formal_financial_bindings()
     v42._initialize_fundamental_work(work)
@@ -478,7 +503,7 @@ def _runtime(*, rehearsal: bool = False):
             setattr(v43, name, value)
         v43.v42.json = r2._JsonScalarProxy(original_v42_json)
         v43.json = r2._JsonScalarProxy(original_v43_json)
-        _REFRESH_OPTIONS["enforce_signal_utc_date"] = not rehearsal
+        _REFRESH_OPTIONS["enforce_signal_window"] = not rehearsal
         yield
     finally:
         _REFRESH_OPTIONS.update(original_options)
@@ -573,6 +598,7 @@ def freeze_protocol(
         ),
     ]
     missed_text = [f"{date:%Y-%m-%d}" for date in missed]
+    first_window = schedule.signal_window(first)
     manifest = r1._development_manifest()
     protocol = {
         "schema_version": 4,
@@ -593,7 +619,10 @@ def freeze_protocol(
                 "filings dated after the signal by EDGAR's daily cutoff made "
                 "the inherited readiness gate reject the whole bundle",
                 "failed or interrupted attempts left build directories that "
-                "blocked every retry within the same-UTC-date window",
+                "blocked every retry within the SIGNAL window",
+                "the same-UTC-date window lasted about 3.5 hours inside Nasdaq "
+                "after-hours trading, while the Composite official-close "
+                "fallback requires a Closed market status",
                 "repository-relative runtime paths depended on the launch "
                 "directory",
                 "the r2 protocol bound only five of the runtime's code files",
@@ -628,10 +657,19 @@ def freeze_protocol(
         "signal_policy": {
             "frequency": "completed calendar-month final Nasdaq session",
             "execution": "next common trading-session close",
-            "universe_staging": "same UTC date as signal",
+            "universe_staging": "inside the SIGNAL window",
             "window_opens_after_official_close_minutes": int(
                 schedule.SIGNAL_WINDOW_OPEN_BUFFER.total_seconds() // 60
             ),
+            "window_closes": (
+                "04:00 America/New_York on the next Nasdaq session, when "
+                "pre-market trading opens (exclusive)"
+            ),
+            "signal_frozen_before_window_closes": True,
+            "first_signal_window_utc": {
+                "opens": _iso(first_window[0]),
+                "closes": _iso(first_window[1]),
+            },
             "first_prospective_signal_date": f"{first:%Y-%m-%d}",
             "late_signal_bundle_allowed": False,
             "missed_signal_dates": missed_text,
@@ -791,8 +829,11 @@ def stage_bundle(
     existing = Path(bundles_dir) / suffix
     if purpose == "SIGNAL" and not existing.exists():
         if not _signal_staging_is_timely(stamp, observed_at):
+            opens, closes = schedule.signal_window(stamp)
             raise RuntimeError(
-                "v50r3 refuses late SIGNAL staging with a current universe"
+                f"v50r3 stages the {stamp:%Y-%m-%d} SIGNAL only inside its "
+                f"window [{_iso(opens)}, {_iso(closes)}): the current universe "
+                "must be captured after the close and before the next session"
             )
     with staging_lock(lock_path):
         recovered = [] if existing.exists() else quarantine_stale_builds(
@@ -813,6 +854,36 @@ def stage_bundle(
     return result
 
 
+@contextmanager
+def _signal_deadline(signal_date: pd.Timestamp):
+    """Refuse to write a SIGNAL_FROZEN event once its window has closed.
+
+    The check runs where the event is appended, and the event records the
+    checked instant, so every frozen signal carries a timestamp inside its
+    window.  Verifying an already frozen signal appends nothing.
+    """
+    _opens, closes = schedule.signal_window(signal_date)
+    original = v43.append_event
+
+    def append_event(**kwargs):
+        if kwargs.get("event_type") == "SIGNAL_FROZEN":
+            now = schedule.as_utc(_utc_now())
+            if now >= closes:
+                raise RuntimeError(
+                    f"the {signal_date:%Y-%m-%d} SIGNAL window closed at "
+                    f"{_iso(closes)}; v50r3 never freezes a signal once "
+                    "pre-market trading has opened on the execution session"
+                )
+            kwargs["recorded_at"] = _iso(now)
+        return original(**kwargs)
+
+    v43.append_event = append_event
+    try:
+        yield
+    finally:
+        v43.append_event = original
+
+
 def freeze_signal(
     *,
     bundle: str | Path,
@@ -826,11 +897,12 @@ def freeze_signal(
     manifest = json.loads(
         (Path(bundle) / "bundle_manifest.json").read_text(encoding="utf-8")
     )
-    if pd.Timestamp(manifest["as_of"]).normalize() < first:
+    signal_date = pd.Timestamp(manifest["as_of"]).normalize()
+    if signal_date < first:
         raise RuntimeError(
             f"v50r3 refuses a SIGNAL before its first date {first:%Y-%m-%d}"
         )
-    with staging_lock(lock_path), _runtime():
+    with staging_lock(lock_path), _runtime(), _signal_deadline(signal_date):
         return v43.freeze_signal(
             bundle=bundle,
             protocol_path=protocol_path,
