@@ -509,6 +509,10 @@ def test_freeze_binds_closure_supersedes_r2_and_dates_the_first_signal(
         "closes": "2026-10-01T08:00:00+00:00",
     }
     assert result["signal_policy"]["signal_frozen_before_window_closes"] is True
+    assert result["mark_policy"]["procedure"] == r3.MARK_PROCEDURE
+    assert result["mark_policy"]["post_freeze_sourced_events"] == (
+        r3.SUPPLEMENT_PATH.as_posix()
+    )
     assert result["release_status"] == "BLOCKED"
     assert result["promotion_eligible"] is False
     assert {"runner", "scheduler", "r2_runner", "v50r2_protocol", "v50r2_ledger"} <= set(

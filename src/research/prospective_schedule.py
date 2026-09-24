@@ -7,7 +7,8 @@ due.  A SIGNAL window opens a buffer after the official close (so a
 provisional close is not frozen) and closes, exclusively, when pre-market
 trading starts on the next session (04:00 New York time).  The signal executes
 at that next session's close, so the window ends before any trade of the
-execution session.  Missed windows are reported, never backfilled.
+execution session.  Missed windows are reported, never backfilled; the
+portfolio already held keeps being marked.
 """
 
 from __future__ import annotations
@@ -226,18 +227,16 @@ def decide(
             return decision
         decision["missed_signal_dates"].append(f"{due:%Y-%m-%d}")
         decision["action"] = "SIGNAL_WINDOW_MISSED"
-        # fall through: earlier frozen signals may still need marks
+        decision["signal_window_missed"] = True
+        # fall through: the portfolio already held keeps being marked
     if not frozen:
         return decision
     latest_signal = frozen[-1]
     completed = latest_completed_session(now)
     floor = latest_signal if latest_mark is None else max(latest_signal, latest_mark)
     if completed is not None and completed > floor:
-        if decision["action"] == "SIGNAL_WINDOW_MISSED":
-            decision["pending_mark_as_of"] = f"{completed:%Y-%m-%d}"
-        else:
-            decision["action"] = "RUN_MARK"
-            decision["as_of"] = f"{completed:%Y-%m-%d}"
+        decision["action"] = "RUN_MARK"
+        decision["as_of"] = f"{completed:%Y-%m-%d}"
     return decision
 
 

@@ -121,6 +121,18 @@ def test_missed_window_is_reported_and_never_backfilled() -> None:
     assert missed["missed_signal_dates"] == ["2026-08-31", "2026-09-30"]
 
 
+def test_a_missed_window_keeps_marking_the_held_portfolio() -> None:
+    events = [_signal("2026-09-30"), _mark("2026-10-29")]
+    decision = _decide("2026-11-03T22:00:00Z", events)
+    assert decision["action"] == "RUN_MARK"
+    assert decision["as_of"] == "2026-11-03"
+    assert decision["signal_window_missed"] is True
+    assert decision["missed_signal_dates"] == ["2026-08-31", "2026-10-30"]
+    marked = _decide("2026-11-03T22:00:00Z", events + [_mark("2026-11-03")])
+    assert marked["action"] == "SIGNAL_WINDOW_MISSED"
+    assert marked["signal_window_missed"] is True
+
+
 def test_marks_follow_completed_sessions_after_a_frozen_signal() -> None:
     events = [_signal("2026-09-30")]
     assert _decide("2026-10-01T20:10:00Z", events)["action"] == "NO_ACTION"

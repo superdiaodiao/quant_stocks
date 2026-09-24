@@ -23,17 +23,31 @@ Defects found before the first prospective signal:
   and quarantines never-promoted build directories before retrying;
 * the inherited same-UTC-date window lasted about 3.5 hours, all of it during
   Nasdaq after-hours trading, while the Composite official-close fallback
-  requires Nasdaq to report the market as Closed, so the window depended on a
-  history row that can lag the close by hours.  The signal executes at the
-  next session's close; r3's window runs from 30 minutes after the official
-  close until pre-market trading opens on that next session (04:00 New York),
-  and no SIGNAL_FROZEN event is written after it closes;
+  requires Nasdaq to report the market as Closed, so the window depended on
+  the Composite history row alone; Nasdaq's history API also keeps serving a
+  response cached per query for hours, so a retry repeated a response fetched
+  before the row existed (every Nasdaq request now carries a unique
+  parameter).  The signal executes at the next session's close; r3's window
+  runs from 30 minutes after the official close until pre-market trading
+  opens on that next session (04:00 New York), and no SIGNAL_FROZEN event is
+  written after it closes;
 * inherited paths are repository-relative, so launching from another working
   directory read an empty ledger.  r3 entry points run from the repository
   root;
 * the r2 protocol hash-bound five of the runtime's code files.  r3 binds the
   complete project-local import closure of its runner and scheduler, and every
-  protocol validation recomputes it.
+  protocol validation recomputes it;
+* the inherited MARK path could stop valuing the portfolio for good: it
+  required a current close, and no unreviewed split-like jump, for every stock
+  ever targeted (so one later delisting or split of a stock sold months ago
+  blocked every future mark), it could not stage an all-cash month, and it
+  re-downloaded QQQ and recent index rows, so any vendor revision of an
+  already-valued row broke the frozen prefix check.  r3 stages MARK bundles
+  itself: it needs closes only for stocks held into or bought on the mark
+  date, checks price events only inside holding windows, carries
+  already-valued rows forward unchanged, values an all-cash month against the
+  benchmark, and takes post-freeze splits, market moves and terminal returns
+  only from an append-only supplement of sourced events.
 
 This module is research-only.  It cannot connect to a broker or create orders.
 """
@@ -42,12 +56,14 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import sys
 import time
 
@@ -60,7 +76,10 @@ from scripts import research_v43_isolated_prospective_v28_observation as v43
 from scripts import research_v48_isolated_prospective_v47_observation as v48
 from scripts import research_v50_corrected_v47 as r1
 from scripts import research_v50r2_corrected_v47 as r2
-from src.io import fundamentals_update
+from src.conf import NASDAQ_300M_STOCK_LIST_FILE, NASDAQ_INDEX_FILE
+from src.io import fundamentals_update, nasdaq_update
+from src.research import corrected_stock_policy
+from src.research import prospective_marks as marks
 from src.research import prospective_schedule as schedule
 from src.research.code_closure import (
     closure_differences,
@@ -68,6 +87,7 @@ from src.research.code_closure import (
     project_import_closure,
 )
 from src.research.corrected_stock_policy import VALIDATION_PATH
+from src.research.data_quality import detect_common_split_events
 
 
 MODEL_VERSION = "v50r3-corrected-v47-sourced-actions"
@@ -90,6 +110,10 @@ SIGNALS_DIR = OUTPUT_DIR / "signals"
 BUNDLES_DIR = OUTPUT_DIR / "bundles"
 WORK_DIR = OUTPUT_DIR / "staging_work"
 STAGING_LOCK_PATH = OUTPUT_DIR / "staging.lock"
+# Append-only, git-tracked record of sourced events after the frozen
+# corporate-action table; every mark binds the rows it used.
+SUPPLEMENT_PATH = OUTPUT_DIR / "sourced_event_supplement.csv"
+MARK_PROCEDURE = "v50r3-exposure-aware-mark"
 SCHEDULER_PATH = Path("scripts/research_v50r3_scheduled_run.py")
 CODE_CLOSURE_ROOTS = (
     "scripts/research_v50r3_corrected_v47.py",
@@ -108,7 +132,7 @@ _sha256 = r1._sha256
 _portable_path = r1._portable_path
 _file_binding = r1._file_binding
 _git_head = r1._git_head
-_hybrid_replay_adapter = r1._hybrid_replay_adapter
+V42_LOAD_MARK_MARKET = v42._load_mark_market
 
 # Rehearsals stage a completed non-month-end session after the fact, so they
 # relax only the SIGNAL-window check inside the fundamentals refresh.
@@ -148,6 +172,13 @@ def runtime_repair_specification() -> dict:
             "official_close_plus_30_minutes_until_next_session_premarket_open"
         ),
         "signal_frozen_after_window_allowed": False,
+        "mark_procedure": MARK_PROCEDURE,
+        "mark_closes_required": "stocks_held_into_or_bought_on_the_mark_date",
+        "mark_price_events_checked": "inside_holding_windows_only",
+        "mark_input_rows": "already_valued_rows_carried_forward_unchanged",
+        "mark_post_freeze_events": "append_only_sourced_event_supplement",
+        "mark_unsourced_terminal_return": "fail_closed",
+        "mark_all_cash": "valued_against_the_benchmark",
         "working_directory": "repository_root",
         "code_binding": "complete_project_import_closure",
         "selection_missing_value_policy_changed": False,
@@ -570,6 +601,350 @@ def quarantine_stale_builds(work_dir: str | Path, suffix: str) -> list[dict]:
     return _quarantine(stale, Path(work_dir) / "failed_attempts", suffix)
 
 
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.isoformat()
+    raise TypeError(f"not JSON serializable: {type(value).__name__}")
+
+
+def _formal_market_bindings() -> dict[str, str]:
+    return {
+        "nasdaq_index": v42._sha256(NASDAQ_INDEX_FILE),
+        "nasdaq_universe": v42._sha256(NASDAQ_300M_STOCK_LIST_FILE),
+    }
+
+
+def _ledger_target_schedule(events: list[dict], as_of: pd.Timestamp) -> pd.DataFrame:
+    """Targets of frozen signals effective by ``as_of``, from the ledger itself."""
+    bound = {
+        event["payload"]["signal_date"]: event["payload"]["execution_date"]
+        for event in events
+        if event["event_type"] == "EXECUTION_DATE_BOUND"
+    }
+    rows = []
+    for event in events:
+        if event["event_type"] != "SIGNAL_FROZEN":
+            continue
+        payload = event["payload"]
+        signal_date = pd.Timestamp(payload["signal_date"]).normalize()
+        if signal_date >= as_of:
+            continue
+        execution = pd.Timestamp(
+            bound.get(payload["signal_date"]) or schedule.next_session(signal_date)
+        ).normalize()
+        if execution > as_of:
+            continue
+        rows.extend(
+            {
+                "effective_date": execution,
+                "ticker": str(target["ticker"]),
+                "target_weight": float(target["target_weight"]),
+            }
+            for target in payload["targets"]
+        )
+    return pd.DataFrame(rows, columns=["effective_date", "ticker", "target_weight"])
+
+
+def _latest_valued_bundle(events: list[dict], bundles_dir: Path) -> dict | None:
+    """The bundle behind the latest mark, verified against its ledger event."""
+    valued = [event for event in events if event["event_type"] == "VALUATION_APPENDED"]
+    if not valued:
+        return None
+    payload = valued[-1]["payload"]
+    as_of = pd.Timestamp(payload["as_of"]).normalize()
+    path = Path(bundles_dir) / f"{as_of:%Y-%m-%d}_mark"
+    if not path.is_dir():
+        return {"as_of": as_of, "path": None}
+    _manifest, manifest_sha = _validated_bundle(path, "MARK")
+    if manifest_sha != payload["bundle_manifest_sha256"]:
+        raise RuntimeError(
+            f"the {as_of:%Y-%m-%d} MARK bundle does not match its ledger event"
+        )
+    return {"as_of": as_of, "path": path}
+
+
+def _seed_from_valued_bundle(
+    prior: dict | None, tickers: list[str], prices: Path, index_path: Path
+) -> list[str]:
+    """Restore missing work files from the latest valued bundle, not formal data."""
+    if not prior or prior["path"] is None:
+        return []
+    seeded = []
+    for ticker in tickers:
+        target = prices / f"{ticker.lower()}.csv"
+        source = prior["path"] / "prices" / target.name
+        if not target.exists() and source.is_file():
+            shutil.copy2(source, target)
+            seeded.append(ticker)
+    if not index_path.exists() and (prior["path"] / "nasdaq_index.csv").is_file():
+        shutil.copy2(prior["path"] / "nasdaq_index.csv", index_path)
+        seeded.append("NASDAQ")
+    return seeded
+
+
+def _refresh_index_history(index_path: Path, end: pd.Timestamp) -> dict:
+    """Extend the isolated Composite history as update_all does, without stocks.
+
+    update_all with no tickers refreshes the whole formal universe, so an
+    all-cash mark must not call it.
+    """
+    existing = pd.read_csv(index_path, parse_dates=["date"])
+    start = existing["date"].max().date() + timedelta(days=1)
+    rows = 0
+    if start <= end.date():
+        data = nasdaq_update.fetch_history(
+            "COMP", start, end.date(), asset_class="index"
+        )
+        data["change_rate"] = data["close"].pct_change()
+        rows = nasdaq_update._atomic_merge(index_path, data)
+    return {"end": f"{end:%Y-%m-%d}", "requested_ticker_count": 0, "index_rows": rows}
+
+
+def _carry_valued_prefix(
+    prior: dict | None, bundle: Path, tickers: list[str]
+) -> dict:
+    """Replace staged rows up to the latest mark with the rows that mark used."""
+    if prior is None:
+        return {"source": None, "reason": "no earlier valuation"}
+    if prior["path"] is None:
+        return {
+            "source": None,
+            "reason": (
+                "the latest valued bundle is missing locally; fresh rows are "
+                "used and the valuation re-verifies every frozen prefix"
+            ),
+        }
+    inputs = [
+        ("NASDAQ", "nasdaq_index.csv", ["close"]),
+        ("QQQ", "qqq.csv", ["close", "cash_dividend"]),
+    ]
+    inputs.extend(
+        (ticker, f"prices/{ticker.lower()}.csv", ["close", "volume"])
+        for ticker in tickers
+        if (prior["path"] / "prices" / f"{ticker.lower()}.csv").is_file()
+    )
+    audits = {}
+    for name, relative, compared in inputs:
+        target = bundle / relative
+        if not target.is_file():
+            continue
+        combined, audit = marks.carry_frozen_rows(
+            pd.read_csv(target), pd.read_csv(prior["path"] / relative),
+            prior["as_of"], compared,
+        )
+        temporary = target.with_name(target.name + ".tmp")
+        combined.to_csv(temporary, index=False, date_format="%Y-%m-%d")
+        os.replace(temporary, target)
+        audits[name] = audit
+    return {
+        "source": _portable_path(prior["path"]),
+        "frozen_through": f"{prior['as_of']:%Y-%m-%d}",
+        "carried_inputs": sorted(audits),
+        "revised_frozen_rows": sum(
+            audit["revised_frozen_rows"] for audit in audits.values()
+        ),
+        "revisions": {
+            name: audit
+            for name, audit in audits.items()
+            if audit["revised_frozen_rows"]
+        },
+    }
+
+
+def _stage_mark_bundle(
+    *,
+    stamp: pd.Timestamp,
+    bundles_dir: Path,
+    work_dir: Path,
+    ledger_path: Path,
+    workers: int,
+    supplement_path: str | Path,
+) -> dict:
+    """Stage an exposure-aware MARK bundle in the isolated work directory."""
+    if not v43._is_nasdaq_session(stamp):
+        raise ValueError("v50r3 MARK as-of must be a Nasdaq trading session")
+    events = v43.read_ledger(ledger_path)
+    latest_mark = v43._latest_event_date(events, "VALUATION_APPENDED", "as_of")
+    if latest_mark is not None and stamp <= latest_mark:
+        raise RuntimeError("v50r3 refuses an already-valued mark bundle date")
+    stamp_text = f"{stamp:%Y-%m-%d}"
+    suffix = f"{stamp_text}_mark"
+    final = bundles_dir / suffix
+    if final.exists():
+        manifest, manifest_sha = _validated_bundle(final, "MARK")
+        return {
+            "status": "ALREADY_STAGED_AND_VERIFIED",
+            "purpose": "MARK",
+            "as_of": manifest["as_of"],
+            "bundle": str(final),
+            "manifest_sha256": manifest_sha,
+            "release_status": "BLOCKED",
+        }
+    target_schedule = _ledger_target_schedule(events, stamp)
+    if target_schedule.empty:
+        raise RuntimeError(f"no frozen signal is effective by {stamp_text}")
+    tickers = sorted(set(target_schedule["ticker"]) - {marks.CASH})
+    required = marks.closes_required(target_schedule, stamp)
+    terminal = marks.supplement_terminal_returns(
+        marks.load_supplement(resolve(supplement_path))
+    )
+    prior = _latest_valued_bundle(events, bundles_dir)
+
+    market = work_dir / "market"
+    prices = market / "prices"
+    index_path = market / "nasdaq_index.csv"
+    qqq_path = market / "qqq.csv"
+    prices.mkdir(parents=True, exist_ok=True)
+    formal_before = _formal_market_bindings()
+    seeded = _seed_from_valued_bundle(prior, tickers, prices, index_path)
+    seed = v42.seed_cache(tickers, price_dir=prices, index_path=index_path)
+    if tickers:
+        update = v42.update_all(
+            end=stamp.date(),
+            workers=workers,
+            tickers=tickers,
+            price_dir=prices,
+            index_path=index_path,
+        )
+    else:
+        update = _refresh_index_history(index_path, stamp)
+    index_refresh = v42.reconcile_research_index(
+        stamp,
+        index_path=index_path,
+        provenance_path=market / "index_close_provenance.json",
+    )
+    v43._trim_qqq(qqq_path, stamp)
+    formal_after = _formal_market_bindings()
+    if formal_after != formal_before:
+        raise RuntimeError("formal market inputs changed during v50r3 MARK staging")
+    qqq_provenance = market / "qqq.provenance.json"
+    if not qqq_provenance.is_file():
+        raise RuntimeError("v50r3 staged QQQ provenance is missing")
+
+    temporary = work_dir / "bundle_builds" / f".{suffix}.tmp"
+    if temporary.exists():
+        raise RuntimeError(f"stale v50r3 MARK build exists: {temporary}")
+    (temporary / "prices").mkdir(parents=True)
+    try:
+        for ticker in tickers:
+            source = prices / f"{ticker.lower()}.csv"
+            if source.is_file():
+                shutil.copy2(source, temporary / "prices" / source.name)
+        index = pd.read_csv(index_path)
+        index.loc[
+            pd.to_datetime(index["date"], errors="raise").dt.normalize().le(stamp)
+        ].to_csv(temporary / "nasdaq_index.csv", index=False)
+        shutil.copy2(qqq_path, temporary / "qqq.csv")
+        shutil.copy2(
+            market / "index_close_provenance.json",
+            temporary / "index_close_provenance.json",
+        )
+        shutil.copy2(qqq_provenance, temporary / "qqq.provenance.json")
+        carry = _carry_valued_prefix(prior, temporary, tickers)
+
+        missing = [
+            ticker
+            for ticker in tickers
+            if not (temporary / "prices" / f"{ticker.lower()}.csv").is_file()
+        ]
+        price_bindings = v42._price_manifest(
+            temporary / "prices", [ticker for ticker in tickers if ticker not in missing]
+        )
+        unpriced, sourced_terminal = [], []
+        for ticker in required:
+            latest = (price_bindings.get(ticker) or {}).get("latest_date")
+            if latest == stamp_text:
+                continue
+            if latest is not None and (ticker, pd.Timestamp(latest)) in terminal:
+                sourced_terminal.append({"ticker": ticker, "last_price_date": latest})
+                continue
+            unpriced.append({"ticker": ticker, "latest_date": latest})
+        gates = {
+            "nasdaq_through_as_of": v42._latest_date(temporary / "nasdaq_index.csv")
+            == stamp,
+            "qqq_through_as_of": v42._latest_date(temporary / "qqq.csv") == stamp,
+            "all_required_price_files_present": not missing,
+            "held_positions_priced_at_as_of": not unpriced,
+        }
+        if not all(gates.values()):
+            failed = sorted(name for name, passed in gates.items() if not passed)
+            raise RuntimeError(
+                f"v50r3 MARK bundle is not ready: {failed}; missing price files "
+                f"{missing}; held positions without a {stamp_text} close "
+                f"{unpriced}. Retry once the closes are published; if a held "
+                "stock stopped trading, record its sourced TERMINAL_RETURN with "
+                "record-sourced-event"
+            )
+        manifest = {
+            "schema_version": 2,
+            "research_only": True,
+            "purpose": "MARK",
+            "as_of": stamp_text,
+            "created_at": _iso(_utc_now()),
+            "runner_version": MODEL_VERSION,
+            "mark_procedure": MARK_PROCEDURE,
+            "price_files": price_bindings,
+            "files": {
+                name: v42._sha256(temporary / name)
+                for name in (
+                    "nasdaq_index.csv",
+                    "qqq.csv",
+                    "index_close_provenance.json",
+                    "qqq.provenance.json",
+                )
+            },
+            "readiness_gates": gates,
+            "mark_exposure": {
+                "targeted_tickers": tickers,
+                "closes_required": required,
+                "sourced_terminal_returns": sourced_terminal,
+            },
+            "prefix_carry": carry,
+            "market_refresh": {
+                "seeded_from_valued_bundle": seeded,
+                "seed": seed,
+                "update": update,
+                "index_refresh": index_refresh,
+            },
+            "runtime_isolation": {
+                "formal_market_bindings_before": formal_before,
+                "formal_market_bindings_after": formal_after,
+                "formal_market_files_modified": False,
+                "formal_financial_files_modified": False,
+                "shared_companyfacts_cache_modified": False,
+                "qqq_cutoff": stamp_text,
+            },
+            "formal_market_files_modified": False,
+            "formal_financial_files_modified": False,
+            "release_status": "BLOCKED",
+            "broker_action_authorized": False,
+        }
+        with (temporary / "bundle_manifest.json").open("x", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(manifest, indent=2, sort_keys=True, default=_json_default)
+                + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(temporary, final)
+    except Exception:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return {
+        "status": "FROZEN_ISOLATED_INPUT_BUNDLE",
+        "purpose": "MARK",
+        "as_of": stamp_text,
+        "bundle": str(final),
+        "manifest_sha256": v42._sha256(final / "bundle_manifest.json"),
+        "release_status": "BLOCKED",
+        "broker_action_authorized": False,
+    }
+
+
 def freeze_protocol(
     path: str | Path = PROTOCOL_PATH,
     ledger_path: str | Path = LEDGER_PATH,
@@ -691,6 +1066,21 @@ def freeze_protocol(
             "confirmed_actions_only": True,
             "reviewed_market_moves_preserved": True,
             "unresolved_rank_or_target_event": "fail_closed",
+        },
+        "mark_policy": {
+            "procedure": MARK_PROCEDURE,
+            "closes_required": "stocks held into or bought on the mark date",
+            "price_events_checked": "inside holding windows only",
+            "post_freeze_sourced_events": SUPPLEMENT_PATH.as_posix(),
+            "sourced_event_types": list(marks.EVENT_TYPES),
+            "sourced_events_append_only": True,
+            "held_stock_without_later_close": (
+                "fail_closed until the closes arrive or a sourced terminal "
+                "return is recorded"
+            ),
+            "already_valued_input_rows": "carried forward unchanged",
+            "all_cash_month": "valued against the benchmark",
+            "after_missed_signal_window": "the held portfolio keeps being valued",
         },
         "evaluation": {
             "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
@@ -815,6 +1205,7 @@ def stage_bundle(
     workers: int = 16,
     fundamental_workers: int = 4,
     observed_at: datetime | None = None,
+    supplement_path: str | Path = SUPPLEMENT_PATH,
 ) -> dict:
     purpose = str(purpose).upper()
     stamp = pd.Timestamp(as_of).normalize()
@@ -840,16 +1231,26 @@ def stage_bundle(
             work_dir, suffix
         )
         with _runtime():
-            result = v43.stage_bundle(
-                as_of=stamp,
-                purpose=purpose,
-                bundles_dir=Path(bundles_dir),
-                work_dir=Path(work_dir),
-                signals_dir=Path(signals_dir),
-                ledger_path=Path(ledger_path),
-                workers=workers,
-                fundamental_workers=fundamental_workers,
-            )
+            if purpose == "MARK":
+                result = _stage_mark_bundle(
+                    stamp=stamp,
+                    bundles_dir=Path(bundles_dir),
+                    work_dir=Path(work_dir),
+                    ledger_path=Path(ledger_path),
+                    workers=workers,
+                    supplement_path=supplement_path,
+                )
+            else:
+                result = v43.stage_bundle(
+                    as_of=stamp,
+                    purpose=purpose,
+                    bundles_dir=Path(bundles_dir),
+                    work_dir=Path(work_dir),
+                    signals_dir=Path(signals_dir),
+                    ledger_path=Path(ledger_path),
+                    workers=workers,
+                    fundamental_workers=fundamental_workers,
+                )
     result["recovered_stale_builds"] = recovered
     return result
 
@@ -911,6 +1312,246 @@ def freeze_signal(
         )
 
 
+_MARK_CONTEXT: dict = {}
+
+
+def _load_mark_market(
+    bundle: Path, as_of: pd.Timestamp
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+    """v42's mark inputs, with every Composite session on the price index.
+
+    An all-cash month has no stock files, and a stock whose history ended has
+    no recent rows; the replay still needs each session to value the rest.
+    """
+    raw_close, nasdaq, qqq = V42_LOAD_MARK_MARKET(bundle, as_of)
+    start = v42.FIRST_PROSPECTIVE_SIGNAL_DATE - pd.Timedelta(days=400)
+    sessions = nasdaq.index[(nasdaq.index >= start) & (nasdaq.index <= as_of)]
+    # An empty panel has a plain Index; keep the union a DatetimeIndex.
+    dates = pd.DatetimeIndex(raw_close.index).union(pd.DatetimeIndex(sessions))
+    return raw_close.reindex(dates).sort_index(), nasdaq, qqq
+
+
+def _market_prefix_sha256(
+    bundle: Path, *, tickers: list[str], as_of: pd.Timestamp
+) -> str:
+    """Digest of the valuation's input rows through one mark date.
+
+    The Composite and QQQ must reach ``as_of``.  A stock's rows are digested
+    as stored: whether a held stock needed a later close is decided by the
+    staging gate and the replay, not here, so a stock sold before it stopped
+    trading does not block every later mark.
+    """
+    as_of = pd.Timestamp(as_of).normalize()
+    digest = hashlib.sha256()
+    inputs = [
+        ("NASDAQ", Path(bundle) / "nasdaq_index.csv", ["close"], True),
+        ("QQQ", Path(bundle) / "qqq.csv", ["close", "cash_dividend"], True),
+    ]
+    inputs.extend(
+        (
+            ticker,
+            Path(bundle) / "prices" / f"{ticker.lower()}.csv",
+            ["close", "volume"],
+            False,
+        )
+        for ticker in sorted(tickers)
+    )
+    for name, path, columns, through_as_of in inputs:
+        frame = pd.read_csv(path)
+        if "cash_dividend" in columns and "cash_dividend" not in frame.columns:
+            frame["cash_dividend"] = 0.0
+        missing = {"date", *columns} - set(frame.columns)
+        if missing:
+            raise RuntimeError(
+                f"v50r3 prefix input {name} lacks columns: {sorted(missing)}"
+            )
+        dates = pd.to_datetime(frame["date"], errors="raise").dt.normalize()
+        present = dates.loc[dates.le(as_of)]
+        if present.empty:
+            raise RuntimeError(f"v50r3 prefix input {name} has no rows by {as_of.date()}")
+        if through_as_of and present.max() < as_of:
+            raise RuntimeError(f"v50r3 prefix input {name} is stale at {as_of.date()}")
+        digest.update(name.encode("utf-8") + b"\0")
+        digest.update(marks.rows_digest_text(frame, columns, as_of).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _mark_replay(
+    raw_close: pd.DataFrame,
+    index_close: pd.Series,
+    target_schedule: pd.DataFrame,
+    start,
+    end,
+    *,
+    trailing_stop_fraction: float,
+    transaction_cost_bps: float,
+) -> pd.DataFrame:
+    """r1's sourced hybrid-stop replay, judged only inside holding windows.
+
+    Price jumps outside a stock's holding windows cannot change the value and
+    are recorded instead of blocking.  Sourced splits and market moves from the
+    supplement join the frozen table.  A held stock whose prices stop inside a
+    holding window needs a sourced terminal return; none is ever assumed.
+    """
+    if trailing_stop_fraction != r1.PORTFOLIO_TRAILING_STOP_FRACTION:
+        raise RuntimeError("v50r3 portfolio-stop interface binding changed")
+    supplement = _MARK_CONTEXT["supplement"]
+    end = pd.Timestamp(end).normalize()
+    windows = marks.holding_windows(target_schedule, end)
+    terminal = marks.supplement_terminal_returns(supplement)
+    ended = marks.unpriced_holdings(raw_close, windows, end)
+    unsourced = [
+        row
+        for row in ended
+        if (row["ticker"], pd.Timestamp(row["last_price_date"])) not in terminal
+    ]
+    if unsourced:
+        details = ", ".join(
+            f"{row['ticker']} (last close {row['last_price_date']})"
+            for row in unsourced
+        )
+        raise RuntimeError(
+            "held positions have no close after their last stored date inside a "
+            f"holding window: {details}. Retry once the closes are published; if "
+            "trading ended, record a sourced TERMINAL_RETURN with "
+            "record-sourced-event"
+        )
+    validation = corrected_stock_policy.load_corporate_action_validation(
+        resolve(VALIDATION_PATH)
+    )
+    sourced = marks.supplement_validation_rows(supplement)
+    if len(sourced):
+        _refuse_frozen_table_duplicates(validation, sourced)
+        validation = pd.concat([validation, sourced], ignore_index=True)
+    ignored: list[dict] = []
+    original_events = corrected_stock_policy._unresolved_target_events
+    original_returns = corrected_stock_policy.stock_returns_with_delisting_penalty
+
+    def events_inside_holdings(*args, **kwargs) -> pd.DataFrame:
+        events = original_events(*args, **kwargs)
+        if events.empty:
+            return events
+        inside = marks.inside_holdings(events, windows)
+        ignored.extend(
+            {
+                "ticker": str(row.ticker),
+                "date": f"{pd.Timestamp(row.split_date):%Y-%m-%d}",
+                "raw_price_ratio": round(float(row.raw_price_ratio), 6),
+            }
+            for row in events.loc[~inside].itertuples(index=False)
+        )
+        return events.loc[inside]
+
+    def sourced_terminal_returns(close, delisting_return=-1.0, terminal_returns=None):
+        return original_returns(close, delisting_return, terminal_returns=terminal)
+
+    corrected_stock_policy._unresolved_target_events = events_inside_holdings
+    corrected_stock_policy.stock_returns_with_delisting_penalty = (
+        sourced_terminal_returns
+    )
+    try:
+        result = corrected_stock_policy.replay_with_sourced_hybrid_stop(
+            raw_close,
+            index_close,
+            target_schedule,
+            start,
+            end,
+            validation=validation,
+            entry_loss_fraction=r1.ENTRY_LOSS_FRACTION,
+            portfolio_stop_fraction=r1.PORTFOLIO_TRAILING_STOP_FRACTION,
+            transaction_cost_bps=transaction_cost_bps,
+        )
+    finally:
+        corrected_stock_policy._unresolved_target_events = original_events
+        corrected_stock_policy.stock_returns_with_delisting_penalty = original_returns
+    _MARK_CONTEXT["holding_exposure"] = {
+        "ignored_price_jumps_outside_holdings": ignored,
+        "sourced_terminal_returns_applied": ended,
+    }
+    return result
+
+
+def _refuse_frozen_table_duplicates(
+    frozen: pd.DataFrame, sourced: pd.DataFrame
+) -> None:
+    """A sourced event may not re-adjudicate, or double-apply, a frozen one."""
+    known = set(zip(frozen["ticker"], frozen["split_date"], strict=True))
+    duplicates = [
+        f"{row.ticker}@{row.split_date:%Y-%m-%d}"
+        for row in sourced.itertuples(index=False)
+        if (row.ticker, row.split_date) in known
+    ]
+    if duplicates:
+        raise RuntimeError(
+            "sourced events duplicate the frozen corporate-action table: "
+            + ", ".join(duplicates)
+        )
+
+
+def _verify_supplement_is_append_only(
+    ledger_path: str | Path, supplement: pd.DataFrame
+) -> None:
+    bindings = [
+        event["payload"]["sourced_event_supplement"]
+        for event in v43.read_ledger(ledger_path)
+        if event["event_type"] == "VALUATION_APPENDED"
+        and "sourced_event_supplement" in event["payload"]
+    ]
+    if not bindings:
+        return
+    rows = int(bindings[-1]["rows"])
+    if len(supplement) < rows or marks.supplement_digest(
+        supplement.head(rows)
+    ) != bindings[-1]["sha256"]:
+        raise RuntimeError(
+            "the sourced event supplement no longer begins with the rows an "
+            "earlier mark used; it is append-only"
+        )
+
+
+@contextmanager
+def _mark_runtime(supplement_path: str | Path = SUPPLEMENT_PATH):
+    """Bind v42's valuation to the r3 exposure-aware mark rules."""
+    path = resolve(supplement_path)
+    supplement = marks.load_supplement(path)
+    binding = {
+        "path": _portable_path(path),
+        "rows": int(len(supplement)),
+        "sha256": marks.supplement_digest(supplement),
+    }
+    original_append = v43.append_event
+
+    def append_event(**kwargs):
+        if kwargs.get("event_type") == "VALUATION_APPENDED":
+            _verify_supplement_is_append_only(kwargs["path"], supplement)
+            kwargs["payload"] = {
+                **kwargs["payload"],
+                "mark_procedure": MARK_PROCEDURE,
+                "sourced_event_supplement": binding,
+                "holding_exposure": _MARK_CONTEXT.get("holding_exposure"),
+            }
+        return original_append(**kwargs)
+
+    replacements = [
+        (v42, "_load_mark_market", _load_mark_market),
+        (v42, "_market_prefix_sha256", _market_prefix_sha256),
+        (v42.v28, "replay_with_individual_trailing_stop", _mark_replay),
+        (v43, "append_event", append_event),
+    ]
+    originals = [(module, name, getattr(module, name)) for module, name, _ in replacements]
+    _MARK_CONTEXT.clear()
+    _MARK_CONTEXT.update({"supplement": supplement, "binding": binding})
+    try:
+        for module, name, value in replacements:
+            setattr(module, name, value)
+        yield _MARK_CONTEXT
+    finally:
+        for module, name, value in originals:
+            setattr(module, name, value)
+        _MARK_CONTEXT.clear()
+
+
 def append_mark(
     *,
     bundle: str | Path,
@@ -918,21 +1559,126 @@ def append_mark(
     ledger_path: str | Path = LEDGER_PATH,
     signals_dir: str | Path = SIGNALS_DIR,
     lock_path: str | Path = STAGING_LOCK_PATH,
+    supplement_path: str | Path = SUPPLEMENT_PATH,
 ) -> dict:
-    original_replay = v42.v28.replay_with_individual_trailing_stop
-    try:
-        v42.v28.replay_with_individual_trailing_stop = _hybrid_replay_adapter
-        with staging_lock(lock_path), _runtime():
-            result = v43.append_mark(
-                bundle=bundle,
-                protocol_path=protocol_path,
-                ledger_path=ledger_path,
-                signals_dir=signals_dir,
-            )
-    finally:
-        v42.v28.replay_with_individual_trailing_stop = original_replay
+    with (
+        staging_lock(lock_path),
+        _runtime(),
+        _mark_runtime(supplement_path) as context,
+    ):
+        result = v43.append_mark(
+            bundle=bundle,
+            protocol_path=protocol_path,
+            ledger_path=ledger_path,
+            signals_dir=signals_dir,
+        )
+        if result.get("written"):
+            result["mark_procedure"] = MARK_PROCEDURE
+            result["sourced_event_supplement"] = context["binding"]
+            result["holding_exposure"] = context.get("holding_exposure")
     result["corrected_hybrid_risk_replay_verified"] = True
     return result
+
+
+def record_sourced_event(
+    *,
+    ticker: str,
+    event_type: str,
+    event_date: str | pd.Timestamp,
+    source_url: str,
+    adjustment_factor: float | None = None,
+    terminal_return: float | None = None,
+    note: str = "",
+    protocol_path: str | Path = PROTOCOL_PATH,
+    supplement_path: str | Path = SUPPLEMENT_PATH,
+    price_dir: str | Path = WORK_DIR / "market" / "prices",
+    lock_path: str | Path = STAGING_LOCK_PATH,
+    now: datetime | None = None,
+) -> dict:
+    """Append one sourced post-freeze event after checking it against stored prices."""
+    protocol, _protocol_sha = _validated_protocol(protocol_path)
+    now = schedule.as_utc(now or _utc_now())
+    if now < pd.Timestamp(protocol["frozen_at"]):
+        raise RuntimeError("sourced events are recorded only after the freeze")
+    ticker = str(ticker).strip().upper()
+    event_type = str(event_type).strip().upper()
+    date = pd.Timestamp(event_date).normalize()
+    path = resolve(price_dir) / f"{ticker.lower()}.csv"
+    if not path.is_file():
+        raise RuntimeError(f"no staged prices for {ticker} at {path}")
+    frame = pd.read_csv(path, parse_dates=["date"])
+    closes = (
+        frame.assign(date=frame["date"].dt.normalize())
+        .drop_duplicates("date", keep="last")
+        .set_index("date")["close"]
+        .sort_index()
+        .dropna()
+    )
+    if event_type in {marks.SPLIT, marks.MARKET_MOVE}:
+        _refuse_frozen_table_duplicates(
+            corrected_stock_policy.load_corporate_action_validation(
+                resolve(VALIDATION_PATH)
+            ),
+            pd.DataFrame({"ticker": [ticker], "split_date": [date]}),
+        )
+        jumps = detect_common_split_events(closes.to_frame(ticker))
+        match = jumps.loc[pd.to_datetime(jumps["split_date"]).dt.normalize().eq(date)]
+        if match.empty:
+            raise RuntimeError(
+                f"{ticker} has no split-like price jump on {date:%Y-%m-%d} in {path}"
+            )
+        ratio = float(match.iloc[0]["raw_price_ratio"])
+        if event_type == marks.SPLIT:
+            if adjustment_factor is None:
+                raise ValueError("a SPLIT needs its adjustment factor")
+            if abs(ratio / float(adjustment_factor) - 1.0) > marks.JUMP_TOLERANCE:
+                raise RuntimeError(
+                    f"{ticker}'s stored jump ratio {ratio:.4f} does not match the "
+                    f"adjustment factor {adjustment_factor}"
+                )
+        evidence = {"stored_price_ratio": ratio}
+    elif event_type == marks.TERMINAL_RETURN:
+        if terminal_return is None:
+            raise ValueError("a TERMINAL_RETURN needs its terminal return")
+        last = pd.Timestamp(closes.index.max()).normalize()
+        if last != date:
+            raise RuntimeError(
+                f"{ticker}'s last stored close is {last:%Y-%m-%d}, not {date:%Y-%m-%d}"
+            )
+        completed = schedule.latest_completed_session(now)
+        if completed is None or completed <= date:
+            raise RuntimeError(
+                f"no completed session after {date:%Y-%m-%d} has passed without "
+                f"a {ticker} close yet"
+            )
+        evidence = {"last_stored_close": float(closes.iloc[-1])}
+    else:
+        raise ValueError(f"unsupported sourced event type: {event_type}")
+    with staging_lock(lock_path):
+        row = marks.append_supplement_event(
+            resolve(supplement_path),
+            {
+                "recorded_at": _iso(now),
+                "ticker": ticker,
+                "event_type": event_type,
+                "event_date": f"{date:%Y-%m-%d}",
+                "adjustment_factor": (
+                    None if adjustment_factor is None else repr(float(adjustment_factor))
+                ),
+                "terminal_return": (
+                    None if terminal_return is None else repr(float(terminal_return))
+                ),
+                "source_url": source_url,
+                "note": note,
+            },
+        )
+    return {
+        "status": "SOURCED_EVENT_RECORDED",
+        "event": row,
+        "evidence": evidence,
+        "supplement": _portable_path(resolve(supplement_path)),
+        "next_step": "commit the supplement; the next mark binds it",
+    }
 
 
 def status(
@@ -976,6 +1722,21 @@ def main(argv: list[str] | None = None) -> int:
     signal_parser.add_argument("--bundle", type=Path, required=True)
     mark_parser = subparsers.add_parser("append-mark")
     mark_parser.add_argument("--bundle", type=Path, required=True)
+    event_parser = subparsers.add_parser(
+        "record-sourced-event",
+        help="append a sourced split, market move, or terminal return",
+    )
+    event_parser.add_argument("--ticker", required=True)
+    event_parser.add_argument("--type", required=True, choices=list(marks.EVENT_TYPES))
+    event_parser.add_argument(
+        "--date", required=True,
+        help="jump date (first close in new units) or, for TERMINAL_RETURN, "
+        "the last stored close",
+    )
+    event_parser.add_argument("--factor", type=float, help="SPLIT price factor, e.g. 0.5")
+    event_parser.add_argument("--terminal-return", type=float)
+    event_parser.add_argument("--source-url", required=True)
+    event_parser.add_argument("--note", default="")
     subparsers.add_parser("status")
     args = parser.parse_args(argv)
     if args.command == "status" and not resolve(PROTOCOL_PATH).is_file():
@@ -1001,6 +1762,16 @@ def main(argv: list[str] | None = None) -> int:
         result = freeze_signal(bundle=args.bundle)
     elif args.command == "append-mark":
         result = append_mark(bundle=args.bundle)
+    elif args.command == "record-sourced-event":
+        result = record_sourced_event(
+            ticker=args.ticker,
+            event_type=args.type,
+            event_date=args.date,
+            adjustment_factor=args.factor,
+            terminal_return=args.terminal_return,
+            source_url=args.source_url,
+            note=args.note,
+        )
     else:
         result = status()
     print(json.dumps(result, indent=2, sort_keys=True, default=str))

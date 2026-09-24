@@ -15,8 +15,9 @@ pushes the current branch.  The GitHub watchdog reads the default branch, so
 the ledger must reach it before the SIGNAL window closes.
 
 Exit codes: 0 nothing due, done, or another staging holds the lock; 1 an
-error, including a failed git record; 2 a SIGNAL window was missed; 3 the r3
-protocol is not frozen or its ledger is missing.
+error, including a failed git record; 2 a SIGNAL window was missed (the held
+portfolio is still marked); 3 the r3 protocol is not frozen or its ledger is
+missing.
 
 This module is research-only.  It cannot connect to a broker or create orders.
 """
@@ -97,6 +98,7 @@ def run(
     bundles_dir: str | Path = r3.BUNDLES_DIR,
     signals_dir: str | Path = r3.SIGNALS_DIR,
     lock_path: str | Path = r3.STAGING_LOCK_PATH,
+    supplement_path: str | Path = r3.SUPPLEMENT_PATH,
     commit: bool = False,
     push: bool = False,
     remote: str = "origin",
@@ -144,6 +146,7 @@ def run(
                 ledger_path=ledger_path,
                 protocol_path=protocol_path,
                 lock_path=lock_path,
+                supplement_path=supplement_path,
             )
             if purpose == "SIGNAL":
                 result = r3.freeze_signal(
@@ -160,6 +163,7 @@ def run(
                     ledger_path=ledger_path,
                     signals_dir=signals_dir,
                     lock_path=lock_path,
+                    supplement_path=supplement_path,
                 )
     except r3.StagingInProgress as exc:
         decision["action_status"] = "STAGING_IN_PROGRESS"
@@ -180,6 +184,9 @@ def run(
         if purpose == "SIGNAL":
             paths.append(Path(signals_dir) / f"signal_{as_of}.json")
             message = f"research: freeze {as_of} v50r3 signal"
+        elif r3.resolve(supplement_path).is_file():
+            # The mark binds the supplement rows it used; keep them together.
+            paths.append(supplement_path)
         decision["git"] = record_in_git(
             paths, message=message, push=push, remote=remote
         )
@@ -189,7 +196,9 @@ def run(
 def exit_code(decision: dict) -> int:
     if decision["action"] in NOT_READY_ACTIONS:
         return NOT_READY_EXIT_CODE
-    if decision["action"] == "SIGNAL_WINDOW_MISSED":
+    if decision["action"] == "SIGNAL_WINDOW_MISSED" or decision.get(
+        "signal_window_missed"
+    ):
         return MISSED_EXIT_CODE
     if (decision.get("git") or {}).get("error"):
         return 1

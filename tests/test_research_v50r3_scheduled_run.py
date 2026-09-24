@@ -122,6 +122,44 @@ def test_a_second_process_reports_staging_in_progress(
     assert sched.exit_code(decision) == 0
 
 
+def test_marks_run_after_a_missed_window_commit_the_supplement_and_exit_two(
+    frozen: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    v43.append_event(
+        path=frozen["ledger_path"],
+        protocol_sha256=r3._sha256(frozen["protocol_path"]),
+        event_type="SIGNAL_FROZEN",
+        payload={"signal_date": "2026-09-30", "targets": []},
+    )
+    calls = []
+    monkeypatch.setattr(
+        r3, "stage_bundle",
+        lambda **kwargs: calls.append(("stage", kwargs)) or {"status": "STAGED"},
+    )
+    monkeypatch.setattr(
+        r3, "append_mark",
+        lambda **kwargs: calls.append(("mark", kwargs))
+        or {"status": "APPENDED_PROSPECTIVE_MARK"},
+    )
+    recorded = []
+    monkeypatch.setattr(
+        sched, "record_in_git",
+        lambda paths, **kwargs: recorded.append(paths) or {"committed": True},
+    )
+    supplement = tmp_path / "supplement.csv"
+    supplement.write_text("event_id\n", encoding="utf-8")
+    decision = sched.run(
+        now=_at("2026-11-03T22:00:00Z"), execute=True, commit=True,
+        supplement_path=supplement, **frozen,
+    )
+    assert decision["action"] == "RUN_MARK" and decision["as_of"] == "2026-11-03"
+    assert decision["executed"] is True
+    assert [name for name, _kwargs in calls] == ["stage", "mark"]
+    assert calls[1][1]["supplement_path"] == supplement
+    assert recorded == [[frozen["ledger_path"], supplement]]
+    assert sched.exit_code(decision) == sched.MISSED_EXIT_CODE
+
+
 def test_missed_window_is_never_staged_and_exits_two(
     frozen: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
