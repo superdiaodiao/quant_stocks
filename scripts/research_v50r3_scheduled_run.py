@@ -9,10 +9,12 @@ or MARK is due.  A SIGNAL window runs from 30 minutes after the month-end
 close until pre-market trading opens on the next session.  It never backfills
 a missed signal.
 
+``run`` executes only in a checkout of the ``live/v50r3`` branch, the pinned
+copy created by ``scripts/setup_v50r3_live.sh``; ``check`` works anywhere.
 ``run --commit`` records the result in git right after a successful freeze or
-mark, committing only the ledger and the new signal file; ``--push`` also
-pushes the current branch.  The GitHub watchdog reads the default branch, so
-the ledger must reach it before the SIGNAL window closes.
+mark, committing only the ledger, the new signal file and the sourced event
+supplement; ``--push`` also pushes the branch.  The GitHub watchdog reads
+``live/v50r3``, so the ledger must reach it before the SIGNAL window closes.
 
 Exit codes: 0 nothing due, done, or another staging holds the lock; 1 an
 error, including a failed git record; 2 a SIGNAL window was missed (the held
@@ -76,13 +78,9 @@ def record_in_git(
             _git("push", remote, f"HEAD:refs/heads/{branch}")
             result["pushed"] = True
             result["branch"] = branch
-            default = _git(
-                "symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD", check=False
-            ).stdout.strip()
-            if default and default != f"{remote}/{branch}":
+            if branch != r3.LIVE_BRANCH:
                 result["warning"] = (
-                    f"pushed {branch}, but the watchdog reads {default}; merge "
-                    "the ledger there before the SIGNAL window closes"
+                    f"pushed {branch}, but the watchdog reads {r3.LIVE_BRANCH}"
                 )
     except subprocess.CalledProcessError as exc:
         result["error"] = (exc.stderr or exc.stdout or str(exc)).strip()
@@ -230,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     now = pd.Timestamp(args.now).to_pydatetime() if args.now else None
     execute = args.command == "run"
+    if execute:
+        r3.require_live_checkout()
     decision = run(
         now=now,
         execute=execute,

@@ -49,6 +49,12 @@ Defects found before the first prospective signal:
   benchmark, and takes post-freeze splits, market moves and terminal returns
   only from an append-only supplement of sourced events.
 
+The observation runs from a pinned copy of the repository: a git worktree on
+the ``live/v50r3`` branch, which receives only the freeze commit and the
+scheduler's ledger commits.  The command-line entry points that write the
+protocol, bundles or ledger refuse any other checkout, so master can keep
+changing the files this protocol binds.
+
 This module is research-only.  It cannot connect to a broker or create orders.
 """
 
@@ -64,6 +70,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import subprocess
 import sys
 import time
 
@@ -114,6 +121,9 @@ STAGING_LOCK_PATH = OUTPUT_DIR / "staging.lock"
 # corporate-action table; every mark binds the rows it used.
 SUPPLEMENT_PATH = OUTPUT_DIR / "sourced_event_supplement.csv"
 MARK_PROCEDURE = "v50r3-exposure-aware-mark"
+# The only branch whose checkout may write the r3 protocol, bundles, or ledger.
+LIVE_BRANCH = "live/v50r3"
+SETUP_SCRIPT = "scripts/setup_v50r3_live.sh"
 SCHEDULER_PATH = Path("scripts/research_v50r3_scheduled_run.py")
 CODE_CLOSURE_ROOTS = (
     "scripts/research_v50r3_corrected_v47.py",
@@ -147,6 +157,31 @@ class StagingInProgress(RuntimeError):
 def resolve(path: str | Path) -> Path:
     """Resolve a repository-relative path independently of the CWD."""
     return r1._resolve_path(path)
+
+
+def current_branch() -> str | None:
+    """The branch checked out in this copy of the repository, if any."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    branch = result.stdout.strip()
+    return branch if result.returncode == 0 and branch not in {"", "HEAD"} else None
+
+
+def require_live_checkout() -> None:
+    """Refuse to write r3 state from anywhere but the pinned live copy."""
+    branch = current_branch()
+    if branch != LIVE_BRANCH:
+        raise SystemExit(
+            f"v50r3 writes its protocol, bundles and ledger only from a "
+            f"{LIVE_BRANCH} checkout; this copy is on "
+            f"{branch or 'a detached HEAD'}. Create the live copy with "
+            f"{SETUP_SCRIPT} and run the command there."
+        )
 
 
 def runtime_repair_specification() -> dict:
@@ -982,6 +1017,16 @@ def freeze_protocol(
         "status": "FROZEN_WAITING_FOR_FIRST_SIGNAL",
         "frozen_at": frozen_at.isoformat(timespec="seconds"),
         "code_commit": _git_head(),
+        "code_branch": current_branch(),
+        "operations": {
+            "live_branch": LIVE_BRANCH,
+            "writers": (
+                "the scheduler and runner command lines of a live-branch "
+                "checkout only"
+            ),
+            "watchdog_reads": LIVE_BRANCH,
+            "setup": SETUP_SCRIPT,
+        },
         "supersedes": {
             "model_version": SUPERSEDED_MODEL_VERSION,
             "protocol": _file_binding(V50R2_PROTOCOL_PATH),
@@ -1744,9 +1789,12 @@ def main(argv: list[str] | None = None) -> int:
             "status": "PROTOCOL_NOT_FROZEN",
             "model_version": MODEL_VERSION,
             "protocol_path": PROTOCOL_PATH.as_posix(),
+            "live_branch": LIVE_BRANCH,
             "release_status": "BLOCKED",
         }, indent=2, sort_keys=True))
         return 3
+    if args.command != "status":
+        require_live_checkout()
     if args.command == "freeze-protocol":
         result = freeze_protocol()
     elif args.command == "write-v50r2-supersession":

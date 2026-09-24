@@ -104,7 +104,8 @@ v50r1 修正回放保持了 v30/v47 的 348 个冻结月度目标，目标差异
 
 开发回放产物位于 `output/research_only/v50/corrected_v47_20260831_r1/`（r1，
 不可变）。前瞻协议与账本由 r3 负责：
-`output/research_only/v50/corrected_v47_20260924_r3/`。r2
+`output/research_only/v50/corrected_v47_20260924_r3/`，冻结后只存在于
+`live/v50r3` 分支（固定版本的独立副本，见下文）。r2
 （`corrected_v47_20260905_r2/`）从未产生信号；冻结 r3 时会在 r2 目录写入
 `superseded_by_v50r3.json`，r2 账本保持零信号并由 r3 协议哈希绑定。
 
@@ -165,37 +166,74 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
    `verdict` 为 `FAIL` 时不要冻结 r3。从月末窗口开启前 3 小时起直到窗口关闭，脚本
    会拒绝运行，避免占用正式运行的锁。
 
-2. 演练通过后冻结 r3 并推送。冻结会记录当前 commit 和代码闭包，所以先提交代码、
-   再冻结：
+2. 建独立副本。正式运行不在日常开发的仓库里跑，而在一个固定版本的独立副本里跑：
+   一个 git worktree，停在 `live/v50r3` 分支上，只接收冻结提交和调度器提交的账本。
+   r3 协议按哈希绑定了 50 个代码文件，在同一个仓库里跑的话，冻结后这些文件一个都
+   不能改；有了独立副本，master 可以照常开发。先把 r3 代码合进 master 并拉到本地，
+   然后在主仓库里运行：
 
    ```bash
+   scripts/setup_v50r3_live.sh            # 默认建在 ../<仓库名>_live
+   ```
+
+   脚本会建立 `live/v50r3` 分支和工作副本，复制本仓库的数据目录（没有数据时改为
+   下载数据 Release），把被协议绑定、却会被数据覆盖的已跟踪文件恢复成分支里的版本，
+   建立独立的 `.venv`，最后用 `status` 自检。远端已有 `live/v50r3` 时（例如换机器），
+   它改为建立跟踪远端分支的副本。r3 的冻结、打包、冻结信号、估值、追加事件记录这些
+   写入命令，以及调度器的 `run`，在其他分支上都会直接拒绝；`status` 和 `check` 在
+   哪里都能跑。
+
+3. 演练和数据源探测都通过后，在独立副本里冻结 r3 并推送 `live/v50r3`：
+
+   ```bash
+   cd ../quant_stocks_live
    PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py freeze-protocol
    PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py write-v50r2-supersession
    git add output/research_only/v50/corrected_v47_20260924_r3 \
      output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
    git commit -m "research: freeze v50r3 prospective protocol and supersede r2"
-   git push   # 推到默认分支 master；watchdog 只读默认分支
+   git push -u origin live/v50r3   # watchdog 读这个分支
    ```
 
-3. 调度。把定时任务从 r2 换成 r3；r2 被接替后，r2 的调度器会直接以退出码 3
-   结束，不再运行。窗口有十几个小时，可以不配 cron，在窗口内（例如北京时间早上）
-   于仓库根目录手动运行一次，失败了过一会儿再运行：
+   再把 r2 的接替记录带回 master，这样主仓库里残留的 r2 定时任务也会直接以退出码 3
+   结束，不会再尝试 r2 的信号：
 
    ```bash
+   cd ../quant_stocks            # 主仓库，master
+   git fetch origin live/v50r3
+   git checkout origin/live/v50r3 -- \
+     output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
+   git commit -m "research: record that v50r3 superseded v50r2"
+   git push
+   ```
+
+4. 调度（在独立副本里）。删掉 r2 的定时任务。窗口有十几个小时，可以不配 cron，
+   在窗口内（例如北京时间早上）到独立副本里手动运行一次，失败了过一会儿再运行：
+
+   ```bash
+   cd ../quant_stocks_live
    PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py run --push
    ```
 
-   也可以让 cron 在任何目录、任何时区每小时调用一次：
+   也可以让 cron 在任何时区每小时调用一次：
 
    ```cron
-   35 * * * * cd /path/to/quant_stocks && PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py run --push >> logs/v50r3_scheduler.log 2>&1
+   35 * * * * cd /path/to/quant_stocks_live && PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py run --push >> logs/v50r3_scheduler.log 2>&1
    ```
 
-   `--push` 在冻结信号或追加估值成功后，只提交账本和新的 signal 文件（不会带上
-   工作区的其他改动），再推送当前分支；需要本机 git 已配置身份和推送权限。推送
-   失败时退出码为 1，但信号已经冻结，手工 `git push` 即可。
+   `--push` 在冻结信号或追加估值成功后，只提交账本、新的 signal 文件和事件记录
+   （不会带上工作区的其他改动），再推送 `live/v50r3`；需要本机 git 已配置身份和
+   推送权限。推送失败时退出码为 1，但信号已经冻结，手工 `git push` 即可。
 
-手工入口：
+5. 在 GitHub 的 Settings → Branches 里保护 `live/v50r3`：禁止强制推送和删除。
+
+之后的规矩：独立副本里只运行上面的命令，不手工改文件；不要把 master 合进
+`live/v50r3`，也不要把 `live/v50r3` 合回 master（那会把冻结协议带回 master，之后
+master 上每次改动闭包文件，CI 都会变红）。账本在 `live/v50r3` 上，看结果用
+`git show origin/live/v50r3:output/research_only/v50/corrected_v47_20260924_r3/prospective_ledger.jsonl`。
+冻结后若发现运行时缺陷，照 r2 → r3 的方式另起 r4 接替，而不是改动副本。
+
+手工入口（在独立副本里）：
 
 ```bash
 PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py status
@@ -221,13 +259,15 @@ staging 的耗时（演练报告里有）。窗口开头仍是美股盘后交易
 窗口期间不要运行 `schedule_run.sh` 或日常流水线：它们会改写正式股票池和指数文件，
 隔离检查会让 staging 失败。
 
-仓库自带两个 GitHub Actions：`.github/workflows/tests.yml` 在每次 push/PR 上跑
-不依赖本地数据包的测试子集（排除清单见 `tests/data_dependent_test_files.txt`），
-并在干净 checkout 上复验 r1/r2 协议，以及 r3 协议和它的代码闭包（r3 冻结前跳过）；
-`.github/workflows/signal_watchdog.yml` 在月末前一周每天、月末前后每小时跑一次
-r3 `check`。账本在冻结后会被 push，所以它只凭仓库内容就能判断窗口是否错过、
-协议是否已冻结、代码是否漂移，失败即由 GitHub 通知仓库所有者，是独立于本机的
-dead-man switch。
+仓库自带两个 GitHub Actions：`.github/workflows/tests.yml` 在每个分支的每次
+push/PR 上跑不依赖本地数据包的测试子集（排除清单见
+`tests/data_dependent_test_files.txt`），并在干净 checkout 上复验 r1/r2 协议，以及
+r3 协议和它的代码闭包（该分支上没有冻结的 r3 时跳过）；调度器每次推送账本都会在
+`live/v50r3` 上触发一次，等于每天复验一次冻结的代码。
+`.github/workflows/signal_watchdog.yml` 在月末前一周每天、月末前后每小时读取
+`live/v50r3` 跑一次 r3 `check`，只凭仓库内容就能判断窗口是否错过、协议是否已冻结、
+代码是否漂移，失败即由 GitHub 通知仓库所有者，是独立于本机的 dead-man switch。
+冻结前 `live/v50r3` 还不存在，它会照常报错提醒。
 
 估值规则：一只股票从买入那天收盘持有到下一次调仓收盘，MARK 只要求"当日仍持有或
 当日买入"的股票有当日收盘价；已卖出的股票之后退市、拆股都不影响估值，出现的疑似

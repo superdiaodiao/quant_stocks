@@ -211,6 +211,7 @@ def test_git_record_commits_only_the_ledger_and_signal_and_pushes(
 
     assert "error" not in result
     assert result["committed"] and result["pushed"]
+    assert result["warning"] == "pushed master, but the watchdog reads live/v50r3"
     committed = _git(repo, "show", "--name-only", "--format=", "HEAD").splitlines()
     assert sorted(committed) == [
         "out/ledger.jsonl",
@@ -223,6 +224,13 @@ def test_git_record_commits_only_the_ledger_and_signal_and_pushes(
         [Path("out/ledger.jsonl")], message="unchanged", push=False
     )
     assert again["committed"] is False and "error" not in again
+
+    _git(repo, "checkout", "-q", "-b", r3.LIVE_BRANCH)
+    ledger.write_text("{}\n{}\n", encoding="utf-8")
+    live = sched.record_in_git([Path("out/ledger.jsonl")], message="mark", push=True)
+    assert live["pushed"] and live["branch"] == r3.LIVE_BRANCH
+    assert "warning" not in live
+    assert _git(remote, "rev-parse", r3.LIVE_BRANCH) == live["commit"]
 
     _git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
     failed = sched.record_in_git([Path("out/ledger.jsonl")], message="x", push=True)
@@ -241,6 +249,7 @@ def test_cli_runs_from_the_repository_root(
         return {"action": "SIGNAL_WINDOW_MISSED"}
 
     monkeypatch.setattr(sched, "run", fake_run)
+    monkeypatch.setattr(r3, "current_branch", lambda: r3.LIVE_BRANCH)
     monkeypatch.chdir(tmp_path)
     try:
         code = sched.main(["run", "--push", "--now", "2026-10-01T01:00:00Z"])
@@ -251,6 +260,12 @@ def test_cli_runs_from_the_repository_root(
     assert seen["kwargs"]["commit"] is True and seen["kwargs"]["push"] is True
     assert '"SIGNAL_WINDOW_MISSED"' in capsys.readouterr().out
 
+    # Only execution needs the live copy; checking works from any checkout.
+    monkeypatch.setattr(r3, "current_branch", lambda: "master")
     code = sched.main(["check"])
     assert seen["kwargs"]["execute"] is False
     assert seen["kwargs"]["commit"] is False and seen["kwargs"]["push"] is False
+    seen.clear()
+    with pytest.raises(SystemExit, match="only from a live/v50r3 checkout"):
+        sched.main(["run"])
+    assert seen == {}

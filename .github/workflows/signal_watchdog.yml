@@ -1,8 +1,11 @@
 name: v50r3 signal watchdog
 
-# Dead-man check for the prospective observation. The r3 ledger is committed
-# after every freeze-signal, so this job can decide from the repository alone
-# whether the latest month-end SIGNAL window was met. It also re-verifies the
+# Dead-man check for the prospective observation. The r3 ledger lives on the
+# live/v50r3 branch (the pinned copy made by scripts/setup_v50r3_live.sh) and
+# is pushed after every freeze-signal and mark, so this job reads that branch
+# and decides from the repository alone whether the latest month-end SIGNAL
+# window was met. A missing live branch means r3 is not frozen yet and fails
+# the job like an unfrozen protocol does. It also re-verifies the
 # frozen r3 protocol and its complete code closure. It runs once a day in the
 # week before each month end (catching an unfrozen protocol or code drift
 # early) and hourly around the month end. A SIGNAL window closes when
@@ -27,6 +30,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
+      with:
+        ref: live/v50r3
 
     - name: Set up Python
       uses: actions/setup-python@v6

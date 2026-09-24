@@ -478,6 +478,7 @@ def _freeze(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, now: str) -> dict:
         r3, "_file_binding", lambda path: {"path": str(path), "sha256": "b" * 64}
     )
     monkeypatch.setattr(r3, "_git_head", lambda: "c" * 40)
+    monkeypatch.setattr(r3, "current_branch", lambda: r3.LIVE_BRANCH)
     monkeypatch.setattr(
         r3, "current_code_closure",
         lambda: {"roots": ["x"], "file_count": 1, "files": {"x": "d" * 64},
@@ -510,6 +511,8 @@ def test_freeze_binds_closure_supersedes_r2_and_dates_the_first_signal(
     }
     assert result["signal_policy"]["signal_frozen_before_window_closes"] is True
     assert result["mark_policy"]["procedure"] == r3.MARK_PROCEDURE
+    assert result["code_branch"] == r3.LIVE_BRANCH
+    assert result["operations"]["watchdog_reads"] == r3.LIVE_BRANCH
     assert result["mark_policy"]["post_freeze_sourced_events"] == (
         r3.SUPPLEMENT_PATH.as_posix()
     )
@@ -609,3 +612,58 @@ def test_frozen_r3_protocol_is_tracked_hash_bound_and_verifiable() -> None:
         for event in events
         if event["event_type"] == "SIGNAL_FROZEN"
     )
+
+
+def _repo_on(tmp_path: Path, branch: str) -> Path:
+    repo = tmp_path / "copy"
+    subprocess.run(["git", "init", "-q", "-b", branch, str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.email=o@example.invalid",
+         "-c", "user.name=O", "commit", "-q", "--allow-empty", "-m", "init"],
+        check=True,
+    )
+    return repo
+
+
+def test_only_a_live_branch_checkout_may_write_r3_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo_on(tmp_path, "master")
+    monkeypatch.setattr(r3, "REPO_ROOT", repo)
+    assert r3.current_branch() == "master"
+    with pytest.raises(SystemExit, match="only from a live/v50r3 checkout"):
+        r3.require_live_checkout()
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--detach"], check=True)
+    assert r3.current_branch() is None
+    with pytest.raises(SystemExit, match="a detached HEAD"):
+        r3.require_live_checkout()
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "-q", "-b", r3.LIVE_BRANCH], check=True
+    )
+    assert r3.current_branch() == r3.LIVE_BRANCH
+    r3.require_live_checkout()
+
+
+def test_cli_writes_refuse_other_branches_but_status_reads_anywhere(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.chdir(r3.REPO_ROOT)  # main() switches to the repository root
+    monkeypatch.setattr(r3, "current_branch", lambda: "master")
+    monkeypatch.setattr(
+        r3, "freeze_protocol", lambda: pytest.fail("froze outside the live copy")
+    )
+    for command in (
+        ["freeze-protocol"],
+        ["stage-bundle", "--as-of", "2026-09-30", "--purpose", "SIGNAL"],
+        ["record-sourced-event", "--ticker", "A", "--type", "MARKET_MOVE",
+         "--date", "2026-10-01", "--source-url", "https://example.com"],
+    ):
+        with pytest.raises(SystemExit, match="live/v50r3"):
+            r3.main(command)
+    if not (r3.REPO_ROOT / r3.PROTOCOL_PATH).is_file():
+        assert r3.main(["status"]) == 3
+        assert '"live_branch": "live/v50r3"' in capsys.readouterr().out
+
+    monkeypatch.setattr(r3, "current_branch", lambda: r3.LIVE_BRANCH)
+    monkeypatch.setattr(r3, "freeze_protocol", lambda: {"status": "FROZEN"})
+    assert r3.main(["freeze-protocol"]) == 0
