@@ -47,6 +47,17 @@ jobs:
         PYTHONPATH=. python scripts/research_v50_corrected_v47.py status
         PYTHONPATH=. python scripts/research_v50r2_corrected_v47.py status
 
+    - name: Verify the v50r3 protocol and its complete code closure
+      run: |
+        # Exit 3 means r3 is not frozen yet. Once it is frozen, any change to a
+        # file in the runtime's import closure fails here, at the commit that
+        # made it, instead of at the next month-end signal.
+        set +e
+        PYTHONPATH=. python scripts/research_v50r3_corrected_v47.py status
+        code=$?
+        set -e
+        if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
+
     - name: Run portable test files
       run: |
         mapfile -t excluded < <(grep -v '^#' tests/data_dependent_test_files.txt)

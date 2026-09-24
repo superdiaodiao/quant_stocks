@@ -8,6 +8,12 @@ from scripts import research_v50r2_corrected_v47 as r2
 from scripts import research_v50r2_scheduled_run as sched
 
 
+@pytest.fixture(autouse=True)
+def _not_superseded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise r2's own rules even after r3 records its supersession."""
+    monkeypatch.setattr(sched, "SUPERSESSION_PATH", tmp_path / "absent.json")
+
+
 def _signal(date: str) -> dict:
     return {"event_type": "SIGNAL_FROZEN", "payload": {"signal_date": date}}
 
@@ -194,3 +200,25 @@ def test_cli_exit_code_is_nonzero_for_a_missed_window(
     assert '"action": "RUN_SIGNAL"' in capsys.readouterr().out
     assert sched.main(["check", "--now", "2026-10-01T01:00:00Z"]) == 2
     assert '"SIGNAL_WINDOW_MISSED"' in capsys.readouterr().out
+
+
+def test_superseded_r2_scheduler_stops_instead_of_competing_with_r3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    record = tmp_path / "superseded_by_v50r3.json"
+    record.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(sched, "SUPERSESSION_PATH", record)
+    monkeypatch.setattr(
+        r2, "stage_bundle", lambda **_kwargs: pytest.fail("superseded r2 staged")
+    )
+    decision = sched.run(
+        now=_at("2026-09-30T21:00:00Z"),
+        execute=True,
+        ledger_path=tmp_path / "ledger.jsonl",
+        bundles_dir=tmp_path,
+    )
+    assert decision["action"] == "SUPERSEDED_BY_V50R3"
+    assert decision["executed"] is False
+    assert decision["successor_scheduler"] == "scripts/research_v50r3_scheduled_run.py"
+    assert sched.main(["run", "--now", "2026-09-30T21:00:00Z"]) == 3
+    assert "SUPERSEDED_BY_V50R3" in capsys.readouterr().out

@@ -1,8 +1,9 @@
 # quant_stocks
 
 这是一个面向 Nasdaq 股票的量化研究与每日选股项目。当前唯一处于前瞻观察入口的
-候选是 `v50r2-corrected-v47-sourced-actions`（r2 只修运行时、不改模型）：固定使用月度 Top 5 股票选择器、
-20% 建仓损失止损和 25% 组合回撤止损，并与 **Nasdaq Composite** 比较。
+模型是 v50r1 冻结的月度 Top 5 股票选择器、20% 建仓损失止损和 25% 组合回撤止损，
+并与 **Nasdaq Composite** 比较。运行时入口是 `v50r3-corrected-v47-sourced-actions`
+（r3 只修运行时、不改模型，在首个信号前接替 r2；必须先演练再冻结，见第 3 节）。
 早期 `can-slim-top3-v1` 及 v14-v49 产物继续保留为历史审计和对照证据，但不再是
 当前运行入口。
 
@@ -28,9 +29,9 @@
 
 ### 2.1 选股规则
 
-当前冻结入口是 `scripts/research_v50r2_corrected_v47.py`（r1 的
-`scripts/research_v50_corrected_v47.py` 与其开发回放保持不变、可独立复验），
-选择与风险参数均未因本次数据修复重新搜索：
+当前运行入口是 `scripts/research_v50r3_corrected_v47.py`（r1 的
+`scripts/research_v50_corrected_v47.py`、r2 的 `scripts/research_v50r2_corrected_v47.py`
+与 r1 开发回放均保持不变、可独立复验），选择与风险参数均未因本次数据修复重新搜索：
 
 - 股票池：信号日当时已知的 Nasdaq 普通股历史快照；
 - 先按 63 个交易日相对 Nasdaq 动量和 50 日中位成交额排序，取流动性池前 25；
@@ -102,68 +103,108 @@ v50r1 修正回放保持了 v30/v47 的 348 个冻结月度目标，目标差异
 胜场，也不解除 `BLOCKED`。
 
 开发回放产物位于 `output/research_only/v50/corrected_v47_20260831_r1/`（r1，
-不可变）；前瞻协议与账本位于
-`output/research_only/v50/corrected_v47_20260905_r2/`（r2）。当前协议状态为
-`WAITING_FOR_FIRST_PROSPECTIVE_SIGNAL`。
+不可变）。前瞻协议与账本由 r3 负责：
+`output/research_only/v50/corrected_v47_20260924_r3/`。r2
+（`corrected_v47_20260905_r2/`）从未产生信号；冻结 r3 时会在 r2 目录写入
+`superseded_by_v50r3.json`，r2 账本保持零信号并由 r3 协议哈希绑定。
 
 **2026-08-31 的原始窗口已被错过**（外部 cron 显示新加坡时间但按 UTC 执行）。
-该月记录为 `MISSED_WINDOW_NOT_BACKFILLED`，永不回填；r2 的 `stage-bundle` 对任何
-早于 2026-09-30 的 SIGNAL 日期直接拒绝。第一笔允许进入账本的信号日期是
-`2026-09-30`，必须在该日 Nasdaq 收盘后且 UTC 日期仍为 2026-09-30 时创建；换算为
-北京时间/新加坡时间是 **2026-10-01 04:00–08:00**。建议不早于 04:30 执行，避免把
-供应商的临时收盘价冻结进账本。
+该月记录为 `MISSED_WINDOW_NOT_BACKFILLED`，永不回填。r3 的第一个信号日期在冻结时
+计算：若在 2026-09-30 的窗口打开前冻结，就是 `2026-09-30`，必须在该日 Nasdaq
+收盘后 30 分钟起、UTC 日期仍为 2026-09-30 时创建，换算为北京时间/新加坡时间是
+**2026-10-01 04:30–07:59**；若冻结得更晚，则顺延到下一个月末，并把 9-30 记为错过。
 
-r2 相对 r1 只修一个运行时缺陷：继承自 v42 的 bundle manifest 写入器会把
-`Series.all()` 得到的 NumPy 布尔就绪门直接交给 `json.dumps`，导致每次 SIGNAL
-staging 都会在下载完成后崩溃并丢弃已下载数据（v51 的 r8 尝试正是这样失败的）。
-r2 在隔离运行时内把 NumPy 标量规范化为 Python 标量；可序列化的载荷逐字节不变，
-账本哈希不受影响。r1 的 runner、开发回放、选股器与 20%/25% 阈值全部原样复用。
+r2 修复了 NumPy 布尔就绪门无法 JSON 序列化的问题（v51 的 r8 尝试正是这样失败的）。
+r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷；r1 的开发回放、选股器与
+20%/25% 阈值全部原样复用：
 
-当前操作入口：
+- SIGNAL 基本面刷新把整个当前股票池作为显式 ticker 传给 SEC 刷新器，任何一只
+  没有 SEC CIK 的股票（例如向 FDIC 申报的银行）都会让它直接报错，重试也同样失败
+  （v51 的 r1/r2 尝试就是这样失败的）。r3 只刷新有 CIK 的股票，整次刷新使用同一份
+  固定的 SEC ticker 映射；无 CIK 的股票保留在股票池中（沿用 v51r9 策略），不猜测
+  CIK。无 CIK 比例超过 5% 视为 SEC 映射异常，失败关闭；
+- EDGAR 把截止时间之后受理的申报记为下一个工作日，旧就绪门会因此拒绝整个数据包。
+  r3 从暂存的解析结果中剔除 `available_date` 晚于信号日的行（信号日时尚未公开），
+  并把剔除明细写入 bundle manifest；
+- 失败或被中断的尝试会留下构建目录，使同一窗口内的所有重试都报 "stale … exists"。
+  r3 用排他锁串行化 staging，重试前把从未提升为正式数据包的构建目录移到
+  `staging_work/failed_attempts/`；
+- 所有入口先切换到仓库根目录，避免从其他目录启动时读到空账本；
+- r2 协议只绑定了运行时 46 个代码文件中的 5 个。r3 绑定运行器与调度器的完整项目内
+  导入闭包（当前 49 个文件），每次校验协议都重新计算；闭包内任何文件一改，CI 就在那个
+  提交上变红，而不是等到下一个月末信号才暴露。
+
+**首个信号前的操作（按顺序）：**
+
+1. 演练。在任一美股交易日收盘后（夏令时 UTC 20:30 之后），用与正式运行相同的
+   机器、网络和并发数：
+
+   ```bash
+   PYTHONPATH=. .venv/bin/python scripts/research_v50r3_rehearsal.py --as-of 2026-09-28
+   ```
+
+   它在 `output/research_only/v50/r3_rehearsals/` 下的临时目录里完整执行 r3 的
+   SIGNAL staging 和选股，不写账本、信号或正式数据。报告列出每个阶段的耗时、
+   就绪门、无 CIK 的股票、被剔除的未来财报行、缺价格文件的股票、排名池中未经
+   复核的疑似拆股，以及一次 staging 能否在下一个窗口内再容纳一次重试。
+   `verdict` 为 `FAIL` 时不要冻结 r3。月末窗口开启前 3 小时起，脚本会拒绝运行，
+   避免占用正式运行的锁。
+
+2. 演练通过后冻结 r3 并推送。冻结会记录当前 commit 和代码闭包，所以先提交代码、
+   再冻结：
+
+   ```bash
+   PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py freeze-protocol
+   PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py write-v50r2-supersession
+   git add output/research_only/v50/corrected_v47_20260924_r3 \
+     output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
+   git commit -m "research: freeze v50r3 prospective protocol and supersede r2"
+   git push   # 推到默认分支 master；watchdog 只读默认分支
+   ```
+
+3. 调度。把定时任务从 r2 换成 r3；r2 被接替后，r2 的调度器会直接以退出码 3
+   结束，不再运行。cron 在任何目录、任何时区每小时调用一次即可：
+
+   ```cron
+   35 * * * * cd /path/to/quant_stocks && PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py run --push >> logs/v50r3_scheduler.log 2>&1
+   ```
+
+   `--push` 在冻结信号或追加估值成功后，只提交账本和新的 signal 文件（不会带上
+   工作区的其他改动），再推送当前分支；需要本机 git 已配置身份和推送权限。推送
+   失败时退出码为 1，但信号已经冻结，手工 `git push` 即可。
+
+手工入口：
 
 ```bash
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py status
-
-# 仅在北京时间/新加坡时间 2026-10-01 04:30–08:00 执行：
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
-  stage-bundle --as-of 2026-09-30 --purpose SIGNAL
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
-  freeze-signal --bundle \
-  output/research_only/v50/corrected_v47_20260905_r2/bundles/2026-09-30_signal
-git add output/research_only/v50/corrected_v47_20260905_r2 && git commit -m "research: freeze 2026-09-30 v50r2 signal" && git push
-
-# 后续估值日分别创建 MARK 包并追加；YYYY-MM-DD 必须是实际估值日：
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
-  stage-bundle --as-of YYYY-MM-DD --purpose MARK
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_corrected_v47.py \
-  append-mark --bundle \
-  output/research_only/v50/corrected_v47_20260905_r2/bundles/YYYY-MM-DD_mark
+PYTHONPATH=. .venv/bin/python scripts/research_v50r3_corrected_v47.py status
+# 只判断不执行
+PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py check
+# 执行到期的 SIGNAL（stage-bundle + freeze-signal）或 MARK（stage-bundle + append-mark）
+PYTHONPATH=. .venv/bin/python scripts/research_v50r3_scheduled_run.py run
 ```
 
-`freeze-signal` 之后立即 push：r2 账本没有外部锚，git 远端是它唯一的外部时间戳。
+退出码：0 表示无事可做、已完成，或另一个 staging 正在进行；1 表示出错（含 git
+记录失败）；2 表示 SIGNAL 窗口已错过；3 表示 r3 未冻结或账本缺失。
 
-**推荐用调度入口代替手工输入日期。** `scripts/research_v50r2_scheduled_run.py`
-只依据 UTC 时钟、Nasdaq 日历（含提前收盘）和 append-only 账本判断该做什么，
-任何调度器（cron / launchd / Actions）每小时调用一次即可，不需要自己换算时区：
-
-```bash
-# 只判断不执行；若某个 SIGNAL 窗口已错过则退出码为 2（dead-man 检查）
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_scheduled_run.py check
-
-# 判断并执行到期的 SIGNAL（stage-bundle + freeze-signal）或 MARK（stage-bundle + append-mark）
-PYTHONPATH=. .venv/bin/python scripts/research_v50r2_scheduled_run.py run
-```
-
-规则：SIGNAL 窗口 = 月末交易日官方收盘后 30 分钟起，至该日 23:59:59 UTC 止；
-MARK = 最近一个已完成（收盘后 30 分钟）、晚于最新冻结信号日且尚未估值的交易日；
-错过的 SIGNAL 窗口永不回填，只报告。
+规则：SIGNAL 窗口 = 月末交易日官方收盘后 30 分钟起，至该日 23:59:59 UTC 止。
+数据包的 `created_at` 必须仍在该 UTC 日期内，所以实际最晚开始时间 = 23:59:59
+减去一次 staging 的耗时（演练报告里有）。MARK = 最近一个已完成（收盘后 30 分钟）、
+晚于最新冻结信号日且尚未估值的交易日。错过的 SIGNAL 窗口永不回填，只报告。
+窗口期间不要运行 `schedule_run.sh` 或日常流水线：它们会改写正式股票池和指数文件，
+隔离检查会让 staging 失败。
 
 仓库自带两个 GitHub Actions：`.github/workflows/tests.yml` 在每次 push/PR 上跑
 不依赖本地数据包的测试子集（排除清单见 `tests/data_dependent_test_files.txt`），
-并在干净 checkout 上复验 r1/r2 冻结协议；`.github/workflows/signal_watchdog.yml`
-在每月月末前后每小时跑一次 `check`——因为账本在 `freeze-signal` 后会被 push，
-它只凭仓库内容就能判断窗口是否错过，错过即失败并由 GitHub 通知仓库所有者，
-是独立于本机的 dead-man switch。
+并在干净 checkout 上复验 r1/r2 协议，以及 r3 协议和它的代码闭包（r3 冻结前跳过）；
+`.github/workflows/signal_watchdog.yml` 在月末前一周每天、月末前后每小时跑一次
+r3 `check`。账本在冻结后会被 push，所以它只凭仓库内容就能判断窗口是否错过、
+协议是否已冻结、代码是否漂移，失败即由 GitHub 通知仓库所有者，是独立于本机的
+dead-man switch。
+
+r3 仍未解决、观察期内需要关注的问题：已复核的公司行动表只到 2026-07-14 且被协议
+绑定，持仓过的股票之后若发生拆股（或单日接近整数倍的涨跌），MARK 会失败关闭；
+首个信号若为全现金，MARK 会因为没有持仓股票而失败；错过一次 SIGNAL 后，MARK
+会暂停到下一个月末。
 
 如果错过 SIGNAL 的同日 UTC 窗口，程序会拒绝事后补建；不得通过修改日期或复用未来
 股票池绕过。这一限制是为了让前瞻证据可复核，不影响历史训练数据继续用于诊断。

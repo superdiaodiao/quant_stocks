@@ -41,6 +41,11 @@ from src.research.shadow_evaluation import nasdaq_calendar_for_year
 SIGNAL_WINDOW_OPEN_BUFFER = timedelta(minutes=30)
 MARK_READY_BUFFER = timedelta(minutes=30)
 MISSED_EXIT_CODE = 2
+SUPERSEDED_EXIT_CODE = 3
+# Written when v50r3 supersedes r2 before its first signal.  A scheduler that
+# still points here must stop instead of producing a competing r2 ledger.
+SUPERSESSION_PATH = r2.OUTPUT_DIR / "superseded_by_v50r3.json"
+SUCCESSOR_SCHEDULER = "scripts/research_v50r3_scheduled_run.py"
 
 
 def _utc(moment: datetime) -> datetime:
@@ -185,6 +190,13 @@ def run(
     bundles_dir: str | Path = r2.BUNDLES_DIR,
 ) -> dict:
     now = _utc(now or datetime.now(timezone.utc))
+    if (r2.REPO_ROOT / SUPERSESSION_PATH).is_file():
+        return {
+            "now_utc": now.isoformat(timespec="seconds"),
+            "action": "SUPERSEDED_BY_V50R3",
+            "executed": False,
+            "successor_scheduler": SUCCESSOR_SCHEDULER,
+        }
     ledger = Path(ledger_path)
     events = v43.read_ledger(ledger) if ledger.exists() else []
     decision = decide(now, events)
@@ -224,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     now = pd.Timestamp(args.now).to_pydatetime() if args.now else None
     decision = run(now=now, execute=args.command == "run")
     print(json.dumps(decision, indent=2, sort_keys=True))
+    if decision["action"] == "SUPERSEDED_BY_V50R3":
+        return SUPERSEDED_EXIT_CODE
     return MISSED_EXIT_CODE if decision["action"] == "SIGNAL_WINDOW_MISSED" else 0
 
 

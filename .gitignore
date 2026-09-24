@@ -27,3 +27,13 @@ output/research_only/v43/v28_prospective_20260830/bundles/
 output/research_only/v43/v28_prospective_20260830/staging_work/
 output/research_only/v48/v47_prospective_20260830/bundles/
 output/research_only/v48/v47_prospective_20260830/staging_work/
+output/research_only/v50/corrected_v47_20260831_r1/bundles/
+output/research_only/v50/corrected_v47_20260831_r1/staging_work/
+output/research_only/v50/corrected_v47_20260905_r2/bundles/
+output/research_only/v50/corrected_v47_20260905_r2/staging_work/
+output/research_only/v50/corrected_v47_20260924_r3/bundles/
+output/research_only/v50/corrected_v47_20260924_r3/staging_work/
+output/research_only/v50/corrected_v47_20260924_r3/staging.lock
+# v50r3 演练只写本地临时目录和报告，不属于前瞻证据。
+output/research_only/v50/r3_rehearsals/
+logs/v50r3_scheduler.log
