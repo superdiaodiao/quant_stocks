@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from functools import lru_cache
 from decimal import Decimal, InvalidOperation
 from datetime import date
 from numbers import Number
@@ -128,6 +129,27 @@ OUTPUT_COLUMNS = [
 CORE_QUALITY_METRICS = {"net_income", "operating_cash_flow", "assets", "equity"}
 QUARTERLY_FORMS = {"10-Q", "10-Q/A", "10-K", "10-K/A"}
 QUARTERLY_METRICS = {key: METRIC_CONCEPTS[key] for key in ("revenue", "net_income")}
+
+
+@lru_cache(maxsize=1 << 16)
+def _cached_sec_date(value) -> pd.Timestamp:
+    return pd.to_datetime(value, errors="coerce")
+
+
+def _sec_date(value) -> pd.Timestamp:
+    """``pd.to_datetime(value, errors="coerce")`` memoized for SEC fact dates.
+
+    Company Facts repeat a few hundred period and filing dates across
+    thousands of facts, and pandas re-infers the format on every scalar call;
+    that dominated SIGNAL-time parsing.  Timestamps are immutable, so sharing
+    cached results cannot change what any caller sees.
+    """
+    try:
+        return _cached_sec_date(value)
+    except TypeError:  # unhashable input: parse it directly
+        return pd.to_datetime(value, errors="coerce")
+
+
 BANK_NET_INTEREST_CONCEPTS = (
     "InterestIncomeExpenseNet",
     "InterestRevenueExpenseNet",
@@ -148,13 +170,13 @@ def _annual_rows(facts: dict, metric: str, concepts: tuple[str, ...]) -> list[di
             for row in units:
                 if row.get("form") not in ANNUAL_FORMS or row.get("fp") != "FY":
                     continue
-                end = pd.to_datetime(row.get("end"), errors="coerce")
-                filed = pd.to_datetime(row.get("filed"), errors="coerce")
+                end = _sec_date(row.get("end"))
+                filed = _sec_date(row.get("filed"))
                 value = pd.to_numeric(row.get("val"), errors="coerce")
                 if pd.isna(end) or pd.isna(filed) or pd.isna(value):
                     continue
                 if metric not in INSTANT_METRICS:
-                    start = pd.to_datetime(row.get("start"), errors="coerce")
+                    start = _sec_date(row.get("start"))
                     if pd.isna(start) or not 250 <= (end - start).days <= 450:
                         continue
                 candidates.append({
@@ -258,9 +280,9 @@ def _explicit_quarter_rows(
                 continue
             if re.search(r"Q[1-4]$", str(row.get("frame") or "")):
                 continue
-            start = pd.to_datetime(row.get("start"), errors="coerce")
-            end = pd.to_datetime(row.get("end"), errors="coerce")
-            filed = pd.to_datetime(row.get("filed"), errors="coerce")
+            start = _sec_date(row.get("start"))
+            end = _sec_date(row.get("end"))
+            filed = _sec_date(row.get("filed"))
             value = pd.to_numeric(row.get("val"), errors="coerce")
             accession = str(row.get("accn") or "")
             if (
@@ -337,9 +359,9 @@ def _explicit_quarter_rows(
                             re.search(r"Q[1-4]$", frame)
                             or (
                                 str(row.get("accn") or ""),
-                                pd.to_datetime(row.get("start"), errors="coerce"),
-                                pd.to_datetime(row.get("end"), errors="coerce"),
-                                pd.to_datetime(row.get("filed"), errors="coerce"),
+                                _sec_date(row.get("start")),
+                                _sec_date(row.get("end")),
+                                _sec_date(row.get("filed")),
                                 float(pd.to_numeric(row.get("val"), errors="coerce")),
                             ) in proven_unframed
                         )
@@ -347,9 +369,9 @@ def _explicit_quarter_rows(
                 )
                 if not quarter_marked:
                     continue
-                start = pd.to_datetime(row.get("start"), errors="coerce")
-                end = pd.to_datetime(row.get("end"), errors="coerce")
-                filed = pd.to_datetime(row.get("filed"), errors="coerce")
+                start = _sec_date(row.get("start"))
+                end = _sec_date(row.get("end"))
+                filed = _sec_date(row.get("filed"))
                 value = pd.to_numeric(row.get("val"), errors="coerce")
                 if (
                     pd.isna(start) or pd.isna(end) or pd.isna(filed) or pd.isna(value)
@@ -382,9 +404,9 @@ def _derived_ytd_quarter_rows(
             for row in units:
                 if row.get("form") not in QUARTERLY_FORMS:
                     continue
-                start = pd.to_datetime(row.get("start"), errors="coerce")
-                end = pd.to_datetime(row.get("end"), errors="coerce")
-                filed = pd.to_datetime(row.get("filed"), errors="coerce")
+                start = _sec_date(row.get("start"))
+                end = _sec_date(row.get("end"))
+                filed = _sec_date(row.get("filed"))
                 value = pd.to_numeric(row.get("val"), errors="coerce")
                 if (
                     pd.isna(start)
