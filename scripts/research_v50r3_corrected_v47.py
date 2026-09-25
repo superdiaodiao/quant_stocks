@@ -179,6 +179,7 @@ _git_head = r1._git_head
 V42_LOAD_MARK_MARKET = v42._load_mark_market
 V42_STAGE_BUNDLE = v42.stage_bundle
 V42_SIGNAL_ARTIFACTS = v42._signal_artifacts
+V42_LOAD_SIGNAL_INPUTS = v42._load_signal_inputs
 V24_PROFITABLE_SYMBOLS = v24._profitable_symbols
 
 # Rehearsals stage a completed non-month-end session after the fact, so they
@@ -629,7 +630,8 @@ def _signal_inputs(
     history, and is left out while that history is shorter than v42's panel
     minimum.
     """
-    inputs = v42._load_signal_inputs(Path(bundle), signal_date)
+    # v42's own loader: the SIGNAL payload routes r1's loader here.
+    inputs = V42_LOAD_SIGNAL_INPUTS(Path(bundle), signal_date)
     raw = inputs["raw_close"].copy()
     dollar_volume = inputs["dollar_volume"].copy()
     breaks = identity_breaks(raw)

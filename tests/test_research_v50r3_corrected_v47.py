@@ -920,7 +920,7 @@ def test_signal_inputs_drop_a_reused_ticker_until_it_has_its_own_history(
     raw = pd.DataFrame({"SPCX": 23.0, "PLAIN": 50.0}, index=dates)
     raw.loc["2025-04-11":"2026-06-11", "SPCX"] = float("nan")
     raw.loc["2026-06-12":, "SPCX"] = 160.0
-    monkeypatch.setattr(r3.v42, "_load_signal_inputs", lambda *_args: {
+    monkeypatch.setattr(r3, "V42_LOAD_SIGNAL_INPUTS", lambda *_args: {
         "raw_close": raw.copy(), "dollar_volume": raw * 1e6,
     })
 
@@ -930,6 +930,48 @@ def test_signal_inputs_drop_a_reused_ticker_until_it_has_its_own_history(
     assert inputs["raw_close"]["SPCX"].isna().all()
     assert inputs["dollar_volume"]["SPCX"].isna().all()
     assert inputs["raw_close"]["PLAIN"].notna().all()
+
+
+def test_the_signal_payload_selects_from_the_live_inputs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # r1's own payload builder runs with its loader routed to the live inputs,
+    # which must still read through v42's loader (the routed one recursed).
+    _frozen_table(tmp_path, monkeypatch)
+    dates = pd.bdate_range("2026-06-01", "2026-09-30")
+    raw = pd.DataFrame({"SPLT": 100.0, "PLAIN": 50.0}, index=dates)
+    raw.loc["2026-09-01":, "SPLT"] = 25.0
+    monkeypatch.setattr(r3, "V42_LOAD_SIGNAL_INPUTS", lambda *_args: {
+        "raw_close": raw.copy(), "dollar_volume": raw * 1e6,
+    })
+    _provider_rows(("SPLT", "2026-09-01", 0.25)).to_csv(
+        tmp_path / r3.PROVIDER_ADJUSTMENTS_NAME, index=False
+    )
+    selected: dict = {}
+
+    def build_signal_payload(**kwargs):
+        selected.update(kwargs["inputs"])
+        return {"targets": []}
+
+    monkeypatch.setattr(r3.r1.v42, "build_signal_payload", build_signal_payload)
+    loader = r3.r1.v42._load_signal_inputs
+
+    payload = r3._build_signal_payload(
+        signal_date=dates[-1],
+        bundle=tmp_path,
+        protocol={"model": {}, "code_closure": {"sha256": "c" * 64}},
+        protocol_sha="0" * 64,
+        manifest_sha="1" * 64,
+    )
+
+    # The provider's rescaling reaches the selector's continuous prices.
+    assert selected["close"]["SPLT"].eq(25.0).all()
+    assert selected["raw_close"]["SPLT"].iloc[0] == 100.0
+    assert payload["live_price_events"]["provider_adjustments_applied"] == [
+        {"ticker": "SPLT", "session": "2026-09-01", "factor": 0.25}
+    ]
+    assert payload["model_version"] == r3.MODEL_VERSION
+    assert r3.r1.v42._load_signal_inputs is loader
 
 
 def _readiness_inputs(dates, raw, liquidity):
