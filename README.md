@@ -375,8 +375,9 @@ staging 的耗时（演练报告里有）。窗口开头仍是美股盘后交易
 此外还有两个检查用的 GitHub Actions：`.github/workflows/tests.yml` 在每个分支的每次
 push/PR 上跑不依赖本地数据包的测试子集（排除清单见
 `tests/data_dependent_test_files.txt`），并在干净 checkout 上复验 r1/r2 协议，以及
-r3 协议和它的代码闭包（该分支上没有冻结的 r3 时跳过）；调度器每次推送账本都会在
-`live/v50r3` 上触发一次，等于每天复验一次冻结的代码。
+r3 协议和它的代码闭包（该分支上没有冻结的 r3 时跳过）；在本机运行调度器时，每次
+推送账本都会在 `live/v50r3` 上触发一次。GitHub 上由 `github-actions[bot]` 推送的
+提交按 GitHub 的规定不触发工作流，冻结的代码改由下面的 watchdog 每天复验。
 `.github/workflows/signal_watchdog.yml` 平时每天一次、月末前后每小时读取
 `live/v50r3` 跑一次 r3 `check`，只凭仓库内容就能判断窗口是否错过、错过的月份是否
 已补跑、协议是否已冻结、代码是否漂移，失败即由 GitHub 通知仓库所有者，是独立于本机
