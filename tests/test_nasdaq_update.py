@@ -207,6 +207,31 @@ def test_history_requests_bypass_nasdaqs_per_query_cache(monkeypatch) -> None:
     # Each attempt, including the retry, is a distinct query.
     assert len(urls) == 2 and urls[0] != urls[1]
     for url in urls:
-        assert "fromdate=2026-09-13&todate=2026-09-23" in url
+        assert "fromdate=2026-06-25&todate=2026-09-23" in url
         assert "&_=" in url
     assert nasdaq_update.uncached("https://x.test/a").startswith("https://x.test/a?_=")
+
+
+def test_short_history_requests_are_widened_and_trimmed(monkeypatch) -> None:
+    """A one-session range comes back empty from Nasdaq, so ask for 90 days."""
+    urls = []
+    payload = {"data": {"tradesTable": {"rows": [
+        {"date": f"09/{day:02d}/2026", "open": "1", "high": "1", "low": "1",
+         "close": str(day), "volume": "10"}
+        for day in (24, 23, 22)
+    ]}}}
+
+    def fake_urlopen(request, **_kwargs):
+        urls.append(request.full_url)
+        return _JsonResponse(payload)
+
+    monkeypatch.setattr(nasdaq_update, "urlopen", fake_urlopen)
+    frame = nasdaq_update.fetch_history("AAPL", date(2026, 9, 24), date(2026, 9, 24))
+    assert "fromdate=2026-06-26&todate=2026-09-24" in urls[-1]
+    assert frame["date"].tolist() == [pd.Timestamp("2026-09-24")]
+    assert frame["close"].tolist() == [24.0]
+    assert frame.index.tolist() == [0]
+
+    # A range longer than the minimum is requested as given.
+    nasdaq_update.fetch_history("AAPL", date(2020, 1, 1), date(2026, 9, 24))
+    assert "fromdate=2020-01-01&todate=2026-09-24" in urls[-1]

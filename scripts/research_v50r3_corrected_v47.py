@@ -31,6 +31,13 @@ Defects found before the first prospective signal:
   runs from 30 minutes after the official close until pre-market trading
   opens on that next session (04:00 New York), and no SIGNAL_FROZEN event is
   written after it closes;
+* Nasdaq's history API loses rows from the start of short ranges: a
+  one-session range comes back empty and a range of a few sessions can return
+  only its last row.  A daily MARK asks for exactly the new session, so every
+  mark after a valued day would have failed, and the month-end SIGNAL would
+  have missed the signal-day close of the held stocks, whose files the marks
+  keep current.  Every history request now covers at least 90 days, and only
+  the requested rows are kept;
 * inherited paths are repository-relative, so launching from another working
   directory read an empty ledger.  r3 entry points run from the repository
   root;

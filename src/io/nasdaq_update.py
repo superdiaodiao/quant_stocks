@@ -34,6 +34,9 @@ CHART_API = "https://api.nasdaq.com/api/quote/{symbol}/chart"
 INFO_API = "https://api.nasdaq.com/api/quote/{symbol}/info"
 SCREENER_API = "https://api.nasdaq.com/api/screener/stocks"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+# Measured on 2026-09-25: 90-day ranges came back complete for stocks and the
+# Composite, including ones ending two months back; shorter ranges did not.
+HISTORY_REQUEST_DAYS = 90
 HISTORICAL_UNIVERSE_PATHS = (
     "stocks_list_dir/nasdaq/nasdaq_300M.csv",
     "stocks_list_dir/nasdaq_300M.csv",
@@ -132,9 +135,13 @@ def uncached(url: str) -> str:
 
 
 def fetch_history(symbol: str, start: date, end: date, asset_class="stocks", retries=3) -> pd.DataFrame:
+    # The API loses rows from the start of short ranges: a one-session range
+    # comes back empty and a few-session range can return only its last row,
+    # so an incremental update would stall one session behind.  Every request
+    # covers at least HISTORY_REQUEST_DAYS; rows before ``start`` are dropped.
     params = urlencode({
         "assetclass": asset_class,
-        "fromdate": start.isoformat(),
+        "fromdate": min(start, end - timedelta(days=HISTORY_REQUEST_DAYS)).isoformat(),
         "todate": end.isoformat(),
         "limit": 5000,
     })
@@ -159,7 +166,8 @@ def fetch_history(symbol: str, start: date, end: date, asset_class="stocks", ret
                 })
             if not records:
                 return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
-            return pd.DataFrame(records).dropna(subset=["date", "close"]).sort_values("date")
+            frame = pd.DataFrame(records).dropna(subset=["date", "close"]).sort_values("date")
+            return frame.loc[frame["date"].ge(pd.Timestamp(start))].reset_index(drop=True)
         except Exception as exc:  # network failures are reported per symbol
             error = exc
             time.sleep((2**attempt) + random.random())
