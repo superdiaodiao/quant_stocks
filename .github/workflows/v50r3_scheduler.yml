@@ -15,8 +15,10 @@ name: v50r3 scheduler
 # are downloaded one at a time. A SIGNAL then takes about 2.5-3 hours, inside
 # its window of 11 hours or more; a MARK takes minutes.
 #
-# Before the freeze live/v50r3 does not exist and the job skips. A close not
-# yet published after the bell ends a run with a warning and the next run
+# Before the freeze live/v50r3 does not exist and the job skips. Nasdaq
+# publishes a session's rows four to five hours after the close; until then a
+# due SIGNAL or MARK is skipped with a notice (scripts/v50r3_sources_ready.py),
+# and a close still missing after that ends a run with a warning; the next run
 # retries. A split-like move that needs a sourced event, a run while a missed
 # month is still owed (exit 2), or any other error fails the job, which GitHub
 # reports to the repository owner; between runs the "v50r3 signal watchdog"
@@ -85,6 +87,22 @@ jobs:
         # 0 nothing missed; 2 a missed month (its catch-up may be due now).
         if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
         action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
+        as_of=$(python -c "import json; print(json.load(open('decision.json')).get('as_of') or '')")
+        if [ "$action" = "RUN_SIGNAL" ] || [ "$action" = "RUN_MARK" ]; then
+          # Nasdaq publishes a session's rows hours after the close; a run
+          # started before that fails after its downloads.
+          set +e
+          PYTHONPATH=. python scripts/v50r3_sources_ready.py --as-of "$as_of" > sources.json
+          published=$?
+          set -e
+          cat sources.json
+          if [ "$published" -eq 1 ]; then
+            echo "::notice::Nasdaq has not published the $as_of session yet; a later run retries."
+            action="WAIT_FOR_PUBLISHED_SESSION"
+          elif [ "$published" -ne 0 ]; then
+            exit "$published"
+          fi
+        fi
         echo "action=$action" >> "$GITHUB_OUTPUT"
         echo "check_exit=$code" >> "$GITHUB_OUTPUT"
 
@@ -113,7 +131,7 @@ jobs:
         fi
         # Inputs not published yet: the next run retries. A move that needs a
         # sourced event, or anything else, fails the job.
-        if grep -Eq "is not ready|Retry once the closes are published" run.log \
+        if grep -Eq "is not ready|Retry once the closes are published|official index market is not closed" run.log \
             && ! grep -Eq "split_like_moves_explained|Unresolved corporate action" run.log; then
           echo "::warning::Inputs are not ready yet; the next scheduled run retries."
           exit 0

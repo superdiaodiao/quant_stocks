@@ -3,21 +3,20 @@ name: v50r3 window waker
 # GitHub starts scheduled runs late, by hours at busy times (in this
 # repository a 00:30 UTC schedule started around 03:45 every day, and a 12:15
 # UTC one at 17:11), so the half-hourly "v50r3 scheduler" trigger cannot be
-# counted on to start a SIGNAL when its window opens. On weekdays this starts
-# well before the window (20:30 UTC in summer, 21:30 in winter). When a
-# SIGNAL (a month end, or the catch-up of a missed one) is due in today's
-# window, it sleeps until the window opens and starts the scheduler with a
-# workflow_dispatch, which GitHub runs at once. A run that starts after the
-# window opened starts the scheduler immediately; one that starts too early
-# for its six-hour limit leaves it to a later run. The scheduler's own
-# schedule still retries SIGNALs and runs the marks.
+# counted on to start a SIGNAL soon after Nasdaq publishes the session, four
+# to five hours after the close. On weekday evenings this checks whether a
+# SIGNAL (a month end, or the catch-up of a missed one) is due in the open
+# window or today's; if so it waits until the window is open and Nasdaq has
+# published the session (scripts/v50r3_sources_ready.py), checking every ten
+# minutes, and starts the scheduler with a workflow_dispatch, which GitHub
+# runs at once. A run out of time leaves the wait to a later one. The
+# scheduler's own schedule still retries SIGNALs and runs the marks.
 
 on:
   schedule:
-    - cron: "7 13 * * 1-5"
-    - cron: "7 15 * * 1-5"
-    - cron: "37 16 * * 1-5"
-    - cron: "37 18 * * 1-5"
+    - cron: "7 19 * * 1-5"
+    - cron: "7 21 * * 1-5"
+    - cron: "7 23 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -67,7 +66,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
 
-    - name: Wait for a SIGNAL window and start the scheduler
+    - name: Wait for a published SIGNAL session and start the scheduler
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
