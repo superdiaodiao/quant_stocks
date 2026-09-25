@@ -44,6 +44,7 @@ from src.research import prospective_schedule as schedule
 
 
 MISSED_EXIT_CODE = 2
+PUSH_ATTEMPTS = 3
 NOT_READY_EXIT_CODE = 3
 NOT_READY_ACTIONS = {"PROTOCOL_NOT_FROZEN", "LEDGER_MISSING"}
 FROZEN_SIGNAL_STATUSES = {
@@ -82,7 +83,19 @@ def record_in_git(
         result["commit"] = _git("rev-parse", "HEAD").stdout.strip()
         if push:
             branch = _git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            _git("push", remote, f"HEAD:refs/heads/{branch}")
+            for attempt in range(PUSH_ATTEMPTS):
+                pushed = _git("push", remote, f"HEAD:refs/heads/{branch}", check=False)
+                if pushed.returncode == 0:
+                    break
+                if attempt == PUSH_ATTEMPTS - 1:
+                    raise subprocess.CalledProcessError(
+                        pushed.returncode, pushed.args, pushed.stdout, pushed.stderr
+                    )
+                # Another writer pushed first (a sourced event recorded while
+                # this run staged): replay this commit on top of theirs.
+                _git("pull", "--rebase", "--autostash", remote, branch)
+                result["rebased_onto_remote"] = attempt + 1
+            result["commit"] = _git("rev-parse", "HEAD").stdout.strip()
             result["pushed"] = True
             result["branch"] = branch
             if branch != r3.LIVE_BRANCH:

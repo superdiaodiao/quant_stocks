@@ -210,7 +210,7 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
   结束该股票的历史。
 
 **在 GitHub 上运行（推荐，2026-09-25 起）：** 整个观察可以完全在 GitHub Actions 上
-进行，不依赖任何个人电脑。三个工作流都在 master 上（Actions 页面可手动运行）：
+进行，不依赖任何个人电脑。四个工作流都在 master 上（Actions 页面可手动运行）：
 
 1. **v50r3 rehearsal**：在 GitHub 的 runner 上用真实数据完整演练一次 SIGNAL
    （逐个下载价格，约 2.5–3 小时），报告作为 artifact 上传。`verdict` 为 `FAIL`
@@ -225,11 +225,21 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
    新信号、事件记录和 `latest_valued_bundle/` 推回 `live/v50r3`。收盘价尚未发布时
    以警告结束，下一次自动重试；需要人工补录的疑似拆股、仍欠着的错过月份或其他错误
    会让任务失败，GitHub 会发邮件给仓库所有者。
+4. **v50r3 record sourced event**：补录一条事件（规则见下文以“估值规则”开头的
+   一段）。在 master 上运行，填写股票、类型（`SPLIT` / `MARKET_MOVE` /
+   `TERMINAL_RETURN`）、日期、公开来源链接；拆股另填价格因子（二拆一填 `0.5`，
+   十合一填 `10`），退市另填终值收益（归零填 `-1`）。它像 staging 一样下载这只
+   股票的价格，按下文的规则核对，通过后只提交并推送
+   `sourced_event_supplement.csv`；核对不通过时任务失败，日志里写明原因。下一次
+   SIGNAL 或 MARK 自动使用它。SIGNAL 因疑似拆股被拒时，任务日志的
+   `unexplained_split_like_moves` 列出股票、日期和价格比。
 
 冻结后在 Settings → Branches 保护 `live/v50r3`（禁止强制推送和删除；不要限制
-推送者，否则 `github-actions[bot]` 无法提交账本）。需要补录事件时，在任一电脑上
-检出 `live/v50r3`、恢复数据包后运行下文的 `record-sourced-event`，提交并推送
-`sourced_event_supplement.csv` 即可。GitHub 的定时任务可能延迟，偶尔跳过；窗口有
+推送者，否则 `github-actions[bot]` 无法提交账本）。补录事件和调度器可以同时运行：
+谁的推送晚到，谁就把自己的提交接在对方之后再推送。也可以在任一电脑上检出
+`live/v50r3`、恢复数据包，先运行 `scripts/v50r3_event_prices.py <股票>` 准备这只
+股票的价格，再运行下文的 `record-sourced-event`，提交并推送
+`sourced_event_supplement.csv`。GitHub 的定时任务可能延迟，偶尔跳过；窗口有
 十几个小时，每 30 分钟都会重试，错过还有补跑兜底。公开仓库 60 天无活动时 GitHub
 会停用定时任务（停用前会发邮件）。
 
@@ -362,7 +372,7 @@ staging 的耗时（演练报告里有）。窗口开头仍是美股盘后交易
 窗口期间（包括补跑）不要运行 `schedule_run.sh` 或日常流水线：它们会改写正式股票池
 和指数文件，隔离检查会让 staging 失败。
 
-仓库自带两个 GitHub Actions：`.github/workflows/tests.yml` 在每个分支的每次
+此外还有两个检查用的 GitHub Actions：`.github/workflows/tests.yml` 在每个分支的每次
 push/PR 上跑不依赖本地数据包的测试子集（排除清单见
 `tests/data_dependent_test_files.txt`），并在干净 checkout 上复验 r1/r2 协议，以及
 r3 协议和它的代码闭包（该分支上没有冻结的 r3 时跳过）；调度器每次推送账本都会在

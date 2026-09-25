@@ -1,0 +1,118 @@
+name: v50r3 record sourced event
+
+# Appends one sourced post-freeze event to the r3 supplement on live/v50r3,
+# as record-sourced-event does on a computer (README lists the rules): a split
+# (its price factor), a real move that only looks like a split, or the
+# terminal return of a stock that stopped trading. It stages that stock's
+# prices as a staging would, so the event is checked against the same stored
+# closes, then commits and pushes the supplement alone. The next SIGNAL or
+# MARK binds it. Refusals (no split-like move on that date, a factor that
+# does not fit the stored ratio, a session already valued) fail the job.
+#
+# It has its own concurrency group: queued behind the scheduler's group it
+# could be cancelled by the next half-hourly run. A push that races a
+# scheduler run is replayed on top of it; the scheduler does the same.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: "Ticker, e.g. ABCD"
+        required: true
+      type:
+        description: "Event type"
+        required: true
+        type: choice
+        options:
+        - SPLIT
+        - MARKET_MOVE
+        - TERMINAL_RETURN
+      date:
+        description: "YYYY-MM-DD: the first close in new units (split or move); the last close (terminal return)"
+        required: true
+      source_url:
+        description: "Public source (press release, exchange notice, filing)"
+        required: true
+      factor:
+        description: "SPLIT only: price factor, e.g. 0.5 for 2-for-1, 10 for 1-for-10"
+        required: false
+        default: ""
+      terminal_return:
+        description: "TERMINAL_RETURN only: e.g. -1 (worthless) or 0.12 (cash deal 12% above the last close)"
+        required: false
+        default: ""
+      note:
+        description: "Optional note"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v50r3-record-event
+  cancel-in-progress: false
+
+jobs:
+  record:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: live/v50r3
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Restore the data release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: scripts/v50r3_restore_data.sh
+
+    - name: Stage the stock's prices
+      env:
+        TICKER: ${{ github.event.inputs.ticker }}
+      run: PYTHONPATH=. python scripts/v50r3_event_prices.py "$TICKER"
+
+    - name: Record the event
+      env:
+        TICKER: ${{ github.event.inputs.ticker }}
+        TYPE: ${{ github.event.inputs.type }}
+        DATE: ${{ github.event.inputs.date }}
+        SOURCE_URL: ${{ github.event.inputs.source_url }}
+        FACTOR: ${{ github.event.inputs.factor }}
+        TERMINAL_RETURN: ${{ github.event.inputs.terminal_return }}
+        NOTE: ${{ github.event.inputs.note }}
+      run: |
+        args=(--ticker "$TICKER" --type "$TYPE" --date "$DATE"
+              --source-url "$SOURCE_URL" --note "$NOTE")
+        if [ -n "$FACTOR" ]; then args+=(--factor "$FACTOR"); fi
+        if [ -n "$TERMINAL_RETURN" ]; then args+=(--terminal-return "$TERMINAL_RETURN"); fi
+        PYTHONPATH=. python scripts/research_v50r3_corrected_v47.py record-sourced-event "${args[@]}"
+
+    - name: Commit and push the supplement
+      env:
+        TICKER: ${{ github.event.inputs.ticker }}
+        TYPE: ${{ github.event.inputs.type }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        supplement=output/research_only/v50/corrected_v47_20260924_r3/sourced_event_supplement.csv
+        git add -- "$supplement"
+        git commit -m "research: record a v50r3 sourced event ($TYPE $TICKER)" -- "$supplement"
+        for attempt in 1 2 3; do
+          if git push origin HEAD:refs/heads/live/v50r3; then exit 0; fi
+          git pull --rebase --autostash origin live/v50r3
+        done
+        exit 1

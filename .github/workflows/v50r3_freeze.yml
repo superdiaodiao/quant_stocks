@@ -19,8 +19,11 @@ on:
 permissions:
   contents: write
 
+# Its own group: a freeze queued in the scheduler's group could be cancelled
+# by the next half-hourly run. Before the freeze that run only probes for
+# live/v50r3 and skips.
 concurrency:
-  group: v50r3-scheduler
+  group: v50r3-freeze
   cancel-in-progress: false
 
 jobs:

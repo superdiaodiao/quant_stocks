@@ -293,6 +293,57 @@ def test_git_record_commits_only_the_ledger_and_signal_and_pushes(
     assert sched.exit_code({"action": "NO_ACTION", "git": failed}) == 1
 
 
+def test_git_record_replays_its_commit_after_another_writer_pushed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A GitHub runner's shallow checkout of live/v50r3 commits the ledger
+    # after a sourced event was pushed from elsewhere during its run.
+    remote = tmp_path / "remote.git"
+    seed = tmp_path / "seed"
+    _git(tmp_path, "init", "--bare", "-b", r3.LIVE_BRANCH, str(remote))
+    _git(tmp_path, "init", "-b", r3.LIVE_BRANCH, str(seed))
+    for repo in (seed,):
+        _git(repo, "config", "user.email", "operator@example.invalid")
+        _git(repo, "config", "user.name", "Operator")
+    (seed / "out").mkdir()
+    (seed / "out" / "ledger.jsonl").write_text("{}\n", encoding="utf-8")
+    (seed / "out" / "supplement.csv").write_text("header\n", encoding="utf-8")
+    _git(seed, "add", "out")
+    _git(seed, "commit", "-m", "freeze")
+    _git(seed, "remote", "add", "origin", str(remote))
+    _git(seed, "push", "-u", "origin", r3.LIVE_BRANCH)
+    runner = tmp_path / "runner"
+    _git(
+        tmp_path, "clone", "--depth", "1", "--branch", r3.LIVE_BRANCH,
+        remote.as_uri(), str(runner),
+    )
+    _git(runner, "config", "user.email", "bot@example.invalid")
+    _git(runner, "config", "user.name", "Bot")
+    (seed / "out" / "supplement.csv").write_text("header\nevent\n", encoding="utf-8")
+    _git(seed, "commit", "-am", "research: record a sourced event")
+    _git(seed, "push", "origin", r3.LIVE_BRANCH)
+    (runner / "out" / "ledger.jsonl").write_text("{}\n{}\n", encoding="utf-8")
+    (runner / "run.log").write_text("untracked\n", encoding="utf-8")
+    monkeypatch.setattr(r3, "REPO_ROOT", runner)
+    monkeypatch.setattr(r3.r1, "REPO_ROOT", runner)
+
+    result = sched.record_in_git(
+        [Path("out/ledger.jsonl")], message="research: append mark", push=True
+    )
+
+    assert "error" not in result
+    assert result["pushed"] and result["rebased_onto_remote"] == 1
+    assert _git(remote, "rev-parse", r3.LIVE_BRANCH) == result["commit"]
+    assert _git(remote, "log", "--format=%s", "-3", r3.LIVE_BRANCH).splitlines() == [
+        "research: append mark",
+        "research: record a sourced event",
+        "freeze",
+    ]
+    assert (runner / "out" / "supplement.csv").read_text(encoding="utf-8") == (
+        "header\nevent\n"
+    )
+
+
 def test_cli_runs_from_the_repository_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
