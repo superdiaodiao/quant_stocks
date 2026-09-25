@@ -14,7 +14,9 @@ Pure functions only:
   corporate-action table (splits, confirmed market moves, terminal returns);
 * carrying already-valued input rows forward unchanged, so a vendor revision
   of history can never rewrite a frozen valuation, and a numeric digest of
-  those rows.
+  those rows;
+* raw one-session moves that a split could explain, which must be explained
+  by a sourced or measured event before a valuation or a selection uses them.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ import os
 from pathlib import Path
 
 import pandas as pd
+
+from src.research.data_quality import detect_common_split_events
 
 
 CASH = "__CASH__"
@@ -46,6 +50,15 @@ SUPPLEMENT_COLUMNS = (
 # The split-like jump tolerance of data_quality.detect_common_split_events.
 JUMP_TOLERANCE = 0.025
 REVISION_SAMPLE_ROWS = 20
+# A raw one-session ratio at or beyond these is reviewed as a possible split
+# whatever its factor: 3:2 and larger forward splits, 1:1.4 and larger reverse
+# ones, even on a day the stock also moved.  Common whole factors are
+# reviewed within JUMP_TOLERANCE as before.
+LARGE_MOVE_LOW = 0.70
+LARGE_MOVE_HIGH = 1.40
+# A recorded split's factor may differ from the stored jump by the real move
+# of its day, up to this fraction.
+SPLIT_DAY_MOVE_LIMIT = 0.30
 
 Window = tuple[pd.Timestamp, pd.Timestamp]
 
@@ -373,3 +386,79 @@ def rows_digest_text(
         f"{date:%Y-%m-%d}," + ",".join(repr(float(value)) for value in row)
         for date, row in rows
     )
+
+
+def split_like_moves(
+    raw_close: pd.DataFrame,
+    tickers=None,
+    start: str | pd.Timestamp | None = None,
+    end: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Raw one-session moves a split could explain, dated by their session.
+
+    ``reason`` is ``COMMON_SPLIT_RATIO`` for a ratio within JUMP_TOLERANCE of a
+    whole split factor and ``LARGE_MOVE`` for any ratio at or beyond
+    LARGE_MOVE_LOW / LARGE_MOVE_HIGH.  Sessions without a close are skipped,
+    so a move across a gap is dated at the session trading resumed.
+    """
+    columns = list(raw_close.columns)
+    if tickers is not None:
+        names = {str(ticker).upper() for ticker in tickers}
+        columns = [column for column in columns if str(column).upper() in names]
+    frame = raw_close[columns]
+    if end is not None:
+        frame = frame.loc[: pd.Timestamp(end)]
+    found: dict[tuple[str, pd.Timestamp], dict] = {}
+    for event in detect_common_split_events(frame).itertuples(index=False):
+        key = (str(event.ticker).upper(), pd.Timestamp(event.split_date).normalize())
+        found[key] = {
+            "ticker": key[0],
+            "split_date": key[1],
+            "raw_price_ratio": float(event.raw_price_ratio),
+            "reason": "COMMON_SPLIT_RATIO",
+        }
+    for column in frame.columns:
+        ratios = frame[column].dropna().pct_change(fill_method=None).add(1).dropna()
+        large = ratios.loc[ratios.le(LARGE_MOVE_LOW) | ratios.ge(LARGE_MOVE_HIGH)]
+        for date, ratio in large.items():
+            key = (str(column).upper(), pd.Timestamp(date).normalize())
+            found.setdefault(key, {
+                "ticker": key[0],
+                "split_date": key[1],
+                "raw_price_ratio": float(ratio),
+                "reason": "LARGE_MOVE",
+            })
+    result = pd.DataFrame(
+        list(found.values()),
+        columns=["ticker", "split_date", "raw_price_ratio", "reason"],
+    )
+    if start is not None:
+        result = result.loc[result["split_date"].ge(pd.Timestamp(start).normalize())]
+    if end is not None:
+        result = result.loc[result["split_date"].le(pd.Timestamp(end).normalize())]
+    return result.sort_values(["split_date", "ticker"], ignore_index=True)
+
+
+def unexplained_moves(
+    raw_close: pd.DataFrame,
+    validation: pd.DataFrame,
+    tickers=None,
+    start: str | pd.Timestamp | None = None,
+    end: str | pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Split-like moves without a resolved event on the same stock and session."""
+    moves = split_like_moves(raw_close, tickers, start, end)
+    if moves.empty:
+        return moves
+    resolved = validation.loc[
+        validation["validation_status"].isin(["CONFIRMED", "CONFIRMED_MARKET_MOVE"])
+    ]
+    known = set(zip(
+        resolved["ticker"].astype(str).str.upper(),
+        pd.to_datetime(resolved["split_date"]).dt.normalize(),
+        strict=True,
+    ))
+    explained = [
+        (row.ticker, row.split_date) in known for row in moves.itertuples(index=False)
+    ]
+    return moves.loc[[not flag for flag in explained]].reset_index(drop=True)

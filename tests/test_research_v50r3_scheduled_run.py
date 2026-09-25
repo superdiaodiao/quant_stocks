@@ -100,6 +100,7 @@ def test_run_stages_then_freezes_under_one_lock(
     assert executed["targets"] == [{"ticker": "AAA"}]
     assert [name for name, _kwargs, _locks in calls] == ["stage", "freeze"]
     assert calls[0][1]["as_of"] == "2026-09-30"
+    assert (calls[0][1]["workers"], calls[0][1]["fundamental_workers"]) == (16, 4)
     assert calls[1][1]["bundle"] == frozen["bundles_dir"] / "2026-09-30_signal"
     lock_key = str(r3.resolve(frozen["lock_path"]))
     assert all(locks.get(lock_key) for _name, _kwargs, locks in calls)
@@ -136,10 +137,11 @@ def test_marks_run_after_a_missed_window_commit_the_supplement_and_exit_two(
         r3, "stage_bundle",
         lambda **kwargs: calls.append(("stage", kwargs)) or {"status": "STAGED"},
     )
+    copy = tmp_path / "latest_valued_bundle"
     monkeypatch.setattr(
         r3, "append_mark",
         lambda **kwargs: calls.append(("mark", kwargs))
-        or {"status": "APPENDED_PROSPECTIVE_MARK"},
+        or {"status": "APPENDED_PROSPECTIVE_MARK", "valued_bundle_copy": str(copy)},
     )
     recorded = []
     monkeypatch.setattr(
@@ -157,7 +159,8 @@ def test_marks_run_after_a_missed_window_commit_the_supplement_and_exit_two(
     assert decision["executed"] is True
     assert [name for name, _kwargs in calls] == ["stage", "mark"]
     assert calls[1][1]["supplement_path"] == supplement
-    assert recorded == [[frozen["ledger_path"], supplement]]
+    # The valued bundle copy travels with the ledger, so any machine can carry it.
+    assert recorded == [[frozen["ledger_path"], str(copy), supplement]]
     assert sched.exit_code(decision) == sched.MISSED_EXIT_CODE
 
 
@@ -321,3 +324,33 @@ def test_cli_runs_from_the_repository_root(
     with pytest.raises(SystemExit, match="only from a live/v50r3 checkout"):
         sched.main(["run"])
     assert seen == {}
+
+
+def test_worker_counts_reach_the_staging_and_a_signal_commits_its_supplement(
+    frozen: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    staged = []
+    monkeypatch.setattr(
+        r3, "stage_bundle",
+        lambda **kwargs: staged.append(kwargs) or {"status": "STAGED"},
+    )
+    monkeypatch.setattr(
+        r3, "freeze_signal",
+        lambda **_kwargs: {"status": "FROZEN_PROSPECTIVE_SIGNAL", "targets": []},
+    )
+    recorded = []
+    monkeypatch.setattr(
+        sched, "record_in_git",
+        lambda paths, **kwargs: recorded.append(paths) or {"committed": True},
+    )
+    supplement = tmp_path / "supplement.csv"
+    supplement.write_text("event_id\n", encoding="utf-8")
+
+    sched.run(
+        now=_at("2026-10-01T02:00:00Z"), execute=True, commit=True,
+        supplement_path=supplement, workers=1, fundamental_workers=2, **frozen,
+    )
+
+    assert (staged[0]["workers"], staged[0]["fundamental_workers"]) == (1, 2)
+    signal = Path(frozen["signals_dir"]) / "signal_2026-09-30.json"
+    assert recorded == [[frozen["ledger_path"], signal, supplement]]

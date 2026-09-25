@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -174,8 +175,23 @@ class World:
     def record(self, **event) -> dict:
         return r3.record_sourced_event(
             protocol_path=self.protocol_path, supplement_path=self.supplement,
-            price_dir=self.work / "market" / "prices", lock_path=self.lock, **event,
+            price_dir=self.work / "market" / "prices", lock_path=self.lock,
+            ledger_path=self.ledger, **event,
         )
+
+    def provider_adjustment(self, ticker: str, session: str, factor: float) -> None:
+        """What a price update records when Nasdaq rescales a stock's history."""
+        path = self.work / "market" / "provider_adjustments.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        r3.nasdaq_update.record_provider_adjustments(path, [{
+            "ticker": ticker, "split_date": session, "raw_price_ratio": factor,
+            "matched_factor": factor, "validation_status": "CONFIRMED",
+            "confirmed_action_type": "PROVIDER_ADJUSTMENT_DISCONTINUITY",
+            "confirmed_action_date": session, "confirmed_adjustment_factor": factor,
+            "primary_source": "nasdaq_history_overlap", "overlap_sessions": 19,
+            "overlap_first": "2026-09-01", "overlap_last": "2026-09-30",
+            "ratio_spread": 0.0, "recorded_at": "2026-10-14T23:00:00+00:00",
+        }])
 
     def set_close(self, ticker: str, start: str, factor: float) -> None:
         frame = self.stocks[ticker]
@@ -255,7 +271,8 @@ def test_mark_chain_survives_revisions_sales_delistings_and_splits(
     with pytest.raises(RuntimeError, match="QAAA@2026-11-24"):
         world.value("2026-11-24")
     monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-11-24T23:00:00Z"))
-    with pytest.raises(RuntimeError, match="does not match the adjustment factor"):
+    # A factor that would leave more than a day's real move is refused.
+    with pytest.raises(RuntimeError, match=r"would leave a \+100\.\d% move"):
         world.record(
             ticker="QAAA", event_type="SPLIT", event_date="2026-11-24",
             adjustment_factor=0.25, source_url="https://example.com/qaaa-split",
@@ -338,7 +355,7 @@ def test_sourced_events_are_checked_against_stored_prices(
     world.freeze_signal("2026-09-30", ["QAAA"])
     world.mark("2026-10-02")
     monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-02T23:00:00Z"))
-    with pytest.raises(RuntimeError, match="no split-like price jump"):
+    with pytest.raises(RuntimeError, match="no split-like move on 2026-10-02"):
         world.record(
             ticker="QAAA", event_type="MARKET_MOVE", event_date="2026-10-02",
             source_url="https://example.com/none",
@@ -374,3 +391,139 @@ def test_sourced_events_are_checked_against_stored_prices(
             source_url="https://example.com/none",
         )
     assert marks.load_supplement(world.supplement).empty
+
+
+def test_unbound_signal_files_are_reported_and_never_valued(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    world.mark("2026-10-02")
+    # A freeze refused after its window leaves its file behind.
+    orphan = world.signals / "signal_2026-10-30.json"
+    orphan.write_text(json.dumps({
+        "signal_date": "2026-10-30",
+        "targets": [{"ticker": "QCCC", "target_weight": 0.2}],
+    }), encoding="utf-8")
+
+    result = world.mark("2026-11-03")
+
+    assert result["status"] == "APPENDED_PROSPECTIVE_MARK"
+    assert result["holding_exposure"]["unbound_signal_artifacts"] == [str(orphan)]
+
+
+def test_a_target_without_an_execution_close_is_left_in_cash(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    world.mark("2026-10-02")
+    world.freeze_signal("2026-10-30", ["QAAA", "QCCC"])
+    frame = world.stocks["QCCC"]
+    world.stocks["QCCC"] = frame.loc[pd.to_datetime(frame["date"]).ne("2026-11-02")]
+    # On the execution session itself the staging waits for the close.
+    with pytest.raises(RuntimeError, match="held_positions_priced_at_as_of"):
+        world.stage("2026-11-02")
+
+    later = world.mark("2026-11-03")
+
+    assert later["holding_exposure"]["unexecutable_targets"] == [
+        {"date": "2026-11-02", "ticker": "QCCC"}
+    ]
+    assert world.mark("2026-11-10")["status"] == "APPENDED_PROSPECTIVE_MARK"
+
+
+def test_a_new_machine_carries_the_frozen_prefix_from_the_git_copy(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    first = world.mark("2026-10-02")
+    copy = world.root / r3.VALUED_BUNDLE_COPY_NAME
+    assert first["valued_bundle_copy"] == str(copy)
+    assert r3._sha256(copy / "bundle_manifest.json") == r3._sha256(
+        world.bundles / "2026-10-02_mark" / "bundle_manifest.json"
+    )
+    # Bundles and work files stay behind; the vendor revises a valued close.
+    shutil.rmtree(world.bundles)
+    shutil.rmtree(world.work)
+    frame = world.stocks["QAAA"]
+    frame.loc[pd.to_datetime(frame["date"]).eq("2026-10-01"), "close"] *= 1.001
+
+    later = world.mark("2026-10-05")
+
+    assert later["status"] == "APPENDED_PROSPECTIVE_MARK"
+    assert world.manifest("2026-10-05")["prefix_carry"]["source"] == str(copy)
+
+
+def test_a_terminal_return_ends_the_history_even_if_trading_resumes(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    world.mark("2026-10-02")
+    full = world.stocks["QBBB"].copy()
+    halted = pd.to_datetime(full["date"]).between("2026-10-06", "2026-10-09")
+    world.stocks["QBBB"] = full.loc[pd.to_datetime(full["date"]).le("2026-10-05")]
+    with pytest.raises(RuntimeError, match="A halt resumes by itself"):
+        world.stage("2026-10-07")
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-07T23:00:00Z"))
+    world.record(
+        ticker="QBBB", event_type="TERMINAL_RETURN", event_date="2026-10-05",
+        terminal_return=-0.30, source_url="https://example.com/halt",
+    )
+    world.mark("2026-10-07")
+    world.stocks["QBBB"] = full.loc[~halted]
+
+    for day in ("2026-10-12", "2026-10-13"):
+        assert world.mark(day)["status"] == "APPENDED_PROSPECTIVE_MARK"
+
+
+def test_a_split_on_a_moving_day_is_held_back_until_recorded(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    before = world.mark("2026-10-13")
+    # 2-for-1 on a +4% day: the whole-factor check alone would miss it.
+    world.set_close("QAAA", "2026-10-14", 0.52)
+    world.stage("2026-10-14")
+    with pytest.raises(RuntimeError, match="QAAA@2026-10-14"):
+        world.value("2026-10-14")
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-14T23:00:00Z"))
+    world.record(
+        ticker="QAAA", event_type="SPLIT", event_date="2026-10-14",
+        adjustment_factor=0.5, source_url="https://example.com/qaaa-split",
+    )
+
+    after = world.value("2026-10-14")
+
+    assert _nav(after) > _nav(before)
+
+
+def test_a_valued_session_is_never_re_adjudicated(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    world.mark("2026-10-13")
+    # An unflagged 5-for-4 is valued as the move it looks like.
+    world.set_close("QAAA", "2026-10-14", 0.8)
+    valued = world.mark("2026-10-14")
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-15T23:00:00Z"))
+    with pytest.raises(RuntimeError, match="already valued"):
+        world.record(
+            ticker="QAAA", event_type="SPLIT", event_date="2026-10-14",
+            adjustment_factor=0.8, source_url="https://example.com/qaaa-split",
+        )
+    # A rescaling measured afterwards is ignored for the valued session.
+    world.provider_adjustment("QAAA", "2026-10-14", 0.8)
+    later = world.mark("2026-10-15")
+    ignored = later["holding_exposure"]["price_events"]["provider_adjustments_ignored"]
+    assert [(row["ticker"], row["reason"]) for row in ignored] == [
+        ("QAAA", "measured after its session was valued")
+    ]
+    assert later["status"] == "APPENDED_PROSPECTIVE_MARK"
+    assert valued["status"] == "APPENDED_PROSPECTIVE_MARK"
+
+
+def test_a_provider_rescaling_prices_a_held_split_continuously(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    before = world.mark("2026-10-13")
+    world.set_close("QAAA", "2026-10-14", 0.5)
+    world.provider_adjustment("QAAA", "2026-10-14", 0.5)
+
+    after = world.mark("2026-10-14")
+
+    applied = after["holding_exposure"]["price_events"]["provider_adjustments_applied"]
+    assert [(row["ticker"], row["session"]) for row in applied] == [("QAAA", "2026-10-14")]
+    assert "provider_adjustments.csv" in world.manifest("2026-10-14")["files"]
+    assert _nav(after) > _nav(before)

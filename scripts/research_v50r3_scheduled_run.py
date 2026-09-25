@@ -107,6 +107,8 @@ def run(
     commit: bool = False,
     push: bool = False,
     remote: str = "origin",
+    workers: int = 16,
+    fundamental_workers: int = 4,
 ) -> dict:
     now = schedule.as_utc(now or datetime.now(timezone.utc))
     if not r3.resolve(protocol_path).is_file():
@@ -145,6 +147,8 @@ def run(
             staged = r3.stage_bundle(
                 as_of=as_of,
                 purpose=purpose,
+                workers=workers,
+                fundamental_workers=fundamental_workers,
                 observed_at=datetime.now(timezone.utc),
                 bundles_dir=bundles_dir,
                 signals_dir=signals_dir,
@@ -196,8 +200,11 @@ def run(
             message = f"research: freeze {as_of} v50r3 signal"
             if decision.get("catch_up_for"):
                 message += f", catching up {decision['catch_up_for']}"
-        elif r3.resolve(supplement_path).is_file():
-            # The mark binds the supplement rows it used; keep them together.
+        elif result.get("valued_bundle_copy"):
+            # The next mark carries this bundle's rows forward, on any machine.
+            paths.append(result["valued_bundle_copy"])
+        if r3.resolve(supplement_path).is_file():
+            # Signals and marks bind the supplement rows they used.
             paths.append(supplement_path)
         decision["git"] = record_in_git(
             paths, message=message, push=push, remote=remote
@@ -240,6 +247,19 @@ def main(argv: list[str] | None = None) -> int:
                 help="commit and push the current branch after success",
             )
             sub.add_argument("--remote", default="origin")
+            sub.add_argument(
+                "--workers",
+                type=int,
+                default=16,
+                help="parallel Nasdaq price downloads; 1 where Nasdaq refuses "
+                "bursts (GitHub-hosted runners)",
+            )
+            sub.add_argument(
+                "--fundamental-workers",
+                type=int,
+                default=4,
+                help="parallel SEC company-facts downloads",
+            )
     args = parser.parse_args(argv)
     now = pd.Timestamp(args.now).to_pydatetime() if args.now else None
     execute = args.command == "run"
@@ -251,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         commit=execute and (args.commit or args.push),
         push=execute and args.push,
         remote=getattr(args, "remote", "origin"),
+        workers=getattr(args, "workers", 16),
+        fundamental_workers=getattr(args, "fundamental_workers", 4),
     )
     print(json.dumps(decision, indent=2, sort_keys=True, default=str))
     return exit_code(decision)

@@ -91,15 +91,18 @@ import exchange_calendars
 import numpy as np
 import pandas as pd
 
+from scripts import research_v24_stock_momentum_development as v24
 from scripts import research_v42_prospective_v28_observation as v42
 from scripts import research_v43_isolated_prospective_v28_observation as v43
 from scripts import research_v48_isolated_prospective_v47_observation as v48
 from scripts import research_v50_corrected_v47 as r1
 from scripts import research_v50r2_corrected_v47 as r2
 from src.conf import NASDAQ_300M_STOCK_LIST_FILE, NASDAQ_INDEX_FILE
+from src.financial.quarterly_fundamentals import latest_four_quarter_profit
 from src.io import fundamentals_update, nasdaq_update
 from src.research import corrected_stock_policy
 from src.research import prospective_marks as marks
+from src.research import prospective_replay
 from src.research import prospective_schedule as schedule
 from src.research.code_closure import (
     closure_differences,
@@ -107,7 +110,7 @@ from src.research.code_closure import (
     project_import_closure,
 )
 from src.research.corrected_stock_policy import VALIDATION_PATH
-from src.research.data_quality import detect_common_split_events
+from src.strategy.common import market_regime_is_on
 
 
 MODEL_VERSION = "v50r3-corrected-v47-sourced-actions"
@@ -133,6 +136,11 @@ STAGING_LOCK_PATH = OUTPUT_DIR / "staging.lock"
 # Append-only, git-tracked record of sourced events after the frozen
 # corporate-action table; every mark binds the rows it used.
 SUPPLEMENT_PATH = OUTPUT_DIR / "sourced_event_supplement.csv"
+# Git-tracked copy of the latest valued MARK bundle, kept next to the ledger.
+# Bundles are local, and a new machine (or a lost bundle directory) would
+# otherwise value the frozen prefix from a fresh download, which vendor
+# revisions and provider split rescalings make differ from what was valued.
+VALUED_BUNDLE_COPY_NAME = "latest_valued_bundle"
 MARK_PROCEDURE = "v50r3-exposure-aware-mark"
 # The only branch whose checkout may write the r3 protocol, bundles, or ledger.
 LIVE_BRANCH = "live/v50r3"
@@ -150,12 +158,28 @@ MAXIMUM_UNMAPPED_FRACTION = 0.05
 SEC_TICKER_MAP_ATTEMPTS = 3
 AS_OF_FILTER_SAMPLE_ROWS = 50
 PARSED_FUNDAMENTAL_FILES = ("fundamentals.csv", "quarterly.csv")
+# A SIGNAL checks the data of every stock that could enter its ranked pool:
+# those at least this fraction as liquid as the pool's least liquid member.
+POOL_VICINITY_LIQUIDITY_FRACTION = 0.8
+# A ticker whose history resumes after this long a gap at a price this many
+# times away is another security reusing the symbol (SPCX: an ETF until
+# 2025-04, a new listing from 2026-06); only the history after it counts.
+IDENTITY_BREAK_GAP_DAYS = 90
+IDENTITY_BREAK_PRICE_RATIO = 2.0
+# v42's panel keeps only tickers with this many rows; so does the break rule.
+PANEL_MINIMUM_ROWS = 150
+# Bundle copies of the measured provider rescalings and of the supplement.
+PROVIDER_ADJUSTMENTS_NAME = nasdaq_update.PROVIDER_ADJUSTMENTS_FILENAME
+BUNDLE_SUPPLEMENT_NAME = "sourced_event_supplement.csv"
 
 _sha256 = r1._sha256
 _portable_path = r1._portable_path
 _file_binding = r1._file_binding
 _git_head = r1._git_head
 V42_LOAD_MARK_MARKET = v42._load_mark_market
+V42_STAGE_BUNDLE = v42.stage_bundle
+V42_SIGNAL_ARTIFACTS = v42._signal_artifacts
+V24_PROFITABLE_SYMBOLS = v24._profitable_symbols
 
 # Rehearsals stage a completed non-month-end session after the fact, so they
 # relax only the SIGNAL-window check inside the fundamentals refresh.
@@ -231,6 +255,17 @@ def runtime_repair_specification() -> dict:
         "mark_post_freeze_events": "append_only_sourced_event_supplement",
         "mark_unsourced_terminal_return": "fail_closed",
         "mark_all_cash": "valued_against_the_benchmark",
+        "mark_replay": "prospective_replay_live_stop_armed_while_held_unexecutable_to_cash",
+        "mark_unbound_signal_files": "ignored_and_reported",
+        "mark_prefix_digest": "closes_only",
+        "mark_valued_bundle_copy": "git_tracked_beside_the_ledger",
+        "mark_terminal_return": "ends_the_stock_history",
+        "provider_split_rescalings": "measured_from_update_overlap_recorded_never_rewritten",
+        "split_like_move_review": "large_or_whole_factor_moves_need_an_explanation",
+        "signal_candidate_data_gates": "as_of_close_momentum_start_explained_moves",
+        "signal_sourced_events": "supplement_bound_into_the_signal_bundle",
+        "reused_ticker_identity_breaks": "latest_security_history_only",
+        "profitable_rule": "latest_four_consecutive_quarters_no_older_window",
         "working_directory": "repository_root",
         "code_binding": "complete_project_import_closure",
         "selection_missing_value_policy_changed": False,
@@ -460,8 +495,332 @@ def _validated_bundle(
     return manifest, manifest_sha
 
 
+def _bundle_provider_adjustments(bundle: str | Path) -> pd.DataFrame:
+    return nasdaq_update.load_provider_adjustments(
+        Path(bundle) / PROVIDER_ADJUSTMENTS_NAME
+    )
+
+
+def _bundle_supplement(bundle: str | Path) -> pd.DataFrame:
+    return marks.load_supplement(Path(bundle) / BUNDLE_SUPPLEMENT_NAME)
+
+
+def review_start(validation: pd.DataFrame, start: pd.Timestamp) -> pd.Timestamp:
+    """First session live review covers: after the frozen table's last review.
+
+    The frozen corporate-action table adjudicated the split-like jumps the
+    development period could see, through its last reviewed date; earlier
+    sessions keep that adjudication, exactly as the development replay did.
+    """
+    frozen = corrected_stock_policy.load_corporate_action_validation(
+        resolve(VALIDATION_PATH)
+    )
+    last = frozen["split_date"].max() if len(frozen) else None
+    if last is None or pd.isna(last):
+        return pd.Timestamp(start)
+    return max(pd.Timestamp(start), pd.Timestamp(last) + pd.Timedelta(days=1))
+
+
+def _live_validation(
+    *,
+    provider: pd.DataFrame | None = None,
+    supplement: pd.DataFrame | None = None,
+    ignore_provider_through: pd.Timestamp | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """The frozen table plus sourced events and measured provider rescalings.
+
+    A supplement event may not re-adjudicate a frozen one.  A measured
+    rescaling (the provider's own split adjustment, recorded by price updates)
+    never overrides an adjudicated event on the same stock and session, and a
+    MARK ignores one dated on or before its latest valued session: that
+    session's value is frozen.
+    """
+    validation = corrected_stock_policy.load_corporate_action_validation(
+        resolve(VALIDATION_PATH)
+    )
+    taken = set(zip(validation["ticker"], validation["split_date"], strict=True))
+    if supplement is not None and len(supplement):
+        sourced = marks.supplement_validation_rows(supplement)
+        if len(sourced):
+            _refuse_frozen_table_duplicates(validation, sourced)
+            validation = pd.concat([validation, sourced], ignore_index=True)
+            taken |= set(zip(sourced["ticker"], sourced["split_date"], strict=True))
+    applied, ignored = [], []
+    if provider is not None and len(provider):
+        rows = provider.copy()
+        rows["ticker"] = rows["ticker"].astype(str).str.upper()
+        rows["split_date"] = pd.to_datetime(rows["split_date"]).dt.normalize()
+        keep = []
+        for row in rows.itertuples(index=False):
+            label = {
+                "ticker": row.ticker,
+                "session": f"{row.split_date:%Y-%m-%d}",
+                "factor": float(row.confirmed_adjustment_factor),
+            }
+            if (row.ticker, row.split_date) in taken:
+                ignored.append({**label, "reason": "an adjudicated event covers it"})
+                keep.append(False)
+            elif (
+                ignore_provider_through is not None
+                and row.split_date <= ignore_provider_through
+            ):
+                ignored.append({**label, "reason": "measured after its session was valued"})
+                keep.append(False)
+            else:
+                applied.append(label)
+                keep.append(True)
+        if any(keep):
+            validation = pd.concat([validation, rows.loc[keep]], ignore_index=True)
+    return validation, {
+        "provider_adjustments_applied": applied,
+        "provider_adjustments_ignored": ignored,
+        "supplement_rows": 0 if supplement is None else int(len(supplement)),
+    }
+
+
+def identity_breaks(raw_close: pd.DataFrame) -> dict[str, pd.Timestamp]:
+    """The first session of the latest security reusing each broken ticker."""
+    breaks = {}
+    for ticker in raw_close.columns:
+        series = raw_close[ticker].dropna()
+        if len(series) < 2:
+            continue
+        gap = series.index.to_series().diff().dt.days
+        ratio = series / series.shift(1)
+        broken = gap.gt(IDENTITY_BREAK_GAP_DAYS) & (
+            ratio.ge(IDENTITY_BREAK_PRICE_RATIO)
+            | ratio.le(1.0 / IDENTITY_BREAK_PRICE_RATIO)
+        )
+        if broken.any():
+            breaks[str(ticker)] = pd.Timestamp(series.index[broken.to_numpy()][-1])
+    return breaks
+
+
+def _live_profitable_symbols(signal_date: pd.Timestamp, inputs: dict) -> set[str]:
+    """Profitable by each company's latest four consecutive fiscal quarters.
+
+    v24's rule reads the latest window that also has revenue and a
+    comparable year, so it could use a window a year older than the latest
+    quarters (LBRDK: +$1.08B for the four quarters to 2025-06, -$2.74B for the
+    latest four) or none at all for a young or revenue-less filer (SNDK, APA).
+    """
+    stamp = pd.Timestamp(signal_date).normalize()
+    key = ("latest_four_quarters", stamp)
+    cached = inputs["quality_cache"].get(key)
+    if cached is not None:
+        return cached
+    frame = latest_four_quarter_profit(
+        inputs["quarterly"], stamp, v24.MAXIMUM_FINANCIAL_AGE_DAYS
+    )
+    profitable = set(frame.index[frame["net_income_ttm"].gt(0.0)].astype(str))
+    inputs["quality_cache"][key] = profitable
+    return profitable
+
+
+def _signal_inputs(
+    bundle: str | Path, signal_date: pd.Timestamp, validation: pd.DataFrame
+) -> dict:
+    """r1's SIGNAL inputs, priced with the live validation table.
+
+    A ticker reused by another security keeps only the latest security's
+    history, and is left out while that history is shorter than v42's panel
+    minimum.
+    """
+    inputs = v42._load_signal_inputs(Path(bundle), signal_date)
+    raw = inputs["raw_close"].copy()
+    dollar_volume = inputs["dollar_volume"].copy()
+    breaks = identity_breaks(raw)
+    for ticker, first in breaks.items():
+        earlier = raw.index < first
+        raw.loc[earlier, ticker] = np.nan
+        dollar_volume.loc[earlier, ticker] = np.nan
+        if raw[ticker].notna().sum() < PANEL_MINIMUM_ROWS:
+            raw[ticker] = np.nan
+            dollar_volume[ticker] = np.nan
+    continuous, eligibility = corrected_stock_policy.corrected_price_views(
+        raw, validation
+    )
+    inputs.update({
+        "raw_close": raw,
+        "dollar_volume": dollar_volume,
+        "identity_breaks": {
+            ticker: f"{first:%Y-%m-%d}" for ticker, first in sorted(breaks.items())
+        },
+        "close": continuous,
+        "eligibility_close": eligibility,
+        "corporate_action_validation": validation,
+        "technical_cache": {},
+        "quality_cache": {},
+        "large_liquid_cache": {},
+    })
+    return inputs
+
+
+def _signal_readiness(bundle: Path, stamp: pd.Timestamp) -> tuple[dict, dict]:
+    """Data gates for every stock that could enter the ranked pool.
+
+    Such a stock needs its as-of close and the close its momentum starts from,
+    or the selector would silently skip it, and no raw move a split could
+    explain may stay unexplained in the sessions the selector reads.  A failed
+    gate leaves the bundle unpromoted: the next run downloads again, or runs
+    after the event is recorded with record-sourced-event.
+    """
+    validation, audit = _live_validation(
+        provider=_bundle_provider_adjustments(bundle),
+        supplement=_bundle_supplement(bundle),
+    )
+    gates = {
+        "pool_candidates_priced_at_as_of": True,
+        "pool_candidates_have_momentum_start_close": True,
+        "pool_candidates_split_like_moves_explained": True,
+    }
+    details: dict = {"price_events": audit}
+    inputs = _signal_inputs(bundle, stamp, validation)
+    close = inputs["close"]
+    if stamp not in close.index:
+        return gates, {**details, "skipped": "the panel has no as-of session"}
+    index_close = inputs["nasdaq"].reindex(close.index).ffill()
+    if not market_regime_is_on(stamp, index_close, v24.MARKET_MA_DAYS):
+        return gates, {**details, "market_regime_on": False}
+    spec = _selected_model()["selector_specification"]
+    pool = corrected_stock_policy.large_liquid_ranking(stamp, spec, inputs)
+    position = int(close.index.get_loc(stamp))
+    liquidity = inputs["dollar_volume"].iloc[max(0, position - 49) : position + 1].median()
+    pool_size = int(spec["liquid_pool_size"])
+    floor = (
+        float(pool["median_dollar_volume_50d"].min())
+        if len(pool) >= pool_size
+        else v24.MINIMUM_MEDIAN_DOLLAR_VOLUME
+    )
+    threshold = max(
+        v24.MINIMUM_MEDIAN_DOLLAR_VOLUME, POOL_VICINITY_LIQUIDITY_FRACTION * floor
+    )
+    universe = set(inputs["universe"](stamp) or ())
+    candidates = sorted(
+        str(ticker) for ticker in liquidity.index[liquidity.ge(threshold)]
+        if str(ticker) in universe
+    )
+    raw = inputs["raw_close"]
+    lookback = int(spec["lookback_sessions"])
+    missing_as_of = [ticker for ticker in candidates if pd.isna(raw.at[stamp, ticker])]
+    missing_start = []
+    if position >= lookback:
+        start = close.index[position - lookback]
+        for ticker in candidates:
+            first = raw[ticker].first_valid_index()
+            if first is not None and first < start and pd.isna(raw.at[start, ticker]):
+                missing_start.append(ticker)
+    window = close.index[max(0, position - max(lookback, v24.STOCK_MA_DAYS - 1))]
+    reviewed_from = review_start(validation, window)
+    moves = marks.unexplained_moves(raw, validation, candidates, reviewed_from, stamp)
+    gates.update({
+        "pool_candidates_priced_at_as_of": not missing_as_of,
+        "pool_candidates_have_momentum_start_close": not missing_start,
+        "pool_candidates_split_like_moves_explained": moves.empty,
+    })
+    details.update({
+        "market_regime_on": True,
+        "pool_size": int(len(pool)),
+        "pool_liquidity_floor": floor,
+        "candidate_liquidity_threshold": threshold,
+        "candidate_count": len(candidates),
+        "candidates_without_as_of_close": missing_as_of,
+        "candidates_without_momentum_start_close": missing_start,
+        "review_window_start": f"{reviewed_from:%Y-%m-%d}",
+        "unexplained_split_like_moves": [
+            {
+                "ticker": row.ticker,
+                "session": f"{row.split_date:%Y-%m-%d}",
+                "raw_price_ratio": round(float(row.raw_price_ratio), 6),
+                "reason": row.reason,
+            }
+            for row in moves.itertuples(index=False)
+        ],
+    })
+    return gates, details
+
+
+def _stage_v42_bundle(**kwargs) -> dict:
+    """v42's staging, then r3's inputs and gates before v43 promotes the build."""
+    result = V42_STAGE_BUNDLE(**kwargs)
+    if str(kwargs["purpose"]).upper() == "SIGNAL":
+        build = Path(result["bundle"])
+        try:
+            _complete_signal_build(
+                build,
+                pd.Timestamp(kwargs["as_of"]).normalize(),
+                Path(kwargs["work_dir"]) / "market",
+            )
+        except Exception:
+            shutil.rmtree(build, ignore_errors=True)
+            raise
+    return result
+
+
+def _complete_signal_build(build: Path, stamp: pd.Timestamp, market: Path) -> None:
+    """Bind the provider rescalings and the supplement, then gate the candidates."""
+    manifest_path = build / "bundle_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    adjustments = market / PROVIDER_ADJUSTMENTS_NAME
+    if adjustments.is_file():
+        shutil.copy2(adjustments, build / PROVIDER_ADJUSTMENTS_NAME)
+    else:
+        pd.DataFrame(columns=list(nasdaq_update.PROVIDER_ADJUSTMENT_COLUMNS)).to_csv(
+            build / PROVIDER_ADJUSTMENTS_NAME, index=False
+        )
+    supplement = market / BUNDLE_SUPPLEMENT_NAME
+    if supplement.is_file():
+        shutil.copy2(supplement, build / BUNDLE_SUPPLEMENT_NAME)
+    else:
+        marks.empty_supplement().to_csv(build / BUNDLE_SUPPLEMENT_NAME, index=False)
+    for name in (PROVIDER_ADJUSTMENTS_NAME, BUNDLE_SUPPLEMENT_NAME):
+        manifest["files"][name] = _sha256(build / name)
+    gates, details = _signal_readiness(build, stamp)
+    manifest["readiness_gates"].update(gates)
+    manifest["live_readiness"] = details
+    if not all(gates.values()):
+        failed = sorted(name for name, passed in gates.items() if not passed)
+        raise RuntimeError(
+            f"v50r3 SIGNAL bundle is not ready: {failed}; "
+            + json.dumps(details, sort_keys=True, default=_json_default)
+        )
+    temporary = manifest_path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, default=_json_default) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, manifest_path)
+
+
 def _build_signal_payload(**kwargs) -> dict:
-    payload = r1._build_signal_payload(**kwargs)
+    validation, audit = _live_validation(
+        provider=_bundle_provider_adjustments(kwargs["bundle"]),
+        supplement=_bundle_supplement(kwargs["bundle"]),
+    )
+    loaded: dict = {}
+    original_validation = r1.load_corporate_action_validation
+    original_prices = r1.corrected_price_views
+    original_inputs = r1.v42._load_signal_inputs
+
+    def signal_inputs(bundle, signal_date):
+        loaded.update(_signal_inputs(bundle, signal_date, validation))
+        return dict(loaded)
+
+    def priced(_raw_close, _validation):
+        # r1 re-prices the loaded raw closes; keep the live inputs' prices.
+        return loaded["close"], loaded["eligibility_close"]
+
+    r1.load_corporate_action_validation = lambda *_args, **_kwargs: validation.copy()
+    r1.corrected_price_views = priced
+    r1.v42._load_signal_inputs = signal_inputs
+    try:
+        payload = r1._build_signal_payload(**kwargs)
+    finally:
+        r1.load_corporate_action_validation = original_validation
+        r1.corrected_price_views = original_prices
+        r1.v42._load_signal_inputs = original_inputs
+    payload["live_price_events"] = audit
+    payload["identity_breaks"] = loaded.get("identity_breaks", {})
     payload["model_version"] = MODEL_VERSION
     payload["runtime_repair"] = runtime_repair_specification()
     payload["code_closure_sha256"] = kwargs["protocol"]["code_closure"]["sha256"]
@@ -678,16 +1037,21 @@ def _runtime(*, rehearsal: bool = False):
     original = {name: getattr(v43, name) for name in replacements}
     original_v42_json = v43.v42.json
     original_v43_json = v43.json
+    original_stage = v42.stage_bundle
     original_options = dict(_REFRESH_OPTIONS)
     try:
         for name, value in replacements.items():
             setattr(v43, name, value)
         v43.v42.json = r2._JsonScalarProxy(original_v42_json)
         v43.json = r2._JsonScalarProxy(original_v43_json)
+        v42.stage_bundle = _stage_v42_bundle
+        v24._profitable_symbols = _live_profitable_symbols
         _REFRESH_OPTIONS["enforce_signal_window"] = not rehearsal
         yield
     finally:
         _REFRESH_OPTIONS.update(original_options)
+        v24._profitable_symbols = V24_PROFITABLE_SYMBOLS
+        v42.stage_bundle = original_stage
         v43.json = original_v43_json
         v43.v42.json = original_v42_json
         for name, value in original.items():
@@ -797,7 +1161,14 @@ def _ledger_target_schedule(events: list[dict], as_of: pd.Timestamp) -> pd.DataF
     return pd.DataFrame(rows, columns=["effective_date", "ticker", "target_weight"])
 
 
-def _latest_valued_bundle(events: list[dict], bundles_dir: Path) -> dict | None:
+def valued_bundle_copy_dir(ledger_path: str | Path) -> Path:
+    """Where the latest valued MARK bundle is copied for git: beside the ledger."""
+    return resolve(ledger_path).parent / VALUED_BUNDLE_COPY_NAME
+
+
+def _latest_valued_bundle(
+    events: list[dict], bundles_dir: Path, copy_dir: Path | None = None
+) -> dict | None:
     """The bundle behind the latest mark, verified against its ledger event."""
     valued = [event for event in events if event["event_type"] == "VALUATION_APPENDED"]
     if not valued:
@@ -806,6 +1177,10 @@ def _latest_valued_bundle(events: list[dict], bundles_dir: Path) -> dict | None:
     as_of = pd.Timestamp(payload["as_of"]).normalize()
     path = Path(bundles_dir) / f"{as_of:%Y-%m-%d}_mark"
     if not path.is_dir():
+        if copy_dir is not None and (copy_dir / "bundle_manifest.json").is_file():
+            _manifest, manifest_sha = _validated_bundle(copy_dir, "MARK")
+            if manifest_sha == payload["bundle_manifest_sha256"]:
+                return {"as_of": as_of, "path": copy_dir}
         return {"as_of": as_of, "path": None}
     _manifest, manifest_sha = _validated_bundle(path, "MARK")
     if manifest_sha != payload["bundle_manifest_sha256"]:
@@ -940,7 +1315,9 @@ def _stage_mark_bundle(
     terminal = marks.supplement_terminal_returns(
         marks.load_supplement(resolve(supplement_path))
     )
-    prior = _latest_valued_bundle(events, bundles_dir)
+    prior = _latest_valued_bundle(
+        events, bundles_dir, valued_bundle_copy_dir(ledger_path)
+    )
 
     market = work_dir / "market"
     prices = market / "prices"
@@ -992,6 +1369,13 @@ def _stage_mark_bundle(
             temporary / "index_close_provenance.json",
         )
         shutil.copy2(qqq_provenance, temporary / "qqq.provenance.json")
+        adjustments = nasdaq_update.provider_adjustments_path(prices)
+        if adjustments.is_file():
+            shutil.copy2(adjustments, temporary / PROVIDER_ADJUSTMENTS_NAME)
+        else:
+            pd.DataFrame(
+                columns=list(nasdaq_update.PROVIDER_ADJUSTMENT_COLUMNS)
+            ).to_csv(temporary / PROVIDER_ADJUSTMENTS_NAME, index=False)
         carry = _carry_valued_prefix(prior, temporary, tickers)
 
         missing = [
@@ -1023,9 +1407,10 @@ def _stage_mark_bundle(
             raise RuntimeError(
                 f"v50r3 MARK bundle is not ready: {failed}; missing price files "
                 f"{missing}; held positions without a {stamp_text} close "
-                f"{unpriced}. Retry once the closes are published; if a held "
-                "stock stopped trading, record its sourced TERMINAL_RETURN with "
-                "record-sourced-event"
+                f"{unpriced}. Retry once the closes are published.  A halt "
+                "resumes by itself: wait for it.  Only a held stock that was "
+                "delisted or acquired gets a sourced TERMINAL_RETURN with "
+                "record-sourced-event; it ends that stock's history for good"
             )
         manifest = {
             "schema_version": 2,
@@ -1043,6 +1428,7 @@ def _stage_mark_bundle(
                     "qqq.csv",
                     "index_close_provenance.json",
                     "qqq.provenance.json",
+                    PROVIDER_ADJUSTMENTS_NAME,
                 )
             },
             "readiness_gates": gates,
@@ -1244,13 +1630,75 @@ def freeze_protocol(
             "portfolio_peak_reset": "latest monthly rebalance",
             "stop_checked_before_rebalance": True,
             "coincident_stop_precedence": "stop_vetoes_same_close_reentry",
-            "missing_entry_close": "fail_closed",
+            "portfolio_stop_armed": (
+                "only while positions are held, so a stop that left the book "
+                "in cash never vetoes the next monthly target"
+            ),
+            "missing_entry_close": (
+                "the target's weight stays in cash until the next signal once a "
+                "later session exists; on the execution session the mark waits"
+            ),
+            "replay": "src/research/prospective_replay.py:replay_live",
+            "replay_matches_development_replay": (
+                "identical on the frozen development targets (tested); it differs "
+                "only in the two cases above, which 2020-2025 never exercised"
+            ),
         },
         "price_policy": {
             "automatic_heuristic_adjustment_allowed": False,
             "confirmed_actions_only": True,
             "reviewed_market_moves_preserved": True,
             "unresolved_rank_or_target_event": "fail_closed",
+            "provider_rescalings": (
+                "every price update requests the last "
+                f"{nasdaq_update.RECONCILE_OVERLAP_DAYS} days of stored history "
+                "again; a uniform rescaling of it (Nasdaq's own split "
+                "adjustment) is recorded as a PROVIDER_ADJUSTMENT_DISCONTINUITY "
+                "at the first session in the new units and applied like any "
+                "confirmed action; stored rows are never rewritten; a history "
+                "that no longer matches in any consistent way is not appended"
+            ),
+            "split_like_move_review": (
+                "after the frozen table's last reviewed date, a raw one-session "
+                f"ratio at or below {marks.LARGE_MOVE_LOW} or at or above "
+                f"{marks.LARGE_MOVE_HIGH}, or within {marks.JUMP_TOLERANCE:.1%} of a "
+                "whole split factor, must be explained by a confirmed action, a "
+                "measured provider rescaling or a sourced event before a selection "
+                "or a valuation uses it; earlier sessions keep the frozen table's "
+                "adjudication"
+            ),
+            "sourced_events_apply_to_signals": True,
+            "reused_tickers": (
+                f"a gap over {IDENTITY_BREAK_GAP_DAYS} days with a price "
+                f"{IDENTITY_BREAK_PRICE_RATIO:g}x away starts a new security; only "
+                "its history counts, with v42's 150-row minimum"
+            ),
+        },
+        "selection_data_gates": {
+            "candidates": (
+                f"stocks at least {POOL_VICINITY_LIQUIDITY_FRACTION:g}x as liquid "
+                "as the ranked pool's least liquid member"
+            ),
+            "required": [
+                "the as-of close",
+                "the close the momentum lookback starts from",
+                "no unexplained split-like move in the sessions the selector reads",
+            ],
+            "on_failure": (
+                "the SIGNAL bundle is not promoted; the next run downloads again "
+                "inside the window, or after the event is recorded"
+            ),
+        },
+        "quality_policy": {
+            "profitable": (
+                "net income of the latest four consecutive fiscal quarters filed "
+                "by the signal date is positive; the latest quarter was first "
+                f"reported within {v24.MAXIMUM_FINANCIAL_AGE_DAYS} days; an older "
+                "window never stands in; missing data is not profitable"
+            ),
+            "function": (
+                "src/financial/quarterly_fundamentals.py:latest_four_quarter_profit"
+            ),
         },
         "mark_policy": {
             "procedure": MARK_PROCEDURE,
@@ -1264,6 +1712,21 @@ def freeze_protocol(
                 "return is recorded"
             ),
             "already_valued_input_rows": "carried forward unchanged",
+            "valued_bundle_copy": (
+                f"{VALUED_BUNDLE_COPY_NAME}/ beside the ledger, committed with each "
+                "mark, carries the valued rows to any machine"
+            ),
+            "prefix_digest": (
+                "closes of the Composite, QQQ (with dividends) and every targeted "
+                "stock; not volume"
+            ),
+            "unbound_signal_files": "ignored and reported; the ledger decides",
+            "terminal_return": "ends the stock's history for the observation",
+            "valued_sessions": (
+                "never re-adjudicated: a sourced split or market move inside a "
+                "valued holding window is refused and a provider rescaling "
+                "measured afterwards is ignored for it"
+            ),
             "all_cash_month": "valued against the benchmark",
             "after_missed_signal_window": (
                 "the held portfolio keeps being valued until the catch-up "
@@ -1385,6 +1848,18 @@ def write_v50r2_supersession(
     return record
 
 
+def _stage_supplement_copy(supplement_path: str | Path, work_dir: Path) -> None:
+    """Put the current supplement where v42 bundles the market inputs."""
+    target = work_dir / "market" / BUNDLE_SUPPLEMENT_NAME
+    source = resolve(supplement_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_file():
+        marks.load_supplement(source)
+        shutil.copy2(source, target)
+    elif target.exists():
+        target.unlink()
+
+
 def stage_bundle(
     *,
     as_of: str | pd.Timestamp,
@@ -1439,6 +1914,7 @@ def stage_bundle(
                     supplement_path=supplement_path,
                 )
             else:
+                _stage_supplement_copy(supplement_path, Path(work_dir))
                 result = v43.stage_bundle(
                     as_of=stamp,
                     purpose=purpose,
@@ -1537,6 +2013,7 @@ def _load_mark_market(
     no recent rows; the replay still needs each session to value the rest.
     """
     raw_close, nasdaq, qqq = V42_LOAD_MARK_MARKET(bundle, as_of)
+    _MARK_CONTEXT["provider_adjustments"] = _bundle_provider_adjustments(bundle)
     start = v42.FIRST_PROSPECTIVE_SIGNAL_DATE - pd.Timedelta(days=400)
     sessions = nasdaq.index[(nasdaq.index >= start) & (nasdaq.index <= as_of)]
     # An empty panel has a plain Index; keep the union a DatetimeIndex.
@@ -1552,7 +2029,9 @@ def _market_prefix_sha256(
     The Composite and QQQ must reach ``as_of``.  A stock's rows are digested
     as stored: whether a held stock needed a later close is decided by the
     staging gate and the replay, not here, so a stock sold before it stopped
-    trading does not block every later mark.
+    trading does not block every later mark.  Only a stock's closes are
+    digested: its volume never enters a valuation, and Nasdaq revises the
+    volume of recent sessions.
     """
     as_of = pd.Timestamp(as_of).normalize()
     digest = hashlib.sha256()
@@ -1564,7 +2043,7 @@ def _market_prefix_sha256(
         (
             ticker,
             Path(bundle) / "prices" / f"{ticker.lower()}.csv",
-            ["close", "volume"],
+            ["close"],
             False,
         )
         for ticker in sorted(tickers)
@@ -1613,6 +2092,12 @@ def _mark_replay(
     end = pd.Timestamp(end).normalize()
     windows = marks.holding_windows(target_schedule, end)
     terminal = marks.supplement_terminal_returns(supplement)
+    # A recorded terminal return ends the stock's history for the observation:
+    # rows after it (a halt that resumed) never re-price the closed position.
+    raw_close = raw_close.copy()
+    for ticker, last in terminal:
+        if ticker in raw_close.columns:
+            raw_close.loc[raw_close.index > last, ticker] = np.nan
     ended = marks.unpriced_holdings(raw_close, windows, end)
     unsourced = [
         row
@@ -1626,23 +2111,30 @@ def _mark_replay(
         )
         raise RuntimeError(
             "held positions have no close after their last stored date inside a "
-            f"holding window: {details}. Retry once the closes are published; if "
-            "trading ended, record a sourced TERMINAL_RETURN with "
-            "record-sourced-event"
+            f"holding window: {details}. Retry once the closes are published; a "
+            "halt resumes by itself.  Only a delisted or acquired stock gets a "
+            "sourced TERMINAL_RETURN with record-sourced-event, which ends its "
+            "history for good"
         )
-    validation = corrected_stock_policy.load_corporate_action_validation(
-        resolve(VALIDATION_PATH)
+    validation, price_events = _live_validation(
+        provider=_MARK_CONTEXT.get("provider_adjustments"),
+        supplement=supplement,
+        ignore_provider_through=_MARK_CONTEXT.get("latest_valued"),
     )
-    sourced = marks.supplement_validation_rows(supplement)
-    if len(sourced):
-        _refuse_frozen_table_duplicates(validation, sourced)
-        validation = pd.concat([validation, sourced], ignore_index=True)
     ignored: list[dict] = []
     original_events = corrected_stock_policy._unresolved_target_events
     original_returns = corrected_stock_policy.stock_returns_with_delisting_penalty
 
-    def events_inside_holdings(*args, **kwargs) -> pd.DataFrame:
-        events = original_events(*args, **kwargs)
+    def events_inside_holdings(raw_close, target_schedule, validation, start, end):
+        # Any raw move a split could explain, not only whole-factor ones.
+        symbols = set(
+            target_schedule.loc[
+                target_schedule["ticker"].ne(marks.CASH), "ticker"
+            ].astype(str)
+        )
+        events = marks.unexplained_moves(
+            raw_close.loc[:end], validation, symbols, review_start(validation, start), end
+        )
         if events.empty:
             return events
         inside = marks.inside_holdings(events, windows)
@@ -1664,7 +2156,7 @@ def _mark_replay(
         sourced_terminal_returns
     )
     try:
-        result = corrected_stock_policy.replay_with_sourced_hybrid_stop(
+        result = prospective_replay.replay_live(
             raw_close,
             index_close,
             target_schedule,
@@ -1681,6 +2173,9 @@ def _mark_replay(
     _MARK_CONTEXT["holding_exposure"] = {
         "ignored_price_jumps_outside_holdings": ignored,
         "sourced_terminal_returns_applied": ended,
+        "price_events": price_events,
+        "unexecutable_targets": result.attrs.get("unexecutable_targets", []),
+        "unbound_signal_artifacts": _MARK_CONTEXT.get("unbound_signal_artifacts", []),
     }
     return result
 
@@ -1721,6 +2216,57 @@ def _verify_supplement_is_append_only(
             "the sourced event supplement no longer begins with the rows an "
             "earlier mark used; it is append-only"
         )
+
+
+def _bound_signal_artifacts(signals_dir: Path, as_of: pd.Timestamp) -> list:
+    """Only signal files the ledger froze; others are reported, never valued.
+
+    A freeze writes its file before its ledger event; a freeze refused after
+    its window, or one that crashed in between, leaves a file the ledger never
+    bound.  v42 would look for its event and stop every later mark.
+    """
+    frozen = _MARK_CONTEXT.get("frozen_signal_dates", set())
+    kept, unbound = [], []
+    for path, signal in V42_SIGNAL_ARTIFACTS(signals_dir, as_of):
+        if signal["signal_date"] in frozen:
+            kept.append((path, signal))
+        else:
+            unbound.append(_portable_path(path))
+    _MARK_CONTEXT["unbound_signal_artifacts"] = unbound
+    return kept
+
+
+def _first_execution_date(
+    signal: dict, raw_close: pd.DataFrame, nasdaq: pd.Series
+) -> pd.Timestamp | None:
+    """v42's execution session, without stopping on an unexecutable target.
+
+    A target with no close on its execution session (delisted between the
+    signal and its execution, or halted all session) is left in cash by the
+    replay.  Until a later session exists the staging gate waits for the
+    close instead.
+    """
+    signal_date = pd.Timestamp(signal["signal_date"])
+    sessions = nasdaq.loc[nasdaq.index > signal_date].dropna().index
+    if not len(sessions):
+        return None
+    execution = pd.Timestamp(sessions[0]).normalize()
+    if execution not in raw_close.index:
+        raise RuntimeError("first execution session is absent from staged prices")
+    missing = [
+        row["ticker"]
+        for row in signal["targets"]
+        if row["ticker"] != marks.CASH
+        and (
+            row["ticker"] not in raw_close.columns
+            or pd.isna(raw_close.at[execution, row["ticker"]])
+        )
+    ]
+    if missing and raw_close.index.max() <= execution:
+        raise RuntimeError(
+            f"first execution close is missing selected prices: {missing}"
+        )
+    return execution
 
 
 def _catch_up_summary(events: list[dict], payload: dict) -> dict:
@@ -1771,6 +2317,8 @@ def _mark_runtime(supplement_path: str | Path = SUPPLEMENT_PATH):
     replacements = [
         (v42, "_load_mark_market", _load_mark_market),
         (v42, "_market_prefix_sha256", _market_prefix_sha256),
+        (v42, "_signal_artifacts", _bound_signal_artifacts),
+        (v42, "_first_execution_date", _first_execution_date),
         (v42.v28, "replay_with_individual_trailing_stop", _mark_replay),
         (v43, "append_event", append_event),
     ]
@@ -1787,6 +2335,23 @@ def _mark_runtime(supplement_path: str | Path = SUPPLEMENT_PATH):
         _MARK_CONTEXT.clear()
 
 
+def _copy_valued_bundle(bundle: Path, target: Path) -> str:
+    """Replace the git-tracked copy of the latest valued bundle."""
+    staging = target.with_name("." + target.name + ".tmp")
+    if staging.exists():
+        shutil.rmtree(staging)
+    shutil.copytree(bundle, staging)
+    previous = target.with_name("." + target.name + ".old")
+    if previous.exists():
+        shutil.rmtree(previous)
+    if target.exists():
+        os.replace(target, previous)
+    os.replace(staging, target)
+    if previous.exists():
+        shutil.rmtree(previous)
+    return _portable_path(target)
+
+
 def append_mark(
     *,
     bundle: str | Path,
@@ -1801,6 +2366,15 @@ def append_mark(
         _runtime(),
         _mark_runtime(supplement_path) as context,
     ):
+        events = v43.read_ledger(resolve(ledger_path))
+        context["latest_valued"] = v43._latest_event_date(
+            events, "VALUATION_APPENDED", "as_of"
+        )
+        context["frozen_signal_dates"] = {
+            event["payload"]["signal_date"]
+            for event in events
+            if event["event_type"] == "SIGNAL_FROZEN"
+        }
         result = v43.append_mark(
             bundle=bundle,
             protocol_path=protocol_path,
@@ -1808,6 +2382,9 @@ def append_mark(
             signals_dir=signals_dir,
         )
         if result.get("written"):
+            result["valued_bundle_copy"] = _copy_valued_bundle(
+                resolve(bundle), valued_bundle_copy_dir(ledger_path)
+            )
             result["mark_procedure"] = MARK_PROCEDURE
             result["sourced_event_supplement"] = context["binding"]
             result["holding_exposure"] = context.get("holding_exposure")
@@ -1829,9 +2406,17 @@ def record_sourced_event(
     supplement_path: str | Path = SUPPLEMENT_PATH,
     price_dir: str | Path = WORK_DIR / "market" / "prices",
     lock_path: str | Path = STAGING_LOCK_PATH,
+    ledger_path: str | Path = LEDGER_PATH,
     now: datetime | None = None,
 ) -> dict:
-    """Append one sourced post-freeze event after checking it against stored prices."""
+    """Append one sourced post-freeze event after checking it against stored prices.
+
+    A SPLIT's factor may differ from the stored one-session ratio by the real
+    move of its day (up to ``marks.SPLIT_DAY_MOVE_LIMIT``); a MARKET_MOVE
+    confirms a move that would otherwise be reviewed as a possible split.
+    Neither may date a move inside a holding window that is already valued:
+    the value of a valued session is frozen.
+    """
     protocol, _protocol_sha = _validated_protocol(protocol_path)
     now = schedule.as_utc(now or _utc_now())
     if now < pd.Timestamp(protocol["frozen_at"]):
@@ -1857,21 +2442,36 @@ def record_sourced_event(
             ),
             pd.DataFrame({"ticker": [ticker], "split_date": [date]}),
         )
-        jumps = detect_common_split_events(closes.to_frame(ticker))
-        match = jumps.loc[pd.to_datetime(jumps["split_date"]).dt.normalize().eq(date)]
-        if match.empty:
+        ratios = closes.pct_change(fill_method=None).add(1)
+        if date not in ratios.index or pd.isna(ratios.loc[date]):
             raise RuntimeError(
-                f"{ticker} has no split-like price jump on {date:%Y-%m-%d} in {path}"
+                f"{ticker} has no stored close on {date:%Y-%m-%d} after an "
+                f"earlier one in {path}"
             )
-        ratio = float(match.iloc[0]["raw_price_ratio"])
+        ratio = float(ratios.loc[date])
         if event_type == marks.SPLIT:
             if adjustment_factor is None:
                 raise ValueError("a SPLIT needs its adjustment factor")
-            if abs(ratio / float(adjustment_factor) - 1.0) > marks.JUMP_TOLERANCE:
+            move = ratio / float(adjustment_factor) - 1.0
+            if abs(move) > marks.SPLIT_DAY_MOVE_LIMIT:
                 raise RuntimeError(
-                    f"{ticker}'s stored jump ratio {ratio:.4f} does not match the "
-                    f"adjustment factor {adjustment_factor}"
+                    f"{ticker}'s stored ratio {ratio:.4f} on {date:%Y-%m-%d} would "
+                    f"leave a {move:+.1%} move after the adjustment factor "
+                    f"{adjustment_factor}; check the factor and the date"
                 )
+        elif marks.split_like_moves(closes.to_frame(ticker), start=date, end=date).empty:
+            raise RuntimeError(
+                f"{ticker} has no split-like move on {date:%Y-%m-%d} in {path} "
+                "to confirm as a market move"
+            )
+        valued = _valued_holding_through(resolve(ledger_path), ticker)
+        if valued is not None and any(
+            entry < date <= exit_date for entry, exit_date in valued
+        ):
+            raise RuntimeError(
+                f"{ticker} was held on {date:%Y-%m-%d} and that session is already "
+                "valued; a valued session is frozen and is never revised"
+            )
         evidence = {"stored_price_ratio": ratio}
     elif event_type == marks.TERMINAL_RETURN:
         if terminal_return is None:
@@ -1915,6 +2515,25 @@ def record_sourced_event(
         "supplement": _portable_path(resolve(supplement_path)),
         "next_step": "commit the supplement; the next mark binds it",
     }
+
+
+def _valued_holding_through(
+    ledger_path: Path, ticker: str
+) -> list[tuple[pd.Timestamp, pd.Timestamp]] | None:
+    """``ticker``'s holding windows, cut at the latest valued session."""
+    if not ledger_path.is_file():
+        return None
+    events = v43.read_ledger(ledger_path)
+    latest = v43._latest_event_date(events, "VALUATION_APPENDED", "as_of")
+    if latest is None:
+        return None
+    schedule_frame = _ledger_target_schedule(events, latest)
+    if schedule_frame.empty:
+        return []
+    windows = marks.holding_windows(schedule_frame, latest)
+    return [
+        (entry, min(exit_date, latest)) for entry, exit_date in windows.get(ticker, [])
+    ]
 
 
 def status(

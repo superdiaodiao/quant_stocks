@@ -201,3 +201,41 @@ def test_rows_digest_ignores_integer_versus_float_storage() -> None:
     assert marks.rows_digest_text(as_float, ["volume"], "2026-10-05").endswith(
         "2026-10-05,nan"
     )
+
+
+def test_split_like_moves_find_splits_on_moving_days_and_uneven_ratios() -> None:
+    dates = pd.bdate_range("2026-07-01", periods=6)
+    raw = pd.DataFrame({
+        # 2:1 on a +4% day: outside the whole-factor tolerance, still reviewed.
+        "AAA": [100.0, 101, 52.6, 53, 53.5, 54],
+        # 3:2
+        "BBB": [50.0, 50.5, 51, 34, 34.2, 34.1],
+        # 1:10 reverse split
+        "CCC": [2.0, 2.02, 20.4, 20.3, 20.2, 20.4],
+        # an ordinary -12% day is not reviewed
+        "DDD": [20.0, 17.6, 17.7, 17.8, 17.9, 18.0],
+    }, index=dates)
+
+    moves = marks.split_like_moves(raw)
+
+    assert list(zip(moves["ticker"], moves["split_date"])) == [
+        ("AAA", dates[2]), ("CCC", dates[2]), ("BBB", dates[3]),
+    ]
+    assert moves.set_index("ticker").loc["CCC", "reason"] == "COMMON_SPLIT_RATIO"
+    assert moves.set_index("ticker").loc["AAA", "reason"] == "LARGE_MOVE"
+    assert marks.split_like_moves(raw, ["AAA"], start=dates[3]).empty
+
+
+def test_unexplained_moves_drop_those_a_resolved_event_explains() -> None:
+    dates = pd.bdate_range("2026-07-01", periods=4)
+    raw = pd.DataFrame({"AAA": [100.0, 50.0, 50, 50], "BBB": [10.0, 30.0, 30, 30]},
+                       index=dates)
+    validation = pd.DataFrame({
+        "ticker": ["AAA", "BBB"],
+        "split_date": [dates[1], dates[1]],
+        "validation_status": ["CONFIRMED", "UNRESOLVED_PRICE_JUMP"],
+    })
+
+    left = marks.unexplained_moves(raw, validation)
+
+    assert left["ticker"].tolist() == ["BBB"]

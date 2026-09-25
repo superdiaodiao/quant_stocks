@@ -40,14 +40,8 @@ from scripts import research_v43_isolated_prospective_v28_observation as v43
 from scripts import research_v50r3_corrected_v47 as r3
 from src.io.security_universe import investable_common_equities
 from src.research import prospective_schedule as schedule
-from src.research.corrected_stock_policy import (
-    RESOLVED_STATUSES,
-    UNRESOLVED_STATUSES,
-    corrected_price_views,
-    large_liquid_ranking,
-    load_corporate_action_validation,
-)
-from src.research.data_quality import detect_common_split_events
+from src.research import prospective_marks as marks
+from src.research.corrected_stock_policy import large_liquid_ranking
 
 
 REHEARSAL_ROOT = Path("output/research_only/v50/r3_rehearsals")
@@ -202,23 +196,18 @@ def price_coverage(work: Path, as_of: pd.Timestamp) -> dict:
 
 
 def ranked_pool_corporate_actions(bundle: Path, as_of: pd.Timestamp) -> dict:
-    """Split-like jumps in the ranked pool that the frozen table never reviewed.
+    """Split-like moves in the ranked pool that nothing explains.
 
-    The SIGNAL path fails closed only on events the frozen validation table
-    lists as unresolved; a split after the table's last review date is not in
-    it and silently distorts momentum.  This surfaces such candidates.
+    Prices are the live SIGNAL's: the frozen table, the supplement and the
+    provider rescalings measured by the price updates.  The staging gate
+    already refuses such a move for every pool candidate; this reports the
+    pool's own view next to the selection.
     """
-    inputs = v42._load_signal_inputs(bundle, as_of)
-    validation = load_corporate_action_validation()
-    continuous, eligibility = corrected_price_views(inputs["raw_close"], validation)
-    inputs.update({
-        "close": continuous,
-        "eligibility_close": eligibility,
-        "corporate_action_validation": validation,
-        "technical_cache": {},
-        "quality_cache": {},
-        "large_liquid_cache": {},
-    })
+    validation, events = r3._live_validation(
+        provider=r3._bundle_provider_adjustments(bundle),
+        supplement=r3._bundle_supplement(bundle),
+    )
+    inputs = r3._signal_inputs(bundle, as_of, validation)
     spec = r3._selected_model()["selector_specification"]
     ranking = large_liquid_ranking(as_of, spec, inputs)
     pool = [str(ticker) for ticker in ranking.index]
@@ -226,30 +215,27 @@ def ranked_pool_corporate_actions(bundle: Path, as_of: pd.Timestamp) -> dict:
     position = int(close.index.get_loc(as_of))
     relevant = max(int(spec["lookback_sessions"]), v24.STOCK_MA_DAYS - 1)
     window_start = close.index[max(0, position - relevant)]
-    raw = inputs["raw_close"].reindex(columns=pool).loc[window_start:as_of]
-    detected = detect_common_split_events(raw)
-    known = validation.loc[
-        validation["validation_status"].isin(RESOLVED_STATUSES | UNRESOLVED_STATUSES)
-    ]
-    reviewed = set(zip(known["ticker"], known["split_date"], strict=True))
-    unreviewed = [
-        {
-            "ticker": row.ticker,
-            "date": f"{pd.Timestamp(row.split_date):%Y-%m-%d}",
-            "raw_price_ratio": round(float(row.raw_price_ratio), 4),
-            "matched_factor": float(row.matched_factor),
-        }
-        for row in detected.itertuples(index=False)
-        if (str(row.ticker).upper(), pd.Timestamp(row.split_date).normalize())
-        not in reviewed
-    ]
+    moves = marks.unexplained_moves(
+        inputs["raw_close"], validation, pool, r3.review_start(validation, window_start),
+        as_of,
+    )
     return {
         "ranked_liquid_pool": pool,
         "window_start": f"{window_start:%Y-%m-%d}",
         "validation_last_reviewed_date": (
             f"{validation['split_date'].max():%Y-%m-%d}" if len(validation) else None
         ),
-        "unreviewed_split_like_jumps": unreviewed,
+        "price_events": events,
+        "identity_breaks": inputs.get("identity_breaks", {}),
+        "unreviewed_split_like_jumps": [
+            {
+                "ticker": row.ticker,
+                "date": f"{pd.Timestamp(row.split_date):%Y-%m-%d}",
+                "raw_price_ratio": round(float(row.raw_price_ratio), 4),
+                "reason": row.reason,
+            }
+            for row in moves.itertuples(index=False)
+        ],
     }
 
 

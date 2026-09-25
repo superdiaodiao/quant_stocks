@@ -13,7 +13,7 @@ import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -927,20 +927,277 @@ def _validate_price_adjustment_overlap(
     }
 
 
-def update_ticker(ticker: str, end: date, price_dir: Path) -> dict:
+# Nasdaq serves split-adjusted history: after a split it rescales every
+# earlier session.  Stored files only ever gain rows, so without a check the
+# old units meet the new ones wherever a file's next update starts, not on the
+# split date.  Measured on 2026-09-25 against stored rows of 2026-07-01..20:
+# MNST and IESC came back at exactly 0.5 of the stored closes, RUSHA and RUSHB
+# at 2/3, WLFC at 1/3 (volumes by the inverse), and every dividend payer
+# checked (PEP, CSCO, AMGN, COST, ADP, PAYX, ...) at exactly 1.0.
+PROVIDER_ADJUSTMENTS_FILENAME = "provider_adjustments.csv"
+PROVIDER_ADJUSTMENT_TYPE = "PROVIDER_ADJUSTMENT_DISCONTINUITY"
+PROVIDER_ADJUSTMENT_COLUMNS = (
+    "ticker",
+    "split_date",
+    "raw_price_ratio",
+    "matched_factor",
+    "validation_status",
+    "confirmed_action_type",
+    "confirmed_action_date",
+    "confirmed_adjustment_factor",
+    "primary_source",
+    "overlap_sessions",
+    "overlap_first",
+    "overlap_last",
+    "ratio_spread",
+    "recorded_at",
+)
+# Stored history requested again with every update, to compare with the
+# provider's current history.
+RECONCILE_OVERLAP_DAYS = 28
+# Nasdaq rounds rescaled closes to the cent.
+PROVIDER_RATIO_TOLERANCE = 0.005
+# A uniform rescaling smaller than this is not a corporate action.
+PROVIDER_MINIMUM_ADJUSTMENT = 0.02
+# Fewer rescaled sessions than this count only when the factor is a split ratio.
+PROVIDER_MINIMUM_SESSIONS = 5
+
+
+def provider_adjustments_path(price_dir: str | Path) -> Path:
+    """Where updates of ``price_dir`` record the provider's rescalings."""
+    return Path(price_dir).parent / PROVIDER_ADJUSTMENTS_FILENAME
+
+
+def load_provider_adjustments(path: str | Path) -> pd.DataFrame:
+    """Recorded provider rescalings, in the corporate-action validation layout."""
+    path = Path(path)
+    if not path.is_file():
+        return pd.DataFrame(columns=list(PROVIDER_ADJUSTMENT_COLUMNS))
+    frame = pd.read_csv(path, keep_default_na=False, na_values=[""])
+    missing = set(PROVIDER_ADJUSTMENT_COLUMNS) - set(frame.columns)
+    if missing:
+        raise ValueError(
+            f"{path} is missing columns: " + ", ".join(sorted(missing))
+        )
+    frame["ticker"] = frame["ticker"].astype(str).str.upper()
+    for column in ("split_date", "confirmed_action_date"):
+        frame[column] = pd.to_datetime(frame[column], errors="raise").dt.normalize()
+    frame["confirmed_adjustment_factor"] = pd.to_numeric(
+        frame["confirmed_adjustment_factor"], errors="raise"
+    )
+    return frame[list(PROVIDER_ADJUSTMENT_COLUMNS)]
+
+
+def _split_ratio(value: float, tolerance: float = 0.001) -> float | None:
+    """``value`` as a ratio of two whole numbers up to 100, when it is one."""
+    for denominator in range(1, 101):
+        numerator = round(value * denominator)
+        if 1 <= numerator <= 100 and abs(numerator / denominator / value - 1) <= tolerance:
+            return numerator / denominator
+    return None
+
+
+def _stored_units_factor(
+    known: pd.DataFrame | None, dates: pd.Series
+) -> pd.Series:
+    """Factor that converts stored closes on ``dates`` to current units."""
+    factor = pd.Series(1.0, index=dates.index)
+    if known is None or known.empty:
+        return factor
+    for action in known.itertuples(index=False):
+        factor.loc[dates.lt(action.split_date)] *= float(
+            action.confirmed_adjustment_factor
+        )
+    return factor
+
+
+def reconcile_provider_history(
+    stored: pd.DataFrame,
+    fetched: pd.DataFrame,
+    known: pd.DataFrame | None = None,
+) -> dict:
+    """Compare stored sessions with the provider's current history of them.
+
+    ``CONSISTENT`` when every re-requested close matches; ``ADJUSTED`` when
+    the provider rescaled a leading run of sessions by one factor and matches
+    after it (``boundary`` is the first matching stored session, or None when
+    the whole overlap is rescaled and the boundary is the first new session);
+    ``CONSISTENT_WITH_REVISIONS`` when isolated past closes were corrected;
+    ``NO_OVERLAP`` when no stored session came back; otherwise ``MISMATCH``.
+    ``known`` holds rescalings already recorded for this stock.
+    """
+    last = pd.Timestamp(stored["date"].max())
+    overlap = (
+        stored[["date", "close"]]
+        .merge(
+            fetched.loc[fetched["date"].le(last), ["date", "close"]],
+            on="date",
+            suffixes=("_stored", "_provider"),
+        )
+        .dropna()
+    )
+    overlap = overlap.loc[
+        overlap["close_stored"].gt(0) & overlap["close_provider"].gt(0)
+    ].sort_values("date", ignore_index=True)
+    if overlap.empty:
+        return {"status": "NO_OVERLAP", "overlap_sessions": 0}
+    ratio = overlap["close_provider"] / (
+        overlap["close_stored"] * _stored_units_factor(known, overlap["date"])
+    )
+    unit = (ratio - 1.0).abs().le(PROVIDER_RATIO_TOLERANCE)
+    tail = 0
+    for matches in reversed(unit.tolist()):
+        if not matches:
+            break
+        tail += 1
+    head = ratio.iloc[: len(ratio) - tail]
+    summary = {
+        "overlap_sessions": int(len(ratio)),
+        "overlap_first": f"{overlap['date'].iloc[0]:%Y-%m-%d}",
+        "overlap_last": f"{overlap['date'].iloc[-1]:%Y-%m-%d}",
+        "matching_sessions": int(unit.sum()),
+    }
+    if head.empty:
+        return {"status": "CONSISTENT", **summary}
+    factor = float(head.median())
+    spread = float((head / factor - 1.0).abs().max())
+    split_ratio = _split_ratio(factor)
+    if (
+        spread <= PROVIDER_RATIO_TOLERANCE
+        and abs(factor - 1.0) > PROVIDER_MINIMUM_ADJUSTMENT
+        and (len(head) >= PROVIDER_MINIMUM_SESSIONS or split_ratio is not None)
+    ):
+        return {
+            "status": "ADJUSTED",
+            "factor": split_ratio if split_ratio is not None else factor,
+            "measured_factor": factor,
+            "ratio_spread": spread,
+            "rescaled_sessions": int(len(head)),
+            "boundary": (
+                f"{overlap['date'].iloc[len(head)]:%Y-%m-%d}" if tail else None
+            ),
+            **summary,
+        }
+    if tail >= PROVIDER_MINIMUM_SESSIONS and unit.mean() >= 0.8:
+        return {
+            "status": "CONSISTENT_WITH_REVISIONS",
+            "revised_sessions": int((~unit).sum()),
+            **summary,
+        }
+    return {"status": "MISMATCH", "median_ratio": factor, "ratio_spread": spread, **summary}
+
+
+def update_ticker(
+    ticker: str,
+    end: date,
+    price_dir: Path,
+    known_adjustments: pd.DataFrame | None = None,
+) -> dict:
+    """Append the sessions after a stored file's last date.
+
+    The last ``RECONCILE_OVERLAP_DAYS`` of stored history are requested again
+    and compared with the provider's current history.  Stored rows are never
+    rewritten: a provider rescaling (a split) is returned as a
+    ``provider_adjustment`` row for the caller to record, and a history that
+    no longer matches in any consistent way is refused.
+    """
     path = price_dir / f"{ticker.lower()}.csv"
-    if path.exists():
-        old = pd.read_csv(path, usecols=["date"], parse_dates=["date"])
-        start = old["date"].max().date() + timedelta(days=1)
-    else:
+    if not path.exists():
         # Enough history for long trend/momentum features, while also covering
         # stocks omitted from the old snapshot and subsequent IPOs.
-        start = date(2020, 1, 1)
+        data = fetch_history(ticker, date(2020, 1, 1), end)
+        rows = _atomic_merge(path, data, ticker)
+        return {"ticker": ticker, "status": "updated" if rows else "no_data", "rows": rows}
+    stored = pd.read_csv(path, usecols=["date", "close"], parse_dates=["date"])
+    last = pd.Timestamp(stored["date"].max())
+    start = last.date() + timedelta(days=1)
     if start > end:
         return {"ticker": ticker, "status": "current", "rows": 0}
-    data = fetch_history(ticker, start, end)
-    rows = _atomic_merge(path, data, ticker)
-    return {"ticker": ticker, "status": "updated" if rows else "no_data", "rows": rows}
+    fetched = fetch_history(
+        ticker, start - timedelta(days=RECONCILE_OVERLAP_DAYS), end
+    )
+    known = None
+    if known_adjustments is not None and len(known_adjustments):
+        known = known_adjustments.loc[
+            known_adjustments["ticker"].astype(str).str.upper().eq(ticker.upper())
+        ]
+    reconciliation = reconcile_provider_history(stored, fetched, known)
+    if reconciliation["status"] == "MISMATCH":
+        raise RuntimeError(
+            f"{ticker}: the provider's history no longer matches the stored "
+            f"sessions {reconciliation['overlap_first']}.."
+            f"{reconciliation['overlap_last']} (median ratio "
+            f"{reconciliation['median_ratio']:.6f}); nothing was appended"
+        )
+    new_rows = fetched.loc[fetched["date"].gt(last)].copy()
+    adjustment = None
+    if reconciliation["status"] == "ADJUSTED":
+        boundary = reconciliation["boundary"]
+        if boundary is None and not new_rows.empty:
+            boundary = f"{new_rows['date'].min():%Y-%m-%d}"
+        if boundary is None:
+            # Rescaled, but no later session yet to put the boundary on.
+            return {
+                "ticker": ticker, "status": "no_data", "rows": 0,
+                "reconciliation": {**reconciliation, "status": "ADJUSTMENT_PENDING"},
+            }
+        combined = pd.concat([stored, new_rows[["date", "close"]]]).drop_duplicates(
+            "date", keep="first"
+        ).set_index("date")["close"].sort_index()
+        position = combined.index.get_loc(pd.Timestamp(boundary))
+        adjustment = {
+            "ticker": ticker.upper(),
+            "split_date": boundary,
+            "raw_price_ratio": (
+                float(combined.iloc[position] / combined.iloc[position - 1])
+                if position > 0 else float("nan")
+            ),
+            "matched_factor": reconciliation["factor"],
+            "validation_status": "CONFIRMED",
+            "confirmed_action_type": PROVIDER_ADJUSTMENT_TYPE,
+            # The action took effect on or after the boundary; returns and
+            # the as-of nominal price do not need the exact date.
+            "confirmed_action_date": boundary,
+            "confirmed_adjustment_factor": reconciliation["factor"],
+            "primary_source": "nasdaq_history_overlap",
+            "overlap_sessions": reconciliation["overlap_sessions"],
+            "overlap_first": reconciliation["overlap_first"],
+            "overlap_last": reconciliation["overlap_last"],
+            "ratio_spread": reconciliation["ratio_spread"],
+            "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    rows = _atomic_merge(path, new_rows, ticker)
+    return {
+        "ticker": ticker,
+        "status": "updated" if rows else "no_data",
+        "rows": rows,
+        "reconciliation": reconciliation,
+        "provider_adjustment": adjustment,
+    }
+
+
+def record_provider_adjustments(path: str | Path, rows: list[dict]) -> list[dict]:
+    """Append new provider rescalings; a stock and boundary are recorded once."""
+    path = Path(path)
+    existing = load_provider_adjustments(path)
+    known = set(zip(existing["ticker"], existing["split_date"]))
+    new = [
+        row for row in rows
+        if (row["ticker"], pd.Timestamp(row["split_date"]).normalize()) not in known
+    ]
+    if not new:
+        return []
+    frame = pd.DataFrame(new, columns=list(PROVIDER_ADJUSTMENT_COLUMNS))
+    if len(existing):
+        frame = pd.concat([existing, frame], ignore_index=True)
+    for column in ("split_date", "confirmed_action_date"):
+        frame[column] = pd.to_datetime(frame[column]).dt.strftime("%Y-%m-%d")
+    frame = frame.sort_values(["split_date", "ticker"], kind="stable")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    frame.to_csv(temporary, index=False)
+    os.replace(temporary, path)
+    return new
 
 
 def update_all(
@@ -981,10 +1238,14 @@ def update_all(
     )
     if limit is not None:
         requested = requested[:limit]
+    adjustments_path = provider_adjustments_path(price_dir)
+    known_adjustments = load_provider_adjustments(adjustments_path)
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
-            pool.submit(update_ticker, ticker, end, price_dir): ticker
+            pool.submit(
+                update_ticker, ticker, end, price_dir, known_adjustments
+            ): ticker
             for ticker in requested
         }
         for future in as_completed(futures):
@@ -1005,7 +1266,9 @@ def update_all(
         recovered = []
         with ThreadPoolExecutor(max_workers=min(4, workers)) as pool:
             futures = {
-                pool.submit(update_ticker, ticker, end, price_dir): ticker
+                pool.submit(
+                    update_ticker, ticker, end, price_dir, known_adjustments
+                ): ticker
                 for ticker in failed_tickers
             }
             for future in as_completed(futures):
@@ -1031,7 +1294,15 @@ def update_all(
         index_data["change_rate"] = index_data["close"].pct_change()
         _atomic_merge(index_path, index_data)
 
+    recorded = record_provider_adjustments(
+        adjustments_path,
+        [item["provider_adjustment"] for item in results if item.get("provider_adjustment")],
+    )
     counts = pd.Series([item["status"] for item in results]).value_counts().to_dict()
+    reconciliation = pd.Series([
+        (item.get("reconciliation") or {}).get("status", "NOT_CHECKED")
+        for item in results
+    ]).value_counts().to_dict()
     return {
         "end": end.isoformat(),
         "universe": universe,
@@ -1039,6 +1310,9 @@ def update_all(
         "requested_tickers": requested if targeted else None,
         "counts": counts,
         "failures": [x for x in results if x["status"] == "failed"],
+        "reconciliation_counts": reconciliation,
+        "provider_adjustments_path": str(adjustments_path),
+        "provider_adjustments_recorded": recorded,
     }
 
 

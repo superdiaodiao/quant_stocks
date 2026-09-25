@@ -190,11 +190,15 @@ def test_corporate_action_scan_flags_only_unreviewed_jumps(
         "validation_status": ["CONFIRMED_MARKET_MOVE"],
         "confirmed_adjustment_factor": [None],
     })
-    monkeypatch.setattr(rehearsal.v42, "_load_signal_inputs", lambda *_args: dict(inputs))
-    monkeypatch.setattr(rehearsal, "load_corporate_action_validation", lambda: validation)
     monkeypatch.setattr(
-        rehearsal, "corrected_price_views", lambda close, _validation: (close, close)
+        rehearsal.r3, "_live_validation", lambda **_kwargs: (validation, {"applied": []})
     )
+    monkeypatch.setattr(
+        rehearsal.r3, "_signal_inputs",
+        lambda _bundle, _as_of, _validation: {**inputs, "close": raw},
+    )
+    monkeypatch.setattr(rehearsal.r3, "_bundle_provider_adjustments", lambda _b: None)
+    monkeypatch.setattr(rehearsal.r3, "_bundle_supplement", lambda _b: None)
     monkeypatch.setattr(
         rehearsal, "large_liquid_ranking",
         lambda *_args: pd.DataFrame(index=["AAA", "BBB", "CCC"]),
@@ -204,4 +208,4 @@ def test_corporate_action_scan_flags_only_unreviewed_jumps(
 
     assert scan["ranked_liquid_pool"] == ["AAA", "BBB", "CCC"]
     assert [item["ticker"] for item in scan["unreviewed_split_like_jumps"]] == ["AAA"]
-    assert scan["unreviewed_split_like_jumps"][0]["matched_factor"] == 0.5
+    assert scan["unreviewed_split_like_jumps"][0]["reason"] == "COMMON_SPLIT_RATIO"

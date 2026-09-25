@@ -27,6 +27,7 @@ tests/test_nasdaq_listings_import.py
 tests/test_nasdaq_trader_file_import.py
 tests/test_non_common_security_evidence.py
 tests/test_para_psky_business_combination_evidence.py
+tests/test_prospective_replay_development.py
 tests/test_research_v14_adpt_preipo_quarters.py
 tests/test_research_v14_adus_pit_unrecoverable.py
 tests/test_research_v14_agnc_nonoperating_revenue.py

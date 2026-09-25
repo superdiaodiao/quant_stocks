@@ -848,3 +848,213 @@ def test_cli_writes_refuse_other_branches_but_status_reads_anywhere(
     monkeypatch.setattr(r3, "current_branch", lambda: r3.LIVE_BRANCH)
     monkeypatch.setattr(r3, "freeze_protocol", lambda: {"status": "FROZEN"})
     assert r3.main(["freeze-protocol"]) == 0
+
+
+# -- live SIGNAL inputs and readiness ----------------------------------------
+
+def _frozen_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "validation.csv"
+    pd.DataFrame([{
+        "ticker": "AAA", "split_date": "2026-07-21", "validation_status": "CONFIRMED",
+        "confirmed_action_type": "SPLIT", "confirmed_action_date": "2026-07-21",
+        "confirmed_adjustment_factor": 0.5,
+    }]).to_csv(path, index=False)
+    monkeypatch.setattr(r3, "VALIDATION_PATH", path)
+
+
+def _provider_rows(*rows: tuple[str, str, float]) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "ticker": ticker, "split_date": pd.Timestamp(session),
+        "raw_price_ratio": factor, "matched_factor": factor,
+        "validation_status": "CONFIRMED",
+        "confirmed_action_type": "PROVIDER_ADJUSTMENT_DISCONTINUITY",
+        "confirmed_action_date": pd.Timestamp(session),
+        "confirmed_adjustment_factor": factor,
+        "primary_source": "nasdaq_history_overlap", "overlap_sessions": 19,
+        "overlap_first": "2026-06-22", "overlap_last": "2026-07-20",
+        "ratio_spread": 0.0, "recorded_at": "2026-09-30T21:00:00+00:00",
+    } for ticker, session, factor in rows])
+
+
+def test_live_validation_adds_provider_rescalings_without_overriding_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _frozen_table(tmp_path, monkeypatch)
+    provider = _provider_rows(
+        ("AAA", "2026-07-21", 0.5), ("BBB", "2026-10-20", 2 / 3),
+        ("CCC", "2026-10-14", 0.5),
+    )
+
+    validation, audit = r3._live_validation(
+        provider=provider, ignore_provider_through=pd.Timestamp("2026-10-14")
+    )
+
+    assert sorted(zip(validation["ticker"], validation["split_date"].dt.strftime("%m-%d"))) == [
+        ("AAA", "07-21"), ("BBB", "10-20"),
+    ]
+    assert [row["ticker"] for row in audit["provider_adjustments_applied"]] == ["BBB"]
+    assert {row["ticker"]: row["reason"] for row in audit["provider_adjustments_ignored"]} == {
+        "AAA": "an adjudicated event covers it",
+        "CCC": "measured after its session was valued",
+    }
+
+
+def test_identity_breaks_keep_only_the_security_now_using_the_ticker() -> None:
+    dates = pd.bdate_range("2024-01-01", "2026-09-30")
+    raw = pd.DataFrame(index=dates, columns=["SPCX", "HALT", "PLAIN"], dtype=float)
+    raw.loc[:"2025-04-10", "SPCX"] = 23.0
+    raw.loc["2026-06-12":, "SPCX"] = 160.0
+    # A long halt that resumes near its old price is the same security.
+    raw.loc[:"2025-07-09", "HALT"] = 150.0
+    raw.loc["2026-04-17":, "HALT"] = 170.0
+    raw["PLAIN"] = 50.0
+
+    assert r3.identity_breaks(raw) == {"SPCX": pd.Timestamp("2026-06-12")}
+
+
+def test_signal_inputs_drop_a_reused_ticker_until_it_has_its_own_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _frozen_table(tmp_path, monkeypatch)
+    dates = pd.bdate_range("2024-08-01", "2026-09-30")
+    raw = pd.DataFrame({"SPCX": 23.0, "PLAIN": 50.0}, index=dates)
+    raw.loc["2025-04-11":"2026-06-11", "SPCX"] = float("nan")
+    raw.loc["2026-06-12":, "SPCX"] = 160.0
+    monkeypatch.setattr(r3.v42, "_load_signal_inputs", lambda *_args: {
+        "raw_close": raw.copy(), "dollar_volume": raw * 1e6,
+    })
+
+    inputs = r3._signal_inputs(tmp_path, dates[-1], r3._live_validation()[0])
+
+    assert inputs["identity_breaks"] == {"SPCX": "2026-06-12"}
+    assert inputs["raw_close"]["SPCX"].isna().all()
+    assert inputs["dollar_volume"]["SPCX"].isna().all()
+    assert inputs["raw_close"]["PLAIN"].notna().all()
+
+
+def _readiness_inputs(dates, raw, liquidity):
+    return {
+        "raw_close": raw,
+        "close": raw,
+        "dollar_volume": pd.DataFrame(liquidity, index=dates),
+        "nasdaq": pd.Series(range(1, len(dates) + 1), index=dates, dtype=float),
+        "universe": lambda _as_of: set(raw.columns),
+    }
+
+
+@pytest.fixture
+def readiness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    _frozen_table(tmp_path, monkeypatch)
+    dates = pd.bdate_range("2025-09-01", periods=260)
+    raw = pd.DataFrame(100.0, index=dates, columns=["POOL", "NEAR", "SMALL"])
+    liquidity = {"POOL": 1e9, "NEAR": 9e8, "SMALL": 1e7}
+    state = {"dates": dates, "raw": raw, "liquidity": liquidity, "bundle": tmp_path}
+    monkeypatch.setattr(
+        r3, "_signal_inputs",
+        lambda _bundle, _stamp, validation: _readiness_inputs(
+            dates, state["raw"], state["liquidity"]
+        ),
+    )
+    monkeypatch.setattr(
+        r3.corrected_stock_policy, "large_liquid_ranking",
+        lambda *_args: pd.DataFrame({"median_dollar_volume_50d": [1e9]}, index=["POOL"]),
+    )
+    monkeypatch.setattr(r3, "_selected_model", lambda: {"selector_specification": {
+        "liquid_pool_size": 1, "lookback_sessions": 63,
+    }})
+    return state
+
+
+def test_signal_readiness_passes_complete_candidates(readiness) -> None:
+    gates, details = r3._signal_readiness(readiness["bundle"], readiness["dates"][-1])
+    assert all(gates.values())
+    # A stock far less liquid than the pool cannot enter it and is not checked.
+    assert details["candidate_count"] == 2
+
+
+def test_signal_readiness_refuses_a_candidate_without_its_as_of_close(readiness) -> None:
+    readiness["raw"].loc[readiness["dates"][-1], "NEAR"] = float("nan")
+    readiness["raw"].loc[readiness["dates"][-1], "SMALL"] = float("nan")
+
+    gates, details = r3._signal_readiness(readiness["bundle"], readiness["dates"][-1])
+
+    assert gates["pool_candidates_priced_at_as_of"] is False
+    assert details["candidates_without_as_of_close"] == ["NEAR"]
+
+
+def test_signal_readiness_refuses_a_hole_at_the_momentum_start(readiness) -> None:
+    start = readiness["dates"][-1 - 63]
+    readiness["raw"].loc[start, "NEAR"] = float("nan")
+
+    gates, details = r3._signal_readiness(readiness["bundle"], readiness["dates"][-1])
+
+    assert gates["pool_candidates_have_momentum_start_close"] is False
+    assert details["candidates_without_momentum_start_close"] == ["NEAR"]
+
+
+def test_signal_readiness_needs_every_split_like_move_explained(readiness) -> None:
+    session = readiness["dates"][-20]
+    readiness["raw"].loc[session:, "NEAR"] = 52.0
+
+    gates, details = r3._signal_readiness(readiness["bundle"], readiness["dates"][-1])
+    assert gates["pool_candidates_split_like_moves_explained"] is False
+    assert [row["ticker"] for row in details["unexplained_split_like_moves"]] == ["NEAR"]
+
+    # The provider's own rescaling, recorded by the price update, explains it.
+    _provider_rows(("NEAR", f"{session:%Y-%m-%d}", 0.52)).to_csv(
+        readiness["bundle"] / r3.PROVIDER_ADJUSTMENTS_NAME, index=False
+    )
+    gates, _details = r3._signal_readiness(readiness["bundle"], readiness["dates"][-1])
+    assert all(gates.values())
+
+
+def test_signal_readiness_does_not_gate_a_cash_month(readiness) -> None:
+    readiness["raw"].loc[readiness["dates"][-1], "NEAR"] = float("nan")
+    dates = readiness["dates"]
+    falling = pd.Series(range(len(dates), 0, -1), index=dates, dtype=float)
+
+    def inputs(_bundle, _stamp, _validation):
+        frame = _readiness_inputs(dates, readiness["raw"], readiness["liquidity"])
+        frame["nasdaq"] = falling
+        return frame
+
+    r3_signal_inputs = r3._signal_inputs
+    try:
+        r3._signal_inputs = inputs
+        gates, details = r3._signal_readiness(readiness["bundle"], dates[-1])
+    finally:
+        r3._signal_inputs = r3_signal_inputs
+    assert all(gates.values()) and details["market_regime_on"] is False
+
+
+def test_a_signal_build_that_fails_its_gates_is_removed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    build = tmp_path / "work" / "bundle_builds" / "2026-09-30_signal"
+
+    def v42_stage(**_kwargs):
+        build.mkdir(parents=True)
+        (build / "bundle_manifest.json").write_text(json.dumps({
+            "files": {}, "readiness_gates": {"required_prices_exact_at_least_98pct": True},
+        }), encoding="utf-8")
+        return {"bundle": str(build)}
+
+    monkeypatch.setattr(r3, "V42_STAGE_BUNDLE", v42_stage)
+    monkeypatch.setattr(r3, "_signal_readiness", lambda *_args: (
+        {"pool_candidates_priced_at_as_of": False},
+        {"candidates_without_as_of_close": ["OKTA"]},
+    ))
+    with pytest.raises(RuntimeError, match="OKTA"):
+        r3._stage_v42_bundle(
+            as_of="2026-09-30", purpose="SIGNAL", work_dir=tmp_path / "work",
+        )
+    assert not build.exists()
+
+
+def test_the_runtime_uses_the_latest_four_quarter_profit_rule() -> None:
+    original = r3.v24._profitable_symbols
+    with r3._runtime():
+        assert r3.v24._profitable_symbols is r3._live_profitable_symbols
+        assert r3.v42.stage_bundle is r3._stage_v42_bundle
+    assert r3.v24._profitable_symbols is original
+    assert r3.v42.stage_bundle is r3.V42_STAGE_BUNDLE

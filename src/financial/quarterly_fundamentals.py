@@ -354,3 +354,58 @@ def quarterly_growth_snapshot(
         result = result.loc[~newer_profit.fillna(False)]
     cache[cache_key] = result.copy()
     return result
+
+
+def latest_four_quarter_profit(
+    fundamentals: pd.DataFrame,
+    as_of: pd.Timestamp,
+    maximum_age_days: int = 550,
+) -> pd.DataFrame:
+    """Net income over each company's latest four fiscal quarters.
+
+    Only facts filed on or before ``as_of`` count, each quarter at its latest
+    filed value.  The four quarters are the latest known ones and must be
+    consecutive: 70-125 days apart (a 52/53-week year has 16-week quarters)
+    and 250-310 days from the first quarter end to the last.  An older
+    complete window never stands in for them, and revenue is not required.  The latest quarter must have been
+    first reported within ``maximum_age_days``; a later filing that repeats it
+    as a comparative does not refresh it.  A company that fails any of this
+    is absent, which a profitability filter reads as not profitable.
+    """
+    as_of = pd.Timestamp(as_of).normalize()
+    columns = ["fiscal_end", "first_reported", "financial_age_days", "net_income_ttm"]
+    known = fundamentals.loc[
+        fundamentals["available_date"].le(as_of)
+        & fundamentals["metric"].eq("net_income")
+    ]
+    if known.empty:
+        return pd.DataFrame(columns=columns).rename_axis("ticker")
+    first_reported = known.groupby(["ticker", "fiscal_end"])["available_date"].min()
+    values = (
+        known.sort_values("available_date", kind="stable")
+        .drop_duplicates(["ticker", "fiscal_end"], keep="last")
+        .sort_values(["ticker", "fiscal_end"], kind="stable")
+    )
+    rows = {}
+    for ticker, group in values.groupby("ticker", sort=False):
+        window = group.tail(4)
+        if len(window) < 4:
+            continue
+        gaps = window["fiscal_end"].diff().dt.days.iloc[1:]
+        span = (window["fiscal_end"].iloc[-1] - window["fiscal_end"].iloc[0]).days
+        if not gaps.between(70, 125).all() or not 250 <= span <= 310:
+            continue
+        latest = pd.Timestamp(window["fiscal_end"].iloc[-1])
+        reported = pd.Timestamp(first_reported.loc[(ticker, latest)])
+        age = int((as_of - reported).days)
+        if not 0 <= age <= maximum_age_days:
+            continue
+        rows[ticker] = {
+            "fiscal_end": latest,
+            "first_reported": reported,
+            "financial_age_days": age,
+            "net_income_ttm": float(window["value"].sum()),
+        }
+    return pd.DataFrame.from_dict(rows, orient="index", columns=columns).rename_axis(
+        "ticker"
+    )
