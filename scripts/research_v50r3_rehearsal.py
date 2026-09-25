@@ -217,7 +217,7 @@ def ranked_pool_corporate_actions(bundle: Path, as_of: pd.Timestamp) -> dict:
     window_start = close.index[max(0, position - relevant)]
     moves = marks.unexplained_moves(
         inputs["raw_close"], validation, pool, r3.review_start(validation, window_start),
-        as_of,
+        as_of, inputs.get("dollar_volume"),
     )
     return {
         "ranked_liquid_pool": pool,

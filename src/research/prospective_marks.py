@@ -59,6 +59,13 @@ LARGE_MOVE_HIGH = 1.40
 # A recorded split's factor may differ from the stored jump by the real move
 # of its day, up to this fraction.
 SPLIT_DAY_MOVE_LIMIT = 0.30
+# A split changes the price unit, not the value traded: dollar volume (close x
+# volume) stays near its usual level.  A real move this large comes with
+# extraordinary trading (MRNA's +177% on 2026-08-19 traded 128 times its usual
+# dollar volume), so a move whose dollar volume exceeds this multiple of the
+# median of its previous sessions is not reviewed as a possible split.
+QUIET_VOLUME_MULTIPLE = 5.0
+VOLUME_BASELINE_SESSIONS = 20
 
 Window = tuple[pd.Timestamp, pd.Timestamp]
 
@@ -393,13 +400,17 @@ def split_like_moves(
     tickers=None,
     start: str | pd.Timestamp | None = None,
     end: str | pd.Timestamp | None = None,
+    dollar_volume: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Raw one-session moves a split could explain, dated by their session.
 
     ``reason`` is ``COMMON_SPLIT_RATIO`` for a ratio within JUMP_TOLERANCE of a
     whole split factor and ``LARGE_MOVE`` for any ratio at or beyond
     LARGE_MOVE_LOW / LARGE_MOVE_HIGH.  Sessions without a close are skipped,
-    so a move across a gap is dated at the session trading resumed.
+    so a move across a gap is dated at the session trading resumed.  With
+    ``dollar_volume``, a move traded at more than QUIET_VOLUME_MULTIPLE times
+    the median dollar volume of its previous VOLUME_BASELINE_SESSIONS sessions
+    is a real move, not a possible split.
     """
     columns = list(raw_close.columns)
     if tickers is not None:
@@ -432,6 +443,21 @@ def split_like_moves(
         list(found.values()),
         columns=["ticker", "split_date", "raw_price_ratio", "reason"],
     )
+    if dollar_volume is not None and len(result):
+        columns_by_name = {str(column).upper(): column for column in dollar_volume.columns}
+        multiples = []
+        for row in result.itertuples(index=False):
+            column = columns_by_name.get(row.ticker)
+            multiple = float("nan")
+            if column is not None:
+                series = dollar_volume[column].loc[: row.split_date].dropna()
+                if len(series) and series.index[-1] == row.split_date:
+                    baseline = series.iloc[:-1].tail(VOLUME_BASELINE_SESSIONS).median()
+                    if pd.notna(baseline) and baseline > 0:
+                        multiple = float(series.iloc[-1] / baseline)
+            multiples.append(multiple)
+        result["dollar_volume_multiple"] = multiples
+        result = result.loc[~result["dollar_volume_multiple"].gt(QUIET_VOLUME_MULTIPLE)]
     if start is not None:
         result = result.loc[result["split_date"].ge(pd.Timestamp(start).normalize())]
     if end is not None:
@@ -445,9 +471,10 @@ def unexplained_moves(
     tickers=None,
     start: str | pd.Timestamp | None = None,
     end: str | pd.Timestamp | None = None,
+    dollar_volume: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Split-like moves without a resolved event on the same stock and session."""
-    moves = split_like_moves(raw_close, tickers, start, end)
+    moves = split_like_moves(raw_close, tickers, start, end, dollar_volume)
     if moves.empty:
         return moves
     resolved = validation.loc[

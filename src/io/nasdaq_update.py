@@ -961,6 +961,10 @@ PROVIDER_RATIO_TOLERANCE = 0.005
 PROVIDER_MINIMUM_ADJUSTMENT = 0.02
 # Fewer rescaled sessions than this count only when the factor is a split ratio.
 PROVIDER_MINIMUM_SESSIONS = 5
+# Nasdaq throttles in episodes: on 2026-09-25 ten tickers in one alphabetical
+# stretch (NWGL..OVBC) failed both the main pass and the immediate retry.
+# Failures left after those get one-at-a-time retries after these pauses.
+FINAL_RETRY_PAUSES_SECONDS = (30, 90)
 
 
 def provider_adjustments_path(price_dir: str | Path) -> Path:
@@ -1285,6 +1289,18 @@ def update_all(
             if item["status"] == "failed" else item
             for item in results
         ]
+        for pause in FINAL_RETRY_PAUSES_SECONDS:
+            remaining = [item["ticker"] for item in results if item["status"] == "failed"]
+            if not remaining:
+                break
+            time.sleep(pause)
+            retried = {}
+            for ticker in remaining:
+                try:
+                    retried[ticker] = update_ticker(ticker, end, price_dir, known_adjustments)
+                except Exception as exc:
+                    retried[ticker] = {"ticker": ticker, "status": "failed", "error": str(exc)}
+            results = [retried.get(item["ticker"], item) for item in results]
 
     index_path = Path(index_path or NASDAQ_INDEX_FILE)
     index_old = pd.read_csv(index_path, parse_dates=["date"])

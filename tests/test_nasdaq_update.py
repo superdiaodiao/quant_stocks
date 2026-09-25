@@ -184,6 +184,33 @@ def test_full_update_retries_only_failed_tickers_at_lower_concurrency(
     assert result["failures"] == []
 
 
+def test_a_throttling_episode_gets_paused_one_at_a_time_retries(
+    tmp_path, monkeypatch
+):
+    _configure_partial_update(tmp_path, monkeypatch)
+    attempts = {"ABC": 0, "DEF": 0}
+    pauses = []
+
+    def fake_update(ticker, _end, _price_dir, _known=None):
+        attempts[ticker] += 1
+        # DEF stays throttled through the main pass, the immediate retry and
+        # the first paused retry.
+        if ticker == "DEF" and attempts[ticker] <= 3:
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        return {"ticker": ticker, "status": "current", "rows": 0}
+
+    monkeypatch.setattr(nasdaq_update, "update_ticker", fake_update)
+    monkeypatch.setattr(nasdaq_update.time, "sleep", pauses.append)
+
+    result = nasdaq_update.update_all(
+        date(2026, 7, 29), workers=8, tickers=["ABC", "DEF"],
+    )
+
+    assert attempts == {"ABC": 1, "DEF": 4}
+    assert pauses == [2, *nasdaq_update.FINAL_RETRY_PAUSES_SECONDS]
+    assert result["failures"] == []
+
+
 def test_history_requests_bypass_nasdaqs_per_query_cache(monkeypatch) -> None:
     urls = []
     payload = {"data": {"tradesTable": {"rows": [

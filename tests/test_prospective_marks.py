@@ -239,3 +239,19 @@ def test_unexplained_moves_drop_those_a_resolved_event_explains() -> None:
     left = marks.unexplained_moves(raw, validation)
 
     assert left["ticker"].tolist() == ["BBB"]
+
+
+def test_a_move_with_extraordinary_dollar_volume_is_not_a_possible_split() -> None:
+    dates = pd.bdate_range("2026-07-01", periods=25)
+    raw = pd.DataFrame({"REAL": 60.0, "SPLIT": 100.0}, index=dates)
+    raw.loc[dates[-3]:, "REAL"] = 170.0      # +183% on news
+    raw.loc[dates[-3]:, "SPLIT"] = 52.0      # 2:1 on a +4% day
+    dollar_volume = pd.DataFrame({"REAL": 3e8, "SPLIT": 5e8}, index=dates)
+    dollar_volume.loc[dates[-3], "REAL"] = 3.5e10
+    dollar_volume.loc[dates[-3], "SPLIT"] = 1e9
+
+    moves = marks.split_like_moves(raw, dollar_volume=dollar_volume)
+
+    assert moves["ticker"].tolist() == ["SPLIT"]
+    assert moves["dollar_volume_multiple"].tolist() == [2.0]
+    assert set(marks.split_like_moves(raw)["ticker"]) == {"REAL", "SPLIT"}

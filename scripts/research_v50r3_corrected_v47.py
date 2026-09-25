@@ -715,7 +715,9 @@ def _signal_readiness(bundle: Path, stamp: pd.Timestamp) -> tuple[dict, dict]:
                 missing_start.append(ticker)
     window = close.index[max(0, position - max(lookback, v24.STOCK_MA_DAYS - 1))]
     reviewed_from = review_start(validation, window)
-    moves = marks.unexplained_moves(raw, validation, candidates, reviewed_from, stamp)
+    moves = marks.unexplained_moves(
+        raw, validation, candidates, reviewed_from, stamp, inputs["dollar_volume"]
+    )
     gates.update({
         "pool_candidates_priced_at_as_of": not missing_as_of,
         "pool_candidates_have_momentum_start_close": not missing_start,
@@ -1678,10 +1680,12 @@ def freeze_protocol(
                 "after the frozen table's last reviewed date, a raw one-session "
                 f"ratio at or below {marks.LARGE_MOVE_LOW} or at or above "
                 f"{marks.LARGE_MOVE_HIGH}, or within {marks.JUMP_TOLERANCE:.1%} of a "
-                "whole split factor, must be explained by a confirmed action, a "
-                "measured provider rescaling or a sourced event before a selection "
-                "or a valuation uses it; earlier sessions keep the frozen table's "
-                "adjudication"
+                "whole split factor, on a session whose dollar volume is at most "
+                f"{marks.QUIET_VOLUME_MULTIPLE:g}x the median of its previous "
+                f"{marks.VOLUME_BASELINE_SESSIONS} sessions, must be explained by a "
+                "confirmed action, a measured provider rescaling or a sourced event "
+                "before a selection or a valuation uses it; earlier sessions keep "
+                "the frozen table's adjudication"
             ),
             "sourced_events_apply_to_signals": True,
             "reused_tickers": (
@@ -2031,6 +2035,11 @@ def _load_mark_market(
     raw_close, nasdaq, qqq = V42_LOAD_MARK_MARKET(bundle, as_of)
     _MARK_CONTEXT["provider_adjustments"] = _bundle_provider_adjustments(bundle)
     start = v42.FIRST_PROSPECTIVE_SIGNAL_DATE - pd.Timedelta(days=400)
+    # The split review tells a split from a real move by its dollar volume.
+    _panel, dollar_volume = v42.load_panel(
+        Path(bundle) / "prices", f"{start:%Y-%m-%d}", f"{as_of:%Y-%m-%d}"
+    )
+    _MARK_CONTEXT["dollar_volume"] = dollar_volume
     sessions = nasdaq.index[(nasdaq.index >= start) & (nasdaq.index <= as_of)]
     # An empty panel has a plain Index; keep the union a DatetimeIndex.
     dates = pd.DatetimeIndex(raw_close.index).union(pd.DatetimeIndex(sessions))
@@ -2155,7 +2164,8 @@ def _mark_replay(
             ].astype(str)
         )
         events = marks.unexplained_moves(
-            raw_close.loc[:end], validation, symbols, review_start(validation, start), end
+            raw_close.loc[:end], validation, symbols, review_start(validation, start), end,
+            _MARK_CONTEXT.get("dollar_volume"),
         )
         if events.empty:
             return events
