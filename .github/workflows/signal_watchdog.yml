@@ -50,3 +50,9 @@ jobs:
     - name: Check whether a SIGNAL or MARK is due or was missed
       run: |
         PYTHONPATH=. python scripts/research_v50r3_scheduled_run.py check
+
+    - name: Check that the marks keep up
+      run: |
+        # The scheduler ends a run whose closes are not published yet with a
+        # warning; this fails once the marks fall more than two sessions behind.
+        PYTHONPATH=. python scripts/v50r3_mark_freshness.py
