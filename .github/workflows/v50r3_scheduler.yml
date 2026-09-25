@@ -18,8 +18,9 @@ name: v50r3 scheduler
 # Before the freeze live/v50r3 does not exist and the job skips. Nasdaq
 # publishes a session's rows four to five hours after the close; until then a
 # due SIGNAL or MARK is skipped with a notice (scripts/v50r3_sources_ready.py),
-# and a close still missing after that ends a run with a warning; the next run
-# retries. A split-like move that needs a sourced event, a run while a missed
+# and a close still missing after that ends a run with a warning; a SIGNAL
+# queues its retry at once with a workflow_dispatch, a MARK waits for the next
+# scheduled run. A split-like move that needs a sourced event, a run while a missed
 # month is still owed (exit 2), or any other error fails the job, which GitHub
 # reports to the repository owner; between runs the "v50r3 signal watchdog"
 # keeps reporting a month that is owed.
@@ -31,6 +32,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -114,6 +116,10 @@ jobs:
 
     - name: Run the due SIGNAL or MARK
       if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      env:
+        ACTION: ${{ steps.due.outputs.action }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -133,7 +139,13 @@ jobs:
         # sourced event, or anything else, fails the job.
         if grep -Eq "is not ready|Retry once the closes are published|official index market is not closed" run.log \
             && ! grep -Eq "split_like_moves_explained|Unresolved corporate action" run.log; then
-          echo "::warning::Inputs are not ready yet; the next scheduled run retries."
+          echo "::warning::Inputs are not ready yet; a later run retries."
+          if [ "$ACTION" = "RUN_SIGNAL" ]; then
+            # Scheduled runs start late and irregularly here, and the window
+            # has room for few attempts: queue the retry now.
+            gh workflow run v50r3_scheduler.yml --ref master \
+              || echo "::warning::Could not queue a retry; a scheduled run retries."
+          fi
           exit 0
         fi
         exit "$code"
