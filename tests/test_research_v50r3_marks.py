@@ -296,6 +296,32 @@ def test_all_cash_month_is_marked_against_the_benchmark(world: World) -> None:
     assert manifest["mark_exposure"]["closes_required"] == []
 
 
+def test_catch_up_signals_are_marked_and_listed(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    # October's month-end window was missed; the 11-03 session caught it up.
+    world.freeze_signal("2026-11-03", ["QAAA", "QCCC"])
+    result = world.mark("2026-12-01")
+    assert result["first_execution_date"] == "2026-10-01"
+    assert result["catch_up_signals"] == [{
+        "signal_date": "2026-11-03",
+        "catch_up_for": "2026-10-30",
+        "execution_date": "2026-11-04",
+    }]
+    months = result["period_evaluation_50bps"]["complete_prospective_months"]
+    assert [row["period"] for row in months] == ["2026-10", "2026-11"]
+    assert result["complete_months_with_catch_up_rebalance"] == ["2026-11"]
+    [event] = [
+        event for event in v43.read_ledger(world.ledger)
+        if event["event_type"] == "VALUATION_APPENDED"
+    ]
+    assert event["payload"]["catch_up_signals"] == result["catch_up_signals"]
+    assert event["payload"]["complete_months_with_catch_up_rebalance"] == ["2026-11"]
+    # QBBB was held until the catch-up executed, then sold.
+    exposure = world.manifest("2026-12-01")["mark_exposure"]
+    assert exposure["targeted_tickers"] == ["QAAA", "QBBB", "QCCC"]
+    assert exposure["closes_required"] == ["QAAA", "QCCC"]
+
+
 def test_mark_refuses_dates_already_valued_and_sessions_only(world: World) -> None:
     world.freeze_signal("2026-09-30", ["QAAA"])
     world.mark("2026-10-02")

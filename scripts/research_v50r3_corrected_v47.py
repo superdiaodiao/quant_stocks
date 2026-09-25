@@ -47,7 +47,13 @@ Defects found before the first prospective signal:
   date, checks price events only inside holding windows, carries
   already-valued rows forward unchanged, values an all-cash month against the
   benchmark, and takes post-freeze splits, market moves and terminal returns
-  only from an append-only supplement of sourced events.
+  only from an append-only supplement of sourced events;
+* a missed SIGNAL window left the month without a signal: the previous
+  portfolio, or cash before the first signal, stayed in place until the next
+  month end.  r3 still never backfills the missed month-end date; it catches
+  the month up once, with a SIGNAL as of the latest completed session that is
+  staged and frozen inside that session's own window, before any trading of
+  its execution session, and records it as a catch-up.
 
 The observation runs from a pinned copy of the repository: a git worktree on
 the ``live/v50r3`` branch, which receives only the freeze commit and the
@@ -207,6 +213,10 @@ def runtime_repair_specification() -> dict:
             "official_close_plus_30_minutes_until_next_session_premarket_open"
         ),
         "signal_frozen_after_window_allowed": False,
+        "missed_signal_window": (
+            "one_catch_up_as_of_the_latest_completed_session_inside_its_own_"
+            "window_before_the_next_month_end"
+        ),
         "mark_procedure": MARK_PROCEDURE,
         "mark_closes_required": "stocks_held_into_or_bought_on_the_mark_date",
         "mark_price_events_checked": "inside_holding_windows_only",
@@ -267,6 +277,101 @@ def signal_dates(protocol: dict) -> tuple[pd.Timestamp, list[pd.Timestamp]]:
     if any(item >= first for item in missed):
         raise RuntimeError("v50r3 missed signal dates must precede the first signal")
     return first, missed
+
+
+def signal_role(
+    signal_date: str | pd.Timestamp, events: list[dict], first: pd.Timestamp
+) -> dict:
+    """Classify a SIGNAL date as its month's regular signal or a catch-up.
+
+    A month-end session is its own signal date.  Any other session can only
+    catch up the month end before it, and only while no signal for that
+    month end is frozen.  Timeliness is checked separately, against the
+    session's own window.
+    """
+    stamp = pd.Timestamp(signal_date).normalize()
+    if stamp < first:
+        raise RuntimeError(
+            f"v50r3 refuses a SIGNAL before its first date {first:%Y-%m-%d}"
+        )
+    if not schedule.is_session(stamp):
+        raise ValueError(f"{stamp:%Y-%m-%d} is not a Nasdaq session")
+    opens, closes = schedule.staging_window(stamp)
+    role = {"signal_window_utc": {"opens": _iso(opens), "closes": _iso(closes)}}
+    if schedule.is_month_end_session(stamp):
+        return {"signal_role": "REGULAR", **role}
+    missed = schedule.previous_month_end_session(stamp)
+    frozen_here = stamp in schedule.frozen_signal_dates(events)
+    if not frozen_here and missed in schedule.covered_signal_dates(events):
+        raise RuntimeError(
+            f"a signal for {missed:%Y-%m-%d} is already frozen; a catch-up as of "
+            f"{stamp:%Y-%m-%d} replaces only a missed month-end signal"
+        )
+    missed_opens, missed_closes = schedule.signal_window(missed)
+    return {
+        "signal_role": "CATCH_UP",
+        "catch_up_for": f"{missed:%Y-%m-%d}",
+        "missed_signal_window_utc": {
+            "opens": _iso(missed_opens),
+            "closes": _iso(missed_closes),
+        },
+        **role,
+    }
+
+
+def _calendar_role(signal_date: pd.Timestamp) -> dict:
+    """The role a signal date implies by the calendar alone."""
+    stamp = pd.Timestamp(signal_date).normalize()
+    covered = schedule.covered_month_end(stamp)
+    if covered == stamp:
+        return {"signal_role": "REGULAR"}
+    return {"signal_role": "CATCH_UP", "catch_up_for": f"{covered:%Y-%m-%d}"}
+
+
+def catch_up_signals(events: list[dict]) -> list[dict]:
+    """Frozen catch-up signals, with their execution dates once bound."""
+    executions = {
+        event["payload"]["signal_date"]: event["payload"]["execution_date"]
+        for event in events
+        if event["event_type"] == "EXECUTION_DATE_BOUND"
+    }
+    rows = []
+    for date in schedule.frozen_signal_dates(events):
+        role = _calendar_role(date)
+        if role["signal_role"] != "CATCH_UP":
+            continue
+        rows.append({
+            "signal_date": f"{date:%Y-%m-%d}",
+            "catch_up_for": role["catch_up_for"],
+            "execution_date": executions.get(f"{date:%Y-%m-%d}"),
+        })
+    return rows
+
+
+@contextmanager
+def signal_session(session: pd.Timestamp | None):
+    """Let the month-end-only v42/v43 signal code accept one other session.
+
+    The inherited stager and signal builder refuse any date but a month end.
+    r3 decides separately (``signal_role``) whether a catch-up is allowed and
+    lifts that refusal for exactly the one session being staged or frozen.
+    """
+    if session is None:
+        yield
+        return
+    session = pd.Timestamp(session).normalize()
+    original = v42._is_month_end_signal
+
+    def is_signal_session(signal_date) -> bool:
+        return pd.Timestamp(signal_date).normalize() == session or original(
+            signal_date
+        )
+
+    v42._is_month_end_signal = is_signal_session
+    try:
+        yield
+    finally:
+        v42._is_month_end_signal = original
 
 
 def _validated_protocol(
@@ -337,7 +442,9 @@ def _validated_bundle(
             raise RuntimeError(
                 "v50r3 refuses a SIGNAL bundle for a missed or pre-r3 date"
             )
-        opens, closes = schedule.signal_window(as_of)
+        # A month end's SIGNAL window is its staging window; a catch-up as of
+        # a later session uses that session's own window.
+        opens, closes = schedule.staging_window(as_of)
         if not opens <= created_at.tz_convert("UTC").to_pydatetime() < closes:
             raise RuntimeError(
                 "v50r3 SIGNAL bundle was not staged inside its SIGNAL window "
@@ -352,6 +459,7 @@ def _build_signal_payload(**kwargs) -> dict:
     payload["runtime_repair"] = runtime_repair_specification()
     payload["code_closure_sha256"] = kwargs["protocol"]["code_closure"]["sha256"]
     payload["runtime_environment"] = runtime_environment()
+    payload.update(_calendar_role(kwargs["signal_date"]))
     return payload
 
 
@@ -369,7 +477,7 @@ def _signal_staging_is_timely(
 ) -> bool:
     """Whether a SIGNAL for ``stamp`` may start staging at ``observed_at``."""
     observed = schedule.as_utc(observed_at or _utc_now())
-    opens, closes = schedule.signal_window(pd.Timestamp(stamp))
+    opens, closes = schedule.staging_window(pd.Timestamp(stamp))
     return opens <= observed < closes
 
 
@@ -453,7 +561,7 @@ def _refresh_fundamentals_isolated(
     stamp = pd.Timestamp(as_of).normalize()
     started = _utc_now()
     if _REFRESH_OPTIONS["enforce_signal_window"]:
-        _opens, closes = schedule.signal_window(stamp)
+        _opens, closes = schedule.staging_window(stamp)
         if started >= closes:
             raise RuntimeError(
                 f"v50r3 SIGNAL staging reached the fundamentals refresh at "
@@ -1094,6 +1202,31 @@ def freeze_protocol(
             "late_signal_bundle_allowed": False,
             "missed_signal_dates": missed_text,
             "missed_signal_backfill_allowed": False,
+            "missed_window_catch_up": {
+                "allowed": True,
+                "applies_to": (
+                    "a month end on or after the first prospective signal date "
+                    "whose SIGNAL window closed without a frozen signal"
+                ),
+                "signal_as_of": (
+                    "the latest completed Nasdaq session, staged and frozen "
+                    "inside that session's own window: 30 minutes after its "
+                    "official close until 04:00 America/New_York on the next "
+                    "session (exclusive)"
+                ),
+                "last_catch_up_session": "the session before the next month end",
+                "catch_up_signals_per_missed_month_end": 1,
+                "execution": "next common trading-session close",
+                "until_the_catch_up_executes": (
+                    "the previously frozen portfolio stays held; cash before "
+                    "the first signal"
+                ),
+                "missed_month_end_date_backfilled": False,
+                "ledger_record": (
+                    "SIGNAL_FROZEN payload with signal_role CATCH_UP, "
+                    "catch_up_for and the missed window"
+                ),
+            },
         },
         "risk_policy": {
             "entry_loss_fraction": r1.ENTRY_LOSS_FRACTION,
@@ -1125,7 +1258,10 @@ def freeze_protocol(
             ),
             "already_valued_input_rows": "carried forward unchanged",
             "all_cash_month": "valued against the benchmark",
-            "after_missed_signal_window": "the held portfolio keeps being valued",
+            "after_missed_signal_window": (
+                "the held portfolio keeps being valued until the catch-up "
+                "signal executes"
+            ),
         },
         "evaluation": {
             "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
@@ -1133,6 +1269,11 @@ def freeze_protocol(
             "transaction_cost_bps": list(r1.COSTS),
             "training_years_are_never_counted_as_wins": True,
             "official_score_requires_complete_prospective_periods": True,
+            "catch_up_signals": (
+                "counted like any other signal; every mark lists them and the "
+                "complete months that contain a catch-up rebalance, so results "
+                "can be read with and without those months"
+            ),
         },
         "immutability": {
             "protocol_overwrite_allowed": False,
@@ -1263,19 +1404,24 @@ def stage_bundle(
         )
     suffix = f"{stamp:%Y-%m-%d}_{purpose.lower()}"
     existing = Path(bundles_dir) / suffix
-    if purpose == "SIGNAL" and not existing.exists():
-        if not _signal_staging_is_timely(stamp, observed_at):
-            opens, closes = schedule.signal_window(stamp)
+    role: dict = {}
+    if purpose == "SIGNAL":
+        role = signal_role(stamp, v43.read_ledger(resolve(ledger_path)), first)
+        if not existing.exists() and not _signal_staging_is_timely(
+            stamp, observed_at
+        ):
+            opens, closes = schedule.staging_window(stamp)
             raise RuntimeError(
                 f"v50r3 stages the {stamp:%Y-%m-%d} SIGNAL only inside its "
                 f"window [{_iso(opens)}, {_iso(closes)}): the current universe "
                 "must be captured after the close and before the next session"
             )
+    catch_up = stamp if role.get("signal_role") == "CATCH_UP" else None
     with staging_lock(lock_path):
         recovered = [] if existing.exists() else quarantine_stale_builds(
             work_dir, suffix
         )
-        with _runtime():
+        with _runtime(), signal_session(catch_up):
             if purpose == "MARK":
                 result = _stage_mark_bundle(
                     stamp=stamp,
@@ -1297,18 +1443,21 @@ def stage_bundle(
                     fundamental_workers=fundamental_workers,
                 )
     result["recovered_stale_builds"] = recovered
+    result.update(role)
     return result
 
 
 @contextmanager
-def _signal_deadline(signal_date: pd.Timestamp):
+def _signal_deadline(signal_date: pd.Timestamp, role: dict | None = None):
     """Refuse to write a SIGNAL_FROZEN event once its window has closed.
 
     The check runs where the event is appended, and the event records the
     checked instant, so every frozen signal carries a timestamp inside its
-    window.  Verifying an already frozen signal appends nothing.
+    window.  The window is the as-of session's own: a month end's SIGNAL
+    window, or a catch-up session's.  The event also records ``role``.
+    Verifying an already frozen signal appends nothing.
     """
-    _opens, closes = schedule.signal_window(signal_date)
+    _opens, closes = schedule.staging_window(signal_date)
     original = v43.append_event
 
     def append_event(**kwargs):
@@ -1321,6 +1470,8 @@ def _signal_deadline(signal_date: pd.Timestamp):
                     "pre-market trading has opened on the execution session"
                 )
             kwargs["recorded_at"] = _iso(now)
+            if role:
+                kwargs["payload"] = {**kwargs["payload"], **role}
         return original(**kwargs)
 
     v43.append_event = append_event
@@ -1348,13 +1499,23 @@ def freeze_signal(
         raise RuntimeError(
             f"v50r3 refuses a SIGNAL before its first date {first:%Y-%m-%d}"
         )
-    with staging_lock(lock_path), _runtime(), _signal_deadline(signal_date):
-        return v43.freeze_signal(
-            bundle=bundle,
-            protocol_path=protocol_path,
-            ledger_path=ledger_path,
-            signals_dir=signals_dir,
-        )
+    with staging_lock(lock_path):
+        # Under the lock no other writer can freeze this month in between.
+        role = signal_role(signal_date, v43.read_ledger(resolve(ledger_path)), first)
+        catch_up = signal_date if role["signal_role"] == "CATCH_UP" else None
+        with (
+            _runtime(),
+            signal_session(catch_up),
+            _signal_deadline(signal_date, role),
+        ):
+            result = v43.freeze_signal(
+                bundle=bundle,
+                protocol_path=protocol_path,
+                ledger_path=ledger_path,
+                signals_dir=signals_dir,
+            )
+    result.update(role)
+    return result
 
 
 _MARK_CONTEXT: dict = {}
@@ -1555,6 +1716,25 @@ def _verify_supplement_is_append_only(
         )
 
 
+def _catch_up_summary(events: list[dict], payload: dict) -> dict:
+    """Catch-up signals and the complete months that contain their rebalance."""
+    signals = catch_up_signals(events)
+    rebalanced = {
+        pd.Timestamp(row["execution_date"]).strftime("%Y-%m")
+        for row in signals
+        if row["execution_date"]
+    }
+    months = (payload.get("period_evaluation_50bps") or {}).get(
+        "complete_prospective_months", []
+    )
+    return {
+        "catch_up_signals": signals,
+        "complete_months_with_catch_up_rebalance": [
+            row["period"] for row in months if row["period"] in rebalanced
+        ],
+    }
+
+
 @contextmanager
 def _mark_runtime(supplement_path: str | Path = SUPPLEMENT_PATH):
     """Bind v42's valuation to the r3 exposure-aware mark rules."""
@@ -1575,6 +1755,9 @@ def _mark_runtime(supplement_path: str | Path = SUPPLEMENT_PATH):
                 "mark_procedure": MARK_PROCEDURE,
                 "sourced_event_supplement": binding,
                 "holding_exposure": _MARK_CONTEXT.get("holding_exposure"),
+                **_catch_up_summary(
+                    v43.read_ledger(kwargs["path"]), kwargs["payload"]
+                ),
             }
         return original_append(**kwargs)
 
@@ -1621,6 +1804,7 @@ def append_mark(
             result["mark_procedure"] = MARK_PROCEDURE
             result["sourced_event_supplement"] = context["binding"]
             result["holding_exposure"] = context.get("holding_exposure")
+            result.update(_catch_up_summary(v43.read_ledger(ledger_path), result))
     result["corrected_hybrid_risk_replay_verified"] = True
     return result
 
@@ -1745,6 +1929,10 @@ def status(
     result["late_signal_bundle_allowed"] = False
     result["first_prospective_signal_date"] = f"{first:%Y-%m-%d}"
     result["missed_signal_dates"] = [f"{date:%Y-%m-%d}" for date in missed]
+    result["missed_window_catch_up_allowed"] = True
+    result["catch_up_signals"] = catch_up_signals(
+        v43.read_ledger(resolve(ledger_path))
+    )
     result["code_closure_sha256"] = protocol["code_closure"]["sha256"]
     result["code_closure_file_count"] = protocol["code_closure"]["file_count"]
     result["code_closure_verified"] = True

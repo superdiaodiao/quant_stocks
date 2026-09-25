@@ -7,7 +7,9 @@ the repository root and decides from the UTC clock, the Nasdaq calendar, the
 append-only ledger, and the dates in the frozen r3 protocol whether a SIGNAL
 or MARK is due.  A SIGNAL window runs from 30 minutes after the month-end
 close until pre-market trading opens on the next session.  It never backfills
-a missed signal.
+a missed month-end date; it catches the month up once, with a SIGNAL as of the
+latest completed session inside that session's own window, until the next
+month end.
 
 ``run`` executes only in a checkout of the ``live/v50r3`` branch, the pinned
 copy created by ``scripts/setup_v50r3_live.sh``; ``check`` works anywhere.
@@ -16,10 +18,10 @@ mark, committing only the ledger, the new signal file and the sourced event
 supplement; ``--push`` also pushes the branch.  The GitHub watchdog reads
 ``live/v50r3``, so the ledger must reach it before the SIGNAL window closes.
 
-Exit codes: 0 nothing due, done, or another staging holds the lock; 1 an
-error, including a failed git record; 2 a SIGNAL window was missed (the held
-portfolio is still marked); 3 the r3 protocol is not frozen or its ledger is
-missing.
+Exit codes: 0 nothing due, done (including a catch-up just frozen), or another
+staging holds the lock; 1 an error, including a failed git record; 2 a SIGNAL
+window was missed and the month is not caught up yet (the held portfolio is
+still marked); 3 the r3 protocol is not frozen or its ledger is missing.
 
 This module is research-only.  It cannot connect to a broker or create orders.
 """
@@ -44,6 +46,11 @@ from src.research import prospective_schedule as schedule
 MISSED_EXIT_CODE = 2
 NOT_READY_EXIT_CODE = 3
 NOT_READY_ACTIONS = {"PROTOCOL_NOT_FROZEN", "LEDGER_MISSING"}
+FROZEN_SIGNAL_STATUSES = {
+    "FROZEN_PROSPECTIVE_SIGNAL",
+    "RECOVERED_AND_FROZEN_PROSPECTIVE_SIGNAL",
+    "ALREADY_FROZEN_AND_VERIFIED",
+}
 
 
 def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -176,12 +183,19 @@ def run(
     decision["result_status"] = result.get("status")
     if purpose == "SIGNAL":
         decision["targets"] = result.get("targets")
+        decision["signal_role"] = result.get("signal_role")
+        if decision.get("catch_up_for") and result.get("status") in (
+            FROZEN_SIGNAL_STATUSES
+        ):
+            decision["caught_up"] = True
     if commit or push:
         paths: list[str | Path] = [ledger_path]
         message = f"research: append {as_of} v50r3 mark"
         if purpose == "SIGNAL":
             paths.append(Path(signals_dir) / f"signal_{as_of}.json")
             message = f"research: freeze {as_of} v50r3 signal"
+            if decision.get("catch_up_for"):
+                message += f", catching up {decision['catch_up_for']}"
         elif r3.resolve(supplement_path).is_file():
             # The mark binds the supplement rows it used; keep them together.
             paths.append(supplement_path)
@@ -194,9 +208,10 @@ def run(
 def exit_code(decision: dict) -> int:
     if decision["action"] in NOT_READY_ACTIONS:
         return NOT_READY_EXIT_CODE
-    if decision["action"] == "SIGNAL_WINDOW_MISSED" or decision.get(
+    missed = decision["action"] == "SIGNAL_WINDOW_MISSED" or decision.get(
         "signal_window_missed"
-    ):
+    )
+    if missed and not decision.get("caught_up"):
         return MISSED_EXIT_CODE
     if (decision.get("git") or {}).get("error"):
         return 1

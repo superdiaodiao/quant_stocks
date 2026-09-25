@@ -6,17 +6,19 @@ name: v50r3 signal watchdog
 # and decides from the repository alone whether the latest month-end SIGNAL
 # window was met. A missing live branch means r3 is not frozen yet and fails
 # the job like an unfrozen protocol does. It also re-verifies the
-# frozen r3 protocol and its complete code closure. It runs once a day in the
-# week before each month end (catching an unfrozen protocol or code drift
-# early) and hourly around the month end. A SIGNAL window closes when
-# pre-market trading opens on the session after the month end, which a
-# weekend or holiday can push to the 4th. Exit 2 (missed window), 3 (protocol
-# not frozen or ledger missing), or any validation error fails the job, which
-# GitHub reports to the repository owner. It never stages or backfills.
+# frozen r3 protocol and its complete code closure. It runs hourly around the
+# month end and once a day otherwise. A SIGNAL window closes when pre-market
+# trading opens on the session after the month end, which a weekend or holiday
+# can push to the 4th; a missed month is then caught up in a later session's
+# own window, any day until the next month end, so the daily run keeps
+# reporting a month that is still owed. Exit 2 (missed window not caught up
+# yet), 3 (protocol not frozen or ledger missing), or any validation error
+# fails the job, which GitHub reports to the repository owner. It never
+# stages, catches up or backfills.
 
 on:
   schedule:
-    - cron: "15 12 20-27 * *"
+    - cron: "15 12 6-27 * *"
     - cron: "15 * 28-31,1-5 * *"
   workflow_dispatch:
 

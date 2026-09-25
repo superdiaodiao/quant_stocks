@@ -57,6 +57,7 @@ def test_r3_reuses_the_frozen_model_and_leaves_r1_r2_untouched() -> None:
     assert spec["new_threshold_search"] is False
     assert spec["invented_cik_allowed"] is False
     assert spec["missed_signal_backfill_allowed"] is False
+    assert spec["missed_signal_window"].startswith("one_catch_up_as_of")
 
 
 @pytest.fixture
@@ -402,7 +403,15 @@ def test_signal_bundle_validator_requires_repaired_refresh_and_timeliness(
     manifest["as_of"] = "2026-08-31"
     with pytest.raises(RuntimeError, match="missed or pre-r3"):
         r3._validated_bundle(tmp_path, "SIGNAL")
+    # A catch-up bundle is judged by its own session's window.
+    manifest["as_of"] = "2026-10-01"
+    manifest["created_at"] = "2026-10-02T02:00:00+00:00"
+    assert r3._validated_bundle(tmp_path, "SIGNAL")[0] is manifest
+    manifest["created_at"] = "2026-10-02T08:00:00+00:00"
+    with pytest.raises(RuntimeError, match="not staged inside its SIGNAL window"):
+        r3._validated_bundle(tmp_path, "SIGNAL")
     manifest["as_of"] = "2026-09-30"
+    manifest["created_at"] = "2026-09-30T21:05:00+00:00"
 
     del manifest["fundamentals_refresh"]["as_of_filter"]
     with pytest.raises(RuntimeError, match="repaired fundamentals refresh"):
@@ -462,6 +471,172 @@ def test_signal_frozen_event_is_refused_once_the_window_closes(
     assert "recorded_at" not in appended[-1]
 
 
+def _ledger_with(path: Path, *signal_dates: str) -> list[dict]:
+    for date in ("PROTOCOL", *signal_dates):
+        v43.append_event(
+            path=path,
+            protocol_sha256="a" * 64,
+            event_type="PROTOCOL_FROZEN" if date == "PROTOCOL" else "SIGNAL_FROZEN",
+            payload={} if date == "PROTOCOL" else {"signal_date": date},
+        )
+    return v43.read_ledger(path)
+
+
+def test_signal_role_allows_one_catch_up_per_missed_month_end(tmp_path: Path) -> None:
+    first = pd.Timestamp("2026-09-30")
+    assert r3.signal_role("2026-09-30", [], first) == {
+        "signal_role": "REGULAR",
+        "signal_window_utc": {
+            "opens": "2026-09-30T20:30:00+00:00",
+            "closes": "2026-10-01T08:00:00+00:00",
+        },
+    }
+    assert r3.signal_role("2026-10-02", [], first) == {
+        "signal_role": "CATCH_UP",
+        "catch_up_for": "2026-09-30",
+        "missed_signal_window_utc": {
+            "opens": "2026-09-30T20:30:00+00:00",
+            "closes": "2026-10-01T08:00:00+00:00",
+        },
+        # Friday's own window runs over the weekend.
+        "signal_window_utc": {
+            "opens": "2026-10-02T20:30:00+00:00",
+            "closes": "2026-10-05T08:00:00+00:00",
+        },
+    }
+    caught_up = _ledger_with(tmp_path / "caught_up.jsonl", "2026-10-02")
+    # Re-verifying the frozen catch-up is allowed; a second catch-up is not.
+    assert r3.signal_role("2026-10-02", caught_up, first)["signal_role"] == "CATCH_UP"
+    with pytest.raises(RuntimeError, match="already frozen"):
+        r3.signal_role("2026-10-05", caught_up, first)
+    on_time = _ledger_with(tmp_path / "on_time.jsonl", "2026-09-30")
+    with pytest.raises(RuntimeError, match="already frozen"):
+        r3.signal_role("2026-10-01", on_time, first)
+    # The next month end is its own regular signal again.
+    assert r3.signal_role("2026-10-30", caught_up, first)["signal_role"] == "REGULAR"
+    with pytest.raises(RuntimeError, match="before its first date"):
+        r3.signal_role("2026-09-29", [], first)
+    with pytest.raises(ValueError, match="not a Nasdaq session"):
+        r3.signal_role("2026-10-03", [], first)
+    assert r3.catch_up_signals(caught_up) == [{
+        "signal_date": "2026-10-02",
+        "catch_up_for": "2026-09-30",
+        "execution_date": None,
+    }]
+    assert r3.catch_up_signals(on_time) == []
+
+
+def test_stage_bundle_stages_a_catch_up_only_inside_its_own_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        r3, "_validated_protocol",
+        lambda _path=None: ({"signal_policy": SIGNAL_POLICY}, "a" * 64),
+    )
+    kwargs = {
+        "bundles_dir": tmp_path / "bundles",
+        "work_dir": tmp_path / "work",
+        "signals_dir": tmp_path / "signals",
+        "ledger_path": tmp_path / "ledger.jsonl",
+        "lock_path": tmp_path / "staging.lock",
+    }
+    seen = {}
+
+    def fake_stage(**stage_kwargs):
+        # The inherited month-end check accepts exactly the catch-up session.
+        seen["catch_up_session"] = r3.v42._is_month_end_signal(
+            pd.Timestamp("2026-10-01")
+        )
+        seen["other_session"] = r3.v42._is_month_end_signal(pd.Timestamp("2026-10-02"))
+        seen["as_of"] = stage_kwargs["as_of"]
+        return {"status": "FROZEN_ISOLATED_INPUT_BUNDLE"}
+
+    monkeypatch.setattr(v43, "stage_bundle", fake_stage)
+    with pytest.raises(RuntimeError, match="only inside its window"):
+        r3.stage_bundle(
+            as_of="2026-10-01", purpose="SIGNAL",
+            observed_at=_at("2026-10-02T08:00:00Z"), **kwargs,
+        )
+    result = r3.stage_bundle(
+        as_of="2026-10-01", purpose="SIGNAL",
+        observed_at=_at("2026-10-02T02:00:00Z"), **kwargs,
+    )
+    assert seen == {
+        "catch_up_session": True,
+        "other_session": False,
+        "as_of": pd.Timestamp("2026-10-01"),
+    }
+    assert r3.v42._is_month_end_signal(pd.Timestamp("2026-10-01")) is False
+    assert (result["signal_role"], result["catch_up_for"]) == ("CATCH_UP", "2026-09-30")
+
+    _ledger_with(kwargs["ledger_path"], "2026-10-01")
+    with pytest.raises(RuntimeError, match="already frozen"):
+        r3.stage_bundle(
+            as_of="2026-10-02", purpose="SIGNAL",
+            observed_at=_at("2026-10-03T12:00:00Z"), **kwargs,
+        )
+
+
+def test_a_catch_up_freeze_records_its_role_before_its_window_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "bundle_manifest.json").write_text(
+        json.dumps({"as_of": "2026-10-01"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        r3, "_validated_protocol",
+        lambda _path=None: ({"signal_policy": SIGNAL_POLICY}, "a" * 64),
+    )
+    covered = tmp_path / "covered.jsonl"
+    _ledger_with(covered, "2026-09-30")
+    appended = []
+    monkeypatch.setattr(v43, "append_event", lambda **kwargs: appended.append(kwargs))
+    seen = {}
+
+    def fake_freeze(**_kwargs):
+        seen["catch_up_session"] = r3.v42._is_month_end_signal(
+            pd.Timestamp("2026-10-01")
+        )
+        v43.append_event(
+            path="ledger", protocol_sha256="a" * 64,
+            event_type="SIGNAL_FROZEN", payload={"signal_date": "2026-10-01"},
+        )
+        return {"status": "FROZEN_PROSPECTIVE_SIGNAL"}
+
+    monkeypatch.setattr(v43, "freeze_signal", fake_freeze)
+    kwargs = {
+        "bundle": bundle,
+        "lock_path": tmp_path / "staging.lock",
+        "ledger_path": tmp_path / "ledger.jsonl",
+    }
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-02T07:59:59Z"))
+    result = r3.freeze_signal(**kwargs)
+    assert seen["catch_up_session"] is True
+    assert r3.v42._is_month_end_signal(pd.Timestamp("2026-10-01")) is False
+    assert (result["signal_role"], result["catch_up_for"]) == ("CATCH_UP", "2026-09-30")
+    event = appended[-1]
+    assert event["recorded_at"] == "2026-10-02T07:59:59+00:00"
+    assert event["payload"]["signal_date"] == "2026-10-01"
+    assert event["payload"]["signal_role"] == "CATCH_UP"
+    assert event["payload"]["catch_up_for"] == "2026-09-30"
+    assert event["payload"]["missed_signal_window_utc"]["closes"] == (
+        "2026-10-01T08:00:00+00:00"
+    )
+    assert event["payload"]["signal_window_utc"]["closes"] == (
+        "2026-10-02T08:00:00+00:00"
+    )
+
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-02T08:00:00Z"))
+    with pytest.raises(RuntimeError, match="window closed"):
+        r3.freeze_signal(**kwargs)
+    monkeypatch.setattr(r3, "_utc_now", lambda: _at("2026-10-02T02:00:00Z"))
+    with pytest.raises(RuntimeError, match="already frozen"):
+        r3.freeze_signal(**{**kwargs, "ledger_path": covered})
+    assert len(appended) == 1
+
+
 def _freeze(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, now: str) -> dict:
     manifest = {
         "development_status": "PASS",
@@ -510,6 +685,12 @@ def test_freeze_binds_closure_supersedes_r2_and_dates_the_first_signal(
         "closes": "2026-10-01T08:00:00+00:00",
     }
     assert result["signal_policy"]["signal_frozen_before_window_closes"] is True
+    catch_up = result["signal_policy"]["missed_window_catch_up"]
+    assert catch_up["allowed"] is True
+    assert catch_up["catch_up_signals_per_missed_month_end"] == 1
+    assert catch_up["missed_month_end_date_backfilled"] is False
+    assert result["signal_policy"]["missed_signal_backfill_allowed"] is False
+    assert "catch_up_signals" in result["evaluation"]
     assert result["mark_policy"]["procedure"] == r3.MARK_PROCEDURE
     assert result["code_branch"] == r3.LIVE_BRANCH
     assert result["operations"]["watchdog_reads"] == r3.LIVE_BRANCH

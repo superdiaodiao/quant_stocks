@@ -98,26 +98,10 @@ def _phase_timers(timings: dict):
 
 
 @contextmanager
-def _rehearsal_session(as_of: pd.Timestamp):
-    """Let the frozen code treat the rehearsal session as a signal session."""
-    original = v42._is_month_end_signal
-
-    def is_signal_session(signal_date) -> bool:
-        return pd.Timestamp(signal_date).normalize() == as_of or original(
-            signal_date
-        )
-
-    v42._is_month_end_signal = is_signal_session
-    try:
-        yield
-    finally:
-        v42._is_month_end_signal = original
-
-
-@contextmanager
 def _rehearsal_runtime(as_of: pd.Timestamp, timings: dict | None = None):
     with ExitStack() as stack:
-        stack.enter_context(_rehearsal_session(as_of))
+        # The same lift a catch-up SIGNAL uses, for the rehearsal session.
+        stack.enter_context(r3.signal_session(as_of))
         if timings is not None:
             stack.enter_context(_phase_timers(timings))
         stack.enter_context(r3._runtime(rehearsal=True))

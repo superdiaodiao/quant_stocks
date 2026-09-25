@@ -7,7 +7,10 @@ due.  A SIGNAL window opens a buffer after the official close (so a
 provisional close is not frozen) and closes, exclusively, when pre-market
 trading starts on the next session (04:00 New York time).  The signal executes
 at that next session's close, so the window ends before any trade of the
-execution session.  Missed windows are reported, never backfilled; the
+execution session.  A missed month-end date is never backfilled.  Instead
+the month is caught up once: a SIGNAL as of the latest completed session,
+staged and frozen inside that session's own window (the same rule, applied
+to that session), executed at the next close.  Until it executes, the
 portfolio already held keeps being marked.
 """
 
@@ -112,6 +115,56 @@ def signal_window(signal_date: pd.Timestamp) -> tuple[datetime, datetime]:
     return staging_window(stamp)
 
 
+def previous_month_end_session(session: pd.Timestamp) -> pd.Timestamp:
+    """The last Nasdaq session of the calendar month before ``session``'s."""
+    month_start = pd.Timestamp(session).normalize().replace(day=1)
+    sessions = sessions_between(
+        month_start - pd.offsets.MonthBegin(1), month_start - pd.Timedelta(days=1)
+    )
+    return sessions[-1]
+
+
+def covered_month_end(signal_date: pd.Timestamp) -> pd.Timestamp:
+    """The month end a frozen SIGNAL stands for.
+
+    A month-end signal stands for itself; any other signal is the catch-up
+    for the month end before it.
+    """
+    stamp = pd.Timestamp(signal_date).normalize()
+    return stamp if is_month_end_session(stamp) else previous_month_end_session(stamp)
+
+
+def open_staging_session(now: datetime) -> pd.Timestamp | None:
+    """The session whose staging window contains ``now``, if any.
+
+    Consecutive windows never overlap: each closes at the next session's
+    pre-market open, before that session's own close.
+    """
+    now = as_utc(now)
+    today = pd.Timestamp(now.date())
+    for session in reversed(
+        sessions_between(today - pd.Timedelta(days=NEXT_SESSION_SEARCH_DAYS), today)
+    ):
+        opens, closes = staging_window(session)
+        if now >= closes:
+            return None
+        if now >= opens:
+            return session
+    return None
+
+
+def next_staging_session(now: datetime) -> pd.Timestamp:
+    """The first session whose staging window opens after ``now``."""
+    now = as_utc(now)
+    today = pd.Timestamp(now.date())
+    for session in sessions_between(
+        today, today + pd.Timedelta(days=NEXT_SESSION_SEARCH_DAYS)
+    ):
+        if staging_window(session)[0] > now:
+            return session
+    raise RuntimeError(f"no Nasdaq session follows {today:%Y-%m-%d}")
+
+
 def month_end_sessions(start: pd.Timestamp, end: pd.Timestamp) -> list[pd.Timestamp]:
     return [
         session
@@ -166,6 +219,11 @@ def frozen_signal_dates(events: list[dict]) -> list[pd.Timestamp]:
     )
 
 
+def covered_signal_dates(events: list[dict]) -> set[pd.Timestamp]:
+    """Month ends that already have a regular or catch-up SIGNAL."""
+    return {covered_month_end(date) for date in frozen_signal_dates(events)}
+
+
 def latest_event_date(
     events: list[dict], event_type: str, key: str
 ) -> pd.Timestamp | None:
@@ -214,7 +272,7 @@ def decide(
         "opens": opens.isoformat(timespec="seconds"),
         "closes": closes.isoformat(timespec="seconds"),
     }
-    if due not in frozen:
+    if due not in covered_signal_dates(events):
         if now < opens:
             decision["action"] = "WAIT_FOR_SIGNAL_WINDOW"
             return decision
@@ -226,8 +284,31 @@ def decide(
             )
             return decision
         decision["missed_signal_dates"].append(f"{due:%Y-%m-%d}")
-        decision["action"] = "SIGNAL_WINDOW_MISSED"
         decision["signal_window_missed"] = True
+        # The month is caught up as of a later session, inside that session's
+        # own window; windows of later sessions only open after ``due``'s
+        # closed, and the next month end's close makes it due instead.
+        session = open_staging_session(now)
+        if session is not None and session > due and not is_month_end_session(
+            session
+        ):
+            catch_opens, catch_closes = staging_window(session)
+            decision["action"] = "RUN_SIGNAL"
+            decision["as_of"] = f"{session:%Y-%m-%d}"
+            decision["catch_up_for"] = f"{due:%Y-%m-%d}"
+            decision["catch_up_window_utc"] = {
+                "opens": catch_opens.isoformat(timespec="seconds"),
+                "closes": catch_closes.isoformat(timespec="seconds"),
+            }
+            decision["minutes_left_in_window"] = round(
+                (catch_closes - now).total_seconds() / 60.0, 1
+            )
+            return decision
+        decision["action"] = "SIGNAL_WINDOW_MISSED"
+        upcoming = next_staging_session(now)
+        decision["next_catch_up_window_utc"] = (
+            None if is_month_end_session(upcoming) else _session_window_payload(upcoming)
+        )
         # fall through: the portfolio already held keeps being marked
     if not frozen:
         return decision
@@ -238,6 +319,15 @@ def decide(
         decision["action"] = "RUN_MARK"
         decision["as_of"] = f"{completed:%Y-%m-%d}"
     return decision
+
+
+def _session_window_payload(session: pd.Timestamp) -> dict:
+    opens, closes = staging_window(session)
+    return {
+        "as_of": f"{pd.Timestamp(session):%Y-%m-%d}",
+        "opens": opens.isoformat(timespec="seconds"),
+        "closes": closes.isoformat(timespec="seconds"),
+    }
 
 
 def _window_payload(signal_date: pd.Timestamp) -> dict:

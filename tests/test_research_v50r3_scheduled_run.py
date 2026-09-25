@@ -148,11 +148,12 @@ def test_marks_run_after_a_missed_window_commit_the_supplement_and_exit_two(
     )
     supplement = tmp_path / "supplement.csv"
     supplement.write_text("event_id\n", encoding="utf-8")
+    # 11-03 during the US session: no catch-up window is open, a mark is due.
     decision = sched.run(
-        now=_at("2026-11-03T22:00:00Z"), execute=True, commit=True,
+        now=_at("2026-11-03T15:00:00Z"), execute=True, commit=True,
         supplement_path=supplement, **frozen,
     )
-    assert decision["action"] == "RUN_MARK" and decision["as_of"] == "2026-11-03"
+    assert decision["action"] == "RUN_MARK" and decision["as_of"] == "2026-11-02"
     assert decision["executed"] is True
     assert [name for name, _kwargs in calls] == ["stage", "mark"]
     assert calls[1][1]["supplement_path"] == supplement
@@ -170,6 +171,57 @@ def test_missed_window_is_never_staged_and_exits_two(
     assert decision["action"] == "SIGNAL_WINDOW_MISSED"
     assert decision["executed"] is False
     assert sched.exit_code(decision) == sched.MISSED_EXIT_CODE
+
+
+def test_a_missed_month_is_caught_up_and_then_exits_zero(
+    frozen: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+    monkeypatch.setattr(
+        r3, "stage_bundle",
+        lambda **kwargs: calls.append(("stage", kwargs))
+        or {"status": "FROZEN_ISOLATED_INPUT_BUNDLE", "recovered_stale_builds": []},
+    )
+    monkeypatch.setattr(
+        r3, "freeze_signal",
+        lambda **kwargs: calls.append(("freeze", kwargs)) or {
+            "status": "FROZEN_PROSPECTIVE_SIGNAL",
+            "signal_role": "CATCH_UP",
+            "catch_up_for": "2026-09-30",
+            "targets": [{"ticker": "AAA"}],
+        },
+    )
+    recorded = []
+    monkeypatch.setattr(
+        sched, "record_in_git",
+        lambda paths, **kwargs: recorded.append((paths, kwargs)) or {"committed": True},
+    )
+
+    # The watchdog sees the catch-up as still owed and keeps alerting.
+    checked = sched.run(now=_at("2026-10-02T02:00:00Z"), execute=False, **frozen)
+    assert checked["action"] == "RUN_SIGNAL"
+    assert (checked["as_of"], checked["catch_up_for"]) == ("2026-10-01", "2026-09-30")
+    assert sched.exit_code(checked) == sched.MISSED_EXIT_CODE
+    assert calls == []
+
+    executed = sched.run(
+        now=_at("2026-10-02T02:00:00Z"), execute=True, commit=True, **frozen
+    )
+    assert [name for name, _kwargs in calls] == ["stage", "freeze"]
+    assert calls[0][1]["as_of"] == "2026-10-01"
+    assert calls[1][1]["bundle"] == frozen["bundles_dir"] / "2026-10-01_signal"
+    assert executed["caught_up"] is True
+    assert executed["signal_role"] == "CATCH_UP"
+    paths, kwargs = recorded[0]
+    assert paths == [
+        frozen["ledger_path"], frozen["signals_dir"] / "signal_2026-10-01.json"
+    ]
+    assert kwargs["message"] == (
+        "research: freeze 2026-10-01 v50r3 signal, catching up 2026-09-30"
+    )
+    assert sched.exit_code(executed) == 0
+    # A failed push after the catch-up is still an error.
+    assert sched.exit_code({**executed, "git": {"error": "rejected"}}) == 1
 
 
 def _git(cwd: Path, *args: str) -> str:

@@ -119,18 +119,99 @@ def test_missed_window_is_reported_and_never_backfilled() -> None:
     assert missed["action"] == "SIGNAL_WINDOW_MISSED"
     assert missed["as_of"] is None
     assert missed["missed_signal_dates"] == ["2026-08-31", "2026-09-30"]
+    # The month is caught up as of the next session, never as of 09-30.
+    assert missed["next_catch_up_window_utc"] == {
+        "as_of": "2026-10-01",
+        "opens": "2026-10-01T20:30:00+00:00",
+        "closes": "2026-10-02T08:00:00+00:00",
+    }
+
+
+def test_a_missed_month_is_caught_up_inside_a_later_sessions_window() -> None:
+    first = _decide("2026-10-01T20:30:00Z", [])
+    assert first["action"] == "RUN_SIGNAL"
+    assert first["as_of"] == "2026-10-01"
+    assert first["catch_up_for"] == "2026-09-30"
+    assert first["signal_window_missed"] is True
+    assert first["minutes_left_in_window"] == pytest.approx(690.0, abs=0.1)
+    assert first["catch_up_window_utc"] == {
+        "opens": "2026-10-01T20:30:00+00:00",
+        "closes": "2026-10-02T08:00:00+00:00",
+    }
+    # Missing the 10-01 window too: Friday's window runs over the weekend.
+    weekend = _decide("2026-10-03T12:00:00Z", [])
+    assert weekend["action"] == "RUN_SIGNAL"
+    assert (weekend["as_of"], weekend["catch_up_for"]) == ("2026-10-02", "2026-09-30")
+    assert weekend["catch_up_window_utc"]["closes"] == "2026-10-05T08:00:00+00:00"
+    # During the US session no window is open; the next one is announced.
+    between = _decide("2026-10-05T12:00:00Z", [])
+    assert between["action"] == "SIGNAL_WINDOW_MISSED" and between["as_of"] is None
+    assert between["next_catch_up_window_utc"]["as_of"] == "2026-10-05"
+
+
+def test_a_caught_up_month_is_covered_and_marked_from_its_own_signal() -> None:
+    events = [_signal("2026-10-02")]
+    assert schedule.covered_signal_dates(events) == {pd.Timestamp("2026-09-30")}
+    covered = _decide("2026-10-03T12:00:00Z", events)
+    assert covered["action"] == "NO_ACTION"
+    assert "signal_window_missed" not in covered
+    mark = _decide("2026-10-05T21:00:00Z", events)
+    assert mark["action"] == "RUN_MARK" and mark["as_of"] == "2026-10-05"
+    # One catch-up per month: a later session's window stays unused.
+    assert _decide("2026-10-07T21:00:00Z", events + [_mark("2026-10-05")])[
+        "action"
+    ] == "RUN_MARK"
+
+
+def test_catch_ups_end_where_the_next_month_end_takes_over() -> None:
+    last = _decide("2026-10-30T07:59:00Z", [])
+    assert (last["action"], last["as_of"]) == ("RUN_SIGNAL", "2026-10-29")
+    over = _decide("2026-10-30T08:00:00Z", [])
+    assert over["action"] == "SIGNAL_WINDOW_MISSED"
+    assert over["next_catch_up_window_utc"] is None
+    regular = _decide("2026-10-30T20:30:00Z", [])
+    assert (regular["action"], regular["as_of"]) == ("RUN_SIGNAL", "2026-10-30")
+    assert "catch_up_for" not in regular
 
 
 def test_a_missed_window_keeps_marking_the_held_portfolio() -> None:
     events = [_signal("2026-09-30"), _mark("2026-10-29")]
-    decision = _decide("2026-11-03T22:00:00Z", events)
+    # 11-03 during the US session: no staging window is open.
+    decision = _decide("2026-11-03T15:00:00Z", events)
     assert decision["action"] == "RUN_MARK"
-    assert decision["as_of"] == "2026-11-03"
+    assert decision["as_of"] == "2026-11-02"
     assert decision["signal_window_missed"] is True
     assert decision["missed_signal_dates"] == ["2026-08-31", "2026-10-30"]
-    marked = _decide("2026-11-03T22:00:00Z", events + [_mark("2026-11-03")])
+    marked = _decide("2026-11-03T15:00:00Z", events + [_mark("2026-11-02")])
     assert marked["action"] == "SIGNAL_WINDOW_MISSED"
     assert marked["signal_window_missed"] is True
+    # Once 11-03 closes, its window catches October up before any mark.
+    catch_up = _decide("2026-11-03T22:00:00Z", events + [_mark("2026-11-02")])
+    assert catch_up["action"] == "RUN_SIGNAL"
+    assert (catch_up["as_of"], catch_up["catch_up_for"]) == ("2026-11-03", "2026-10-30")
+
+
+def test_session_helpers_for_catch_ups() -> None:
+    assert schedule.previous_month_end_session(pd.Timestamp("2027-01-04")) == (
+        pd.Timestamp("2026-12-31")
+    )
+    assert schedule.previous_month_end_session(pd.Timestamp("2026-10-30")) == (
+        pd.Timestamp("2026-09-30")
+    )
+    assert schedule.covered_month_end(pd.Timestamp("2026-11-27")) == pd.Timestamp(
+        "2026-10-30"
+    )
+    assert schedule.covered_month_end(pd.Timestamp("2026-11-30")) == pd.Timestamp(
+        "2026-11-30"
+    )
+    # Thanksgiving: Wednesday's window runs to Friday's pre-market.
+    assert schedule.open_staging_session(_at("2026-11-26T12:00:00Z")) == pd.Timestamp(
+        "2026-11-25"
+    )
+    assert schedule.open_staging_session(_at("2026-11-27T12:00:00Z")) is None
+    assert schedule.next_staging_session(_at("2026-11-27T12:00:00Z")) == pd.Timestamp(
+        "2026-11-27"
+    )
 
 
 def test_marks_follow_completed_sessions_after_a_frozen_signal() -> None:
