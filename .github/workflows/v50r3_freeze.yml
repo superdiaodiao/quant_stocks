@@ -1,0 +1,76 @@
+name: v50r3 freeze
+
+# One-time freeze of the v50r3 prospective protocol, run by hand. It makes the
+# pinned live/v50r3 branch from the current master, freezes the r3 protocol
+# and ledger there, records that r3 supersedes r2, pushes live/v50r3, and
+# records the supersession on master too. The first signal is the first month
+# end whose SIGNAL window has not opened at the freeze (2026-09-30 when frozen
+# before 2026-09-30 20:30 UTC). It refuses to run when live/v50r3 exists: a
+# frozen protocol is never replaced. After it, the "v50r3 scheduler" workflow
+# runs the observation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type FREEZE to freeze v50r3 now"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v50r3-scheduler
+  cancel-in-progress: false
+
+jobs:
+  freeze:
+    if: github.event.inputs.confirm == 'FREEZE' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: master
+        fetch-depth: 0
+
+    - name: Refuse when live/v50r3 already exists
+      run: |
+        if git ls-remote --exit-code --heads origin live/v50r3 >/dev/null; then
+          echo "::error::live/v50r3 already exists; a frozen protocol is never replaced."
+          exit 1
+        fi
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Freeze on live/v50r3
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -b live/v50r3
+        PYTHONPATH=. python scripts/research_v50r3_corrected_v47.py freeze-protocol
+        PYTHONPATH=. python scripts/research_v50r3_corrected_v47.py write-v50r2-supersession
+        PYTHONPATH=. python scripts/research_v50r3_corrected_v47.py status
+        git add output/research_only/v50/corrected_v47_20260924_r3 \
+          output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
+        git commit -m "research: freeze v50r3 prospective protocol and supersede r2"
+        git push origin live/v50r3
+
+    - name: Record the supersession on master
+      run: |
+        supersession=output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
+        git fetch origin master
+        git checkout -B master origin/master
+        git checkout live/v50r3 -- "$supersession"
+        git commit -m "research: record that v50r3 superseded v50r2"
+        git push origin master

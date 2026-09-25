@@ -1,7 +1,8 @@
 name: v50r3 signal watchdog
 
 # Dead-man check for the prospective observation. The r3 ledger lives on the
-# live/v50r3 branch (the pinned copy made by scripts/setup_v50r3_live.sh) and
+# live/v50r3 branch (made by the "v50r3 freeze" workflow, or locally by
+# scripts/setup_v50r3_live.sh) and
 # is pushed after every freeze-signal and mark, so this job reads that branch
 # and decides from the repository alone whether the latest month-end SIGNAL
 # window was met. A missing live branch means r3 is not frozen yet and fails

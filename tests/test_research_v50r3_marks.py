@@ -527,3 +527,22 @@ def test_a_provider_rescaling_prices_a_held_split_continuously(world: World) -> 
     assert [(row["ticker"], row["session"]) for row in applied] == [("QAAA", "2026-10-14")]
     assert "provider_adjustments.csv" in world.manifest("2026-10-14")["files"]
     assert _nav(after) > _nav(before)
+
+
+def test_a_fresh_work_directory_recovers_recorded_rescalings(world: World) -> None:
+    world.freeze_signal("2026-09-30", ["QAAA", "QBBB"])
+    world.mark("2026-10-13")
+    world.set_close("QAAA", "2026-10-14", 0.5)
+    world.provider_adjustment("QAAA", "2026-10-14", 0.5)
+    world.mark("2026-10-14")
+    # A fresh runner: no bundles, no work files; only what git carries.
+    shutil.rmtree(world.bundles)
+    shutil.rmtree(world.work)
+
+    later = world.mark("2026-10-15")
+
+    assert "PROVIDER_ADJUSTMENTS" in world.manifest("2026-10-15")["market_refresh"][
+        "seeded_from_valued_bundle"
+    ]
+    applied = later["holding_exposure"]["price_events"]["provider_adjustments_applied"]
+    assert [row["ticker"] for row in applied] == ["QAAA"]

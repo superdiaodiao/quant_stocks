@@ -1,0 +1,119 @@
+name: v50r3 scheduler
+
+# Runs the v50r3 prospective observation on GitHub-hosted runners. Every half
+# hour it checks out the pinned live/v50r3 branch (made by the "v50r3 freeze"
+# workflow) and asks the r3 scheduler what is due. When a SIGNAL or MARK is
+# due it restores the data release and runs it; the scheduler commits the
+# ledger with the new signal, the sourced-event supplement and the latest
+# valued bundle, and pushes live/v50r3. Every run starts on a fresh machine:
+# what a later run needs travels in git, not in a cache.
+#
+# Nasdaq refuses bursts from GitHub's runners (16 parallel requests got HTTP
+# 403 after 13 on 2026-09-25; one at a time, 400 of 400 succeeded), so prices
+# are downloaded one at a time. A SIGNAL then takes about 2.5-3 hours, inside
+# its window of 11 hours or more; a MARK takes minutes.
+#
+# Before the freeze live/v50r3 does not exist and the job skips. A close not
+# yet published after the bell ends a run with a warning and the next run
+# retries. A split-like move that needs a sourced event, a run while a missed
+# month is still owed (exit 2), or any other error fails the job, which GitHub
+# reports to the repository owner; between runs the "v50r3 signal watchdog"
+# keeps reporting a month that is owed.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+    - cron: "47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v50r3-scheduler
+  cancel-in-progress: false
+
+jobs:
+  live-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      exists: ${{ steps.probe.outputs.exists }}
+    steps:
+    - id: probe
+      run: |
+        if git ls-remote --exit-code --heads \
+            "https://github.com/${{ github.repository }}.git" live/v50r3 >/dev/null; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::live/v50r3 does not exist yet: v50r3 is not frozen."
+        fi
+
+  run:
+    needs: live-branch
+    if: needs.live-branch.outputs.exists == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: live/v50r3
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Decide what is due
+      id: due
+      run: |
+        set +e
+        PYTHONPATH=. python scripts/research_v50r3_scheduled_run.py check > decision.json
+        code=$?
+        set -e
+        cat decision.json
+        # 0 nothing missed; 2 a missed month (its catch-up may be due now).
+        if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
+        action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
+        echo "action=$action" >> "$GITHUB_OUTPUT"
+        echo "check_exit=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the data release
+      if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: scripts/v50r3_restore_data.sh
+
+    - name: Run the due SIGNAL or MARK
+      if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        set +e
+        PYTHONPATH=. python scripts/research_v50r3_scheduled_run.py run --push --workers 1 \
+          > run.json 2> run.log
+        code=$?
+        set -e
+        cat run.json
+        tail -n 80 run.log
+        if [ "$code" -eq 0 ]; then exit 0; fi
+        if [ "$code" -eq 2 ]; then
+          echo "::error::A SIGNAL window was missed and the month is not caught up yet."
+          exit 2
+        fi
+        # Inputs not published yet: the next run retries. A move that needs a
+        # sourced event, or anything else, fails the job.
+        if grep -Eq "is not ready|Retry once the closes are published" run.log \
+            && ! grep -Eq "split_like_moves_explained|Unresolved corporate action" run.log; then
+          echo "::warning::Inputs are not ready yet; the next scheduled run retries."
+          exit 0
+        fi
+        exit "$code"

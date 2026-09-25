@@ -526,14 +526,16 @@ def _live_validation(
     provider: pd.DataFrame | None = None,
     supplement: pd.DataFrame | None = None,
     ignore_provider_through: pd.Timestamp | None = None,
+    previously_applied: set[tuple[str, str]] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """The frozen table plus sourced events and measured provider rescalings.
 
     A supplement event may not re-adjudicate a frozen one.  A measured
     rescaling (the provider's own split adjustment, recorded by price updates)
-    never overrides an adjudicated event on the same stock and session, and a
-    MARK ignores one dated on or before its latest valued session: that
-    session's value is frozen.
+    never overrides an adjudicated event on the same stock and session.  A
+    MARK keeps every rescaling an earlier mark applied and ignores one first
+    seen for a session on or before its latest valued session: that session's
+    value is frozen.
     """
     validation = corrected_stock_policy.load_corporate_action_validation(
         resolve(VALIDATION_PATH)
@@ -563,6 +565,7 @@ def _live_validation(
             elif (
                 ignore_provider_through is not None
                 and row.split_date <= ignore_provider_through
+                and (row.ticker, label["session"]) not in (previously_applied or set())
             ):
                 ignored.append({**label, "reason": "measured after its session was valued"})
                 keep.append(False)
@@ -1206,6 +1209,19 @@ def _seed_from_valued_bundle(
     if not index_path.exists() and (prior["path"] / "nasdaq_index.csv").is_file():
         shutil.copy2(prior["path"] / "nasdaq_index.csv", index_path)
         seeded.append("NASDAQ")
+    # Provider rescalings recorded before this machine's work directory existed
+    # (a fresh runner starts empty) still price the seeded rows.
+    carried = _bundle_provider_adjustments(prior["path"])
+    if len(carried):
+        rows = carried.assign(
+            split_date=carried["split_date"].dt.strftime("%Y-%m-%d"),
+            confirmed_action_date=carried["confirmed_action_date"].dt.strftime("%Y-%m-%d"),
+        ).to_dict("records")
+        added = nasdaq_update.record_provider_adjustments(
+            nasdaq_update.provider_adjustments_path(prices), rows
+        )
+        if added:
+            seeded.append("PROVIDER_ADJUSTMENTS")
     return seeded
 
 
@@ -2116,10 +2132,16 @@ def _mark_replay(
             "sourced TERMINAL_RETURN with record-sourced-event, which ends its "
             "history for good"
         )
+    provider = _MARK_CONTEXT.get("provider_adjustments")
+    if provider is not None and len(provider):
+        # Only the targeted stocks' rescalings can move this valuation.
+        targeted = set(target_schedule["ticker"].astype(str)) - {marks.CASH}
+        provider = provider.loc[provider["ticker"].isin(targeted)]
     validation, price_events = _live_validation(
-        provider=_MARK_CONTEXT.get("provider_adjustments"),
+        provider=provider,
         supplement=supplement,
         ignore_provider_through=_MARK_CONTEXT.get("latest_valued"),
+        previously_applied=_MARK_CONTEXT.get("previously_applied"),
     )
     ignored: list[dict] = []
     original_events = corrected_stock_policy._unresolved_target_events
@@ -2374,6 +2396,15 @@ def append_mark(
             event["payload"]["signal_date"]
             for event in events
             if event["event_type"] == "SIGNAL_FROZEN"
+        }
+        context["previously_applied"] = {
+            (row["ticker"], row["session"])
+            for event in events
+            if event["event_type"] == "VALUATION_APPENDED"
+            for row in (
+                ((event["payload"].get("holding_exposure") or {}).get("price_events") or {})
+                .get("provider_adjustments_applied", [])
+            )
         }
         result = v43.append_mark(
             bundle=bundle,

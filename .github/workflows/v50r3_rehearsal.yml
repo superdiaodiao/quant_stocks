@@ -1,0 +1,82 @@
+name: v50r3 rehearsal
+
+# Stages a complete v50r3 SIGNAL for a completed session on a GitHub-hosted
+# runner, exactly as the scheduler would (universe, one-at-a-time Nasdaq
+# prices, SEC refresh, readiness gates, selection), in a scratch directory.
+# It writes no ledger, signal or formal data; the report is uploaded as an
+# artifact. It refuses to run from three hours before a month-end SIGNAL
+# window until the window closes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: "Completed Nasdaq session (YYYY-MM-DD); empty means the latest"
+        required: false
+        default: ""
+      workers:
+        description: "Parallel Nasdaq price downloads (GitHub runners need 1)"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v50r3-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Restore the data release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: scripts/v50r3_restore_data.sh
+
+    - name: Rehearse a SIGNAL
+      env:
+        AS_OF: ${{ github.event.inputs.as_of }}
+        WORKERS: ${{ github.event.inputs.workers }}
+      run: |
+        root="$RUNNER_TEMP/r3_rehearsals"
+        args=(--workers "${WORKERS:-1}" --scratch-root "$root" --cleanup)
+        if [ -n "$AS_OF" ]; then args+=(--as-of "$AS_OF"); fi
+        set +e
+        PYTHONPATH=. python scripts/research_v50r3_rehearsal.py "${args[@]}" > report.json
+        code=$?
+        set -e
+        python - <<'PY'
+        import json
+        report = json.load(open("report.json"))
+        summary = {
+            key: report.get(key)
+            for key in ("verdict", "failures", "warnings", "staging_seconds",
+                        "next_window_fit", "selection", "readiness_gates")
+        }
+        print(json.dumps(summary, indent=2, default=str))
+        PY
+        exit "$code"
+
+    - name: Upload the report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: v50r3-rehearsal-report
+        path: report.json
