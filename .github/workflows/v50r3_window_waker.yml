@@ -1,0 +1,74 @@
+name: v50r3 window waker
+
+# GitHub starts scheduled runs late, by hours at busy times (in this
+# repository a 00:30 UTC schedule started around 03:45 every day, and a 12:15
+# UTC one at 17:11), so the half-hourly "v50r3 scheduler" trigger cannot be
+# counted on to start a SIGNAL when its window opens. On weekdays this starts
+# well before the window (20:30 UTC in summer, 21:30 in winter). When a
+# SIGNAL (a month end, or the catch-up of a missed one) is due in today's
+# window, it sleeps until the window opens and starts the scheduler with a
+# workflow_dispatch, which GitHub runs at once. A run that starts after the
+# window opened starts the scheduler immediately; one that starts too early
+# for its six-hour limit leaves it to a later run. The scheduler's own
+# schedule still retries SIGNALs and runs the marks.
+
+on:
+  schedule:
+    - cron: "7 13 * * 1-5"
+    - cron: "7 15 * * 1-5"
+    - cron: "37 16 * * 1-5"
+    - cron: "37 18 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: v50r3-window-waker
+  cancel-in-progress: false
+
+jobs:
+  live-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      exists: ${{ steps.probe.outputs.exists }}
+    steps:
+    - id: probe
+      run: |
+        if git ls-remote --exit-code --heads \
+            "https://github.com/${{ github.repository }}.git" live/v50r3 >/dev/null; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::live/v50r3 does not exist yet: v50r3 is not frozen."
+        fi
+
+  wake:
+    needs: live-branch
+    if: needs.live-branch.outputs.exists == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: live/v50r3
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Wait for a SIGNAL window and start the scheduler
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: PYTHONPATH=. python scripts/v50r3_window_waker.py

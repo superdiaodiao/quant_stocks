@@ -6,7 +6,9 @@ name: v50r3 scheduler
 # due it restores the data release and runs it; the scheduler commits the
 # ledger with the new signal, the sourced-event supplement and the latest
 # valued bundle, and pushes live/v50r3. Every run starts on a fresh machine:
-# what a later run needs travels in git, not in a cache.
+# what a later run needs travels in git, not in a cache. GitHub starts
+# scheduled runs late, by hours at busy times, so the "v50r3 window waker"
+# also dispatches this workflow when a SIGNAL window opens.
 #
 # Nasdaq refuses bursts from GitHub's runners (16 parallel requests got HTTP
 # 403 after 13 on 2026-09-25; one at a time, 400 of 400 succeeded), so prices

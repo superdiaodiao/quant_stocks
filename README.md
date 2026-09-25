@@ -210,7 +210,7 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
   结束该股票的历史。
 
 **在 GitHub 上运行（推荐，2026-09-25 起）：** 整个观察可以完全在 GitHub Actions 上
-进行，不依赖任何个人电脑。四个工作流都在 master 上（Actions 页面可手动运行）：
+进行，不依赖任何个人电脑。五个工作流都在 master 上（Actions 页面可手动运行）：
 
 1. **v50r3 rehearsal**：在 GitHub 的 runner 上用真实数据完整演练一次 SIGNAL
    （逐个下载价格，约 2.5–3 小时），报告作为 artifact 上传。`verdict` 为 `FAIL`
@@ -233,6 +233,12 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
    `sourced_event_supplement.csv`；核对不通过时任务失败，日志里写明原因。下一次
    SIGNAL 或 MARK 自动使用它。SIGNAL 因疑似拆股被拒时，任务日志的
    `unexplained_split_like_moves` 列出股票、日期和价格比。
+5. **v50r3 window waker**：GitHub 的定时任务会晚几个小时才启动（本仓库 00:30 UTC
+   的定时任务每天约 03:45 才开始，12:15 UTC 的一次 17:11 才开始），所以不能指望每
+   30 分钟的调度器在窗口一开就跑 SIGNAL。它在工作日下午提前启动：当天窗口里有到期
+   的 SIGNAL（月末，或错过月份的补跑）时，睡到窗口打开后一分钟，用
+   workflow_dispatch 启动调度器，这种启动 GitHub 会立即执行；窗口已经开了就立即
+   启动。重试和每日 MARK 仍由调度器自己的定时任务负责。
 
 冻结后在 Settings → Branches 保护 `live/v50r3`（禁止强制推送和删除；不要限制
 推送者，否则 `github-actions[bot]` 无法提交账本）。补录事件和调度器可以同时运行：
