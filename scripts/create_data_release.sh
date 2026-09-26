@@ -31,7 +31,7 @@ data_paths=(
 cd "$project_dir"
 for path in "${data_paths[@]}"; do
     if [[ ! -d "$path" ]]; then
-        echo "缺少数据目录：$path。请先下载旧数据包或执行数据更新。" >&2
+        echo "缺少数据目录：${path}。请先下载旧数据包或执行数据更新。" >&2
         exit 1
     fi
     find "$path" -type f -print

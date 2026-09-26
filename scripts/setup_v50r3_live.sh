@@ -53,18 +53,18 @@ if [[ -e "$target" ]]; then
     exit 1
 fi
 if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
-    echo "本仓库已有本地分支 $branch。用 git worktree list 找到它的工作副本；" >&2
-    echo "确实要重建时，先 git worktree remove 那个副本并 git branch -D $branch。" >&2
+    echo "本仓库已有本地分支 ${branch}。用 git worktree list 找到它的工作副本；" >&2
+    echo "确实要重建时，先 git worktree remove 那个副本并 git branch -D ${branch}。" >&2
     exit 1
 fi
 
 if ! git -C "$repo" fetch --quiet origin 2>/dev/null; then
-    echo "提醒：无法连接 origin，只按本地记录判断远端是否已有 $branch。" >&2
+    echo "提醒：无法连接 origin，只按本地记录判断远端是否已有 ${branch}。" >&2
 fi
 tracking=false
 if git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
     tracking=true
-    echo "远端已有 $branch，建立跟踪它的工作副本。"
+    echo "远端已有 ${branch}，建立跟踪它的工作副本。"
     git -C "$repo" worktree add --track -b "$branch" "$target" "origin/$branch"
 else
     if ! git -C "$repo" rev-parse --verify --quiet "$start^{commit}" >/dev/null; then
@@ -132,14 +132,14 @@ PY
     case "$code" in
         0) echo "自检通过：r3 协议已冻结，代码闭包与账本校验一致。" ;;
         3) echo "自检通过：代码就绪，r3 尚未冻结。" ;;
-        *) echo "自检失败：r3 status 退出码 $code。" >&2; exit 1 ;;
+        *) echo "自检失败：r3 status 退出码 ${code}。" >&2; exit 1 ;;
     esac
 fi
 
 echo
-echo "独立副本：$target（分支 $branch）"
+echo "独立副本：${target}（分支 ${branch}）"
 if [[ "$tracking" == true ]]; then
-    echo "它跟踪远端的 $branch。按 README 把定时任务指向这个目录即可。"
+    echo "它跟踪远端的 ${branch}。运行方式见 docs/v50r3_operations.md。"
 else
     cat <<EOF
 演练和数据源探测都通过后，在副本里冻结并推送：
@@ -150,6 +150,6 @@ else
     output/research_only/v50/corrected_v47_20260905_r2/superseded_by_v50r3.json
   git commit -m "research: freeze v50r3 prospective protocol and supersede r2"
   git push -u origin $branch
-然后按 README 配置定时任务，并在 GitHub 上保护 $branch 分支。
+然后按 docs/v50r3_operations.md 配置运行方式，并在 GitHub 上保护 $branch 分支。
 EOF
 fi
