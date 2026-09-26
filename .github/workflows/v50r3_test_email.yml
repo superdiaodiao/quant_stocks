@@ -29,4 +29,20 @@ jobs:
         MAIL_TO: ${{ secrets.MAIL_TO }}
         MAIL_SERVER: ${{ vars.MAIL_SERVER }}
         MAIL_PORT: ${{ vars.MAIL_PORT }}
-      run: python scripts/v50r3_notify.py --test
+        # Whether each setting exists where it was looked for; never a value.
+        FOUND_SECRETS: >-
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME != '' }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD != '' }}
+          MAIL_TO=${{ secrets.MAIL_TO != '' }}
+        FOUND_VARIABLES: >-
+          MAIL_USERNAME=${{ vars.MAIL_USERNAME != '' }}
+          MAIL_PASSWORD=${{ vars.MAIL_PASSWORD != '' }}
+          MAIL_SERVER=${{ vars.MAIL_SERVER != '' }}
+          MAIL_PORT=${{ vars.MAIL_PORT != '' }}
+      run: |
+        echo "Repository secrets found: $FOUND_SECRETS"
+        echo "Repository variables found: $FOUND_VARIABLES"
+        if [[ "$FOUND_VARIABLES" == *"MAIL_PASSWORD=true"* ]]; then
+          echo "::error::MAIL_PASSWORD is a repository variable, which is not encrypted: delete it and add it under Secrets instead."
+        fi
+        python scripts/v50r3_notify.py --test
