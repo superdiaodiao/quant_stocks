@@ -1,15 +1,21 @@
-"""Email the result of a v50r3 SIGNAL or MARK (a GitHub helper, stdlib only).
+"""Report the result of a v50r3 SIGNAL or MARK (a GitHub helper, stdlib only).
 
 The scheduler workflow runs this after each run on live/v50r3, fetched from
 master so that the live branch stays pinned.  When the run froze a signal or
 appended a mark it reads the run's decision (run.json) and the live
-checkout's ledger and signal file, and emails a short summary over SMTP with
-the repository secrets MAIL_USERNAME and MAIL_PASSWORD (a Gmail app password;
-for another provider also set the repository variables MAIL_SERVER and
-MAIL_PORT).  MAIL_TO defaults to MAIL_USERNAME.  Without the secrets it sends
-nothing.  Repository secrets stay private in a public repository, and the
-message is not printed to the public run log.  It imports nothing from the
-repository and is not part of the r3 code closure.
+checkout's ledger and signal file, and sends a short summary two ways, each
+only when configured:
+
+- as a comment on the issue NOTIFY_ISSUE, with the job token in GH_TOKEN;
+  GitHub notifies the issue's subscribers (the comment is public, like the
+  ledger itself);
+- as an email over SMTP with the repository secrets MAIL_USERNAME and
+  MAIL_PASSWORD (a Gmail app password; for another provider also set the
+  repository variables MAIL_SERVER and MAIL_PORT).  MAIL_TO defaults to
+  MAIL_USERNAME.
+
+The message is not printed to the public run log.  It imports nothing from
+the repository and is not part of the r3 code closure.
 
     python scripts/v50r3_notify.py --decision run.json --root .
     python scripts/v50r3_notify.py --test
@@ -27,6 +33,7 @@ import smtplib
 import ssl
 import sys
 from email.message import EmailMessage
+from urllib.request import Request, urlopen
 
 OUTPUT_DIR = Path("output/research_only/v50/corrected_v47_20260924_r3")
 LEDGER_PATH = OUTPUT_DIR / "prospective_ledger.jsonl"
@@ -34,6 +41,7 @@ SIGNALS_DIR = OUTPUT_DIR / "signals"
 CASH = "__CASH__"
 FROZEN_STATUSES = {"FROZEN_PROSPECTIVE_SIGNAL", "RECOVERED_AND_FROZEN_PROSPECTIVE_SIGNAL"}
 MARK_STATUSES = {"APPENDED_PROSPECTIVE_MARK"}
+GITHUB_API = "https://api.github.com"
 DEFAULT_SERVER = "smtp.gmail.com"
 DEFAULT_PORT = 465
 FOOTER = "只是研究记录，不会下单。"
@@ -158,18 +166,40 @@ def send(subject: str, body: str, env: dict | None = None) -> bool:
     return True
 
 
+def comment(subject: str, body: str, env: dict | None = None) -> bool:
+    """Comment on the NOTIFY_ISSUE issue; False when it is not configured."""
+    env = os.environ if env is None else env
+    token, repository = env.get("GH_TOKEN"), env.get("GITHUB_REPOSITORY")
+    issue = env.get("NOTIFY_ISSUE")
+    if not token or not repository or not issue:
+        return False
+    request = Request(
+        f"{GITHUB_API}/repos/{repository}/issues/{int(issue)}/comments",
+        data=json.dumps({"body": f"**{subject}**\n\n{body}"}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "v50r3-notify",
+        },
+    )
+    with urlopen(request, timeout=60) as response:
+        return 200 <= response.status < 300
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--decision", type=Path, help="the scheduler's run.json")
     parser.add_argument("--root", type=Path, default=Path("."), help="live checkout")
-    parser.add_argument("--test", action="store_true", help="send a test message")
+    parser.add_argument("--test", action="store_true", help="send a test notice")
     args = parser.parse_args(argv)
     run_url = os.environ.get("RUN_URL")
     if args.test:
         message = (
-            "v50r3 邮件通知测试",
-            "收到这封邮件，说明 v50r3 的邮件通知已经设置好：以后每次冻结信号、"
-            f"每次估值都会发一封。\n\n{FOOTER}\n",
+            "v50r3 通知测试",
+            "收到这条通知，说明 v50r3 的结果通知已经设置好：以后每次冻结信号、"
+            f"每次估值都会发一条。\n\n{FOOTER}\n",
         )
     else:
         if args.decision is None or not args.decision.is_file():
@@ -180,16 +210,21 @@ def main(argv: list[str] | None = None) -> int:
         if message is None:
             print("no frozen signal or appended mark: nothing to report")
             return 0
-    try:
-        sent = send(*message)
-    except (OSError, smtplib.SMTPException) as exc:
-        print(f"::warning::The result email was not sent: {type(exc).__name__}")
+    delivered, failed = [], []
+    for name, deliver in (("issue comment", comment), ("email", send)):
+        try:
+            if deliver(*message):
+                delivered.append(name)
+        except (OSError, ValueError, smtplib.SMTPException) as exc:
+            failed.append(name)
+            print(f"::warning::The result {name} was not sent: {type(exc).__name__}")
+    if delivered:
+        print(" and ".join(delivered) + " sent")
+    elif not failed:
+        print("neither NOTIFY_ISSUE nor MAIL_USERNAME and MAIL_PASSWORD are set: nothing sent")
+    if failed:
         return 1
-    if not sent:
-        print("MAIL_USERNAME and MAIL_PASSWORD are not set: no email sent")
-        return 1 if args.test else 0
-    print("email sent")
-    return 0
+    return 1 if args.test and not delivered else 0
 
 
 if __name__ == "__main__":

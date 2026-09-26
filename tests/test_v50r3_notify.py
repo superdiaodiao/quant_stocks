@@ -145,6 +145,8 @@ def test_the_cli_reports_a_run_and_tests_the_settings(
     tmp_path: Path, smtp: list, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
+    for name in ("GH_TOKEN", "NOTIFY_ISSUE", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_TO"):
+        monkeypatch.delenv(name, raising=False)
     _signal(tmp_path, "2026-09-30", _targets("PLTR"))
     decision = tmp_path / "run.json"
     decision.write_text(json.dumps({
@@ -163,8 +165,81 @@ def test_the_cli_reports_a_run_and_tests_the_settings(
     assert notify.main(argv) == 0
     assert notify.main(["--test"]) == 0
     assert [message["Subject"] for *_rest, message in smtp] == [
-        "v50r3 2026-09-30 信号：PLTR 20%", "v50r3 邮件通知测试",
+        "v50r3 2026-09-30 信号：PLTR 20%", "v50r3 通知测试",
     ]
     # The public run log never shows the message or the address.
     log = capsys.readouterr().out
     assert "PLTR" not in log and "example.invalid" not in log
+
+
+class _Response:
+    status = 201
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def test_comment_posts_to_the_notify_issue_with_the_job_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests = []
+    monkeypatch.setattr(
+        notify, "urlopen", lambda request, timeout: requests.append(request) or _Response()
+    )
+    assert notify.comment("subject", "body", {"GH_TOKEN": "token"}) is False
+    assert notify.comment("subject", "body", {
+        "GH_TOKEN": "token", "GITHUB_REPOSITORY": "owner/repo", "NOTIFY_ISSUE": "2",
+    }) is True
+    (request,) = requests
+    assert request.full_url == "https://api.github.com/repos/owner/repo/issues/2/comments"
+    assert request.get_method() == "POST"
+    assert request.get_header("Authorization") == "Bearer token"
+    assert json.loads(request.data) == {"body": "**subject**\n\nbody"}
+
+
+def test_the_cli_comments_on_the_issue_without_any_email_settings(
+    tmp_path: Path, smtp: list, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    requests = []
+    monkeypatch.setattr(
+        notify, "urlopen", lambda request, timeout: requests.append(request) or _Response()
+    )
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("NOTIFY_ISSUE", "2")
+    monkeypatch.delenv("MAIL_USERNAME", raising=False)
+    monkeypatch.delenv("MAIL_PASSWORD", raising=False)
+    _signal(tmp_path, "2026-09-30", _targets("PLTR"))
+    decision = tmp_path / "run.json"
+    decision.write_text(json.dumps({
+        "action": "RUN_SIGNAL", "result_status": "FROZEN_PROSPECTIVE_SIGNAL",
+        "as_of": "2026-09-30",
+    }), encoding="utf-8")
+
+    assert notify.main(["--decision", str(decision), "--root", str(tmp_path)]) == 0
+    assert notify.main(["--test"]) == 0
+
+    assert not smtp and len(requests) == 2
+    assert json.loads(requests[0].data)["body"].startswith(
+        "**v50r3 2026-09-30 信号：PLTR 20%**"
+    )
+    log = capsys.readouterr().out
+    assert "issue comment sent" in log and "PLTR" not in log
+
+
+def test_a_refused_comment_is_reported_and_never_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    def refuse(_request, timeout):
+        raise OSError("HTTP Error 403: Forbidden")
+
+    monkeypatch.setattr(notify, "urlopen", refuse)
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("NOTIFY_ISSUE", "2")
+    assert notify.main(["--test"]) == 1
+    assert "The result issue comment was not sent: OSError" in capsys.readouterr().out

@@ -1,15 +1,16 @@
 name: v50r3 test email
 
-# Sends one test message with the MAIL_USERNAME and MAIL_PASSWORD repository
-# secrets, so the result emails of the "v50r3 scheduler" can be checked before
-# a SIGNAL or MARK needs them. It fails when the secrets are missing or the
-# mail server refuses them.
+# Sends one test notice the way the "v50r3 scheduler" reports a SIGNAL or
+# MARK: a comment on the observation log issue, and an email when the
+# MAIL_USERNAME and MAIL_PASSWORD repository secrets exist. It fails when
+# nothing could be sent.
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   email:
@@ -22,8 +23,10 @@ jobs:
         sparse-checkout: scripts/v50r3_notify.py
         sparse-checkout-cone-mode: false
 
-    - name: Send a test email
+    - name: Send a test notice
       env:
+        GH_TOKEN: ${{ github.token }}
+        NOTIFY_ISSUE: "2"
         MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
         MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         MAIL_TO: ${{ secrets.MAIL_TO }}

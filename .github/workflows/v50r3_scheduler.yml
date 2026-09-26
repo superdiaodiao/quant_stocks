@@ -34,6 +34,7 @@ on:
 permissions:
   actions: write
   contents: write
+  issues: write
 
 concurrency:
   group: v50r3-scheduler
@@ -150,13 +151,16 @@ jobs:
         fi
         exit "$code"
 
-    - name: Email the result
+    - name: Report the result
       if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
       continue-on-error: true
       env:
-        # Repository secrets stay private in a public repository; without
-        # them nothing is sent. MAIL_SERVER and MAIL_PORT (repository
-        # variables) default to Gmail.
+        # A comment on the observation log issue, which GitHub sends to its
+        # subscribers; and an email when the MAIL_USERNAME and MAIL_PASSWORD
+        # repository secrets exist (MAIL_SERVER and MAIL_PORT repository
+        # variables default to Gmail).
+        GH_TOKEN: ${{ github.token }}
+        NOTIFY_ISSUE: "2"
         MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
         MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         MAIL_TO: ${{ secrets.MAIL_TO }}
