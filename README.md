@@ -93,7 +93,7 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | `v50r3 freeze` | 手动（已执行过，会拒绝再跑） | 一次性冻结 |
 | `Portable tests` | 每次 push/PR | 跑不依赖数据包的测试，复验 r1/r2/r3 协议 |
 
-`workflow_run_script.yml`（旧的 CAN SLIM 日常流程）已在 GitHub 上禁用。v50r2 已被 r3
+旧的 CAN SLIM 日常流程（`workflow_run_script.yml`）已删除。v50r2 已被 r3
 接替，从未产生过信号。
 
 ### 3.3 出问题怎么办

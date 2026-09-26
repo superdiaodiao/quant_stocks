@@ -1,6 +1,6 @@
 # 已停用：CAN SLIM Top3 日常流水线
 
-> 从原 README 第 8、9、10、12、13 节移来。这套 `can-slim-top3-v1` 日常流程已停用，对应的 GitHub 工作流 `workflow_run_script.yml` 已在 GitHub 上手动禁用。当前运行的是 v50r3，见 [运维手册](../v50r3_operations.md)。
+> 从原 README 第 8、9、10、12、13 节移来。这套 `can-slim-top3-v1` 日常流程已停用，对应的 GitHub 工作流 `workflow_run_script.yml` 已于 2026-09-26 删除（可在 git 历史里找回）。当前运行的是 v50r3，见 [运维手册](../v50r3_operations.md)。
 
 ## 8. 日常数据更新和推荐
 
