@@ -1,7 +1,7 @@
 name: v50r3 record sourced event
 
 # Appends one sourced post-freeze event to the r3 supplement on live/v50r3,
-# as record-sourced-event does on a computer (README lists the rules): a split
+# as record-sourced-event does on a computer (docs/v50r3_operations.md lists the rules): a split
 # (its price factor), a real move that only looks like a split, or the
 # terminal return of a stock that stopped trading. It stages that stock's
 # prices as a staging would, so the event is checked against the same stored
