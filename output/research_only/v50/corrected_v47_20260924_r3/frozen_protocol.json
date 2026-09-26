@@ -1,0 +1,394 @@
+{
+  "broker_connection_used": false,
+  "capital_allocated": false,
+  "code_branch": "live/v50r3",
+  "code_closure": {
+    "file_count": 51,
+    "files": {
+      "scripts/research_v15_benchmark_core_development.py": "3ca5deed7aae3e3c9a1c2aae8098794d12cc0ba13808ec6e165f48936bd36c7c",
+      "scripts/research_v23_stock_only_frequency.py": "435fe4fded671ed25718dea6eb994ea0da3c3fe2766ae7378a09b5aa74ceed7f",
+      "scripts/research_v24_stock_momentum_development.py": "2f2355a10005753419f238f60d28e2c53431ca8c6f861bfc3e06a5d3d361a162",
+      "scripts/research_v26_large_liquid_stock_momentum.py": "968464f2af5f9cd8ebe0c33740b3e13df12aa1f84d9c965548dd7cd9a5094eaf",
+      "scripts/research_v27_stock_only_2026_observation.py": "87b568a57bfa9c275bda08dc757108322677f2dc75273455e258667b8374532a",
+      "scripts/research_v28_stock_trailing_stop_development.py": "2c16e113c2f5901b1297b3cb94dba4ac4820b009ff2bbd4f30286b19b8cb7ac2",
+      "scripts/research_v29_recovered_2019_stock_momentum.py": "14b9c354505847d75d8cbc1b683f65d7477dcbc88ca22fd1c3eabeafc6bb6f7a",
+      "scripts/research_v30_2019_selection_path_adjudication.py": "21743b1a033b0a33818542d041e22880c8483730ea1a60c1058e4f096f08177d",
+      "scripts/research_v32_model_isolated_stop_observation.py": "80069c81a0ac10c37997f441d2d14c7b7613eea82ce40cdcfa2c8d7814c67fce",
+      "scripts/research_v33_portfolio_stop_development.py": "1c2e0609fc8dea16465914e180c81cf16ebea95a6d65165149f9a0f51ac2f340",
+      "scripts/research_v42_prospective_v28_observation.py": "6c68022ee64aa9c7241ef4c05783e68c9110a8f18fb0148e5acbb2264bc74c35",
+      "scripts/research_v43_isolated_prospective_v28_observation.py": "329b876362ab0f49bf9a642fd4b27b8fadcfdb6ed7bbbe57d3abb7280f05442c",
+      "scripts/research_v44_monthly_rank_buffer_stop_development.py": "472e3a2b09e90339e00bda9cf95f1c831f6a647914524c9a28abe7948e538d00",
+      "scripts/research_v45_rank_buffer_runtime_repair.py": "895b2f4133c66c471e9f5468a6457b711c012b0d61ce754ff905d3edb47b6bde",
+      "scripts/research_v46_entry_loss_stop_development.py": "7838ac786a411db096b05196fee3a2f5785a77ec89b9121d61e6c3daae0971f2",
+      "scripts/research_v47_hybrid_entry_portfolio_stop.py": "d8c6ad318ace401783e79af3b48ebabc16eed723845928e23ab41c1b3c963a77",
+      "scripts/research_v48_isolated_prospective_v47_observation.py": "38f2c31835c52d1bb2fe6b835b83ebec34346cb0a05e821e4ff5a370ea7e8108",
+      "scripts/research_v50_corrected_v47.py": "3631cb04eda5c68aa8c097103770052f88ec50f04ab88bdb95bbc69bd40c49eb",
+      "scripts/research_v50r2_corrected_v47.py": "f91a3b0831ee4ca339ff84ca532c8e4ed20883a928f6ebbb799812558a7f39d7",
+      "scripts/research_v50r3_corrected_v47.py": "a68330ea1bca9a8f8529510f6b05461497ce09e2227edf4e1c123b953460587b",
+      "scripts/research_v50r3_scheduled_run.py": "9a105726c058fc7200da70987fd3c571be00453b0a4617ea8e02fa0f533e7f59",
+      "scripts/research_v5_trend_core_satellite.py": "a79dee3d3f0a7852adee2867c2fc13087f5227f27df409e3c7a40c5490965a64",
+      "scripts/research_v6_data_readiness.py": "0e4883e8445c105efd261d85375da007367c0c62cedee88d64a665839b1ed5f4",
+      "scripts/research_v6_market_refresh.py": "c756d923deddd053ca1596f0312038f5cbbbab62a2660a90431fb5d51a27e3ee",
+      "src/__init__.py": "41187f32b63448afe1946f8a425953fb785981b9e836adf9f12178751dc8e88e",
+      "src/conf.py": "a2efc2a326e955317a6156b110607ce11b186808163acf16a17d9cfa63f79f75",
+      "src/financial/eps.py": "4a09a85103708bd68b4c03f89ce85ac4d6759a8ece182846db70cef1fc05ce26",
+      "src/financial/quarterly_fundamentals.py": "d53681f6e1cef6d7824a144204ba5bf36d35710f5ed63a0eb7b2d5ebc9d2390e",
+      "src/io/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/io/financial_update.py": "9f9059a1f6b7e609b249f2346e28be9b1b57f76f96cbadc0c745e61ecef47d8f",
+      "src/io/fundamentals_update.py": "61926d760f7f29759619a117281ff3fe201f7a1d669c5f57236dcd1513b32129",
+      "src/io/nasdaq_update.py": "fc92adcdfa5f586a23d905ff54873ab6db4ac3db047c5fd5a3572a6c03094200",
+      "src/io/security_identity.py": "a20ba7dc4d90f1ee96d7c275e05e6cec6b2078e4d93e7804abeca4f190f5a320",
+      "src/io/security_universe.py": "809dee6b890f59d7ebaf949bf0a6df468e644957baf43ae69f301d1bd57180fd",
+      "src/io/terminal_returns.py": "6008eaf0ee9a99bf3b9538605064c76667ec132fbe4aa2831a93e39e978965de",
+      "src/research/__init__.py": "5c750a94dff793f5c3fbd68814027810bb982435b8d6d5560fe7f2b3863958c5",
+      "src/research/can_slim.py": "f08797f5b1b07b3d6f41251cd259cab503a6e8e4e2ba43a936a18b7c217c42e5",
+      "src/research/code_closure.py": "57a83193d559a83439a912beda6584200c98c0af3834b3c6252e7318c0a948c2",
+      "src/research/corrected_stock_policy.py": "1f1d3f7ce3be57884e5c7609381da0658ddb51c39b6a5c90a9a93c12aa226551",
+      "src/research/data_fingerprint.py": "e79e6fc5fc1604a8743acde3e31bc0815b2ee08f501264d2da21c12217f0e862",
+      "src/research/data_quality.py": "dcf1ded4f60024dba43e0c0bb648c23d0734a189bacdfb17f4a985540e66768c",
+      "src/research/foreign_quarterly_diagnostics.py": "6d3274c296177d0b75c0d63f2db75b53d70e24272cb223d426eee50b743606d4",
+      "src/research/panel_data.py": "94d72b7e91eaa2b92a4cb360743164be015284b732fd302e4078e3f50235ada8",
+      "src/research/prospective_marks.py": "725a34ea4734933e23814bfecf36c7e2c79fd1e20b1e995bd402d7d7a7134e33",
+      "src/research/prospective_replay.py": "83ee9ab12b4fcdc9467bc38753e215583c4a60ce64fa1236d26cd9922c0b1519",
+      "src/research/prospective_schedule.py": "137ae55f8875b6140c07a9595bbb5557a7fdb13b220f560c09a56e8df4d4efda",
+      "src/research/shadow_evaluation.py": "a2ecbc47ca915df233526bea1b972d6dffc5cbaa7239b69f439c2ef81ed1c814",
+      "src/research/shadow_ledger.py": "19b808cf0ae6a134218dd1c665aa536f7c96a2a99b8b830b559a8548c5dcac9c",
+      "src/research/universe_history.py": "fa8527f631d658a6592fcf30534d53633127d6acbe79085cebe62bec24fc35d8",
+      "src/strategy/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/strategy/common.py": "5dd236b768010a562822ce18a4abe0ba7fbc936498870b1822a2058edf29fd03"
+    },
+    "roots": [
+      "scripts/research_v50r3_corrected_v47.py",
+      "scripts/research_v50r3_scheduled_run.py"
+    ],
+    "sha256": "bc0dc85e63c7eb154b4e0c9e46fe3855ccf0eaec92b220fc31939b8d48b90065"
+  },
+  "code_commit": "218f4148c5b000bb819c1149e711be2e8c365cf3",
+  "corrected_training_positive_years_50bps": 6,
+  "evaluation": {
+    "catch_up_signals": "counted like any other signal; every mark lists them and the complete months that contain a catch-up rebalance, so results can be read with and without those months",
+    "official_score_requires_complete_prospective_periods": true,
+    "primary_benchmark": "NASDAQ_COMPOSITE_PRICE_RETURN",
+    "secondary_benchmark": "QQQ_TOTAL_RETURN_REFERENCE_ONLY",
+    "training_years_are_never_counted_as_wins": true,
+    "transaction_cost_bps": [
+      10,
+      30,
+      50
+    ]
+  },
+  "evidence_partition": {
+    "2020_2025": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "CORRECTED_TRAINING_DIAGNOSTIC_ONLY",
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    "2026_01_07": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "RESEARCHER_EXPOSED_REUSED_DIAGNOSTIC"
+    },
+    "missed_windows": {
+      "counts_as_official_comparison": false,
+      "official_year_wins": 0,
+      "role": "MISSED_WINDOW_NOT_BACKFILLED",
+      "signal_dates": [
+        "2026-08-31"
+      ]
+    },
+    "prospective": {
+      "counts_as_official_comparison": true,
+      "first_signal_date": "2026-09-30"
+    }
+  },
+  "frozen_at": "2026-09-26T02:25:28+00:00",
+  "immutability": {
+    "code_closure_verified_on_every_protocol_validation": true,
+    "input_binding_location": "repository_relative",
+    "ledger_mode": "append_only_sha256_chain",
+    "protocol_overwrite_allowed": false,
+    "signal_overwrite_allowed": false
+  },
+  "input_bindings": {
+    "corporate_action_validation": {
+      "path": "output/can_slim_all_corporate_action_validation.csv",
+      "sha256": "d2b4fba34677b4c63010c0a7e75e2c5f0610d98a41203a5a19a4b0511d947649"
+    },
+    "corrected_policy": {
+      "path": "src/research/corrected_stock_policy.py",
+      "sha256": "1f1d3f7ce3be57884e5c7609381da0658ddb51c39b6a5c90a9a93c12aa226551"
+    },
+    "development_manifest": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/development_results/manifest.json",
+      "sha256": "17ecbf2c2c772b6e56a4464e3c3e0626a0e4695fba999a3b7fd4d44934ec9c9e"
+    },
+    "development_protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/development_protocol.json",
+      "sha256": "474d8a9646c5fce589c7bd8dcfd83c872238e2904b6eadcb79a96ef47465e323"
+    },
+    "r1_runner": {
+      "path": "scripts/research_v50_corrected_v47.py",
+      "sha256": "3631cb04eda5c68aa8c097103770052f88ec50f04ab88bdb95bbc69bd40c49eb"
+    },
+    "r2_runner": {
+      "path": "scripts/research_v50r2_corrected_v47.py",
+      "sha256": "f91a3b0831ee4ca339ff84ca532c8e4ed20883a928f6ebbb799812558a7f39d7"
+    },
+    "reviewed_market_moves": {
+      "path": "stocks_list_dir/nasdaq/reviewed_market_moves.csv",
+      "sha256": "0b1ad322787370e550475633cf9965502b3c38c45d0485c526f34f14d1ae9f47"
+    },
+    "runner": {
+      "path": "scripts/research_v50r3_corrected_v47.py",
+      "sha256": "a68330ea1bca9a8f8529510f6b05461497ce09e2227edf4e1c123b953460587b"
+    },
+    "scheduler": {
+      "path": "scripts/research_v50r3_scheduled_run.py",
+      "sha256": "9a105726c058fc7200da70987fd3c571be00453b0a4617ea8e02fa0f533e7f59"
+    },
+    "v42_calculation_core": {
+      "path": "scripts/research_v42_prospective_v28_observation.py",
+      "sha256": "6c68022ee64aa9c7241ef4c05783e68c9110a8f18fb0148e5acbb2264bc74c35"
+    },
+    "v43_runtime_core": {
+      "path": "scripts/research_v43_isolated_prospective_v28_observation.py",
+      "sha256": "329b876362ab0f49bf9a642fd4b27b8fadcfdb6ed7bbbe57d3abb7280f05442c"
+    },
+    "v48_ledger": {
+      "path": "output/research_only/v48/v47_prospective_20260830/prospective_ledger.jsonl",
+      "sha256": "3afdc0149ae2f9945d21bb1cf0bb33c674d85240917c328010eaf3e22680f2a1"
+    },
+    "v48_protocol": {
+      "path": "output/research_only/v48/v47_prospective_20260830/frozen_protocol.json",
+      "sha256": "e717ff441b9b3804579df35fc470d5f961d8b09402691a3704de1dca649978ef"
+    },
+    "v50r1_ledger": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/prospective_ledger.jsonl",
+      "sha256": "55336d125e68ddca4ba89119055d1ad5d7beac9dd86e52d81e2dcb61cf426b53"
+    },
+    "v50r1_protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260831_r1/frozen_protocol.json",
+      "sha256": "b9ea71eb5f6b3cd1104648e50c321356bf6d8c198f58673bd71821dc47b9502a"
+    },
+    "v50r2_ledger": {
+      "path": "output/research_only/v50/corrected_v47_20260905_r2/prospective_ledger.jsonl",
+      "sha256": "d2908abb5d63c421b036117605333aed282f9d6845c050a273513ab4cad043fc"
+    },
+    "v50r2_protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260905_r2/frozen_protocol.json",
+      "sha256": "48fef8da7ae8a7e221bdac4dff7b551c2485961ade11afa72d86539f0a69a4e7"
+    }
+  },
+  "mark_policy": {
+    "after_missed_signal_window": "the held portfolio keeps being valued until the catch-up signal executes",
+    "all_cash_month": "valued against the benchmark",
+    "already_valued_input_rows": "carried forward unchanged",
+    "closes_required": "stocks held into or bought on the mark date",
+    "held_stock_without_later_close": "fail_closed until the closes arrive or a sourced terminal return is recorded",
+    "post_freeze_sourced_events": "output/research_only/v50/corrected_v47_20260924_r3/sourced_event_supplement.csv",
+    "prefix_digest": "closes of the Composite, QQQ (with dividends) and every targeted stock; not volume",
+    "price_events_checked": "inside holding windows only",
+    "procedure": "v50r3-exposure-aware-mark",
+    "sourced_event_types": [
+      "SPLIT",
+      "MARKET_MOVE",
+      "TERMINAL_RETURN"
+    ],
+    "sourced_events_append_only": true,
+    "terminal_return": "ends the stock's history for the observation",
+    "unbound_signal_files": "ignored and reported; the ledger decides",
+    "valued_bundle_copy": "latest_valued_bundle/ beside the ledger, committed with each mark, carries the valued rows to any machine",
+    "valued_sessions": "never re-adjudicated: a sourced split or market move inside a valued holding window is refused and a provider rescaling measured afterwards is ignored for it"
+  },
+  "model": {
+    "correction_specification": {
+      "coincident_stop_and_rebalance": "stop_vetoes_same_close_reentry",
+      "input_binding_location": "repository_relative",
+      "minimum_price_units": "contemporaneous nominal price",
+      "missing_monthly_entry_close": "fail_closed",
+      "new_threshold_search": false,
+      "price_return_units": "sourced confirmed corporate actions only",
+      "risk_thresholds": {
+        "entry_loss_fraction": 0.2,
+        "portfolio_trailing_stop_fraction": 0.25
+      },
+      "selector": "v30 fixed Top-5 monthly selector",
+      "signal_universe_staging": "same_utc_date_as_signal_only",
+      "unresolved_ranked_pool_action": "fail_closed",
+      "unresolved_target_action": "fail_closed"
+    },
+    "risk_specification": {
+      "entry_loss_fraction": 0.2,
+      "entry_reference": "adjusted close at latest monthly rebalance",
+      "execution": "next_trading_close",
+      "key": "entry_loss_20pct_plus_portfolio_trailing_stop_25pct",
+      "portfolio_peak_reset": "latest monthly rebalance",
+      "portfolio_trailing_stop_fraction": 0.25,
+      "reentry": "next_frozen_monthly_target_only",
+      "risk_off_asset": "CASH",
+      "signal_frequency": "daily_close",
+      "trailing_stop_fraction": 0.25
+    },
+    "selector_candidate": "mom63_skip0_liquid25_top5_profitable_monthly",
+    "selector_specification": {
+      "key": "mom63_skip0_liquid25_top5_profitable_monthly",
+      "liquid_pool_size": 25,
+      "lookback_sessions": 63,
+      "quality_mode": "profitable",
+      "rank_buffer_multiple": 1,
+      "signal_frequency": "monthly",
+      "skip_recent_sessions": 0,
+      "top_n": 5
+    }
+  },
+  "model_version": "v50r3-corrected-v47-sourced-actions",
+  "operations": {
+    "live_branch": "live/v50r3",
+    "setup": "scripts/setup_v50r3_live.sh",
+    "watchdog_reads": "live/v50r3",
+    "writers": "the scheduler and runner command lines of a live-branch checkout only"
+  },
+  "order_created": false,
+  "parameters_frozen_before_prospective_data": true,
+  "price_policy": {
+    "automatic_heuristic_adjustment_allowed": false,
+    "confirmed_actions_only": true,
+    "provider_rescalings": "every price update requests the last 28 days of stored history again; a uniform rescaling of it (Nasdaq's own split adjustment) is recorded as a PROVIDER_ADJUSTMENT_DISCONTINUITY at the first session in the new units and applied like any confirmed action; stored rows are never rewritten; a history that no longer matches in any consistent way is not appended",
+    "reused_tickers": "a gap over 90 days with a price 2x away starts a new security; only its history counts, with v42's 150-row minimum",
+    "reviewed_market_moves_preserved": true,
+    "sourced_events_apply_to_signals": true,
+    "split_like_move_review": "after the frozen table's last reviewed date, a raw one-session ratio at or below 0.7 or at or above 1.4, or within 2.5% of a whole split factor, on a session whose dollar volume is at most 5x the median of its previous 20 sessions, must be explained by a confirmed action, a measured provider rescaling or a sourced event before a selection or a valuation uses it; earlier sessions keep the frozen table's adjudication",
+    "unresolved_rank_or_target_event": "fail_closed"
+  },
+  "promotion_eligible": false,
+  "quality_policy": {
+    "function": "src/financial/quarterly_fundamentals.py:latest_four_quarter_profit",
+    "profitable": "net income of the latest four consecutive fiscal quarters filed by the signal date is positive; the latest quarter was first reported within 550 days; an older window never stands in; missing data is not profitable"
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "risk_policy": {
+    "coincident_stop_precedence": "stop_vetoes_same_close_reentry",
+    "entry_loss_fraction": 0.2,
+    "entry_reference": "adjusted close at latest monthly rebalance",
+    "missing_entry_close": "the target's weight stays in cash until the next signal once a later session exists; on the execution session the mark waits",
+    "portfolio_peak_reset": "latest monthly rebalance",
+    "portfolio_stop_armed": "only while positions are held, so a stop that left the book in cash never vetoes the next monthly target",
+    "portfolio_trailing_stop_fraction": 0.25,
+    "replay": "src/research/prospective_replay.py:replay_live",
+    "replay_matches_development_replay": "identical on the frozen development targets (tested); it differs only in the two cases above, which 2020-2025 never exercised",
+    "stop_checked_before_rebalance": true
+  },
+  "runtime_environment_at_freeze": {
+    "exchange_calendars": "4.13.2",
+    "numpy": "1.26.4",
+    "pandas": "2.2.3",
+    "python": "3.12.14"
+  },
+  "runtime_repair": {
+    "bundle_manifest_scalars": "numpy_scalars_normalized_to_python",
+    "code_binding": "complete_project_import_closure",
+    "development_replay": "reused_from_v50r1_unchanged",
+    "future_available_fundamentals": "removed_from_staged_parsed_outputs_and_recorded",
+    "invented_cik_allowed": false,
+    "mark_all_cash": "valued_against_the_benchmark",
+    "mark_closes_required": "stocks_held_into_or_bought_on_the_mark_date",
+    "mark_input_rows": "already_valued_rows_carried_forward_unchanged",
+    "mark_post_freeze_events": "append_only_sourced_event_supplement",
+    "mark_prefix_digest": "closes_only",
+    "mark_price_events_checked": "inside_holding_windows_only",
+    "mark_procedure": "v50r3-exposure-aware-mark",
+    "mark_replay": "prospective_replay_live_stop_armed_while_held_unexecutable_to_cash",
+    "mark_terminal_return": "ends_the_stock_history",
+    "mark_unbound_signal_files": "ignored_and_reported",
+    "mark_unsourced_terminal_return": "fail_closed",
+    "mark_valued_bundle_copy": "git_tracked_beside_the_ledger",
+    "maximum_unmapped_fraction": 0.05,
+    "missed_signal_backfill_allowed": false,
+    "missed_signal_window": "one_catch_up_as_of_the_latest_completed_session_inside_its_own_window_before_the_next_month_end",
+    "new_threshold_search": false,
+    "profitable_rule": "latest_four_consecutive_quarters_no_older_window",
+    "provider_split_rescalings": "measured_from_update_overlap_recorded_never_rewritten",
+    "r1_runner_modified": false,
+    "r2_runner_modified": false,
+    "reused_ticker_identity_breaks": "latest_security_history_only",
+    "sec_ticker_map": "one_pinned_snapshot_per_refresh",
+    "sec_unmapped_tickers": "refresh_cik_mapped_tickers_only_keep_unmapped_in_universe",
+    "selection_missing_value_policy_changed": false,
+    "signal_candidate_data_gates": "as_of_close_momentum_start_explained_moves",
+    "signal_frozen_after_window_allowed": false,
+    "signal_sourced_events": "supplement_bound_into_the_signal_bundle",
+    "signal_window": "official_close_plus_30_minutes_until_next_session_premarket_open",
+    "split_like_move_review": "large_or_whole_factor_moves_need_an_explanation",
+    "stale_build_recovery": "quarantine_never_promoted_builds_under_exclusive_lock",
+    "working_directory": "repository_root"
+  },
+  "schema_version": 4,
+  "selection_data_gates": {
+    "candidates": "stocks at least 0.8x as liquid as the ranked pool's least liquid member",
+    "on_failure": "the SIGNAL bundle is not promoted; the next run downloads again inside the window, or after the event is recorded",
+    "required": [
+      "the as-of close",
+      "the close the momentum lookback starts from",
+      "no unexplained split-like move in the sessions the selector reads"
+    ]
+  },
+  "signal_policy": {
+    "execution": "next common trading-session close",
+    "first_prospective_signal_date": "2026-09-30",
+    "first_signal_window_utc": {
+      "closes": "2026-10-01T08:00:00+00:00",
+      "opens": "2026-09-30T20:30:00+00:00"
+    },
+    "frequency": "completed calendar-month final Nasdaq session",
+    "late_signal_bundle_allowed": false,
+    "missed_signal_backfill_allowed": false,
+    "missed_signal_dates": [
+      "2026-08-31"
+    ],
+    "missed_window_catch_up": {
+      "allowed": true,
+      "applies_to": "a month end on or after the first prospective signal date whose SIGNAL window closed without a frozen signal",
+      "catch_up_signals_per_missed_month_end": 1,
+      "execution": "next common trading-session close",
+      "last_catch_up_session": "the session before the next month end",
+      "ledger_record": "SIGNAL_FROZEN payload with signal_role CATCH_UP, catch_up_for and the missed window",
+      "missed_month_end_date_backfilled": false,
+      "signal_as_of": "the latest completed Nasdaq session, staged and frozen inside that session's own window: 30 minutes after its official close until 04:00 America/New_York on the next session (exclusive)",
+      "until_the_catch_up_executes": "the previously frozen portfolio stays held; cash before the first signal"
+    },
+    "signal_frozen_before_window_closes": true,
+    "universe_staging": "inside the SIGNAL window",
+    "window_closes": "04:00 America/New_York on the next Nasdaq session, when pre-market trading opens (exclusive)",
+    "window_opens_after_official_close_minutes": 30
+  },
+  "status": "FROZEN_WAITING_FOR_FIRST_SIGNAL",
+  "supersedes": {
+    "ledger": {
+      "path": "output/research_only/v50/corrected_v47_20260905_r2/prospective_ledger.jsonl",
+      "sha256": "d2908abb5d63c421b036117605333aed282f9d6845c050a273513ab4cad043fc"
+    },
+    "model_version": "v50r2-corrected-v47-sourced-actions",
+    "protocol": {
+      "path": "output/research_only/v50/corrected_v47_20260905_r2/frozen_protocol.json",
+      "sha256": "48fef8da7ae8a7e221bdac4dff7b551c2485961ade11afa72d86539f0a69a4e7"
+    },
+    "reason": [
+      "the SIGNAL fundamentals refresh aborted when any current universe member lacked an SEC CIK, so every attempt and retry would have failed after the price downloads",
+      "filings dated after the signal by EDGAR's daily cutoff made the inherited readiness gate reject the whole bundle",
+      "failed or interrupted attempts left build directories that blocked every retry within the SIGNAL window",
+      "the same-UTC-date window lasted about 3.5 hours inside Nasdaq after-hours trading, while the Composite official-close fallback requires a Closed market status",
+      "repository-relative runtime paths depended on the launch directory",
+      "the r2 protocol bound only five of the runtime's code files"
+    ],
+    "v50r2_signal_count": 0
+  }
+}

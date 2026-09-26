@@ -1,0 +1,20 @@
+{
+  "reason": "the r2 SIGNAL fundamentals refresh aborted on SEC-unmapped universe members and left retry-blocking build directories; r3 repairs the runtime only, reusing the r1 development replay unchanged",
+  "recorded_at": "2026-09-26T02:25:30+00:00",
+  "schema_version": 1,
+  "status": "SUPERSEDED_BEFORE_FIRST_SIGNAL",
+  "successor_first_prospective_signal_date": "2026-09-30",
+  "successor_protocol": {
+    "path": "output/research_only/v50/corrected_v47_20260924_r3/frozen_protocol.json",
+    "sha256": "7344212da86aef866755f7eade2627b48cb5e78b459b271fc257353395d24529"
+  },
+  "v50r2_ledger": {
+    "path": "output/research_only/v50/corrected_v47_20260905_r2/prospective_ledger.jsonl",
+    "sha256": "d2908abb5d63c421b036117605333aed282f9d6845c050a273513ab4cad043fc"
+  },
+  "v50r2_protocol": {
+    "path": "output/research_only/v50/corrected_v47_20260905_r2/frozen_protocol.json",
+    "sha256": "48fef8da7ae8a7e221bdac4dff7b551c2485961ade11afa72d86539f0a69a4e7"
+  },
+  "v50r2_signal_count": 0
+}
