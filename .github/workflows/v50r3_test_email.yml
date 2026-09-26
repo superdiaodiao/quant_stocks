@@ -1,0 +1,32 @@
+name: v50r3 test email
+
+# Sends one test message with the MAIL_USERNAME and MAIL_PASSWORD repository
+# secrets, so the result emails of the "v50r3 scheduler" can be checked before
+# a SIGNAL or MARK needs them. It fails when the secrets are missing or the
+# mail server refuses them.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        sparse-checkout: scripts/v50r3_notify.py
+        sparse-checkout-cone-mode: false
+
+    - name: Send a test email
+      env:
+        MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+        MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        MAIL_TO: ${{ secrets.MAIL_TO }}
+        MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+        MAIL_PORT: ${{ vars.MAIL_PORT }}
+      run: python scripts/v50r3_notify.py --test

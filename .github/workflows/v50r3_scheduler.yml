@@ -149,3 +149,22 @@ jobs:
           exit 0
         fi
         exit "$code"
+
+    - name: Email the result
+      if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      continue-on-error: true
+      env:
+        # Repository secrets stay private in a public repository; without
+        # them nothing is sent. MAIL_SERVER and MAIL_PORT (repository
+        # variables) default to Gmail.
+        MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+        MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        MAIL_TO: ${{ secrets.MAIL_TO }}
+        MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+        MAIL_PORT: ${{ vars.MAIL_PORT }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        # The notifier lives on master; live/v50r3 stays pinned.
+        git fetch --quiet --depth 1 origin master
+        git show FETCH_HEAD:scripts/v50r3_notify.py > "$RUNNER_TEMP/v50r3_notify.py"
+        python "$RUNNER_TEMP/v50r3_notify.py" --decision run.json --root .

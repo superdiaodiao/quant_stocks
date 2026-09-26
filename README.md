@@ -210,7 +210,7 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
   结束该股票的历史。
 
 **在 GitHub 上运行（推荐，2026-09-25 起）：** 整个观察可以完全在 GitHub Actions 上
-进行，不依赖任何个人电脑。五个工作流都在 master 上（Actions 页面可手动运行）：
+进行，不依赖任何个人电脑。下面的工作流都在 master 上（Actions 页面可手动运行）：
 
 1. **v50r3 rehearsal**：在 GitHub 的 runner 上用真实数据完整演练一次 SIGNAL
    （逐个下载价格，约 2.5–3 小时），报告作为 artifact 上传。`verdict` 为 `FAIL`
@@ -239,6 +239,22 @@ r3 保留这一修复，并修复首个信号前发现的其余运行时缺陷�
    SIGNAL（月末，或错过月份的补跑）时，每 10 分钟查一次 Nasdaq 是否已发布这个交易
    日，发布后立即用 workflow_dispatch 启动调度器（这种启动 GitHub 会马上执行）。
    重试和每日 MARK 仍由调度器自己的定时任务负责。
+6. **v50r3 test email**：发一封测试邮件，确认下面的结果邮件设置好了。
+
+**结果邮件**：调度器每次冻结信号、每次估值后给你发一封邮件（信号写目标持仓；估值写
+净值和纳指、QQQ 的对比），出错时仍由 GitHub 发失败通知。邮箱账号放在仓库的 Secrets
+里：公开仓库的 Secrets 同样不公开，运行日志里也不打印邮件内容和地址。没设置时不发。
+用 Gmail 时：
+
+1. Google 账号开启两步验证，在 https://myaccount.google.com/apppasswords 生成一个
+   应用专用密码（16 位）。
+2. 仓库 Settings → Secrets and variables → Actions → New repository secret，添加
+   `MAIL_USERNAME`（Gmail 地址）和 `MAIL_PASSWORD`（应用专用密码）。收件人默认是同
+   一个地址，要发到别处再加 `MAIL_TO`。
+3. 运行一次 **v50r3 test email**，收到测试邮件即可。
+
+用 QQ 邮箱、163 等其他邮箱时，密码填邮箱的 SMTP 授权码，并在同一页面的 Variables 里
+设 `MAIL_SERVER`（如 `smtp.qq.com`）和 `MAIL_PORT`（`465`）。
 
 Nasdaq 在收盘后四到五小时才发布当天的数据：2026-09-24 的股票和 QQQ 历史行在 UTC
 00:16 还没有、01:00 已经有了；纳指的官方收盘价要等盘后交易在纽约时间 20:00 结束。
