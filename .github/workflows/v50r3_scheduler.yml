@@ -20,10 +20,19 @@ name: v50r3 scheduler
 # due SIGNAL or MARK is skipped with a notice (scripts/v50r3_sources_ready.py),
 # and a close still missing after that ends a run with a warning; a SIGNAL
 # queues its retry at once with a workflow_dispatch, a MARK waits for the next
-# scheduled run. A split-like move that needs a sourced event, a run while a missed
-# month is still owed (exit 2), or any other error fails the job, which GitHub
-# reports to the repository owner; between runs the "v50r3 signal watchdog"
-# keeps reporting a month that is owed.
+# scheduled run. A run held by a few named stocks without a close (a halt)
+# also ends with a warning, but a retry would fail the same way: a later
+# SIGNAL for that session waits until those closes are published, and only
+# one retry is made (scripts/v50r3_notify.py --still-blocked). A split-like
+# move that needs a sourced event, a run while a missed month is still owed
+# (exit 2), or any other error fails the job; between runs the "v50r3 signal
+# watchdog" keeps reporting a month that is owed.
+#
+# Each SIGNAL and MARK is reported on the observation log issue (and by email
+# when configured): a frozen signal or an appended mark, and a held, missed or
+# failed run with what to do about it, once a week at most. GitHub itself
+# emails a failure only to whoever triggered the run, and the runs that the
+# window waker or a retry start are the bot's.
 
 on:
   schedule:
@@ -35,6 +44,10 @@ permissions:
   actions: write
   contents: write
   issues: write
+
+env:
+  # The observation log issue that the notifier reports on.
+  NOTIFY_ISSUE: "2"
 
 concurrency:
   group: v50r3-scheduler
@@ -79,8 +92,19 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
 
+    - name: Fetch the notifier from master
+      # It reports each run and says whether a held SIGNAL may run again; it
+      # lives on master, and live/v50r3 stays pinned.
+      continue-on-error: true
+      run: |
+        git fetch --quiet --depth 1 origin master
+        git show FETCH_HEAD:scripts/v50r3_notify.py > "$RUNNER_TEMP/notify.tmp"
+        mv "$RUNNER_TEMP/notify.tmp" "$RUNNER_TEMP/v50r3_notify.py"
+
     - name: Decide what is due
       id: due
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         set +e
         PYTHONPATH=. python scripts/research_v50r3_scheduled_run.py check > decision.json
@@ -106,6 +130,21 @@ jobs:
             exit "$published"
           fi
         fi
+        if [ "$action" = "RUN_SIGNAL" ] && [ -s "$RUNNER_TEMP/v50r3_notify.py" ]; then
+          # A SIGNAL held by stocks without a close (a halt) would fail the
+          # same way, two and a half hours later, until they are published.
+          set +e
+          PYTHONPATH=. python "$RUNNER_TEMP/v50r3_notify.py" --still-blocked --as-of "$as_of" \
+            > held.json
+          held=$?
+          set -e
+          cat held.json
+          # 10: still held; anything else (a crash too) lets the SIGNAL run.
+          if [ "$held" -eq 10 ]; then
+            echo "::notice::The $as_of SIGNAL waits for the closes that held it; a later run checks again."
+            action="WAIT_FOR_MISSING_CLOSES"
+          fi
+        fi
         echo "action=$action" >> "$GITHUB_OUTPUT"
         echo "check_exit=$code" >> "$GITHUB_OUTPUT"
 
@@ -116,6 +155,7 @@ jobs:
       run: scripts/v50r3_restore_data.sh
 
     - name: Run the due SIGNAL or MARK
+      id: run
       if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
       env:
         ACTION: ${{ steps.due.outputs.action }}
@@ -131,8 +171,12 @@ jobs:
         set -e
         cat run.json
         tail -n 80 run.log
-        if [ "$code" -eq 0 ]; then exit 0; fi
+        if [ "$code" -eq 0 ]; then
+          echo "result=done" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         if [ "$code" -eq 2 ]; then
+          echo "result=missed" >> "$GITHUB_OUTPUT"
           echo "::error::A SIGNAL window was missed and the month is not caught up yet."
           exit 2
         fi
@@ -140,6 +184,19 @@ jobs:
         # sourced event, or anything else, fails the job.
         if grep -Eq "is not ready|Retry once the closes are published|official index market is not closed" run.log \
             && ! grep -Eq "split_like_moves_explained|Unresolved corporate action" run.log; then
+          held=""
+          if [ -s "$RUNNER_TEMP/v50r3_notify.py" ]; then
+            held=$(python "$RUNNER_TEMP/v50r3_notify.py" --blocked-by run.log || true)
+          fi
+          if [ "$held" = "blocked" ]; then
+            # A few named stocks have no close (a halt): a retry now would
+            # fail the same way. The report names them; a later SIGNAL for
+            # this session runs once they are published.
+            echo "result=blocked" >> "$GITHUB_OUTPUT"
+            echo "::warning::Named stocks without a close held this run; see the report on issue $NOTIFY_ISSUE."
+            exit 0
+          fi
+          echo "result=not_ready" >> "$GITHUB_OUTPUT"
           echo "::warning::Inputs are not ready yet; a later run retries."
           if [ "$ACTION" = "RUN_SIGNAL" ]; then
             # Scheduled runs start late and irregularly here, and the window
@@ -149,10 +206,13 @@ jobs:
           fi
           exit 0
         fi
+        echo "result=failed" >> "$GITHUB_OUTPUT"
         exit "$code"
 
     - name: Report the result
-      if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      # Also after a failure: GitHub emails nobody about a failed run that the
+      # window waker or a retry started.
+      if: always() && (steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK')
       continue-on-error: true
       env:
         # A comment on the observation log issue, which GitHub sends to its
@@ -160,7 +220,8 @@ jobs:
         # repository secrets exist (MAIL_SERVER and MAIL_PORT repository
         # variables default to Gmail).
         GH_TOKEN: ${{ github.token }}
-        NOTIFY_ISSUE: "2"
+        ACTION: ${{ steps.due.outputs.action }}
+        RESULT: ${{ steps.run.outputs.result }}
         MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
         MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         MAIL_TO: ${{ secrets.MAIL_TO }}
@@ -168,7 +229,10 @@ jobs:
         MAIL_PORT: ${{ vars.MAIL_PORT }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
-        # The notifier lives on master; live/v50r3 stays pinned.
-        git fetch --quiet --depth 1 origin master
-        git show FETCH_HEAD:scripts/v50r3_notify.py > "$RUNNER_TEMP/v50r3_notify.py"
-        python "$RUNNER_TEMP/v50r3_notify.py" --decision run.json --root .
+        if [ ! -s "$RUNNER_TEMP/v50r3_notify.py" ]; then
+          echo "::warning::The notifier could not be fetched from master: nothing reported."
+          exit 0
+        fi
+        # A run that died before reading its result counts as failed.
+        python "$RUNNER_TEMP/v50r3_notify.py" --result "${RESULT:-failed}" --action "$ACTION" \
+          --decision run.json --check decision.json --log run.log --root .

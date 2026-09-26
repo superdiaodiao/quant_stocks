@@ -6,8 +6,10 @@ name: v50r3 record sourced event
 # terminal return of a stock that stopped trading. It stages that stock's
 # prices as a staging would, so the event is checked against the same stored
 # closes, then commits and pushes the supplement alone. The next SIGNAL or
-# MARK binds it. Refusals (no split-like move on that date, a factor that
-# does not fit the stored ratio, a session already valued) fail the job.
+# MARK binds it, and this starts the scheduler so that a run the event
+# unblocks does not wait hours for a late scheduled trigger inside a SIGNAL
+# window. Refusals (no split-like move on that date, a factor that does not
+# fit the stored ratio, a session already valued) fail the job.
 #
 # It has its own concurrency group: queued behind the scheduler's group it
 # could be cancelled by the next half-hourly run. A push that races a
@@ -47,6 +49,7 @@ on:
         default: ""
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -116,3 +119,11 @@ jobs:
           git pull --rebase --autostash origin live/v50r3
         done
         exit 1
+
+    - name: Start the scheduler
+      # With nothing due it ends in a minute.
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: gh workflow run v50r3_scheduler.yml --ref master
