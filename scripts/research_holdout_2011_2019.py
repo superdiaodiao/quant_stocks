@@ -541,25 +541,37 @@ def neighborhood() -> dict:
     table = pd.DataFrame(rows)
     NEIGHBORHOOD.mkdir(parents=True, exist_ok=True)
     table.to_csv(NEIGHBORHOOD / "candidates.csv", index=False)
-    blocked = table.loc[table["blocked"].astype(str).ne("")]
-    table = table.loc[table["blocked"].astype(str).eq("")]
+    summary = neighborhood_summary(table)
+    summary["checks"] = checks
+    (NEIGHBORHOOD / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
+def neighborhood_summary(table: pd.DataFrame | None = None) -> dict:
+    if table is None:
+        table = pd.read_csv(NEIGHBORHOOD / "candidates.csv", keep_default_na=False, na_values=[""])
+    blocked = table.loc[table["blocked"].fillna("").astype(str).ne("")]
+    table = table.loc[table["blocked"].fillna("").astype(str).eq("")]
     paired = table.dropna(subset=["in_sample_2020_2025_excess_vs_nasdaq_50bps"])
-    summary = {
-        "checks": checks,
+    frozen = table["is_frozen_model"].astype(str).eq("True")
+    # Spearman: Pearson on ranks (no scipy dependency).
+    rank_corr = (
+        paired["in_sample_2020_2025_excess_vs_nasdaq_50bps"].rank()
+        .corr(paired["excess_vs_nasdaq_price_50bps"].rank())
+        if len(paired) > 2 else None
+    )
+    return {
         "candidates": int(len(table)),
         "blocked_fail_closed": int(len(blocked)),
         "beating_qqq_50bps": int((table["excess_vs_qqq_50bps"] > 0).sum()),
         "beating_qqq_10bps": int((table["excess_vs_qqq_10bps"] > 0).sum()),
         "beating_nasdaq_price_50bps": int((table["excess_vs_nasdaq_price_50bps"] > 0).sum()),
         "median_excess_vs_qqq_50bps": float(table["excess_vs_qqq_50bps"].median()),
-        "frozen_model_rank_50bps": int(table["excess_vs_qqq_50bps"].rank(ascending=False)[table["is_frozen_model"]].iloc[0]),
-        "in_sample_vs_holdout_spearman": float(
-            paired["in_sample_2020_2025_excess_vs_nasdaq_50bps"].corr(paired["excess_vs_nasdaq_price_50bps"], method="spearman")
-        ) if len(paired) > 2 else None,
+        "median_excess_vs_qqq_10bps": float(table["excess_vs_qqq_10bps"].median()),
+        "frozen_model_rank_50bps": int(table["excess_vs_qqq_50bps"].rank(ascending=False)[frozen].iloc[0]),
+        "in_sample_vs_holdout_spearman": None if rank_corr is None else float(rank_corr),
         "paired_candidates": int(len(paired)),
     }
-    (NEIGHBORHOOD / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    return summary
 
 
 def check() -> dict:
@@ -630,11 +642,20 @@ def run() -> dict:
     return summary
 
 
+def _write_neighborhood_summary() -> dict:
+    """Rebuild summary.json from candidates.csv without rerunning any replay."""
+    summary = neighborhood_summary()
+    summary["checks"] = check()
+    (NEIGHBORHOOD / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("check", "validate", "run", "neighborhood"))
+    parser.add_argument("command", choices=("check", "validate", "run", "neighborhood", "neighborhood-summary"))
     args = parser.parse_args()
-    result = {"check": check, "validate": validate, "run": run, "neighborhood": neighborhood}[args.command]()
+    result = {"check": check, "validate": validate, "run": run, "neighborhood": neighborhood,
+              "neighborhood-summary": _write_neighborhood_summary}[args.command]()
     if args.command == "run":
         result = {k: result[k] for k in ("verdict", "signals", "cash_signals", "checks")}
     print(json.dumps(result, indent=2, default=str))

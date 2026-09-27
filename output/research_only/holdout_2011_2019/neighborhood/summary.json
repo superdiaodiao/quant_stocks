@@ -1,0 +1,21 @@
+{
+  "candidates": 102,
+  "blocked_fail_closed": 0,
+  "beating_qqq_50bps": 5,
+  "beating_qqq_10bps": 21,
+  "beating_nasdaq_price_50bps": 15,
+  "median_excess_vs_qqq_50bps": -0.10052987888671815,
+  "median_excess_vs_qqq_10bps": -0.03942747185268565,
+  "frozen_model_rank_50bps": 36,
+  "in_sample_vs_holdout_spearman": 0.44881761943844317,
+  "paired_candidates": 55,
+  "checks": {
+    "frozen_code": {
+      "file_count": 51,
+      "sha256": "bc0dc85e63c7eb154b4e0c9e46fe3855ccf0eaec92b220fc31939b8d48b90065"
+    },
+    "inputs": {
+      "files": 172
+    }
+  }
+}
