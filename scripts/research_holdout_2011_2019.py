@@ -399,6 +399,124 @@ def validate() -> dict:
     }
 
 
+NEIGHBORHOOD = Path("output/research_only/holdout_2011_2019/neighborhood")
+IN_SAMPLE = {
+    "v26": "output/research_only/v29/recovered_2019_stock_momentum_20260830/development_results/candidate_summaries.json",
+    "v31": "output/research_only/v31/recovery_speed_stock_momentum_20260830/development_results/candidate_summaries.json",
+    "v33": "output/research_only/v33/portfolio_stop_development_20260830/development_results/candidate_summaries.json",
+    "v46": "output/research_only/v46/entry_loss_stop_20260830/development_results/candidate_summaries.json",
+}
+NO_STOP = 0.999  # the replays reject 1.0; a 99.9% loss threshold never binds here
+
+
+def _in_sample_excess(family: str, key: str) -> float | None:
+    """2020-2025 annualized excess over the Nasdaq Composite at 50 bps, as the research saw it."""
+    summaries = json.loads(Path(IN_SAMPLE[family]).read_text(encoding="utf-8"))
+    entry = summaries.get(key)
+    if entry is None:
+        return None
+    cost = entry["costs"]["50"]
+    annual = cost.get("annual") or cost.get("annual_training_diagnostics")
+    rows = [row for row in annual if 2020 <= int(row["year"]) <= 2025]
+    strategy = np.prod([1.0 + row["strategy"] for row in rows])
+    benchmark = np.prod([1.0 + row["benchmark"] for row in rows])
+    years = len(rows)
+    return float(strategy ** (1 / years) - benchmark ** (1 / years)) if years else None
+
+
+def _main_window(targets: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
+    targets = targets.copy()
+    targets["effective_date"] = pd.to_datetime(targets["effective_date"])
+    signal_of = {
+        v26.next_trading_date(index, signal): signal
+        for signal in v26.scheduled_signal_dates(index, FIRST_SIGNAL, END, "monthly")
+    }
+    targets["signal_date"] = targets["effective_date"].map(signal_of)
+    return targets.loc[targets["signal_date"].between(MAIN_FIRST_SIGNAL, LAST_SIGNAL)]
+
+
+@contextmanager
+def _v31_window(v31):
+    original = (v31.DEVELOPMENT_START, v31.DEVELOPMENT_END)
+    try:
+        v31.DEVELOPMENT_START, v31.DEVELOPMENT_END = v26.DEVELOPMENT_START, v26.DEVELOPMENT_END
+        yield
+    finally:
+        v31.DEVELOPMENT_START, v31.DEVELOPMENT_END = original
+
+
+def neighborhood() -> dict:
+    from scripts import research_v31_recovery_speed_stock_momentum as v31
+
+    if NEIGHBORHOOD.exists() and any(NEIGHBORHOOD.iterdir()):
+        raise RuntimeError(f"neighborhood results will not be overwritten: {NEIGHBORHOOD}")
+    checks = check()
+    inputs = load_inputs()
+    index = inputs["close"].index
+    chosen = v30.selected_specification()
+    schedules = []
+    with frozen_selector():
+        for spec in v26.candidate_specs():
+            schedules.append(("v26", spec, v26.generate_target_schedule(spec, inputs)))
+        with _v31_window(v31):
+            for spec in v31.candidate_specs():
+                if (int(spec["lookback_sessions"]), int(spec["market_ma_days"]), int(spec["top_n"])) == (63, 200, 5):
+                    continue  # the v26 pick, run above
+                schedules.append(("v31", spec, v31.generate_target_schedule(spec, inputs)))
+    runs = []  # (family, key, overlay, targets, entry, portfolio, in_sample_key)
+    for family, spec, targets in schedules:
+        main = _main_window(targets, index)
+        runs.append((family, spec["key"], "no_stop", main, NO_STOP, NO_STOP, spec["key"]))
+        runs.append((family, spec["key"], "stop_20_25", main, 0.20, 0.25, None))
+        if spec["key"] == chosen["key"]:
+            chosen_targets = main
+    for fraction in (0.10, 0.15, 0.20, 0.25):
+        pct = int(round(fraction * 100))
+        runs.append(("v33", f"portfolio_trailing_stop_{pct}pct", "portfolio_stop", chosen_targets, NO_STOP, fraction, f"portfolio_trailing_stop_{pct}pct"))
+        runs.append(("v46", f"monthly_entry_loss_stop_{pct}pct", "entry_stop", chosen_targets, fraction, NO_STOP, f"monthly_entry_loss_stop_{pct}pct"))
+    qqq = qqq_returns()
+    rows = []
+    with terminal_returns():
+        for number, (family, key, overlay, targets, entry, portfolio, in_key) in enumerate(runs, 1):
+            row = {"family": family, "key": key, "overlay": overlay,
+                   "is_frozen_model": family == "v26" and key == chosen["key"] and overlay == "stop_20_25"}
+            for cost in (50, 10):
+                daily = prospective_replay.replay_live(
+                    inputs["raw_close"], inputs["nasdaq"], targets, targets["effective_date"].min(), END,
+                    validation=inputs["corporate_action_validation"],
+                    entry_loss_fraction=entry, portfolio_stop_fraction=portfolio,
+                    transaction_cost_bps=float(cost),
+                )
+                m = metrics(daily, qqq, "2012-01-01", END)
+                row[f"excess_vs_qqq_{cost}bps"] = m["annualized_excess_vs_qqq"]
+                row[f"excess_vs_nasdaq_price_{cost}bps"] = m["annualized_excess_vs_nasdaq_price"]
+                row[f"annualized_{cost}bps"] = m["annualized_strategy"]
+                row[f"years_beating_qqq_{cost}bps"] = m["years_beating_qqq"]
+            source = {"v26": "v26", "v31": "v31", "v33": "v33", "v46": "v46"}[family]
+            row["in_sample_2020_2025_excess_vs_nasdaq_50bps"] = _in_sample_excess(source, in_key) if in_key else None
+            rows.append(row)
+            print(f"[{number}/{len(runs)}] {family} {key} {overlay}", flush=True)
+    table = pd.DataFrame(rows)
+    NEIGHBORHOOD.mkdir(parents=True, exist_ok=True)
+    table.to_csv(NEIGHBORHOOD / "candidates.csv", index=False)
+    paired = table.dropna(subset=["in_sample_2020_2025_excess_vs_nasdaq_50bps"])
+    summary = {
+        "checks": checks,
+        "candidates": int(len(table)),
+        "beating_qqq_50bps": int((table["excess_vs_qqq_50bps"] > 0).sum()),
+        "beating_qqq_10bps": int((table["excess_vs_qqq_10bps"] > 0).sum()),
+        "beating_nasdaq_price_50bps": int((table["excess_vs_nasdaq_price_50bps"] > 0).sum()),
+        "median_excess_vs_qqq_50bps": float(table["excess_vs_qqq_50bps"].median()),
+        "frozen_model_rank_50bps": int(table["excess_vs_qqq_50bps"].rank(ascending=False)[table["is_frozen_model"]].iloc[0]),
+        "in_sample_vs_holdout_spearman": float(
+            paired["in_sample_2020_2025_excess_vs_nasdaq_50bps"].corr(paired["excess_vs_nasdaq_price_50bps"], method="spearman")
+        ) if len(paired) > 2 else None,
+        "paired_candidates": int(len(paired)),
+    }
+    (NEIGHBORHOOD / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
+
+
 def check() -> dict:
     return {"frozen_code": verify_frozen_code(), "inputs": verify_inputs()}
 
@@ -469,9 +587,9 @@ def run() -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("check", "validate", "run"))
+    parser.add_argument("command", choices=("check", "validate", "run", "neighborhood"))
     args = parser.parse_args()
-    result = {"check": check, "validate": validate, "run": run}[args.command]()
+    result = {"check": check, "validate": validate, "run": run, "neighborhood": neighborhood}[args.command]()
     if args.command == "run":
         result = {k: result[k] for k in ("verdict", "signals", "cash_signals", "checks")}
     print(json.dumps(result, indent=2, default=str))
