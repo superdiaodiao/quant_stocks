@@ -37,3 +37,6 @@ output/research_only/v50/corrected_v47_20260924_r3/staging.lock
 # v50r3 演练只写本地临时目录和报告，不属于前瞻证据。
 output/research_only/v50/r3_rehearsals/
 logs/v50r3_scheduler.log
+
+# Local secrets (API keys)
+.env*
