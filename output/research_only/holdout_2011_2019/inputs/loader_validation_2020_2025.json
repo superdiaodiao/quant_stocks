@@ -1,0 +1,203 @@
+{
+  "months_compared": 72,
+  "months_identical": 48,
+  "holdings_overlap": "274/300",
+  "differences": {
+    "2020-01-02": {
+      "loader_only": [
+        "TTD"
+      ],
+      "development_only": [
+        "QRVO"
+      ]
+    },
+    "2020-02-03": {
+      "loader_only": [
+        "AAPL",
+        "TTD"
+      ],
+      "development_only": [
+        "ENPH",
+        "FTNT"
+      ]
+    },
+    "2020-03-02": {
+      "loader_only": [
+        "NVDA",
+        "TMUS"
+      ],
+      "development_only": [
+        "DXCM",
+        "ENPH"
+      ]
+    },
+    "2020-05-01": {
+      "loader_only": [
+        "AMZN"
+      ],
+      "development_only": [
+        "ENPH"
+      ]
+    },
+    "2020-06-01": {
+      "loader_only": [
+        "CTXS"
+      ],
+      "development_only": [
+        "DXCM"
+      ]
+    },
+    "2020-10-01": {
+      "loader_only": [
+        "NVDA"
+      ],
+      "development_only": [
+        "SEDG"
+      ]
+    },
+    "2020-12-01": {
+      "loader_only": [
+        "ENPH"
+      ],
+      "development_only": [
+        "LRCX"
+      ]
+    },
+    "2021-06-01": {
+      "loader_only": [
+        "MDLZ"
+      ],
+      "development_only": [
+        "GOOG"
+      ]
+    },
+    "2021-07-01": {
+      "loader_only": [
+        "NUAN"
+      ],
+      "development_only": [
+        "ISRG"
+      ]
+    },
+    "2021-10-01": {
+      "loader_only": [
+        "AMD"
+      ],
+      "development_only": [
+        "LULU"
+      ]
+    },
+    "2021-12-01": {
+      "loader_only": [
+        "XLNX"
+      ],
+      "development_only": [
+        "AMD"
+      ]
+    },
+    "2023-06-01": {
+      "loader_only": [
+        "FCNCA"
+      ],
+      "development_only": [
+        "AVGO"
+      ]
+    },
+    "2023-10-02": {
+      "loader_only": [
+        "ATVI"
+      ],
+      "development_only": [
+        "INTU"
+      ]
+    },
+    "2023-12-01": {
+      "loader_only": [
+        "SPLK"
+      ],
+      "development_only": [
+        "PANW"
+      ]
+    },
+    "2024-02-01": {
+      "loader_only": [
+        "LRCX"
+      ],
+      "development_only": [
+        "PANW"
+      ]
+    },
+    "2024-05-01": {
+      "loader_only": [
+        "UAL"
+      ],
+      "development_only": [
+        "CEG"
+      ]
+    },
+    "2024-06-03": {
+      "loader_only": [
+        "GOOG"
+      ],
+      "development_only": [
+        "CEG"
+      ]
+    },
+    "2024-07-01": {
+      "loader_only": [
+        "MPWR"
+      ],
+      "development_only": [
+        "GOOGL"
+      ]
+    },
+    "2024-09-03": {
+      "loader_only": [
+        "GILD"
+      ],
+      "development_only": [
+        "PANW"
+      ]
+    },
+    "2024-10-01": {
+      "loader_only": [
+        "GILD"
+      ],
+      "development_only": [
+        "CEG"
+      ]
+    },
+    "2024-11-01": {
+      "loader_only": [
+        "SBUX"
+      ],
+      "development_only": [
+        "CEG"
+      ]
+    },
+    "2025-07-01": {
+      "loader_only": [
+        "STX"
+      ],
+      "development_only": [
+        "HON"
+      ]
+    },
+    "2025-08-01": {
+      "loader_only": [
+        "AMD"
+      ],
+      "development_only": [
+        "HON"
+      ]
+    },
+    "2025-09-02": {
+      "loader_only": [
+        "SNPS"
+      ],
+      "development_only": [
+        "HON"
+      ]
+    }
+  }
+}
