@@ -445,6 +445,35 @@ def _v31_window(v31):
         v31.DEVELOPMENT_START, v31.DEVELOPMENT_END = original
 
 
+def _with_loud_market_moves(inputs: dict) -> pd.DataFrame:
+    """Add r3's volume rule to the validation the replay checks targets against.
+
+    r3 treats a split-sized move traded at more than QUIET_VOLUME_MULTIPLE
+    times its recent median dollar volume as a real move
+    (``prospective_marks.split_like_moves``); the development replay predates
+    that rule. Quiet split-sized moves stay unresolved, and a candidate that
+    holds one fails closed. These rows feed only that check, not prices.
+    """
+    from src.research import prospective_marks as marks
+
+    raw = inputs["raw_close"].loc[:END]
+    every = marks.split_like_moves(raw)
+    quiet = marks.split_like_moves(raw, dollar_volume=inputs["dollar_volume"].loc[:END])
+    every = every.loc[every["reason"].eq("COMMON_SPLIT_RATIO")]
+    loud = every.merge(quiet[["ticker", "split_date"]], how="left", indicator=True)
+    loud = loud.loc[loud["_merge"].eq("left_only")]
+    validation = inputs["corporate_action_validation"]
+    extra = pd.DataFrame({
+        "ticker": loud["ticker"].values,
+        "split_date": pd.to_datetime(loud["split_date"]).values,
+        "validation_status": "CONFIRMED_MARKET_MOVE",
+        "confirmed_adjustment_factor": np.nan,
+        "confirmed_action_type": "MARKET_MOVE_NO_ADJUSTMENT",
+        "confirmed_action_date": pd.to_datetime(loud["split_date"]).values,
+    })
+    return pd.concat([validation, extra.reindex(columns=validation.columns)], ignore_index=True)
+
+
 def neighborhood() -> dict:
     from scripts import research_v31_recovery_speed_stock_momentum as v31
 
@@ -475,18 +504,31 @@ def neighborhood() -> dict:
         runs.append(("v33", f"portfolio_trailing_stop_{pct}pct", "portfolio_stop", chosen_targets, NO_STOP, fraction, f"portfolio_trailing_stop_{pct}pct"))
         runs.append(("v46", f"monthly_entry_loss_stop_{pct}pct", "entry_stop", chosen_targets, fraction, NO_STOP, f"monthly_entry_loss_stop_{pct}pct"))
     qqq = qqq_returns()
+    validation = _with_loud_market_moves(inputs)
     rows = []
     with terminal_returns():
         for number, (family, key, overlay, targets, entry, portfolio, in_key) in enumerate(runs, 1):
             row = {"family": family, "key": key, "overlay": overlay,
-                   "is_frozen_model": family == "v26" and key == chosen["key"] and overlay == "stop_20_25"}
-            for cost in (50, 10):
-                daily = prospective_replay.replay_live(
-                    inputs["raw_close"], inputs["nasdaq"], targets, targets["effective_date"].min(), END,
-                    validation=inputs["corporate_action_validation"],
-                    entry_loss_fraction=entry, portfolio_stop_fraction=portfolio,
-                    transaction_cost_bps=float(cost),
-                )
+                   "is_frozen_model": family == "v26" and key == chosen["key"] and overlay == "stop_20_25",
+                   "blocked": ""}
+            try:
+                dailies = {
+                    cost: prospective_replay.replay_live(
+                        inputs["raw_close"], inputs["nasdaq"], targets, targets["effective_date"].min(), END,
+                        validation=validation,
+                        entry_loss_fraction=entry, portfolio_stop_fraction=portfolio,
+                        transaction_cost_bps=float(cost),
+                    )
+                    for cost in (50, 10)
+                }
+            except RuntimeError as error:
+                if "Unresolved corporate action" not in str(error):
+                    raise
+                row["blocked"] = str(error).split(": ", 1)[-1]
+                rows.append(row)
+                print(f"[{number}/{len(runs)}] {family} {key} {overlay} BLOCKED {row['blocked']}", flush=True)
+                continue
+            for cost, daily in dailies.items():
                 m = metrics(daily, qqq, "2012-01-01", END)
                 row[f"excess_vs_qqq_{cost}bps"] = m["annualized_excess_vs_qqq"]
                 row[f"excess_vs_nasdaq_price_{cost}bps"] = m["annualized_excess_vs_nasdaq_price"]
@@ -499,10 +541,13 @@ def neighborhood() -> dict:
     table = pd.DataFrame(rows)
     NEIGHBORHOOD.mkdir(parents=True, exist_ok=True)
     table.to_csv(NEIGHBORHOOD / "candidates.csv", index=False)
+    blocked = table.loc[table["blocked"].astype(str).ne("")]
+    table = table.loc[table["blocked"].astype(str).eq("")]
     paired = table.dropna(subset=["in_sample_2020_2025_excess_vs_nasdaq_50bps"])
     summary = {
         "checks": checks,
         "candidates": int(len(table)),
+        "blocked_fail_closed": int(len(blocked)),
         "beating_qqq_50bps": int((table["excess_vs_qqq_50bps"] > 0).sum()),
         "beating_qqq_10bps": int((table["excess_vs_qqq_10bps"] > 0).sum()),
         "beating_nasdaq_price_50bps": int((table["excess_vs_nasdaq_price_50bps"] > 0).sum()),
