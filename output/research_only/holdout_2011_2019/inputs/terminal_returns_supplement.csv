@@ -1,0 +1,12 @@
+ticker,last_price_date,terminal_return,consideration_per_share,source_url,verified_at,note
+CELG,2019-11-20,-0.016907,106.41,https://www.sec.gov/Archives/edgar/data/816284/000110465919065939/tm1923405d1_8k.htm,2026-09-27,$50 cash + 1 BMY (56.41 close 2019-11-20) + 1 CVR valued at 0 (it later expired unpaid)
+ESRX,2018-12-20,0.001985,92.5133,https://www.sec.gov/Archives/edgar/data/1532063/000114036118045477/form8k.htm,2026-09-27,$48.75 cash + 0.2434 CI (179.80 close 2018-12-20)
+WFM,2017-08-28,0.000238,42.0,https://www.sec.gov/Archives/edgar/data/865436/000114420417045261/v474128_8k.htm,2026-09-27,$42.00 cash
+YHOO,2017-06-16,0.0,52.58,https://www.sec.gov/Archives/edgar/data/1011006/000119312517205499/d372379d8k.htm,2026-09-27,"not a cash-out: renamed Altaba (AABA, an investment company); history ends at the last close"
+SIAL,2015-11-18,0.001717,140.0,https://www.sec.gov/Archives/edgar/data/90185/000119312514425194/d827819d8k.htm,2026-09-27,$140.00 cash (merger agreement 8-K 2014-11-25)
+SHPG,2019-01-04,0.041496,186.636,https://www.sec.gov/Archives/edgar/data/936402/000119312519004574/d673508d8k.htm,2026-09-27,per ADS $90.99 cash + 5.034 TAK ADS (19.00 close 2019-01-08)
+GMCR,2016-03-02,0.0036,92.0,https://www.sec.gov/Archives/edgar/data/909954/000110465916102088/a16-5728_18k.htm,2026-09-27,$92.00 cash
+CTRX,2015-07-23,0.000488,61.5,https://www.sec.gov/Archives/edgar/data/1363851/000119312515261290/d23884d8k.htm,2026-09-27,$61.50 cash
+VMED,2013-06-07,-0.000543,50.9723,https://www.sec.gov/Archives/edgar/data/1270400/000119312513256243/d552872d8k.htm,2026-09-27,"$17.50 cash + 0.2582 LBTYA (76.24) + 0.1928 LBTYK (71.51), closes 2013-06-07"
+WCRX,2013-09-30,0.0,22.93,https://www.sec.gov/Archives/edgar/data/1323854/000119312513390308/d604789d8k.htm,2026-09-27,"0.160 Actavis plc share; no Actavis price available, history ends at the last close"
+KRFT,2015-07-02,0.014401,89.46,https://www.sec.gov/Archives/edgar/data/1545158/000119312515244355/d36612d8k.htm,2026-09-27,"1 KHC share (72.96, first close 2015-07-06) + $16.50 special dividend"

@@ -1,0 +1,52 @@
+ticker,nasdaq_from,nasdaq_until,basis,evidence
+PEP,2017-12-20,,8-K,https://www.sec.gov/Archives/edgar/data/77476/000095010317012290/dp83934_8k.htm
+CSX,2015-12-22,,8-K,https://www.sec.gov/Archives/edgar/data/277948/000119312515399059/d104154dex991.htm
+TMUS,2015-10-27,,8-K,https://www.sec.gov/Archives/edgar/data/1283699/000128369915000045/tmus10162015ex991.htm
+TXN,2012-01-03,,8-K,https://www.sec.gov/Archives/edgar/data/97476/000009747611000064/d8k12152011.htm
+MDLZ,2012-06-26,,8-K,https://www.sec.gov/Archives/edgar/data/1103982/000119312512264319/d366358dex991.htm
+WDC,2012-06-01,,8-K,https://www.sec.gov/Archives/edgar/data/106040/000129993312001255/htm_45138.htm
+ADI,2012-04-02,,8-K,https://www.sec.gov/Archives/edgar/data/6281/000119312512117363/d316731d8k.htm
+MAR,2013-10-21,,8-K,https://www.sec.gov/Archives/edgar/data/1048286/000119312513392754/d607930dex99.htm
+AMD,2015-01-10,,10-K NYSE through FY2013 + snapshot 2015-01-10; 8-K 2014-12-09,https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000002488&type=8-K
+PARA,2019-12-05,,price file before 2019-12-05 is CBS (NYSE); Viacom (VIAB) itself has no price file,snapshot VIAB listed to 2019-11-06; PARA/VIAC absent before
+UAL,2019-01-09,,snapshot bracket 2018-08-22 absent / 2019-01-09 present; 10-K Feb-2018 NYSE,snapshots
+NWL,2019-01-09,,snapshot bracket 2018-08-22 / 2019-01-09,snapshots
+EXC,2019-11-06,,snapshot bracket 2019-06-17 / 2019-11-06,snapshots
+TER,2019-01-09,,snapshot bracket 2018-08-22 / 2019-01-09,snapshots
+LNT,2019-01-09,,snapshot bracket 2018-08-22 / 2019-01-09,snapshots
+REG,2019-01-09,,snapshot bracket 2018-08-22 / 2019-01-09,snapshots
+SNY,2019-01-09,,snapshot bracket (foreign 20-F filer),snapshots
+VLY,2019-01-09,,snapshot bracket 2018-08-22 / 2019-01-09,snapshots
+AVT,2018-05-21,,snapshot bracket 2018-04-24 / 2018-05-21,snapshots
+CNDT,2019-12-27,,snapshot bracket 2019-11-06 / 2019-12-27,snapshots
+XEL,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+PFG,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+VC,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+WDAY,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+OPK,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+PBYI,2018-01-19,,snapshot bracket 2015-01-10 / 2018-01-19,snapshots
+WTW,2016-01-05,,Willis Towers Watson (WLTW) listed on Nasdaq at the Willis-Towers Watson merger; Willis Group was NYSE,snapshots WLTW 2018-2020
+HON,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+APA,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+AEP,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+HST,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+PANW,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+XRX,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+CCEP,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+AZN,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+KDP,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+DPZ,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+CPB,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+ROP,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+BKR,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+EVRG,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+COO,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+PAA,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+PAGP,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+CGC,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+AMRX,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+CHX,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+MXL,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+NWE,2099-01-01,,absent from every Nasdaq snapshot through 2020-02-25,snapshots
+ORCL,,2013-07-15,Oracle moved to NYSE in July 2013 (8-K 2013-06-20); exact last Nasdaq day unconfirmed,https://efts.sec.gov/LATEST/search-index?q=%22transfer%22&ciks=0001341439
+PRGO,,2013-12-18,Perrigo plc listed on NYSE at the Elan acquisition (8-K 2013-05-23); Tiingo series continues on NYSE,https://efts.sec.gov/LATEST/search-index?q=%22transfer%22&ciks=0000820096

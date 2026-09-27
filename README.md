@@ -127,6 +127,7 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | `tests/` | 测试；`tests/data_dependent_test_files.txt` 列出需要数据包的测试 |
 | [docs/v50r3_operations.md](docs/v50r3_operations.md) | v50r3 运维手册 |
 | [docs/holdout_2011_2019_plan.md](docs/holdout_2011_2019_plan.md) | 2011–2019 样本外检验规则（先定规则、后看结果） |
+| [docs/holdout_2011_2019_data_report.md](docs/holdout_2011_2019_data_report.md) | 2011–2019 检验的数据报告（运行前提交） |
 | [docs/data_release.md](docs/data_release.md) | 数据为什么不放进 Git、数据包内容、发布新数据 Release、研究缓存冷归档 |
 | [docs/data_audit.md](docs/data_audit.md) | 数据审计、重跑固定策略、SEC 研究证据包 |
 | [docs/history/v50_review_and_runtime_fixes.md](docs/history/v50_review_and_runtime_fixes.md) | v50 回放数字、2026-09-25 审查结论、r2/r3 修了什么 |
