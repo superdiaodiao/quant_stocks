@@ -474,13 +474,10 @@ def _with_loud_market_moves(inputs: dict) -> pd.DataFrame:
     return pd.concat([validation, extra.reindex(columns=validation.columns)], ignore_index=True)
 
 
-def neighborhood() -> dict:
+def neighborhood_runs(inputs: dict) -> list[tuple]:
+    """The 102 neighborhood replays: (family, key, overlay, targets, entry, portfolio, in_sample_key)."""
     from scripts import research_v31_recovery_speed_stock_momentum as v31
 
-    if NEIGHBORHOOD.exists() and any(NEIGHBORHOOD.iterdir()):
-        raise RuntimeError(f"neighborhood results will not be overwritten: {NEIGHBORHOOD}")
-    checks = check()
-    inputs = load_inputs()
     index = inputs["close"].index
     chosen = v30.selected_specification()
     schedules = []
@@ -503,6 +500,17 @@ def neighborhood() -> dict:
         pct = int(round(fraction * 100))
         runs.append(("v33", f"portfolio_trailing_stop_{pct}pct", "portfolio_stop", chosen_targets, NO_STOP, fraction, f"portfolio_trailing_stop_{pct}pct"))
         runs.append(("v46", f"monthly_entry_loss_stop_{pct}pct", "entry_stop", chosen_targets, fraction, NO_STOP, f"monthly_entry_loss_stop_{pct}pct"))
+    return runs
+
+
+def neighborhood() -> dict:
+    from scripts import research_v31_recovery_speed_stock_momentum as v31
+
+    if NEIGHBORHOOD.exists() and any(NEIGHBORHOOD.iterdir()):
+        raise RuntimeError(f"neighborhood results will not be overwritten: {NEIGHBORHOOD}")
+    checks = check()
+    inputs = load_inputs()
+    runs = neighborhood_runs(inputs)
     qqq = qqq_returns()
     validation = _with_loud_market_moves(inputs)
     rows = []
@@ -572,6 +580,101 @@ def neighborhood_summary(table: pd.DataFrame | None = None) -> dict:
         "in_sample_vs_holdout_spearman": None if rank_corr is None else float(rank_corr),
         "paired_candidates": int(len(paired)),
     }
+
+
+WALKFORWARD = Path("output/research_only/walkforward_selector")
+TRAILING_MONTHS = 36
+SWITCH_COST = {50: 0.01, 10: 0.002}
+
+
+def candidate_series() -> dict:
+    """Monthly returns of the 102 neighborhood replays at 50 and 10 bps (docs/walkforward_selector_plan.md)."""
+    target = WALKFORWARD / "candidate_monthly_returns.csv"
+    if target.exists():
+        raise RuntimeError(f"candidate series will not be overwritten: {target}")
+    checks = check()
+    inputs = load_inputs()
+    runs = neighborhood_runs(inputs)
+    validation = _with_loud_market_moves(inputs)
+    columns = {}
+    with terminal_returns():
+        for number, (family, key, overlay, targets, entry, portfolio, _in_key) in enumerate(runs, 1):
+            for cost in (50, 10):
+                daily = prospective_replay.replay_live(
+                    inputs["raw_close"], inputs["nasdaq"], targets, targets["effective_date"].min(), END,
+                    validation=validation,
+                    entry_loss_fraction=entry, portfolio_stop_fraction=portfolio,
+                    transaction_cost_bps=float(cost),
+                )
+                monthly = (1.0 + daily["strategy"].loc["2012-01-01":END]).resample("ME").prod() - 1.0
+                columns[(cost, f"{family}|{key}|{overlay}")] = monthly
+            print(f"[{number}/{len(runs)}] {family} {key} {overlay}", flush=True)
+    frame = pd.DataFrame(columns)
+    frame.columns = pd.MultiIndex.from_tuples(frame.columns, names=["cost_bps", "candidate"])
+    qqq = (1.0 + qqq_returns().loc["2012-01-01":END].fillna(0.0)).resample("ME").prod() - 1.0
+    WALKFORWARD.mkdir(parents=True, exist_ok=True)
+    frame.stack(level=0, future_stack=True).rename_axis(["month", "cost_bps"]).to_csv(target)
+    qqq.rename("qqq_total_return").to_csv(WALKFORWARD / "qqq_monthly_returns.csv", index_label="month")
+    return {"checks": checks, "candidates": len(runs), "months": int(len(frame))}
+
+
+def _selector(returns: pd.DataFrame, qqq: pd.Series, top: int, switch_cost: float) -> pd.Series:
+    """Each month hold the `top` candidates with the best trailing excess over QQQ."""
+    growth = (1.0 + returns).rolling(TRAILING_MONTHS).apply(np.prod, raw=True)
+    benchmark = (1.0 + qqq).rolling(TRAILING_MONTHS).apply(np.prod, raw=True)
+    trailing = growth.sub(benchmark, axis=0)
+    out, previous = {}, None
+    months = returns.index
+    for position in range(TRAILING_MONTHS - 1, len(months) - 1):
+        ranked = trailing.iloc[position].dropna().sort_values(ascending=False)
+        chosen = list(ranked.index[:top])
+        month = months[position + 1]
+        value = float(returns.loc[month, chosen].mean())
+        if previous is not None:
+            # Switching cost on the share of the book that changes candidate.
+            changed = len(set(chosen) - set(previous)) / top
+            value -= switch_cost * changed
+        out[month] = value
+        previous = chosen
+    return pd.Series(out)
+
+
+def walkforward() -> dict:
+    target = WALKFORWARD / "summary.json"
+    if target.exists():
+        raise RuntimeError(f"walk-forward result will not be overwritten: {target}")
+    table = pd.read_csv(WALKFORWARD / "candidate_monthly_returns.csv", parse_dates=["month"])
+    qqq = pd.read_csv(WALKFORWARD / "qqq_monthly_returns.csv", parse_dates=["month"]).set_index("month")["qqq_total_return"]
+    result = {}
+    for cost in (50, 10):
+        returns = table.loc[table["cost_bps"].eq(cost)].drop(columns="cost_bps").set_index("month")
+        for top in (1, 5):
+            series = _selector(returns, qqq.reindex(returns.index), top, SWITCH_COST[cost]).loc["2015-01-01":"2019-12-31"]
+            reference = qqq.reindex(series.index)
+            years = len(series) / 12.0
+            annual = float((1.0 + series).prod() ** (1 / years) - 1.0)
+            annual_qqq = float((1.0 + reference).prod() ** (1 / years) - 1.0)
+            excess = series - reference
+            by_year = {
+                int(year): float((1.0 + group).prod() - (1.0 + reference.loc[group.index]).prod())
+                for year, group in series.groupby(series.index.year)
+            }
+            result[f"top{top}_{cost}bps"] = {
+                "annualized": annual, "annualized_qqq": annual_qqq,
+                "annualized_excess_vs_qqq": annual - annual_qqq,
+                "monthly_excess_t": float(excess.mean() / excess.std(ddof=1) * np.sqrt(len(excess))),
+                "years_beating_qqq": int(sum(value > 0 for value in by_year.values())),
+                "yearly_excess_vs_qqq": by_year,
+            }
+    primary = result["top1_50bps"]["annualized_excess_vs_qqq"]
+    summary = {
+        "plan": "docs/walkforward_selector_plan.md",
+        "diagnostic_only": True,
+        "reading": "freeze for forward observation" if primary > 0 else "abandon the walk-forward direction",
+        "results": result,
+    }
+    target.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary
 
 
 def check() -> dict:
@@ -652,10 +755,11 @@ def _write_neighborhood_summary() -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("check", "validate", "run", "neighborhood", "neighborhood-summary"))
+    parser.add_argument("command", choices=("check", "validate", "run", "neighborhood", "neighborhood-summary", "candidate-series", "walkforward"))
     args = parser.parse_args()
     result = {"check": check, "validate": validate, "run": run, "neighborhood": neighborhood,
-              "neighborhood-summary": _write_neighborhood_summary}[args.command]()
+              "neighborhood-summary": _write_neighborhood_summary,
+              "candidate-series": candidate_series, "walkforward": walkforward}[args.command]()
     if args.command == "run":
         result = {k: result[k] for k in ("verdict", "signals", "cash_signals", "checks")}
     print(json.dumps(result, indent=2, default=str))
