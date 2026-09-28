@@ -133,6 +133,7 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | [docs/v50r3_operations.md](docs/v50r3_operations.md) | v50r3 运维手册 |
 | [docs/holdout_2011_2019_plan.md](docs/holdout_2011_2019_plan.md) | 2011–2019 样本外检验规则（先定规则、后看结果） |
 | [docs/holdout_2011_2019_results.md](docs/holdout_2011_2019_results.md) | 2011–2019 检验结果：否定（含参数邻域检查） |
+| [docs/walkforward_selector_plan.md](docs/walkforward_selector_plan.md) | 动态选参诊断（2015–2019）：跑输 QQQ，放弃该方向 |
 | [docs/holdout_2004_2010_momentum_plan.md](docs/holdout_2004_2010_momentum_plan.md) | 2004–2010 学术标准动量检验：数据不足，未运行 |
 | [docs/holdout_2011_2019_data_report.md](docs/holdout_2011_2019_data_report.md) | 2011–2019 检验的数据报告（运行前提交） |
 | [docs/data_release.md](docs/data_release.md) | 数据为什么不放进 Git、数据包内容、发布新数据 Release、研究缓存冷归档 |
