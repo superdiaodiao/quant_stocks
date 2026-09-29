@@ -14,4 +14,4 @@
 | 3 | 2026-09-28 | 动态选参（2015–2019） | [规则](walkforward_selector_plan.md) | 放弃：−8.7%/年 |
 | 4 | 2026-09-29 | ROA 质量因子 | [规则](quality_roa_plan.md) | 否定：−5.8%/年（持有 30 只：−1.7%/年） |
 | 5 | 2026-09-29 | 盈利意外（SUE） | [规则](earnings_surprise_plan.md) | 否定：−2.3%/年（10 bps 下 +1.6%/年，t 0.44） |
-| 6 | 2026-09-29 | SUE 小账户低换手（IBKR Tiered 成本） | [规则](earnings_surprise_low_turnover_plan.md) | 待运行 |
+| 6 | 2026-09-29 | SUE 小账户低换手（IBKR Tiered 成本） | [规则](earnings_surprise_low_turnover_plan.md) | **未被否定**：+2.5%/年（t 0.62）；50 bps 压力下 −1.8%/年 |

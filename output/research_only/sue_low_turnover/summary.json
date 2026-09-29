@@ -1,0 +1,205 @@
+{
+  "plan": "docs/earnings_surprise_low_turnover_plan.md",
+  "checks": {
+    "frozen_code": {
+      "file_count": 51,
+      "sha256": "bc0dc85e63c7eb154b4e0c9e46fe3855ccf0eaec92b220fc31939b8d48b90065"
+    },
+    "inputs": {
+      "files": 172
+    }
+  },
+  "verdict": "NOT_REJECTED",
+  "results": {
+    "ibkr_tiered": {
+      "start": "2012-01-01",
+      "end": "2019-12-31",
+      "sessions": 2012,
+      "annualized_strategy": 0.22009431920443245,
+      "annualized_qqq_total_return": 0.19516862540736457,
+      "annualized_nasdaq_price_return": 0.16511008139034233,
+      "annualized_excess_vs_qqq": 0.024925693797067883,
+      "annualized_excess_vs_nasdaq_price": 0.05498423781409012,
+      "monthly_excess_vs_qqq_mean": 0.001992943237589452,
+      "monthly_excess_vs_qqq_t": 0.6162206291416069,
+      "months": 96,
+      "years_beating_qqq": 4,
+      "max_drawdown_strategy": -0.25454840305484316,
+      "max_drawdown_qqq": -0.22791749370072467,
+      "average_invested": 1.0,
+      "turnover_per_year": 7.598977511526383,
+      "stock_stop_exits": 0,
+      "portfolio_stop_exits": 0,
+      "top3_months_share_of_summed_excess": 1.210258962803186,
+      "top3_months": {
+        "2016-11": 0.08311438277774985,
+        "2012-01": 0.07789470562392387,
+        "2015-03": 0.0705407435007871
+      },
+      "yearly": [
+        {
+          "year": 2012,
+          "strategy": 0.3335325881211535,
+          "qqq_total_return": 0.18115993473031655,
+          "excess_vs_qqq": 0.15237265339083694,
+          "nasdaq_price_return": 0.13998837174182244,
+          "excess_vs_nasdaq": 0.19354421637933106
+        },
+        {
+          "year": 2013,
+          "strategy": 0.4178389839194425,
+          "qqq_total_return": 0.36634220715096677,
+          "excess_vs_qqq": 0.05149677676847575,
+          "nasdaq_price_return": 0.3832011816486782,
+          "excess_vs_nasdaq": 0.034637802270764295
+        },
+        {
+          "year": 2014,
+          "strategy": 0.3379402411787158,
+          "qqq_total_return": 0.191793304206054,
+          "excess_vs_qqq": 0.1461469369726618,
+          "nasdaq_price_return": 0.1339513878044718,
+          "excess_vs_nasdaq": 0.203988853374244
+        },
+        {
+          "year": 2015,
+          "strategy": 0.09317178228873746,
+          "qqq_total_return": 0.09446454742859278,
+          "excess_vs_qqq": -0.001292765139855323,
+          "nasdaq_price_return": 0.05729677926950871,
+          "excess_vs_nasdaq": 0.035875003019228746
+        },
+        {
+          "year": 2016,
+          "strategy": 0.2136554135731994,
+          "qqq_total_return": 0.07101355661246944,
+          "excess_vs_qqq": 0.14264185696072995,
+          "nasdaq_price_return": 0.07503078138076469,
+          "excess_vs_nasdaq": 0.1386246321924347
+        },
+        {
+          "year": 2017,
+          "strategy": 0.2679179385810906,
+          "qqq_total_return": 0.32664535315118104,
+          "excess_vs_qqq": -0.05872741457009045,
+          "nasdaq_price_return": 0.28241428237872657,
+          "excess_vs_nasdaq": -0.01449634379763598
+        },
+        {
+          "year": 2018,
+          "strategy": -0.09276984675890931,
+          "qqq_total_return": -0.00116274156171714,
+          "excess_vs_qqq": -0.09160710519719217,
+          "nasdaq_price_return": -0.038837483629962644,
+          "excess_vs_nasdaq": -0.05393236312894667
+        },
+        {
+          "year": 2019,
+          "strategy": 0.26799114584471795,
+          "qqq_total_return": 0.38959762618696847,
+          "excess_vs_qqq": -0.12160648034225052,
+          "nasdaq_price_return": 0.35225640371638733,
+          "excess_vs_nasdaq": -0.08426525787166939
+        }
+      ],
+      "orders_per_year": 77.65407554671968,
+      "total_costs_usd": 633.8536578472183,
+      "final_nav_usd": 48952.61726556694
+    },
+    "stress": {
+      "start": "2012-01-01",
+      "end": "2019-12-31",
+      "sessions": 2012,
+      "annualized_strategy": 0.17757507066762757,
+      "annualized_qqq_total_return": 0.19516862540736457,
+      "annualized_nasdaq_price_return": 0.16511008139034233,
+      "annualized_excess_vs_qqq": -0.017593554739737005,
+      "annualized_excess_vs_nasdaq_price": 0.012464989277285232,
+      "monthly_excess_vs_qqq_mean": -0.0010081474942972418,
+      "monthly_excess_vs_qqq_t": -0.3138222115447626,
+      "months": 96,
+      "years_beating_qqq": 4,
+      "max_drawdown_strategy": -0.2668330955032733,
+      "max_drawdown_qqq": -0.22791749370072467,
+      "average_invested": 1.0,
+      "turnover_per_year": 7.555849166398172,
+      "stock_stop_exits": 0,
+      "portfolio_stop_exits": 0,
+      "top3_months_share_of_summed_excess": -2.2499650374880744,
+      "top3_months": {
+        "2016-11": 0.08003632225977309,
+        "2012-01": 0.0727592646032531,
+        "2015-03": 0.06496088815777401
+      },
+      "yearly": [
+        {
+          "year": 2012,
+          "strategy": 0.29905154187953187,
+          "qqq_total_return": 0.18115993473031655,
+          "excess_vs_qqq": 0.11789160714921532,
+          "nasdaq_price_return": 0.13998837174182244,
+          "excess_vs_nasdaq": 0.15906317013770943
+        },
+        {
+          "year": 2013,
+          "strategy": 0.36882273103946983,
+          "qqq_total_return": 0.36634220715096677,
+          "excess_vs_qqq": 0.002480523888503061,
+          "nasdaq_price_return": 0.3832011816486782,
+          "excess_vs_nasdaq": -0.014378450609208393
+        },
+        {
+          "year": 2014,
+          "strategy": 0.2873139201667989,
+          "qqq_total_return": 0.191793304206054,
+          "excess_vs_qqq": 0.0955206159607449,
+          "nasdaq_price_return": 0.1339513878044718,
+          "excess_vs_nasdaq": 0.1533625323623271
+        },
+        {
+          "year": 2015,
+          "strategy": 0.05395386625705112,
+          "qqq_total_return": 0.09446454742859278,
+          "excess_vs_qqq": -0.04051068117154166,
+          "nasdaq_price_return": 0.05729677926950871,
+          "excess_vs_nasdaq": -0.0033429130124575934
+        },
+        {
+          "year": 2016,
+          "strategy": 0.17682681799146693,
+          "qqq_total_return": 0.07101355661246944,
+          "excess_vs_qqq": 0.10581326137899749,
+          "nasdaq_price_return": 0.07503078138076469,
+          "excess_vs_nasdaq": 0.10179603661070225
+        },
+        {
+          "year": 2017,
+          "strategy": 0.22852167297158754,
+          "qqq_total_return": 0.32664535315118104,
+          "excess_vs_qqq": -0.0981236801795935,
+          "nasdaq_price_return": 0.28241428237872657,
+          "excess_vs_nasdaq": -0.053892609407139025
+        },
+        {
+          "year": 2018,
+          "strategy": -0.12608091012620937,
+          "qqq_total_return": -0.00116274156171714,
+          "excess_vs_qqq": -0.12491816856449223,
+          "nasdaq_price_return": -0.038837483629962644,
+          "excess_vs_nasdaq": -0.08724342649624672
+        },
+        {
+          "year": 2019,
+          "strategy": 0.20986178084572438,
+          "qqq_total_return": 0.38959762618696847,
+          "excess_vs_qqq": -0.1797358453412441,
+          "nasdaq_price_return": 0.35225640371638733,
+          "excess_vs_nasdaq": -0.14239462287066296
+        }
+      ],
+      "orders_per_year": 77.65407554671968,
+      "total_costs_usd": 7683.068127604971,
+      "final_nav_usd": 36879.24497348986
+    }
+  }
+}
