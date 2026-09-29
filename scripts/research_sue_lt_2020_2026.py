@@ -38,8 +38,9 @@ SNAPSHOTS = Path("stocks_list_dir/nasdaq/snapshots")
 QUARTERLY = Path("cleaned_stocks_data/financial/quarterly_fundamentals_point_in_time.csv")
 QQQ = Path("output/research_only/qqq_nasdaq_history.csv")
 LOAD_START = "2018-06-01"
-FIRST_SIGNAL = pd.Timestamp("2019-12-31")
-LAST_SIGNAL = pd.Timestamp("2026-06-30")
+FIRST_SIGNAL = {"monthly": pd.Timestamp("2019-12-31"), "weekly": pd.Timestamp("2019-12-27")}
+LAST_SIGNAL = {"monthly": pd.Timestamp("2026-06-30"), "weekly": pd.Timestamp("2026-07-24")}
+FREQUENCIES = ("monthly", "weekly")  # monthly decides (plan 3-4); weekly is reported only (plan 3.1)
 START = "2020-01-01"
 END = "2026-07-31"
 SUPPLEMENT_DIRS = (holdout.CACHE / "price_supplement", CACHE / "price_supplement")
@@ -196,16 +197,19 @@ def qqq_returns() -> pd.Series:
 # ------------------------------------------------------------------ targets
 
 
-def signals(index: pd.DatetimeIndex) -> list[pd.Timestamp]:
-    months = index.to_series().groupby(index.to_period("M")).max()
-    return [d for d in months if FIRST_SIGNAL <= d <= LAST_SIGNAL]
+def signals(index: pd.DatetimeIndex, frequency: str = "monthly") -> list[pd.Timestamp]:
+    """Last session of each calendar month, or of each Monday-Friday week."""
+    period = index.to_period("M" if frequency == "monthly" else "W-FRI")
+    last = index.to_series().groupby(period).max()
+    return [d for d in last if FIRST_SIGNAL[frequency] <= d <= LAST_SIGNAL[frequency]]
 
 
-def build_targets(prices: dict, quarterly: pd.DataFrame, issuer: dict) -> tuple[pd.DataFrame, list[dict]]:
+def build_targets(prices: dict, quarterly: pd.DataFrame, issuer: dict,
+                  frequency: str = "monthly") -> tuple[pd.DataFrame, list[dict]]:
     close, eligibility = prices["close"], prices["eligibility"]
     universe = build_universe(close)
     rows, coverage = [], []
-    for signal in signals(close.index):
+    for signal in signals(close.index, frequency):
         symbols = universe(signal)
         chosen = live.select_targets(eligibility, prices["dollar_volume"], symbols, quarterly, signal, issuer=issuer)
         effective = close.index[close.index.get_loc(signal) + 1]
@@ -244,34 +248,39 @@ def run() -> dict:
         raise RuntimeError(f"results will not be overwritten: {OUTPUT}")
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     prices = load_prices()
-    targets, coverage = build_targets(prices, load_quarterly(), issuer_map())
+    quarterly, issuer = load_quarterly(), issuer_map()
     terminal, defaulted = complete_terminal(prices["close"], terminal_map())
     qqq = qqq_returns()
     nasdaq = pd.read_csv(holdout.NASDAQ_INDEX_FILE, index_col="date", parse_dates=True)["close"].sort_index()
-    results, books = {}, {}
-    for model in ("ibkr_tiered", "stress"):
-        book = replay.simulate(prices["close"], prices["eligibility"], targets, terminal, END, model)
-        books[model] = book
-        m = holdout.metrics(replay.as_daily(book, nasdaq), qqq, START, END)
-        m["orders_per_year"] = book.attrs["orders"] / (m["sessions"] / 252.0)
-        m["total_costs_usd"] = book.attrs["costs"]
-        m["final_nav_usd"] = float(book["nav"].iloc[-1])
-        results[model] = m
-    primary = results["ibkr_tiered"]["annualized_excess_vs_qqq"]
+    results, books, schedules, coverage = {}, {}, {}, {}
+    for frequency in FREQUENCIES:
+        targets, coverage[frequency] = build_targets(prices, quarterly, issuer, frequency)
+        schedules[frequency] = targets
+        for model in ("ibkr_tiered", "stress"):
+            book = replay.simulate(prices["close"], prices["eligibility"], targets, terminal, END, model)
+            books[(frequency, model)] = book
+            m = holdout.metrics(replay.as_daily(book, nasdaq), qqq, START, END)
+            m["orders_per_year"] = book.attrs["orders"] / (m["sessions"] / 252.0)
+            m["total_costs_usd"] = book.attrs["costs"]
+            m["final_nav_usd"] = float(book["nav"].iloc[-1])
+            results[f"{frequency}_{model}"] = m
+    primary = results["monthly_ibkr_tiered"]["annualized_excess_vs_qqq"]
+    selected = set().union(*(set(t["ticker"]) for t in schedules.values()))
     summary = {
         "plan": "docs/sue_lt_2020_2026_plan.md",
         "code_commit": commit,
         "verdict": "REJECTED" if primary <= 0.0 else "NOT_REJECTED",
+        "verdict_basis": "monthly, IBKR Tiered costs, vs QQQ total return",
         "coverage": coverage,
         "terminal_defaulted_to_last_close": defaulted,
-        "held_names_with_defaulted_terminal": sorted(
-            set(targets["ticker"]) & {d["ticker"] for d in defaulted}),
+        "held_names_with_defaulted_terminal": sorted(selected & {d["ticker"] for d in defaulted}),
         "results": results,
     }
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    targets.to_csv(OUTPUT / "targets.csv", index=False)
-    for model, book in books.items():
-        book.to_csv(OUTPUT / f"book_{model}.csv")
+    for frequency, targets in schedules.items():
+        targets.to_csv(OUTPUT / f"targets_{frequency}.csv", index=False)
+    for (frequency, model), book in books.items():
+        book.to_csv(OUTPUT / f"book_{frequency}_{model}.csv")
     (OUTPUT / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
     return summary
 
