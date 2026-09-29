@@ -1,0 +1,12 @@
+ticker,historical_symbol,last_historical_snapshot,evidence
+META,FB,2022-06-07,old symbol in Nasdaq snapshots 2019-06-17..2022-06-07; META from 2022-06-24
+GEN,NLOK,2022-11-02,old symbol in Nasdaq snapshots 2019-11-06..2022-11-02; GEN from 2022-11-08
+PARA,VIAC,2022-02-11,old symbol in Nasdaq snapshots 2019-12-27..2022-02-11; PARA from 2022-03-01
+WTW,WLTW,2021-12-31,old symbol in Nasdaq snapshots 2019-06-17..2021-12-31; WTW from 2022-01-13
+JOYY,YY,2025-03-01,old symbol in Nasdaq snapshots 2019-06-17..2025-03-01
+AXON,AAXN,2021-01-21,old symbol in Nasdaq snapshots 2019-06-17..2021-01-21
+ONC,BGNE,2025-01-01,old symbol in Nasdaq snapshots 2019-06-17..2025-01-01
+QVCGA,QRTEA,2025-02-01,old symbol in Nasdaq snapshots 2019-06-17..2025-02-01
+LNW,SGMS,2022-04-23,old symbol in Nasdaq snapshots 2019-06-17..2022-04-23
+EXE,CHK,2024-09-16,old symbol in Nasdaq snapshots 2021-02-10..2024-09-16
+DJT,DWAC,2024-02-27,old symbol in Nasdaq snapshots 2021-10-04..2024-02-27
