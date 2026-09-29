@@ -52,7 +52,12 @@ SHA-256 绑定。
 复权价在 2020–2026 曾低于 5 美元、且成交额排进前 250 的 24 只股票，用 Yahoo 只调拆股的价格还原当时真实价格
 （新取 18 只；BITF、QRTEA 在 Yahoo 已无记录，沿用复权价）。
 
-## 6. 结论
+## 6. QQQ 基准
+
+`output/research_only/qqq_nasdaq_history.csv`（Nasdaq 历史价格 + 分红，至 2026-08-14，本地文件），
+SHA-256 `ebfb0caf80fcf539e1e3254daf368acce2012eadffa1b7e0f8e82fee1a3fd0d0`；总收益 = (收盘 + 当日分红) ÷ 前收盘 − 1。
+
+## 7. 结论
 
 | 规则第 5 节 | 结果 |
 |---|---|
