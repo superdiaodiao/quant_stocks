@@ -179,9 +179,11 @@ def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[s
     update_all(end=as_of.date(), workers=workers, tickers=symbols, price_dir=price_dir, index_path=index_path)
     start = (as_of - pd.Timedelta(days=420)).strftime("%Y-%m-%d")
     close, dollar_volume = load_panel(price_dir, start, as_of.strftime("%Y-%m-%d"))
+    # The panel loader drops known non-common securities, as in the backtest;
+    # coverage is measured over the names that can enter the pool.
     close = close.reindex(columns=[c for c in close.columns if c in set(symbols)])
     priced = close.loc[as_of].notna().sum() if as_of in close.index else 0
-    price_coverage = priced / max(len(symbols), 1)
+    price_coverage = priced / max(close.shape[1], 1)
     if price_coverage < MINIMUM_PRICE_COVERAGE:
         raise RuntimeError(f"only {price_coverage:.1%} of the universe has a {as_of:%Y-%m-%d} close; retry later")
     pool = live.liquidity_pool(close, dollar_volume, set(symbols), as_of)
