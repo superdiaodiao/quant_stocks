@@ -142,12 +142,12 @@ def append_event(path: str | Path, protocol_sha256: str, event_type: str, payloa
 # ------------------------------------------------------------------ selection
 
 
-def liquidity_pool(close: pd.DataFrame, volume: pd.DataFrame, symbols: set[str],
+def liquidity_pool(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
                    signal_date: pd.Timestamp) -> list[str]:
     """The 100 most liquid eligible names on the signal date.
 
     ``close`` is the provider's split-adjusted history, whose last row is the
-    signal day's nominal close; ``volume`` is aligned with it.
+    signal day's nominal close; ``dollar_volume`` is close times volume.
     """
     signal_date = pd.Timestamp(signal_date)
     names = sorted(set(symbols) & set(close.columns))
@@ -156,15 +156,15 @@ def liquidity_pool(close: pd.DataFrame, volume: pd.DataFrame, symbols: set[str],
         raise RuntimeError("prices do not reach the signal date")
     price = frame.iloc[-1]
     history = frame.notna().sum()
-    dollar_volume = (frame * volume.reindex_like(frame)).tail(LIQUIDITY_SESSIONS).median()
+    liquidity = dollar_volume.reindex_like(frame).tail(LIQUIDITY_SESSIONS).median()
     eligible = price.ge(MINIMUM_PRICE) & history.ge(MINIMUM_HISTORY)
-    return list(dollar_volume.loc[eligible[eligible].index].dropna().nlargest(POOL).index)
+    return list(liquidity.loc[eligible[eligible].index].dropna().nlargest(POOL).index)
 
 
-def select_targets(close: pd.DataFrame, volume: pd.DataFrame, symbols: set[str],
+def select_targets(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
                    quarterly: pd.DataFrame, signal_date: pd.Timestamp) -> dict:
     signal_date = pd.Timestamp(signal_date)
-    pool = liquidity_pool(close, volume, symbols, signal_date)
+    pool = liquidity_pool(close, dollar_volume, symbols, signal_date)
     sessions = close.loc[:signal_date].index
     window_start = sessions[max(0, len(sessions) - 1 - ANNOUNCEMENT_WINDOW)]
     known = quarterly.loc[pd.to_datetime(quarterly["available_date"]).le(signal_date)]

@@ -93,5 +93,5 @@ def test_pool_uses_signal_day_price_and_history():
     dates = pd.bdate_range("2025-01-01", periods=300)
     close = pd.DataFrame({"BIG": 100.0, "CHEAP": 4.0, "NEW": 100.0}, index=dates)
     close.loc[dates[:100], "NEW"] = np.nan
-    volume = pd.DataFrame({"BIG": 1e6, "CHEAP": 1e9, "NEW": 1e9}, index=dates)
-    assert live.liquidity_pool(close, volume, {"BIG", "CHEAP", "NEW"}, dates[-1]) == ["BIG"]
+    dollar_volume = pd.DataFrame({"BIG": 1e8, "CHEAP": 4e9, "NEW": 1e11}, index=dates)
+    assert live.liquidity_pool(close, dollar_volume, {"BIG", "CHEAP", "NEW"}, dates[-1]) == ["BIG"]
