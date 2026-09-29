@@ -1,0 +1,39 @@
+name: sue-lt-v1 rehearsal
+
+# A full SIGNAL for a past month end on a GitHub runner, recording nothing:
+# checks that universe, prices and SEC data all arrive and how long it takes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: "Month-end session to rehearse (YYYY-MM-DD)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+    - name: Restore the data release
+      run: scripts/v50r3_restore_data.sh
+    - name: Rehearse
+      env:
+        AS_OF: ${{ github.event.inputs.as_of }}
+      run: PYTHONPATH=. python scripts/sue_lt_v1.py rehearse --as-of "$AS_OF" --workers 1 | tee rehearsal.json
+    - uses: actions/upload-artifact@v4
+      with:
+        name: sue-lt-v1-rehearsal
+        path: rehearsal.json

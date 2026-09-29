@@ -1,0 +1,50 @@
+name: sue-lt-v1 freeze
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type FREEZE to freeze sue-lt-v1 now"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sue-lt-v1-freeze
+  cancel-in-progress: false
+
+jobs:
+  freeze:
+    if: github.event.inputs.confirm == 'FREEZE' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: master
+        fetch-depth: 0
+    - name: Refuse when live/sue-lt-v1 already exists
+      run: |
+        if git ls-remote --exit-code --heads origin live/sue-lt-v1 >/dev/null; then
+          echo "::error::live/sue-lt-v1 already exists; a frozen protocol is never replaced."
+          exit 1
+        fi
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+    - name: Freeze on live/sue-lt-v1
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -b live/sue-lt-v1
+        PYTHONPATH=. python scripts/sue_lt_v1.py freeze-protocol
+        PYTHONPATH=. python scripts/sue_lt_v1.py status
+        git add output/research_only/sue_lt_v1
+        git commit -m "research: freeze the sue-lt-v1 forward observation protocol"
+        git push origin live/sue-lt-v1

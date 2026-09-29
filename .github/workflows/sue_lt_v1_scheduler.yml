@@ -1,0 +1,106 @@
+name: sue-lt-v1 scheduler
+
+# Runs the sue-lt-v1 forward observation (docs/sue_lt_v1_protocol.md) from
+# the pinned live/sue-lt-v1 branch: a month-end SIGNAL inside its window,
+# then a MARK after each session's close. Results, failures included, are
+# reported on the sue-lt-v1 observation issue. v50r3 runs separately.
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sue-lt-v1-scheduler
+  cancel-in-progress: false
+
+jobs:
+  live-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      exists: ${{ steps.probe.outputs.exists }}
+    steps:
+    - id: probe
+      run: |
+        if git ls-remote --exit-code --heads \
+            "https://github.com/${{ github.repository }}.git" live/sue-lt-v1 >/dev/null; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::live/sue-lt-v1 does not exist yet: sue-lt-v1 is not frozen."
+        fi
+
+  run:
+    needs: live-branch
+    if: needs.live-branch.outputs.exists == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        ref: live/sue-lt-v1
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Decide what is due
+      id: due
+      run: |
+        set +e
+        PYTHONPATH=. python scripts/sue_lt_v1.py check > decision.json
+        code=$?
+        set -e
+        cat decision.json
+        action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
+        echo "action=$action" >> "$GITHUB_OUTPUT"
+        if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
+
+    - name: Restore the data release
+      if: steps.due.outputs.action == 'RUN_SIGNAL'
+      run: scripts/v50r3_restore_data.sh
+
+    - name: Run the due SIGNAL or MARK
+      id: run
+      if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        set +e
+        PYTHONPATH=. python scripts/sue_lt_v1.py run --push --workers 1 > run.json 2> run.log
+        code=$?
+        set -e
+        cat run.json
+        tail -n 60 run.log
+        if [ "$code" -eq 0 ] || [ "$code" -eq 2 ]; then echo "result=done" >> "$GITHUB_OUTPUT"; exit 0; fi
+        if grep -q "retry later" run.log; then
+          echo "result=not_ready" >> "$GITHUB_OUTPUT"
+          echo "::warning::Closes are not published yet; a later run retries."
+          exit 0
+        fi
+        echo "result=failed" >> "$GITHUB_OUTPUT"
+        exit "$code"
+
+    - name: Report the result
+      if: always() && (steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK')
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RESULT: ${{ steps.run.outputs.result }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        git fetch --quiet --depth 1 origin master
+        git show FETCH_HEAD:scripts/sue_lt_v1_notify.py > "$RUNNER_TEMP/notify.py"
+        python "$RUNNER_TEMP/notify.py" --result "${RESULT:-failed}" --run run.json --log run.log
