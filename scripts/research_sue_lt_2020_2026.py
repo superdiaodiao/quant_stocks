@@ -209,10 +209,13 @@ def build_targets(prices: dict, quarterly: pd.DataFrame, issuer: dict,
     close, eligibility = prices["close"], prices["eligibility"]
     universe = build_universe(close)
     rows, coverage = [], []
-    for signal in signals(close.index, frequency):
+    # Nasdaq sessions only: OTC series in the supplement trade on a few Nasdaq
+    # holidays (2026-06-19, 2026-07-03), which are not signal or execution days.
+    sessions = close.index[close.notna().sum(axis=1).ge(1000)]
+    for signal in signals(sessions, frequency):
         symbols = universe(signal)
         chosen = live.select_targets(eligibility, prices["dollar_volume"], symbols, quarterly, signal, issuer=issuer)
-        effective = close.index[close.index.get_loc(signal) + 1]
+        effective = sessions[sessions.get_loc(signal) + 1]
         coverage.append({"signal_date": signal.strftime("%Y-%m-%d"), "universe": len(symbols),
                          "pool": len(chosen["pool"]), "with_sue": len(chosen["sue"])})
         for ticker in chosen["targets"]:
