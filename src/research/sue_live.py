@@ -142,9 +142,9 @@ def append_event(path: str | Path, protocol_sha256: str, event_type: str, payloa
 # ------------------------------------------------------------------ selection
 
 
-def liquidity_pool(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
-                   signal_date: pd.Timestamp) -> list[str]:
-    """The 100 most liquid eligible names on the signal date.
+def pool_liquidity(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
+                   signal_date: pd.Timestamp) -> pd.Series:
+    """50-session median dollar volume of the eligible names, most liquid first, top POOL.
 
     ``close`` is the provider's split-adjusted history, whose last row is the
     signal day's nominal close; ``dollar_volume`` is close times volume.
@@ -158,13 +158,38 @@ def liquidity_pool(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: se
     history = frame.notna().sum()
     liquidity = dollar_volume.reindex_like(frame).tail(LIQUIDITY_SESSIONS).median()
     eligible = price.ge(MINIMUM_PRICE) & history.ge(MINIMUM_HISTORY)
-    return list(liquidity.loc[eligible[eligible].index].dropna().nlargest(POOL).index)
+    return liquidity.loc[eligible[eligible].index].dropna().nlargest(POOL)
+
+
+def liquidity_pool(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
+                   signal_date: pd.Timestamp) -> list[str]:
+    """The 100 most liquid eligible names on the signal date."""
+    return list(pool_liquidity(close, dollar_volume, symbols, signal_date).index)
+
+
+def one_class_per_issuer(ranked: list[str], liquidity: pd.Series, issuer: dict[str, int],
+                         limit: int = HOLDINGS) -> list[str]:
+    """Walk the ranking; an issuer already represented is skipped, and the first
+    time an issuer appears it is represented by its most liquid class in the ranking."""
+    chosen, seen = [], set()
+    for ticker in ranked:
+        key = issuer.get(ticker, ticker)
+        if key in seen:
+            continue
+        seen.add(key)
+        classes = [t for t in ranked if issuer.get(t, t) == key]
+        chosen.append(max(classes, key=lambda t: float(liquidity.get(t, 0.0))))
+        if len(chosen) == limit:
+            break
+    return chosen
 
 
 def select_targets(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: set[str],
-                   quarterly: pd.DataFrame, signal_date: pd.Timestamp) -> dict:
+                   quarterly: pd.DataFrame, signal_date: pd.Timestamp,
+                   issuer: dict[str, int] | None = None) -> dict:
     signal_date = pd.Timestamp(signal_date)
-    pool = liquidity_pool(close, dollar_volume, symbols, signal_date)
+    liquidity = pool_liquidity(close, dollar_volume, symbols, signal_date)
+    pool = list(liquidity.index)
     sessions = close.loc[:signal_date].index
     window_start = sessions[max(0, len(sessions) - 1 - ANNOUNCEMENT_WINDOW)]
     known = quarterly.loc[pd.to_datetime(quarterly["available_date"]).le(signal_date)]
@@ -175,7 +200,7 @@ def select_targets(close: pd.DataFrame, dollar_volume: pd.DataFrame, symbols: se
         "signal_date": signal_date.strftime("%Y-%m-%d"),
         "pool": pool,
         "sue": {ticker: float(value) for ticker, value in scores.items()},
-        "targets": list(scores.index[:HOLDINGS]),
+        "targets": one_class_per_issuer(list(scores.index), liquidity, issuer or {}),
         "window_start": window_start.strftime("%Y-%m-%d"),
     }
 

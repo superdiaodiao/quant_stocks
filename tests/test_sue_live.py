@@ -95,3 +95,11 @@ def test_pool_uses_signal_day_price_and_history():
     close.loc[dates[:100], "NEW"] = np.nan
     dollar_volume = pd.DataFrame({"BIG": 1e8, "CHEAP": 4e9, "NEW": 1e11}, index=dates)
     assert live.liquidity_pool(close, dollar_volume, {"BIG", "CHEAP", "NEW"}, dates[-1]) == ["BIG"]
+
+
+def test_one_class_per_issuer_keeps_the_more_liquid_class():
+    ranked = ["GOOG", "AAPL", "GOOGL", "MSFT"]
+    liquidity = pd.Series({"GOOG": 1.0, "GOOGL": 2.0, "AAPL": 5.0, "MSFT": 3.0})
+    issuer = {"GOOG": 1652044, "GOOGL": 1652044, "AAPL": 320193, "MSFT": 789019}
+    assert live.one_class_per_issuer(ranked, liquidity, issuer, limit=3) == ["GOOGL", "AAPL", "MSFT"]
+    assert live.one_class_per_issuer(ranked, liquidity, {}, limit=3) == ["GOOG", "AAPL", "GOOGL"]

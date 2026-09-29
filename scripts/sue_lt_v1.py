@@ -198,7 +198,7 @@ def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[s
     quarterly = load_quarterly_fundamentals(work / "quarterly.csv")
     if pd.to_datetime(quarterly["available_date"]).gt(as_of).any():
         quarterly = quarterly.loc[pd.to_datetime(quarterly["available_date"]).le(as_of)]
-    result = live.select_targets(close, dollar_volume, set(symbols), quarterly, as_of)
+    result = live.select_targets(close, dollar_volume, set(symbols), quarterly, as_of, issuer=ticker_map)
     coverage = len(result["sue"]) / max(len(result["pool"]), 1)
     result.update({
         "universe_size": len(symbols),
