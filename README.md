@@ -141,6 +141,7 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | [docs/v50r3_operations.md](docs/v50r3_operations.md) | v50r3 运维手册 |
 | [docs/sue_lt_v1_protocol.md](docs/sue_lt_v1_protocol.md) | sue-lt-v1 前瞻观察规则 |
 | [docs/sue_lt_2020_2026_plan.md](docs/sue_lt_2020_2026_plan.md) | sue-lt-v1 规则的 2020–2026 样本外检验：未被否定（含冻结前审查的更正） |
+| [docs/strategy_directions_2026_09.md](docs/strategy_directions_2026_09.md) | 放开“月度、只做多、前 100 只”之后的候选方向（首选：周度行业调整短期反转叠加在 QQQ 上）和检验计划，尚未检验 |
 | [docs/strategy_validation_practice.md](docs/strategy_validation_practice.md) | 业界怎么判断回测够不够好（统计门槛、回测到实盘的落差、检验清单），对照 sue-lt-v1 |
 | [docs/research_ledger_2012_2019.md](docs/research_ledger_2012_2019.md)、[docs/research_ledger_2020_2026.md](docs/research_ledger_2020_2026.md) | 每一次检验的台账，包括失败的 |
 | [docs/holdout_2011_2019_plan.md](docs/holdout_2011_2019_plan.md) | 2011–2019 样本外检验规则（先定规则、后看结果） |
