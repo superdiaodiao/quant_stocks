@@ -80,10 +80,10 @@ def test_a_held_signal_is_reported_once_with_its_names():
 
 
 def test_the_end_is_reported_until_a_run_manages_to_post_it():
-    terminal = {"as_of": "2028-10-31", "reason": "END_DATE", "outcome": "BEAT_QQQ",
+    terminal = {"as_of": "2027-10-29", "reason": "END_DATE", "outcome": "BEAT_QQQ",
                 "nav": 15_100.0, "qqq_nav": 15_000.0, "points_behind_qqq": -1.0}
     decision = {"action": "NOTHING_DUE", "missed": [], "terminal": terminal}
-    comments = notify.compose("none", "NOTHING_DUE", decision, None, "", [], "2028-11-02")
+    comments = notify.compose("none", "NOTHING_DUE", decision, None, "", [], "2027-11-02")
     assert [key for _, key in comments] == ["terminal"] and "期满" in comments[0][0]
 
 
@@ -98,10 +98,10 @@ def test_watchdog_fails_on_fresh_problems_not_on_an_old_missed_month():
 
 def test_watchdog_flags_a_missing_end_record(tmp_path):
     path = _frozen(tmp_path)
-    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
+    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2027-09-30", "targets": ["A"]})
     events = live.read_ledger(path)
-    assert not watchdog.terminal_overdue(events, _utc("2028-11-02T02:00:00"))
-    assert watchdog.terminal_overdue(events, _utc("2028-11-03T02:00:00"))
+    assert not watchdog.terminal_overdue(events, _utc("2027-11-02T02:00:00"))
+    assert watchdog.terminal_overdue(events, _utc("2027-11-03T02:00:00"))
 
 
 def test_the_held_names_come_from_the_exception_not_the_source_line():
@@ -122,7 +122,7 @@ def test_a_failed_probe_never_holds_a_signal():
 
 def test_the_end_is_overdue_only_after_a_day_of_scheduler_runs(tmp_path):
     path = _frozen(tmp_path)
-    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
+    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2027-09-30", "targets": ["A"]})
     events = live.read_ledger(path)
-    assert not watchdog.terminal_overdue(events, _utc("2028-11-01T20:41:00"))
-    assert watchdog.terminal_overdue(events, _utc("2028-11-02T21:00:00"))
+    assert not watchdog.terminal_overdue(events, _utc("2027-11-01T20:41:00"))
+    assert watchdog.terminal_overdue(events, _utc("2027-11-02T21:00:00"))

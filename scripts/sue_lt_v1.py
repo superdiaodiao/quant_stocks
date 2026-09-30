@@ -171,7 +171,7 @@ def freeze_protocol() -> dict:
             "minimum_buy": live.MINIMUM_BUY,
         },
         "evaluation": {
-            "months": 24, "benchmark": "QQQ total return, buy and hold",
+            "months": 12, "benchmark": "QQQ total return, buy and hold",
             "pass": "nav above qqq_nav at the final valuation, after the protocol's manual adjustments",
             "points_behind_qqq": "100 * (qqq_nav - nav) / start_cash, at every valuation, reported only",
             "early_stop": None,

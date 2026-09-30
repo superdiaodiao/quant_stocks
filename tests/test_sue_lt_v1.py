@@ -175,13 +175,13 @@ def test_falling_far_behind_does_not_end_the_observation(ledger, monkeypatch):
 
 
 def test_the_terminal_record_ends_the_ledger(ledger):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
-    live.append_event(ledger, "p", "TRADES_EXECUTED", {"signal_date": "2028-09-29", "execution_date": "2028-10-02"})
-    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2028-10-31"})
-    live.append_event(ledger, "p", "TERMINAL_RECORDED", {"as_of": "2028-10-31"})
-    assert runner.decide(_utc("2028-11-02T02:00:00"), live.read_ledger(ledger))["action"] == "NOTHING_DUE"
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2027-09-30", "targets": ["A"]})
+    live.append_event(ledger, "p", "TRADES_EXECUTED", {"signal_date": "2027-09-30", "execution_date": "2027-10-01"})
+    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2027-10-29"})
+    live.append_event(ledger, "p", "TERMINAL_RECORDED", {"as_of": "2027-10-29"})
+    assert runner.decide(_utc("2027-11-02T02:00:00"), live.read_ledger(ledger))["action"] == "NOTHING_DUE"
     with pytest.raises(RuntimeError, match="terminal"):
-        live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2028-11-01"})
+        live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2027-11-01"})
 
 
 def test_points_behind_is_reported_in_points_of_the_starting_cash():
@@ -189,16 +189,16 @@ def test_points_behind_is_reported_in_points_of_the_starting_cash():
     assert live.terminal_record(pd.Timestamp("2027-06-01"), 5_000.0, 15_000.0) is None
     end = live.terminal_record(live.END_DATE, 15_100.0, 15_000.0)
     assert end["reason"] == "END_DATE" and end["outcome"] == "BEAT_QQQ"
-    assert live.terminal_record(pd.Timestamp("2028-10-30"), 1.0, 2.0, final=True)["outcome"] == "DID_NOT_BEAT_QQQ"
+    assert live.terminal_record(pd.Timestamp("2027-10-28"), 1.0, 2.0, final=True)["outcome"] == "DID_NOT_BEAT_QQQ"
 
 
 def test_no_signal_on_or_after_the_end_date(ledger):
     events = live.read_ledger(ledger)
-    assert runner.decide(_utc("2028-09-30T02:00:00"), events)["as_of"] == "2028-09-29"
-    decision = runner.decide(_utc("2028-11-01T02:00:00"), events)
-    assert decision["action"] == "NOTHING_DUE" and "2028-10-31" not in decision["missed"]
+    assert runner.decide(_utc("2027-10-01T02:00:00"), events)["as_of"] == "2027-09-30"
+    decision = runner.decide(_utc("2027-10-31T02:00:00"), events)
+    assert decision["action"] == "NOTHING_DUE" and "2027-10-29" not in decision["missed"]
     with pytest.raises(RuntimeError, match="end date"):
-        live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2028-10-31", "targets": []})
+        live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2027-10-29", "targets": []})
 
 
 # ------------------------------------------------------------------ SIGNAL inputs
@@ -289,37 +289,37 @@ def test_minimum_buy_leaves_dust_as_cash():
 
 
 def _signal_and_hold(ledger, monkeypatch, days, series):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": sorted(series)})
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2027-09-30", "targets": sorted(series)})
     _patch_market(monkeypatch, series, days)
-    runner.run_mark(pd.Timestamp("2028-10-30"), "p", live.read_ledger(ledger), now=_utc("2028-10-31T02:00:00"))
+    runner.run_mark(pd.Timestamp("2027-10-28"), "p", live.read_ledger(ledger), now=_utc("2027-10-29T02:00:00"))
 
 
 def test_final_mark_stops_waiting_once_a_later_session_has_closed(ledger, monkeypatch):
-    days = _sessions("2028-09-15", "2028-11-02")
+    days = _sessions("2027-09-15", "2027-11-02")
     a, b = _flat(days, 10.0), _flat(days, 20.0)
     _signal_and_hold(ledger, monkeypatch, days, {"A": a, "B": b})
-    halted = b.drop(pd.Timestamp("2028-10-31"))  # no END_DATE close for B
+    halted = b.drop(pd.Timestamp("2027-10-29"))  # no END_DATE close for B
     _patch_market(monkeypatch, {"A": a, "B": halted}, days)
     events = live.read_ledger(ledger)
     with pytest.raises(RuntimeError, match="retry later"):
-        runner.run_mark(live.END_DATE, "p", events, now=_utc("2028-11-01T02:00:00"))
+        runner.run_mark(live.END_DATE, "p", events, now=_utc("2027-10-31T02:00:00"))
     # After 11-01 closes, the END_DATE rows are final: B counts as missing.
-    decision = runner.decide(_utc("2028-11-02T02:00:00"), events)
-    assert (decision["action"], decision["as_of"]) == ("RUN_MARK", "2028-10-31")
-    result = runner.run_mark(live.END_DATE, "p", events, now=_utc("2028-11-02T02:00:00"))
-    assert result["sessions"] == ["2028-10-31"] and result["terminal"]["reason"] == "END_DATE"
-    assert runner.decide(_utc("2028-11-03T02:00:00"), live.read_ledger(ledger))["action"] == "NOTHING_DUE"
+    decision = runner.decide(_utc("2027-11-02T02:00:00"), events)
+    assert (decision["action"], decision["as_of"]) == ("RUN_MARK", "2027-10-29")
+    result = runner.run_mark(live.END_DATE, "p", events, now=_utc("2027-11-02T02:00:00"))
+    assert result["sessions"] == ["2027-10-29"] and result["terminal"]["reason"] == "END_DATE"
+    assert runner.decide(_utc("2027-11-03T02:00:00"), live.read_ledger(ledger))["action"] == "NOTHING_DUE"
 
 
 def test_an_unscheduled_closure_on_the_end_date_ends_on_the_session_before(ledger, monkeypatch):
-    days = _sessions("2028-09-15", "2028-11-02")
+    days = _sessions("2027-09-15", "2027-11-02")
     traded = [d for d in days if d != live.END_DATE]
     a = _flat(traded, 10.0)
     _signal_and_hold(ledger, monkeypatch, traded, {"A": a})
     events = live.read_ledger(ledger)
-    assert events[-1]["payload"]["as_of"] == "2028-10-30"
-    result = runner.run_mark(live.END_DATE, "p", events, now=_utc("2028-11-02T02:00:00"))
-    assert result["sessions"] == [] and result["terminal"]["as_of"] == "2028-10-30"
+    assert events[-1]["payload"]["as_of"] == "2027-10-28"
+    result = runner.run_mark(live.END_DATE, "p", events, now=_utc("2027-11-02T02:00:00"))
+    assert result["sessions"] == [] and result["terminal"]["as_of"] == "2027-10-28"
     assert live.read_ledger(ledger)[-1]["event_type"] == "TERMINAL_RECORDED"
 
 
@@ -422,19 +422,19 @@ def test_a_split_sized_move_waits_even_in_a_run_over_two_sessions(ledger, monkey
 
 
 def test_after_the_end_date_the_gate_looks_at_the_latest_session(ledger):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
-    live.append_event(ledger, "p", "TRADES_EXECUTED", {"signal_date": "2028-09-29", "execution_date": "2028-10-02"})
-    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2028-10-30"})
-    decision = runner.decide(_utc("2028-11-02T02:00:00"), live.read_ledger(ledger))
-    assert (decision["as_of"], decision["gate_session"]) == ("2028-10-31", "2028-11-01")
-    assert "gate_session" not in runner.decide(_utc("2028-11-01T02:00:00"), live.read_ledger(ledger))
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2027-09-30", "targets": ["A"]})
+    live.append_event(ledger, "p", "TRADES_EXECUTED", {"signal_date": "2027-09-30", "execution_date": "2027-10-01"})
+    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2027-10-28"})
+    decision = runner.decide(_utc("2027-11-02T02:00:00"), live.read_ledger(ledger))
+    assert (decision["as_of"], decision["gate_session"]) == ("2027-10-29", "2027-11-01")
+    assert "gate_session" not in runner.decide(_utc("2027-10-31T02:00:00"), live.read_ledger(ledger))
 
 
 def test_a_settled_final_mark_still_waits_for_proof_that_the_end_date_did_not_trade(ledger, monkeypatch):
-    days = _sessions("2028-09-15", "2028-10-30")  # nothing published after 10-30 yet
+    days = _sessions("2027-09-15", "2027-10-28")  # nothing published after 10-30 yet
     _signal_and_hold(ledger, monkeypatch, days, {"A": _flat(days)})
     with pytest.raises(RuntimeError, match="retry later"):
-        runner.run_mark(live.END_DATE, "p", live.read_ledger(ledger), now=_utc("2028-11-02T02:00:00"))
+        runner.run_mark(live.END_DATE, "p", live.read_ledger(ledger), now=_utc("2027-11-02T02:00:00"))
 
 
 def test_the_sec_ticker_map_is_asked_again_before_the_downloads(monkeypatch):

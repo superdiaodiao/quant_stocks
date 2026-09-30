@@ -221,7 +221,7 @@ def held_message(as_of: str, names: str) -> str:
 
 
 def overdue_message() -> str:
-    return ("**sue-lt-v1 的最终估值逾期**：2028-10-31 之后已有交易日收盘，账本里仍没有终止记录。"
+    return ("**sue-lt-v1 的最终估值逾期**：最终估值日（2027-10-29）之后已有两个交易日收盘，账本里仍没有终止记录。"
             "请查看调度器的运行。" + _link())
 
 
