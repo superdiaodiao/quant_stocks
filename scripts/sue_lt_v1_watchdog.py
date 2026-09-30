@@ -8,7 +8,7 @@ a close ends each scheduler run quietly). It writes the decision for the
 notifier and exits 1 when something needs a look, so GitHub also reports
 the failed run: a check that fails, marks more than two sessions behind, a
 SIGNAL window that closed in the last three days without a signal, or no
-terminal record once a session after the end date has completed. A month
+terminal record once two sessions after the end date have completed. A month
 missed longer ago stays reported on the issue but no longer fails the job,
 since a missed month is never caught up.
 
@@ -48,13 +48,17 @@ def sessions_behind(events: list[dict], now: datetime) -> tuple[int | None, str 
 
 
 def terminal_overdue(events: list[dict], now: datetime) -> bool:
-    """A session after END_DATE has completed, and the observation has no end record."""
+    """Two sessions after END_DATE have completed, and the observation has no end record.
+
+    The final MARK can be settled only after the first of them; the second
+    leaves the scheduler a day of runs before this calls it overdue.
+    """
     if any(e["event_type"] == "TERMINAL_RECORDED" for e in events):
         return False
     if not any(e["event_type"] == "SIGNAL_FROZEN" for e in events):
         return False
     completed = schedule.latest_completed_session(now)
-    return completed is not None and completed > live.END_DATE
+    return completed is not None and completed > schedule.next_session(live.END_DATE)
 
 
 def needs_a_look(decision: dict, code: int, now: datetime) -> bool:

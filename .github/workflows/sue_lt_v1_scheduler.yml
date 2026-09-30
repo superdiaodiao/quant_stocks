@@ -112,17 +112,20 @@ jobs:
         if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
         action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
         as_of=$(python -c "import json; print(json.load(open('decision.json')).get('as_of') or '')")
+        # After the end date the final MARK is as of 2028-10-31, but whether
+        # Nasdaq has published is judged on the latest completed session.
+        gate_session=$(python -c "import json; d=json.load(open('decision.json')); print(d.get('gate_session') or d.get('as_of') or '')")
         gate=unchecked
         if [ "$action" = "RUN_SIGNAL" ] || [ "$action" = "RUN_MARK" ]; then
           set +e
-          PYTHONPATH=. python "$RUNNER_TEMP/sue_lt_v1_sources_ready.py" --as-of "$as_of" > sources.json
+          PYTHONPATH=. python "$RUNNER_TEMP/sue_lt_v1_sources_ready.py" --as-of "$gate_session" > sources.json
           published=$?
           set -e
           cat sources.json
           if [ "$published" -eq 0 ]; then
             gate=published
           elif [ "$published" -eq 10 ]; then
-            echo "::notice::Nasdaq has not published the $as_of session yet; a later run retries."
+            echo "::notice::Nasdaq has not published the $gate_session session yet; a later run retries."
             action="WAIT_FOR_PUBLISHED_SESSION"
           else
             # The check did not run: go ahead (a run that is early says retry

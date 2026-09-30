@@ -38,7 +38,9 @@ ISSUE_TITLE = "sue-lt-v1 观察记录（自动）"
 LEDGER = Path("output/research_only/sue_lt_v1/ledger.jsonl")
 BOT_LOGIN = "github-actions[bot]"
 MARKER = re.compile(r"<!-- sue-lt-v1-report (\{.*?\}) -->")
-HELD = re.compile(r"names near the pool have no (\S+) close \(([^)]*)\); retry later")
+# The exception line itself, not the traceback's copy of the source line.
+HELD = re.compile(r"^RuntimeError: names near the pool have no (\d{4}-\d{2}-\d{2}) close \(([^)]*)\); "
+                  r"retry later$", re.MULTILINE)
 STILL_HELD = 10
 LARGE_MOVE = 0.40
 START_CASH = 10_000.0
@@ -144,7 +146,7 @@ def signal_message(inner: dict) -> str:
         text += "\n\n同样原因、本月仍按上一季 SUE 排名的：" + "、".join(older)
     failures = inner.get("sec_refresh_failures") or {}
     if failures:
-        text += "\n\nSEC 数据取不到、本月没有 SUE 的：" + "、".join(sorted(failures))
+        text += "\n\nSEC 请求被拒或超时（当晚已重试两次）、本月没有 SUE 的：" + "、".join(sorted(failures))
     unfetched = inner.get("price_download_failed") or []
     if unfetched:
         text += (f"\n\n价格下载失败或为空、本月不进股票池的 {len(unfetched)} 只："
@@ -251,7 +253,8 @@ def compose(result: str | None, action: str | None, decision: dict | None, run: 
         signature = (log.strip().splitlines() or [""])[-1][:120]
         out.append((failure_message(action or "?", as_of, log), f"failed:{action}:{as_of}:{signature}"))
     elif result == "held":
-        match = HELD.search(log)
+        matches = list(HELD.finditer(log))
+        match = matches[-1] if matches else None
         if match:
             out.append((held_message(match.group(1), match.group(2)),
                         f"held:{match.group(1)}:{match.group(2).replace(' ', '')}"))
@@ -263,10 +266,17 @@ def compose(result: str | None, action: str | None, decision: dict | None, run: 
 
 
 def still_held(as_of: str, keys: set[str], has_row) -> list[str]:
-    """Names from the latest held report for ``as_of`` that still have no close."""
+    """Names from the held reports for ``as_of`` that still have no close.
+
+    Only a name the provider answered for without that close counts; a
+    refused or failed request lets the SIGNAL run.
+    """
     held = [key for key in keys if key and key.startswith(f"held:{as_of}:")]
     names = sorted({name for key in held for name in key.split(":", 2)[2].split(",") if name})
-    return [name for name in names if has_row(name) is not True]
+    answers = {name: has_row(name) for name in names}
+    if any(value is not True and value is not False for value in answers.values()):
+        return []
+    return [name for name, value in answers.items() if value is False]
 
 
 def main() -> None:

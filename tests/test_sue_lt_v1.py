@@ -392,3 +392,70 @@ def test_sec_requests_that_were_refused_are_asked_again(tmp_path, monkeypatch):
     failures = runner.refresh_sec_with_retries(pd.Timestamp("2026-08-31"), tmp_path, tmp_path / "u.csv",
                                                ["A", "B", "C"], {})
     assert asked == [["A", "B", "C"], ["A"]] and failures == {"B": "no_sec_fundamentals"}
+
+
+# ------------------------------------------------------------------ second review
+
+
+def test_an_unpriced_target_waits_one_day_then_is_left_unbought(ledger, monkeypatch):
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "T"]})
+    days = _sessions("2026-10-20", "2026-11-05")
+    t = _flat(days, 20.0).loc[:"2026-10-30"]  # T stops trading after the signal day
+    _patch_market(monkeypatch, {"A": _flat(days), "T": t}, days)
+    with pytest.raises(RuntimeError, match="close yet for T"):
+        runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    result = runner.run_mark(pd.Timestamp("2026-11-03"), "p", live.read_ledger(ledger))
+    assert result["trades"][0]["bought"] == ["A"] and result["sessions"] == ["2026-11-02", "2026-11-03"]
+
+
+def test_a_split_sized_move_waits_even_in_a_run_over_two_sessions(ledger, monkeypatch):
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
+    days = _sessions("2026-10-20", "2026-11-06")
+    a, b = _flat(days, 10.0), _flat(days, 20.0)
+    _patch_market(monkeypatch, {"A": a, "B": b}, days)
+    runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    moved = a.copy()
+    moved.loc["2026-11-04":] = 20.0
+    _patch_market(monkeypatch, {"A": moved, "B": b}, days)
+    with pytest.raises(RuntimeError, match="split-like move on 2026-11-04 for A"):
+        runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
+
+
+def test_after_the_end_date_the_gate_looks_at_the_latest_session(ledger):
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
+    live.append_event(ledger, "p", "TRADES_EXECUTED", {"signal_date": "2028-09-29", "execution_date": "2028-10-02"})
+    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2028-10-30"})
+    decision = runner.decide(_utc("2028-11-02T02:00:00"), live.read_ledger(ledger))
+    assert (decision["as_of"], decision["gate_session"]) == ("2028-10-31", "2028-11-01")
+    assert "gate_session" not in runner.decide(_utc("2028-11-01T02:00:00"), live.read_ledger(ledger))
+
+
+def test_a_settled_final_mark_still_waits_for_proof_that_the_end_date_did_not_trade(ledger, monkeypatch):
+    days = _sessions("2028-09-15", "2028-10-30")  # nothing published after 10-30 yet
+    _signal_and_hold(ledger, monkeypatch, days, {"A": _flat(days)})
+    with pytest.raises(RuntimeError, match="retry later"):
+        runner.run_mark(live.END_DATE, "p", live.read_ledger(ledger), now=_utc("2028-11-02T02:00:00"))
+
+
+def test_the_sec_ticker_map_is_asked_again_before_the_downloads(monkeypatch):
+    answers = [OSError("timed out"), {"aapl": 320193}]
+
+    def fake_map():
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(runner.fundamentals_update, "fetch_sec_ticker_map", fake_map)
+    monkeypatch.setattr(runner.time, "sleep", lambda seconds: None)
+    assert runner.sec_ticker_map() == {"AAPL": 320193}
+    monkeypatch.setattr(runner.fundamentals_update, "fetch_sec_ticker_map",
+                        lambda: (_ for _ in ()).throw(OSError("refused")))
+    with pytest.raises(RuntimeError, match="retry later"):
+        runner.sec_ticker_map()
+
+
+def test_a_cik_with_404_in_it_is_still_retried():
+    assert not runner._permanent_sec_failure("CIK 1415404 (ECHO): CIK 1415404: HTTP Error 503: Service Unavailable")
+    assert runner._permanent_sec_failure("CIK 937966 (ASML): HTTP Error 404: Not Found")
+    assert runner._permanent_sec_failure("no_sec_fundamentals")

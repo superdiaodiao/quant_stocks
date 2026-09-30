@@ -4,7 +4,7 @@
     PYTHONPATH=. python scripts/sue_lt_v1.py status
     PYTHONPATH=. python scripts/sue_lt_v1.py check          # what is due now
     PYTHONPATH=. python scripts/sue_lt_v1.py run [--push]   # do what is due
-    PYTHONPATH=. python scripts/sue_lt_v1.py rehearse --as-of 2026-09-30
+    PYTHONPATH=. python scripts/sue_lt_v1.py rehearse --as-of 2026-09-30   # a recent month end
     PYTHONPATH=. python scripts/sue_lt_v1.py freeze-protocol   # once, on the live branch
 
 Writes happen only on the ``live/sue-lt-v1`` branch, whose code is pinned
@@ -218,6 +218,9 @@ def decide(now: datetime, events: list[dict]) -> dict:
     frozen = {e["payload"]["signal_date"] for e in _signal_events(events)}
     completed = schedule.latest_completed_session(now)
     settled = completed is not None and completed > live.END_DATE
+    # After END_DATE the final MARK is still as of END_DATE; whether Nasdaq
+    # has published is judged on the latest completed session instead.
+    extra = {"gate_session": completed.strftime("%Y-%m-%d")} if settled else {}
     if settled:
         completed = live.END_DATE
     missed = []
@@ -235,12 +238,12 @@ def decide(now: datetime, events: list[dict]) -> dict:
     last = _last_valuation(events)
     if completed is not None and frozen:
         if pending and schedule.next_session(pd.Timestamp(pending[0])) <= completed:
-            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed}
+            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed, **extra}
         if last is not None and pd.Timestamp(last["as_of"]) < completed:
-            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed}
+            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed, **extra}
         if settled and (last is not None or pending):
             # END_DATE has passed without a terminal record: the final MARK writes it.
-            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed}
+            return {"action": "RUN_MARK", "as_of": completed.strftime("%Y-%m-%d"), "missed": missed, **extra}
     return {"action": "NOTHING_DUE", "as_of": None, "missed": missed}
 
 
@@ -267,6 +270,18 @@ def _fetch_fresh(ticker: str, as_of: pd.Timestamp, price_dir: Path) -> dict:
         return {"ticker": ticker, "status": "updated" if rows else "no_data", "rows": rows}
     except Exception as exc:  # reported per name, retried below
         return {"ticker": ticker, "status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+
+
+def sec_ticker_map() -> dict[str, int]:
+    """SEC's ticker-to-CIK map, fetched before the hours of price downloads."""
+    error = None
+    for pause in (0, *SEC_RETRY_PAUSES_SECONDS):
+        time.sleep(pause)
+        try:
+            return {str(t).upper(): int(c) for t, c in fundamentals_update.fetch_sec_ticker_map().items()}
+        except Exception as exc:  # refused or timed out: ask again
+            error = exc
+    raise RuntimeError(f"the SEC ticker map is unavailable ({type(error).__name__}: {error}); retry later")
 
 
 def download_prices(symbols: list[str], as_of: pd.Timestamp, price_dir: Path, workers: int) -> dict:
@@ -392,6 +407,11 @@ def refresh_sec(as_of: pd.Timestamp, work: Path, universe_path: Path, tickers: l
     return {str(item["ticker"]).upper(): str(item.get("reason")) for item in audit.get("failures", [])}
 
 
+def _permanent_sec_failure(reason: str) -> bool:
+    """No SEC financial data for the company (a foreign filer), as opposed to a refused request."""
+    return reason == "no_sec_fundamentals" or "HTTP Error 404" in reason
+
+
 def refresh_sec_with_retries(as_of: pd.Timestamp, work: Path, universe_path: Path,
                              tickers: list[str], ticker_map: dict[str, int]) -> dict:
     """refresh_sec, asking again for names whose request was refused or timed out.
@@ -401,8 +421,7 @@ def refresh_sec_with_retries(as_of: pd.Timestamp, work: Path, universe_path: Pat
     """
     failures = refresh_sec(as_of, work, universe_path, tickers, ticker_map)
     for pause in SEC_RETRY_PAUSES_SECONDS:
-        transient = sorted(t for t, reason in failures.items()
-                           if reason != "no_sec_fundamentals" and "404" not in reason)
+        transient = sorted(t for t, reason in failures.items() if not _permanent_sec_failure(reason))
         if not transient:
             break
         time.sleep(pause)
@@ -428,7 +447,8 @@ def sue_gaps(pool: list[str], sue: dict, quarterly: pd.DataFrame, as_of: pd.Time
             gaps[ticker] = {"reason": "no_sec_cik"}
             continue
         if ticker in sec_failures:
-            gaps[ticker] = {"reason": "sec_refresh_failed", "detail": sec_failures[ticker]}
+            reason = "no_sec_financial_data" if _permanent_sec_failure(sec_failures[ticker]) else "sec_refresh_failed"
+            gaps[ticker] = {"reason": reason, "detail": sec_failures[ticker]}
             continue
         rows = income.loc[income["ticker"].eq(ticker)].sort_values("fiscal_end")
         if rows.empty:
@@ -491,9 +511,14 @@ def latest_periodic_filing(cik: int, as_of: pd.Timestamp) -> dict:
 
 
 def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[str],
-                 previous_pool: list[str] = ()) -> dict:
-    """Refresh universe, prices and SEC quarters for one month end; select targets."""
+                 previous_pool: list[str] = (), rehearsal: bool = False) -> dict:
+    """Refresh universe, prices and SEC quarters for one month end; select targets.
+
+    ``rehearsal`` is for a past month end: today's universe then holds names
+    listed after it, whose empty histories must not hold the gates.
+    """
     _require_published(as_of)
+    ticker_map = sec_ticker_map()
     work.mkdir(parents=True, exist_ok=True)
     universe_path = work / "universe.csv"
     refresh_universe(as_of.date(), min_market_cap=0, target_path=universe_path, common_equities_only=True)
@@ -510,7 +535,8 @@ def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[s
         return close.reindex(columns=[c for c in close.columns if c in set(symbols)]), dollar_volume
 
     close, dollar_volume = panel()
-    unfetched = {t: _stored_liquidity(t) for t in [*download["failed"], *download["no_data"]]}
+    unfetched = {t: _stored_liquidity(t)
+                 for t in [*download["failed"], *([] if rehearsal else download["no_data"])]}
     priced = close.loc[as_of].notna().sum() if as_of in close.index else 0
     price_coverage = priced / max(close.shape[1] + len(unfetched), 1)
     if price_coverage < MINIMUM_PRICE_COVERAGE:
@@ -526,7 +552,6 @@ def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[s
         names = ", ".join(gate["unpriced"] + gate["failed_near_pool"])
         raise RuntimeError(f"names near the pool have no {as_of:%Y-%m-%d} close ({names}); retry later")
     pool = live.liquidity_pool(close, dollar_volume, set(symbols), as_of)
-    ticker_map = {str(t).upper(): int(c) for t, c in fundamentals_update.fetch_sec_ticker_map().items()}
     requested = sorted(set(pool) | set(holdings))
     mapped = [t for t in requested if t in ticker_map]
     sec_failures = refresh_sec_with_retries(as_of, work, universe_path, mapped, ticker_map)
@@ -553,6 +578,7 @@ def stage_signal(as_of: pd.Timestamp, work: Path, workers: int, holdings: list[s
         "sue_missing": gaps,
         "sue_from_older_quarter": sorted(t for t in result["sue"]
                                          if freshness.get(t, {}).get("companyfacts_behind_edgar")),
+        "sec_freshness": freshness,
         "inputs": {"universe.csv": _sha256(universe_path), "quarterly.csv": _sha256(work / "quarterly.csv")},
         "data_release": data_release(),
         "runtime_environment": runtime_environment(),
@@ -587,7 +613,10 @@ def run_signal(as_of: pd.Timestamp, protocol_sha: str, events: list[dict], worke
             "companyfacts_behind_edgar": sorted(t for t, g in result["sue_missing"].items()
                                                 if g.get("companyfacts_behind_edgar")),
             "sue_from_older_quarter": result["sue_from_older_quarter"],
-            "sec_refresh_failures": result["sec_refresh_failures"],
+            "sec_refresh_failures": {t: r for t, r in result["sec_refresh_failures"].items()
+                                     if not _permanent_sec_failure(r)},
+            "no_sec_financial_data": sorted(t for t, r in result["sec_refresh_failures"].items()
+                                            if _permanent_sec_failure(r)),
             "price_download_failed": sorted([*result["price_download"]["failed"],
                                              *result["price_download"]["no_data"]])}
 
@@ -660,9 +689,12 @@ def run_mark(as_of: pd.Timestamp, protocol_sha: str, events: list[dict],
     appended, retired_all, trades, terminal = [], [], [], None
     qqq = pd.Series(dtype=float)
     if calendar:
-        qqq = _qqq_total_returns(as_of)
-        if as_of not in qqq.index and not settled:
+        qqq = _qqq_total_returns(latest if settled else as_of)
+        # Settled, a missing END_DATE row counts as a closure only once QQQ has
+        # a later row: the market reopened and Nasdaq published it.
+        if as_of not in qqq.index and not (settled and qqq.index.max() > as_of):
             raise RuntimeError(f"Nasdaq has not published the {as_of:%Y-%m-%d} QQQ close; retry later")
+        qqq = qqq.loc[:as_of]
     elif not settled:
         return {"action": "NOTHING_DUE"}
     traded = [s for s in calendar if s in qqq.index]
@@ -682,12 +714,13 @@ def run_mark(as_of: pd.Timestamp, protocol_sha: str, events: list[dict],
         base = {t: pd.Timestamp(d) for t, d in last_priced.items() if t in book["positions"]}
         for session, signal in executions.items():
             for ticker in signal["targets"]:
-                base.setdefault(ticker, session)
+                if session in closes.get(ticker, pd.Series(dtype=float)).index:
+                    base.setdefault(ticker, session)  # bought at that close
         late = [t for t, s in closes.items() if as_of not in s.index and (
             previous in s.index or base.get(t) == previous or (executing and t in executing["targets"]))]
         if late:
             raise RuntimeError(f"no {as_of:%Y-%m-%d} close yet for {', '.join(late)}; retry later")
-        split = [t for t, b in base.items() if b == previous and previous in closes[t].index
+        split = [t for t, b in base.items() if b < as_of and previous in closes[t].index
                  and _split_like(float(closes[t][as_of] / closes[t][previous]))]
         if split:
             raise RuntimeError(f"split-like move on {as_of:%Y-%m-%d} for {', '.join(split)}; "
@@ -804,7 +837,8 @@ def rehearse(as_of: str, workers: int) -> dict:
     if not schedule.is_month_end_session(stamp):
         raise ValueError("rehearse needs a month-end session")
     started = _now()
-    result = stage_signal(stamp, Path("research_cache/sue_lt_v1_rehearsal") / as_of, workers, [])
+    result = stage_signal(stamp, Path("research_cache/sue_lt_v1_rehearsal") / as_of, workers, [],
+                          rehearsal=True)
     elapsed = (_now() - started).total_seconds()
     return {"rehearsal": True, "elapsed_seconds": round(elapsed), **{k: result[k] for k in (
         "signal_date", "targets", "sue", "universe_size", "price_coverage", "price_download", "price_gate",

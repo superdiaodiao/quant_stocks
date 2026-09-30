@@ -100,5 +100,29 @@ def test_watchdog_flags_a_missing_end_record(tmp_path):
     path = _frozen(tmp_path)
     live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
     events = live.read_ledger(path)
-    assert not watchdog.terminal_overdue(events, _utc("2028-11-01T02:00:00"))
-    assert watchdog.terminal_overdue(events, _utc("2028-11-02T02:00:00"))
+    assert not watchdog.terminal_overdue(events, _utc("2028-11-02T02:00:00"))
+    assert watchdog.terminal_overdue(events, _utc("2028-11-03T02:00:00"))
+
+
+def test_the_held_names_come_from_the_exception_not_the_source_line():
+    log = '''Traceback (most recent call last):
+  File "scripts/sue_lt_v1.py", line 527, in stage_signal
+    raise RuntimeError(f"names near the pool have no {as_of:%Y-%m-%d} close ({names}); retry later")
+RuntimeError: names near the pool have no 2026-11-30 close (AAA, BBB); retry later
+'''
+    comments = notify.compose("held", "RUN_SIGNAL", {"missed": []}, None, log, [], "2026-12-01")
+    assert comments[0][1] == "held:2026-11-30:AAA,BBB"
+
+
+def test_a_failed_probe_never_holds_a_signal():
+    keys = {"held:2026-11-30:AAA,BBB"}
+    assert notify.still_held("2026-11-30", keys, lambda name: "HTTPError: 403") == []
+    assert notify.still_held("2026-11-30", keys, lambda name: name == "AAA") == ["BBB"]
+
+
+def test_the_end_is_overdue_only_after_a_day_of_scheduler_runs(tmp_path):
+    path = _frozen(tmp_path)
+    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2028-09-29", "targets": ["A"]})
+    events = live.read_ledger(path)
+    assert not watchdog.terminal_overdue(events, _utc("2028-11-01T20:41:00"))
+    assert watchdog.terminal_overdue(events, _utc("2028-11-02T21:00:00"))
