@@ -12,6 +12,10 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 > 成本后每年跑输 QQQ 8.5%（10 bps 下跑输 2.8%），见
 > [docs/holdout_2011_2019_results.md](docs/holdout_2011_2019_results.md)。v50r3 不再作为
 > 投入真钱的候选，前瞻观察仅作运维检查继续运行。
+>
+> **新策略 sue-lt-v1（盈利意外、低换手）**：2012–2019 和 2020–2026 两段检验都“未被否定”，
+> 准备在 2026-10-30 之前冻结，开始 24 个月的前瞻观察（1 万美元模拟账户，期满时跑赢 QQQ 才算通过，不提前停止），
+> 规则见 [docs/sue_lt_v1_protocol.md](docs/sue_lt_v1_protocol.md)，通知在 issue #4。
 
 ## 1. 项目目标
 
@@ -98,6 +102,10 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | `v50r3 rehearsal` | 手动 | 完整演练一次 SIGNAL，不写账本 |
 | `v50r3 freeze` | 手动（已执行过，会拒绝再跑） | 一次性冻结 |
 | `Portable tests` | 每次 push/PR | 跑不依赖数据包的测试，复验 r1/r2/r3 协议 |
+| `sue-lt-v1 scheduler` | 每小时 :23、:53（UTC）+ 手动 | 读 `live/sue-lt-v1`，等 Nasdaq 发布数据后跑月末选股或每日估值，结果发到 issue #4 |
+| `sue-lt-v1 window waker` | 工作日 19:11/21:11/23:11 UTC | 月末窗口里等数据发布，一发布就启动 sue-lt-v1 scheduler |
+| `sue-lt-v1 watchdog` | 每天 13:41 UTC；每月 28 日到次月 5 日每小时 | 错过月份、估值落后超过 2 个交易日、协议或代码被改、期满后没写终止记录时，在 issue #4 报告一次；新出现的问题会让它变红 |
+| `sue-lt-v1 rehearsal` / `sue-lt-v1 freeze` | 手动 | 演练一次月末选股（不写账本）/ 一次性冻结 |
 
 旧的 CAN SLIM 日常流程（`workflow_run_script.yml`）已删除。v50r2 已被 r3
 接替，从未产生过信号。
@@ -131,6 +139,9 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | `src/io/` | Nasdaq、SEC 等数据下载与修复 |
 | `tests/` | 测试；`tests/data_dependent_test_files.txt` 列出需要数据包的测试 |
 | [docs/v50r3_operations.md](docs/v50r3_operations.md) | v50r3 运维手册 |
+| [docs/sue_lt_v1_protocol.md](docs/sue_lt_v1_protocol.md) | sue-lt-v1 前瞻观察规则 |
+| [docs/sue_lt_2020_2026_plan.md](docs/sue_lt_2020_2026_plan.md) | sue-lt-v1 规则的 2020–2026 样本外检验：未被否定（含冻结前审查的更正） |
+| [docs/research_ledger_2012_2019.md](docs/research_ledger_2012_2019.md)、[docs/research_ledger_2020_2026.md](docs/research_ledger_2020_2026.md) | 每一次检验的台账，包括失败的 |
 | [docs/holdout_2011_2019_plan.md](docs/holdout_2011_2019_plan.md) | 2011–2019 样本外检验规则（先定规则、后看结果） |
 | [docs/holdout_2011_2019_results.md](docs/holdout_2011_2019_results.md) | 2011–2019 检验结果：否定（含参数邻域检查） |
 | [docs/walkforward_selector_plan.md](docs/walkforward_selector_plan.md) | 动态选参诊断（2015–2019）：跑输 QQQ，放弃该方向 |
