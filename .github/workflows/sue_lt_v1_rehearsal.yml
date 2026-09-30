@@ -28,12 +28,15 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
     - name: Restore the data release
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: scripts/v50r3_restore_data.sh
     - name: Rehearse
       env:
         AS_OF: ${{ github.event.inputs.as_of }}
       run: PYTHONPATH=. python scripts/sue_lt_v1.py rehearse --as-of "$AS_OF" --workers 1 | tee rehearsal.json
     - uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: sue-lt-v1-rehearsal
         path: rehearsal.json

@@ -2,8 +2,24 @@ name: sue-lt-v1 scheduler
 
 # Runs the sue-lt-v1 forward observation (docs/sue_lt_v1_protocol.md) from
 # the pinned live/sue-lt-v1 branch: a month-end SIGNAL inside its window,
-# then a MARK after each session's close. Results, failures included, are
-# reported on the sue-lt-v1 observation issue. v50r3 runs separately.
+# then a MARK after each session's close. v50r3 runs separately.
+#
+# Nasdaq publishes a session's rows four to five hours after the close, so a
+# due SIGNAL or MARK is skipped with a notice until the session is published
+# (scripts/sue_lt_v1_sources_ready.py); a run that still finds a close
+# missing ends with "retry later" and records nothing. A SIGNAL downloads
+# about 3,000 names one at a time (Nasdaq refuses bursts from GitHub's
+# runners), so a SIGNAL that is not ready queues its retry at once; one held
+# by named stocks without a close is reported and waits until they have a
+# close (scripts/sue_lt_v1_notify.py --still-held); and the
+# "sue-lt-v1 window waker" dispatches this workflow as soon as a month end is
+# published. Every run starts on a fresh machine; only what the runner
+# pushes to live/sue-lt-v1 survives.
+#
+# Each frozen signal, valuation, failure and missed month is reported on the
+# observation issue by scripts/sue_lt_v1_notify.py, fetched from master; a
+# failure or a missed month is reported once. The "sue-lt-v1 watchdog"
+# checks independently that nothing is owed.
 
 on:
   schedule:
@@ -12,8 +28,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   issues: write
+
+env:
+  # The sue-lt-v1 observation issue that the notifier reports on.
+  NOTIFY_ISSUE: "4"
 
 concurrency:
   group: sue-lt-v1-scheduler
@@ -28,12 +49,20 @@ jobs:
     steps:
     - id: probe
       run: |
-        if git ls-remote --exit-code --heads \
-            "https://github.com/${{ github.repository }}.git" live/sue-lt-v1 >/dev/null; then
+        set +e
+        git ls-remote --exit-code --heads \
+          "https://github.com/${{ github.repository }}.git" live/sue-lt-v1 >/dev/null
+        code=$?
+        set -e
+        # 2: no such branch (not frozen yet); anything else but 0 is an error.
+        if [ "$code" -eq 0 ]; then
           echo "exists=true" >> "$GITHUB_OUTPUT"
-        else
+        elif [ "$code" -eq 2 ]; then
           echo "exists=false" >> "$GITHUB_OUTPUT"
           echo "::notice::live/sue-lt-v1 does not exist yet: sue-lt-v1 is not frozen."
+        else
+          echo "::error::Could not list the branches of ${{ github.repository }} (git exit $code)."
+          exit 1
         fi
 
   run:
@@ -56,25 +85,81 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
 
+    - name: Fetch the helpers from master
+      # The notifier and the publication check live on master, outside the
+      # frozen closure; live/sue-lt-v1 stays pinned.
+      continue-on-error: true
+      run: |
+        git fetch --quiet --depth 1 origin master
+        for name in sue_lt_v1_notify.py sue_lt_v1_sources_ready.py; do
+          git show "FETCH_HEAD:scripts/$name" > "$RUNNER_TEMP/$name.tmp"
+          mv "$RUNNER_TEMP/$name.tmp" "$RUNNER_TEMP/$name"
+        done
+
     - name: Decide what is due
       id: due
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: |
         set +e
-        PYTHONPATH=. python scripts/sue_lt_v1.py check > decision.json
+        PYTHONPATH=. python scripts/sue_lt_v1.py check > decision.json 2> check.log
         code=$?
         set -e
         cat decision.json
-        action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
-        echo "action=$action" >> "$GITHUB_OUTPUT"
+        cat check.log
+        # 0 nothing missed; 2 a missed month (reported, not caught up).
         if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
+        action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
+        as_of=$(python -c "import json; print(json.load(open('decision.json')).get('as_of') or '')")
+        gate=unchecked
+        if [ "$action" = "RUN_SIGNAL" ] || [ "$action" = "RUN_MARK" ]; then
+          set +e
+          PYTHONPATH=. python "$RUNNER_TEMP/sue_lt_v1_sources_ready.py" --as-of "$as_of" > sources.json
+          published=$?
+          set -e
+          cat sources.json
+          if [ "$published" -eq 0 ]; then
+            gate=published
+          elif [ "$published" -eq 10 ]; then
+            echo "::notice::Nasdaq has not published the $as_of session yet; a later run retries."
+            action="WAIT_FOR_PUBLISHED_SESSION"
+          else
+            # The check did not run: go ahead (a run that is early says retry
+            # later), but do not queue immediate retries on its word.
+            echo "::warning::The publication check failed (exit $published); running anyway."
+          fi
+        fi
+        if [ "$action" = "RUN_SIGNAL" ] && [ -s "$RUNNER_TEMP/sue_lt_v1_notify.py" ]; then
+          # A SIGNAL held by named stocks without a close would download
+          # everything again only to be held the same way.
+          set +e
+          PYTHONPATH=. python "$RUNNER_TEMP/sue_lt_v1_notify.py" --still-held --as-of "$as_of" > held.json
+          held=$?
+          set -e
+          cat held.json
+          if [ "$held" -eq 10 ]; then
+            echo "::notice::The $as_of SIGNAL waits for the closes that held it; a later run checks again."
+            action="WAIT_FOR_MISSING_CLOSES"
+          fi
+        fi
+        echo "action=$action" >> "$GITHUB_OUTPUT"
+        echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
     - name: Restore the data release
       if: steps.due.outputs.action == 'RUN_SIGNAL'
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: scripts/v50r3_restore_data.sh
 
     - name: Run the due SIGNAL or MARK
       id: run
       if: steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK'
+      env:
+        ACTION: ${{ steps.due.outputs.action }}
+        GATE: ${{ steps.due.outputs.gate }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -85,22 +170,47 @@ jobs:
         cat run.json
         tail -n 60 run.log
         if [ "$code" -eq 0 ] || [ "$code" -eq 2 ]; then echo "result=done" >> "$GITHUB_OUTPUT"; exit 0; fi
+        if grep -q "names near the pool have no .* close .*; retry later" run.log; then
+          # Named stocks without a close (a halt, or failed downloads): the
+          # report names them, and a later SIGNAL runs once they have closes.
+          echo "result=held" >> "$GITHUB_OUTPUT"
+          echo "::warning::Named stocks without a close held this SIGNAL; see the report on issue $NOTIFY_ISSUE."
+          exit 0
+        fi
         if grep -q "retry later" run.log; then
           echo "result=not_ready" >> "$GITHUB_OUTPUT"
-          echo "::warning::Closes are not published yet; a later run retries."
+          echo "::warning::A close the run needs is not published yet; a later run retries."
+          if [ "$ACTION" = "RUN_SIGNAL" ] && [ "$GATE" = "published" ]; then
+            # Scheduled runs start late here and a SIGNAL window has room for
+            # few attempts: queue the retry now.
+            gh workflow run sue_lt_v1_scheduler.yml --ref master \
+              || echo "::warning::Could not queue a retry; a scheduled run retries."
+          fi
           exit 0
         fi
         echo "result=failed" >> "$GITHUB_OUTPUT"
         exit "$code"
 
     - name: Report the result
-      if: always() && (steps.due.outputs.action == 'RUN_SIGNAL' || steps.due.outputs.action == 'RUN_MARK')
+      # Also when the check fails and when a month was missed with nothing due.
+      if: always()
       continue-on-error: true
       env:
         GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        ACTION: ${{ steps.due.outputs.action }}
         RESULT: ${{ steps.run.outputs.result }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
-        git fetch --quiet --depth 1 origin master
-        git show FETCH_HEAD:scripts/sue_lt_v1_notify.py > "$RUNNER_TEMP/notify.py"
-        python "$RUNNER_TEMP/notify.py" --result "${RESULT:-failed}" --run run.json --log run.log
+        if [ ! -s "$RUNNER_TEMP/sue_lt_v1_notify.py" ]; then
+          echo "::warning::The notifier could not be fetched from master: nothing reported."
+          exit 0
+        fi
+        result="$RESULT"
+        if [ -z "$result" ] && { [ "$ACTION" = "RUN_SIGNAL" ] || [ "$ACTION" = "RUN_MARK" ]; }; then
+          result=failed  # the run died before it could say
+        fi
+        log=run.log
+        [ -s run.log ] || log=check.log
+        python "$RUNNER_TEMP/sue_lt_v1_notify.py" --result "${result:-none}" --action "${ACTION:-none}" \
+          --check decision.json --run run.json --log "$log"

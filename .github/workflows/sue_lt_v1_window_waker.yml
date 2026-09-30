@@ -1,0 +1,76 @@
+name: sue-lt-v1 window waker
+
+# GitHub starts scheduled runs late, by hours at busy times, so the
+# half-hourly "sue-lt-v1 scheduler" trigger cannot be counted on to start a
+# SIGNAL soon after Nasdaq publishes the month end, four to five hours after
+# the close. On weekday evenings this checks whether a SIGNAL is due in the
+# open window or today's; if so it waits until the window is open and the
+# session is published (scripts/sue_lt_v1_sources_ready.py), checking every
+# ten minutes, and starts the scheduler with a workflow_dispatch, which
+# GitHub runs at once. The scheduler's own schedule still retries.
+
+on:
+  schedule:
+    - cron: "11 19 * * 1-5"
+    - cron: "11 21 * * 1-5"
+    - cron: "11 23 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: sue-lt-v1-window-waker
+  cancel-in-progress: false
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+    - id: probe
+      run: |
+        set +e
+        git ls-remote --exit-code --heads \
+          "https://github.com/${{ github.repository }}.git" live/sue-lt-v1 >/dev/null
+        code=$?
+        set -e
+        if [ "$code" -eq 0 ]; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        elif [ "$code" -eq 2 ]; then
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::live/sue-lt-v1 does not exist yet: sue-lt-v1 is not frozen."
+        else
+          echo "::error::Could not list the branches (git exit $code)."
+          exit 1
+        fi
+
+    - uses: actions/checkout@v5
+      if: steps.probe.outputs.exists == 'true'
+      with:
+        ref: live/sue-lt-v1
+
+    - uses: actions/setup-python@v6
+      if: steps.probe.outputs.exists == 'true'
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      if: steps.probe.outputs.exists == 'true'
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Wait for a published SIGNAL session and start the scheduler
+      if: steps.probe.outputs.exists == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        git fetch --quiet --depth 1 origin master
+        for name in sue_lt_v1_window_waker.py sue_lt_v1_sources_ready.py; do
+          git show "FETCH_HEAD:scripts/$name" > "$RUNNER_TEMP/$name"
+        done
+        PYTHONPATH=. python "$RUNNER_TEMP/sue_lt_v1_window_waker.py"
