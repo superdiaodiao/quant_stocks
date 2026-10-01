@@ -592,3 +592,17 @@ def test_built_sic_history_has_four_digit_codes_from_headers():
     assert sic["sic"].str.fullmatch(r"\d{4}").all()
     assert not sic.duplicated(["cik", "source_accession"]).any()
     assert set(sic["blank_check_6770"]) <= {"Y", "N"}
+
+
+def test_a_report_after_an_801_release_is_not_an_announcement_date():
+    table = _table([
+        ("k1", "2018-03-30", "2018-01-31", "10-K", ""),
+        ("r1", "2018-03-06", "2018-03-06", "8-K", "8.01,9.01"),   # the release, filed under 8.01
+        ("q1", "2018-06-08", "2018-04-30", "10-Q", ""),           # no 8-K between: usable
+    ])
+    fallback = er.fallback_filings(table, set())
+    rows = fallback.rename(columns={"accessionNumber": "accession", "filingDate": "filing_date"})
+    rows = rows.assign(cik=7, d0_session=["2018-04-02", "2018-06-11"])
+    marked = er.mark_fallback(rows)
+    assert marked["other_8k_between"].tolist() == ["2018-03-06:8.01,9.01", ""]
+    assert marked["usable_as_announcement"].tolist() == ["N", "Y"]

@@ -518,7 +518,8 @@ def fallback_filings(table: pd.DataFrame, event_quarters: set[str], since: str =
     It is a flag for review, never used as the event. ``item202_between`` lists ('date:accession')
     the Item 2.02 8-Ks filed in the same span (assigned to a later quarter, so the release is
     there). ``days_after_period_end`` and ``past_due`` (filed later than CATCH_UP_DAYS) mark late
-    reports; ``build_tables`` adds the shared-D0 test and ``usable_as_announcement``.
+    reports; ``build_tables`` adds the shared-D0 test and ``usable_as_announcement`` (N when
+    any of catch-up, an Item 2.02 in the span, or a 7.01/8.01 8-K in the span applies).
     """
     periodic = periodic_filings(table)
     periodic = periodic[periodic["filingDate"] >= since]
@@ -1001,7 +1002,10 @@ def mark_fallback(fallback: pd.DataFrame) -> pd.DataFrame:
     fallback["catch_up_reason"] = [";".join(r for r, on in (("past_due", p), ("shared_d0", s)) if on)
                                    for p, s in zip(past_due, shared)]
     fallback["catch_up_filing"] = np.where(fallback["catch_up_reason"] != "", "Y", "N")
-    usable = (fallback["catch_up_filing"] == "N") & (fallback["item202_between"] == "")
+    # A 7.01/8.01 8-K between the period end and the report may be the release itself
+    # (Urban Outfitters since 2017), so the report date is not then the announcement date.
+    usable = ((fallback["catch_up_filing"] == "N") & (fallback["item202_between"] == "")
+              & (fallback["other_8k_between"] == ""))
     fallback["usable_as_announcement"] = np.where(usable, "Y", "N")
     fallback["event_kind"] = "periodic_report"
     return fallback
