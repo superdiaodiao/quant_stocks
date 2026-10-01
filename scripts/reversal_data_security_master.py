@@ -19,8 +19,11 @@ and the tickers on the Form 25 search hits. Each candidate's submissions JSON
 is fetched once and cached (``CACHE/raw/sec/submissions``).
 
 A snapshot row (date, symbol, name) is assigned to a CIK when the listed name
-matches the CIK's SEC name or one of its former names, in any word order ('PRICE T
-ROWE GROUP INC'), at the time of the listing (``name+ticker`` when the CIK is also
+matches the CIK's SEC name or one of its former names at the time of the listing; in
+another word order only for an EDGAR inversion of initials ('PRICE T ROWE GROUP INC'),
+for a CIK with ticker evidence ('ARDEN ELIZABETH INC') or for a CIK one of whose names
+matches as written ('EVANS BOB FARMS INC'), never through SEC's name list alone ('First
+Bank' is not Bank First Corp) (``name+ticker`` when the CIK is also
 a ticker candidate, ``name_only`` when the name is unique among all fetched CIKs,
 ``name+lookup`` when the candidate came from SEC's name list); with no name match
 it falls back to a single ticker candidate (``ticker_only``, low confidence). An
@@ -28,27 +31,51 @@ EDGAR entity that files no periodic reports (a subsidiary, or a bank filing with
 the FDIC) never beats an issuer; alone, for a distinctive name, it is kept as
 ``name+lookup_nonfiler``. Truncated names (two repo files cut names at the first
 hyphen) borrow the nearest full name and otherwise support no name-only match. A
-name valid for only part of a listing while a rival could hold the rest, or shared
-by two CIKs (a holding-company reorganisation), is split by date; a CIK's dates end
-at the Form 25 that ended its Nasdaq common listing, and its rows more than 10 days
-after that filing go to the successor that took the ticker, or to nobody. One
-ticker has one CIK on any date: where two CIKs' rows of a ticker overlap in time,
-the weaker evidence is dropped.
+name valid for only part of a listing while a rival could hold the rest, shared by
+two CIKs (a holding-company reorganisation), or found through the name list for a CIK
+active over a small part of it, is split by date: the CIK that held the ticker on the
+dates before keeps it until its latest common Form 25 (only a CIK that held the ticker
+before that filing is cut by it). One ticker has one CIK on any date: where two CIKs' rows of a ticker
+overlap in time, the weaker evidence is dropped. These resolved rows are written as
+they stand (``ticker_rows_raw.csv.gz``) before anything is dropped for a Form 25: step 3
+decides from them which filings ended a listing (``subject_exit``), so no exit decision
+rests on rows removed because of an exit. Then, after a Form 25 that ended a CIK's
+listing, the tail of each covered ticker's run that the lists still show within their
+lag (up to 40 days after the filing) goes to the successor that took the ticker, or to
+nobody; a run seen 40 days or more after the filing contradicts the exit and keeps its
+rows, and rows after the run broke (two full-list snapshots without the symbol) are a
+relisting, kept as a separate interval.
 
-Intervals are runs of one (CIK, share class, ticker) across every snapshot family.
-A run breaks only when the symbol is missing from two full-list snapshots in a row
-(any family), or another security holds the ticker in between; a stretch that no
-source covers (2011-01-25..2011-05-27, 2012-06-22..2012-10-24) does not break it
-and is recorded as ``coverage_gap_days``. ``start`` and ``end`` are observed
-dates; ``start_prev_absent``/``end_next_absent`` give the full-list snapshots that
-bound them from outside.
+Listing evidence is cleaned first: a file that repeats an older file's symbol list
+exactly (``stale_duplicate_dates``) is dropped, a full-list file with far fewer common
+symbols than its neighbours is presence-only (``partial_snapshot_dates``), and a row of a
+company list or symbol catalog that the nearest Nasdaq symbol directories on both sides
+do not list is no evidence (``uncorroborated_sightings``: NYSE and OTC names in the
+nasdaq.com company lists). Company-list rows with a blank LastSale are no listing
+evidence but count as present.
+
+Intervals are runs of one (CIK, ticker) across every snapshot family; the share class
+is assigned to each run afterwards (and splits a run only for a multi-class CIK whose
+class letter changes for good). A run breaks only when the symbol is missing from two
+full-list snapshots in a row (any family), or another CIK holds the ticker in between;
+a stretch that no source covers (2011-01-25..2011-05-27, 2012-06-22..2012-10-24) does
+not break it and is recorded as ``coverage_gap_days``. ``start`` and ``end`` are
+observed dates; ``start_prev_absent``/``end_next_absent`` give the full-list snapshots
+that bound them from outside.
+
+A delist date is kept only when the security's intervals respect it: nothing seen in a
+full-list snapshot more than DELIST_TOLERANCE_DAYS after it except in a later interval
+that begins after two full-list snapshots without it (``listed_past_delisting``;
+``delist_date_violations`` checks the rule against the raw rows and the build summary
+reports ``still_listed_with_delist_date``).
 
 Run order (each step reads the other's output; both are cache-first, and a rerun
 from cache takes a few minutes)::
 
     form25 -> security_master -> form25 -> security_master
 
-repeated until neither table changes (round 2 converged after two alternations).
+repeated until neither table changes (round 3 converged after two alternations; the
+raw rows depend on step 3 only through the filing dates of its common Form 25 rows).
 
 Usage::
 
@@ -78,6 +105,7 @@ SUBMISSION_PAGE_URL = "https://data.sec.gov/submissions/{name}"
 TICKERS_EXCHANGE_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 CIK_LOOKUP_URL = "https://www.sec.gov/Archives/edgar/cik-lookup-data.txt"
 LOOKUP_MAX_CIKS = 8
+LOOKUP_COVER_SLACK_DAYS = 1095  # a name-list match active this much less than the listing is split by date
 NAME_SLACK_DAYS = 180  # a Nasdaq list may show a new name some weeks before or after EDGAR does
 DATED_NAME_SLACK_DAYS = 30  # tighter when two CIKs compete for one date
 REPORTING_NOW_DAYS = 150  # a CIK whose last periodic report is this recent is still reporting
@@ -302,15 +330,24 @@ GENERIC_FIRST = {"first", "american", "united", "china", "national", "global", "
                  "citizens", "peoples", "home", "us", "north", "south", "west", "east", "central", "capital"}
 
 
-def names_match(a: str, b: str) -> bool:
-    """Normalized names equal (in any word order: EDGAR stores 'PRICE T ROWE GROUP INC'), or one a token
-    prefix of the other (two tokens, or one distinctive token)."""
+def reorder_allowed(tokens: list[str]) -> bool:
+    """Whether a name may match another in a different word order: only an EDGAR inversion, which moves
+    initials to the end ('PRICE T ROWE GROUP', 'FOSTER L B', 'BARRY R G'), so the name must hold an
+    initial (a token of one or two letters that is no filler word). 'First Bank' (FRBA, an FDIC filer)
+    is not 'Bank First' (BFC)."""
+    return len(tokens) >= 2 and any(len(t) <= 2 and t not in FILLER_WORDS for t in tokens)
+
+
+def names_match(a: str, b: str, reorder: bool = False) -> bool:
+    """Normalized names equal (in another word order for an EDGAR inversion of initials, 'PRICE T ROWE
+    GROUP INC' (``reorder_allowed``), or with ``reorder`` for a CIK with ticker evidence, 'ARDEN
+    ELIZABETH INC'), or one a token prefix of the other (two tokens, or one distinctive token)."""
     if not a or not b:
         return False
     if a == b or a.replace(" ", "") == b.replace(" ", ""):
         return True
     ta, tb = a.split(), b.split()
-    if len(ta) >= 2 and sorted(ta) == sorted(tb):
+    if (reorder_allowed(ta) or (reorder and len(ta) >= 2)) and sorted(ta) == sorted(tb):
         return True
     fa, fb = [t for t in ta if t not in FILLER_WORDS], [t for t in tb if t not in FILLER_WORDS]
     if len(fa) >= 2 and fa == fb:  # 'motorcar parts of america' and EDGAR's 'MOTORCAR PARTS AMERICA INC'
@@ -327,25 +364,30 @@ def distinctive_name(key: str) -> bool:
 
 
 def share_class_from_name(name: str) -> str:
-    """'Alphabet Inc. - Class C Capital Stock' -> 'C'; ADRs -> 'ADS'; otherwise 'COMMON'."""
+    """'Alphabet Inc. - Class C Capital Stock' -> 'C', 'Rush Enterprises Inc. Common Stock Cl A' -> 'A';
+    ADRs -> 'ADS'; otherwise 'COMMON'."""
     text = str(name or "")
     if re.search(r"american depositary|american depository|\bADS\b|\bADR\b|depositary shares", text, re.I):
         return "ADS"
-    match = re.search(r"\b(?:class|series)\s+([A-Z])\b", text, re.I)
+    match = re.search(r"\b(?:class|series|cl\.?)\s+([A-Z])\b", text, re.I)
     return match.group(1).upper() if match else "COMMON"
 
 
 NON_COMMON = re.compile(
-    r"\bPreferred\b|\bPreference Shares?\b|\bWarrants?\b|\b(?:Sub)?Units?\b|Notes? due|Debenture|\bRights?\b|"
+    r"\bPreferred\b|\bPreference Shares?\b|\bWarr+ants?\b|\b(?:Sub)?Units?\b|Notes? due|Debenture|\bRights?\b|"
     r"Tangible Equity|Trust Preferred|Senior Notes|Subordinated Notes|\bETF\b|\bETNs?\b|Exchange Traded|"
     r"\bIndex Fund\b|\bTest Stock\b|\bWhen[- ]Issued\b|\bClosed[- ]End\b|\bL\.?P\.?\b|\bLimited Partnership\b|"
     r"Depositary Shares?,? each representing (?:a |one )?(?:\d+/\d+(?:th)?|fractional|\d[\d,]*th)|"
     r"representing .*interest in .*preferred|\bFund\b|\bPortfolio\b|ProShares|PowerShares|iShares|WisdomTree|"
-    r"BLDRS|VelocityShares|NextShares|Index Tracking Stock|\bTrust,? Series 1\b", re.I)
+    r"BLDRS|VelocityShares|NextShares|Index Tracking Stock|\bTrust,? Series 1\b|"
+    # Abbreviated preferreds, baby bonds and notes ('Non Cumulative Perp Conv Pfd Ser A', 'Dep Shs Rep 1/40th
+    # Int 6.75% Srs A Non-Cum Pfd', 'Baby Bond', 'Senior Unsecured Notes', 'Capital Securities').
+    r"\bPfd\b|\bDep\.? Shs\b|\bBaby Bonds?\b|\bNotes\b|\bUnsecured\b|\bCapital Securities\b|\bSAIL Securities\b|"
+    r"\bADWs?\b|Depositary Warrants?", re.I)
 
 
 ADR_NAME = re.compile(r"\bamer\w*\s+deposit[ao]ry|\bADS\b|\bADRs?\b|new york registry", re.I)
-ADR_EXCLUDE = re.compile(r"preferred|warrant|\brights?\b|\bunits?\b|notes? due", re.I)
+ADR_EXCLUDE = re.compile(r"preferred|warr+ant|\brights?\b|\bunits?\b|notes? due|\bADWs?\b|\bPfd\b", re.I)
 # On Nasdaq a depositary share or receipt that is not an American depositary share is a fractional
 # preferred (SRCLP 'Depository Receipt', IBKCP 'Depositary Shares Representing Series B').
 DEPOSITARY_PREFERRED = re.compile(r"deposit[ao]ry (?:shares?|receipts?)\b", re.I)
@@ -382,10 +424,11 @@ NO_LAST_SALE = {"", "N/A", "NA", "NAN", "NONE"}
 
 
 def _read_snapshot(path: Path, source: str) -> pd.DataFrame:
-    """One snapshot file as rows (symbol, name, date, flags, source, source_url, name_truncated).
+    """One snapshot file as rows (symbol, name, date, flags, source, source_url, name_truncated, no_last_sale).
 
-    Company-list rows without a last sale are dropped: they are companies in the IPO
-    pipeline, not listed securities.
+    Company-list rows without a last sale are flagged ``no_last_sale``: some are companies in
+    the IPO pipeline, so they are no listing evidence, but most are listed symbols with a blank
+    quote (SunPower in every 2015-2016 list), so they count as present when a run is broken.
     """
     frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     columns = {c.lower().strip(): c for c in frame.columns}
@@ -394,10 +437,10 @@ def _read_snapshot(path: Path, source: str) -> pd.DataFrame:
     if not symbol or not name:
         return pd.DataFrame()
     last_sale = columns.get("lastsale") or columns.get("last sale")
-    if last_sale and source == "wayback_companylist":
-        frame = frame[~frame[last_sale].str.strip().str.lstrip("$").str.upper().isin(NO_LAST_SALE)]
     observed = columns.get("observed at") or columns.get("snapshot_date") or columns.get("date")
     out = pd.DataFrame({"symbol": frame[symbol].str.strip().str.upper(), "name": frame[name].str.strip()})
+    out["no_last_sale"] = (frame[last_sale].str.strip().str.lstrip("$").str.upper().isin(NO_LAST_SALE)
+                           if last_sale and source == "wayback_companylist" else False)
     out["date"] = frame[observed].str[:10] if observed else _date_from_name(path)
     for flag in ("ETF", "Test Issue", "NextShares"):
         column = columns.get(flag.lower())
@@ -423,10 +466,93 @@ def load_listing_snapshots(snapshot_dir: Path = SNAPSHOT_DIR, hook_dirs: dict[st
     frames = [f for f in frames if not f.empty]
     if not frames:
         return pd.DataFrame(columns=["symbol", "name", "date", "ETF", "Test Issue", "NextShares", "source", "source_url",
-                                     "name_truncated"])
+                                     "name_truncated", "no_last_sale"])
     snapshots = pd.concat(frames, ignore_index=True)
     snapshots["name_truncated"] = snapshots["name_truncated"].fillna(False).astype(bool)
+    snapshots["no_last_sale"] = snapshots["no_last_sale"].fillna(False).astype(bool)
     return snapshots[(snapshots["symbol"] != "") & (snapshots["date"] != "")]
+
+
+STALE_MIN_DAYS = 7  # an identical symbol list this long after an earlier one is a stale copy
+
+
+def stale_duplicate_dates(snapshots: pd.DataFrame, min_days: int = STALE_MIN_DAYS) -> dict[tuple[str, str], str]:
+    """(family, date) -> the earlier date whose symbol list it repeats exactly, for full-list families.
+
+    Some repo symbol files are a later commit of an older file: nasdaq_listed_2024-05-18 lists exactly
+    the symbols of 2024-03-28 (same source file and commit), 2023-12-21 those of 2023-10-27. Read at
+    their own dates they would list names that left Nasdaq in between (GTH, AMNB, MCAF, Avid, Blue
+    Apron) weeks after their Form 25, so they are dropped. Over a few days (a weekend) two lists can
+    agree for real; those are kept."""
+    out = {}
+    for family, group in snapshots.groupby("source"):
+        if family in PARTIAL_FAMILIES:
+            continue
+        seen: dict[frozenset, str] = {}
+        for day, symbols in sorted(group.groupby("date")["symbol"]):
+            key = frozenset(symbols)
+            first = seen.get(key)
+            if first is not None and (pd.Timestamp(day) - pd.Timestamp(first)).days > min_days:
+                out[(family, day)] = first
+            else:
+                seen.setdefault(key, day)
+    return out
+
+
+CORROBORATE_DAYS = 70  # the Nasdaq symbol directories that check a sighting of another kind of list
+SYMBOL_DIRECTORY = re.compile(r"nasdaqlisted|SymDir", re.I)
+
+
+def uncorroborated_sightings(snapshots: pd.DataFrame, window_days: int = CORROBORATE_DAYS) -> pd.Series:
+    """Rows of full-list files other than Nasdaq's symbol directory (nasdaqlisted.txt) whose symbol
+    neither the nearest symbol directory before nor the nearest after lists, both within
+    ``window_days`` (nor one of the same day): the nasdaq.com company lists of 2015-2019 carry some
+    NYSE and OTC names (MSG, America Movil, 8x8, Condor, Lilis, Pressure BioSciences), and a third-party
+    symbol catalog of 2024-01-26 and 2024-02-27 still lists names that left Nasdaq weeks before
+    (LiveVox, Salem Media, Virtus). Such a row is no evidence of a Nasdaq listing. Returns a boolean
+    mask over ``snapshots``."""
+    mask = pd.Series(False, index=snapshots.index)
+    full = snapshots[~snapshots["source"].isin(PARTIAL_FAMILIES)]
+    directory = (full["source"] == "wayback_symdir") | full["source_url"].astype(str).str.contains(SYMBOL_DIRECTORY)
+    listed = full[directory].groupby("date")["symbol"].apply(set).to_dict()
+    days = sorted(listed)
+    for (_, day), group in full[~directory].groupby(["source", "date"]):
+        i = bisect.bisect_left(days, day)
+        before = days[i - 1] if i > 0 else None
+        j = i + 1 if i < len(days) and days[i] == day else i
+        after = days[j] if j < len(days) else None
+        if before is None or after is None or (pd.Timestamp(after) - pd.Timestamp(before)).days > 2 * window_days \
+                or (pd.Timestamp(day) - pd.Timestamp(before)).days > window_days \
+                or (pd.Timestamp(after) - pd.Timestamp(day)).days > window_days:
+            continue
+        known = listed[before] | listed[after] | listed.get(day, set())
+        mask.loc[group.index[~group["symbol"].isin(known)]] = True
+    return mask
+
+
+PARTIAL_DATE_RATIO = 0.9  # a full-list file with fewer common symbols than this share of its neighbours'
+
+
+def partial_snapshot_dates(listings: pd.DataFrame, ratio: float = PARTIAL_DATE_RATIO) -> dict[str, list[str]]:
+    """family -> dates of a full-list family whose file lists fewer than ``ratio`` times the median
+    number of common symbols of the two files on either side (repo_symdir 2022-06-24: 3,037 against
+    about 3,770). Such a file is evidence of presence, not of absence."""
+    out: dict[str, list[str]] = {}
+    for family, group in listings.groupby("source"):
+        if family in PARTIAL_FAMILIES:
+            continue
+        counts = group.groupby("date")["symbol"].nunique().sort_index()
+        values, days = counts.tolist(), counts.index.tolist()
+        for i, day in enumerate(days):
+            around = values[max(0, i - 2):i] + values[i + 1:i + 3]
+            if around and values[i] < ratio * sorted(around)[(len(around) - 1) // 2]:  # the lower median
+                out.setdefault(family, []).append(day)
+    return out
+
+
+def is_partial_family(family: str) -> bool:
+    """Families that list only part of Nasdaq, and the pseudo-family of a full family's partial files."""
+    return family in PARTIAL_FAMILIES or family.endswith(PARTIAL_SUFFIX)
 
 
 TYPED_NAME = re.compile(r" - |common stock|ordinary shares?|common shares|capital stock|depositary|depository|"
@@ -489,7 +615,9 @@ def fill_classes(rows: pd.DataFrame) -> pd.Series:
     near = pd.merge_asof(bare.sort_values("_day"), known[["_key", "_day", "near_class"]].sort_values("_day"),
                          on="_day", by="_key", direction="nearest").set_index("index")["near_class"]
     out = classes.copy()
-    out.loc[near.index] = near.fillna("COMMON")
+    own = classes.loc[near.index]
+    # A bare name that states its class keeps it ('Rush Enterprises Inc Cl B').
+    out.loc[near.index] = [o if o not in GENERIC_CLASSES or not isinstance(n, str) else n for o, n in zip(own, near)]
     return out
 
 
@@ -500,8 +628,11 @@ def common_snapshot_rows(snapshots: pd.DataFrame) -> pd.DataFrame:
     screener) is judged by the name. A bare company name (the nasdaq.com company
     lists and the truncated 2015 file) is judged by the nearest typed row of the
     same symbol within three years; with none, by the name and the symbol's fifth letter.
+    Company-list rows without a last sale (``no_last_sale``) are no listing evidence.
     """
     frame = snapshots.copy()
+    if "no_last_sale" in frame:
+        frame = frame[~frame["no_last_sale"].fillna(False).astype(bool)]
     flagged = frame["ETF"].eq("Y") | frame["Test Issue"].eq("Y") | frame["NextShares"].eq("Y")
     frame["is_common"] = ~flagged & frame["name"].map(is_common_equity)
     frame["typed"] = frame["name"].str.contains(TYPED_NAME) | flagged
@@ -639,13 +770,13 @@ def name_key(text: str) -> str:
 
 
 def index_keys(normalized: str) -> list[str]:
-    """Keys of a normalized name in a name index: without spaces, and (two tokens or more) its sorted
-    tokens, so 'price t rowe group' and 't rowe price group' share a key."""
+    """Keys of a normalized name in a name index: without spaces, and (for a name with initials,
+    ``reorder_allowed``) its sorted tokens, so 'price t rowe group' and 't rowe price group' share a key."""
     if not normalized:
         return []
     keys = [normalized.replace(" ", "")]
     tokens = normalized.split()
-    if len(tokens) >= 2:
+    if reorder_allowed(tokens):
         keys.append("~" + " ".join(sorted(tokens)))
     return keys
 
@@ -716,19 +847,27 @@ def profile_name_spans(profile: dict) -> list[tuple[str, str, str]]:
 
 
 def name_valid(profile: dict, key: str, first: str = "", last: str = "", exact: bool = False,
-               slack: int = NAME_SLACK_DAYS) -> bool:
-    """The CIK carried a name matching ``key`` at some time in first..last (give or take ``slack`` days)."""
+               slack: int = NAME_SLACK_DAYS, reorder: bool = False) -> bool:
+    """The CIK carried a name matching ``key`` at some time in first..last (give or take ``slack`` days);
+    ``reorder`` (ticker evidence) admits any word order (``names_match``)."""
     lo = _shift(first, -slack) if first else "0000-00-00"
     hi = _shift(last or first, slack) if (last or first) else "9999-12-31"
+    if not reorder and not exact:
+        # A CIK one of whose names matches as written may match its other names in any order: EDGAR
+        # stored Bob Evans Farms as 'EVANS BOB FARMS INC' until 2011.
+        reorder = any(names_match(key, n) for n, _, _ in profile_name_spans(profile))
     compact, tokens = key.replace(" ", ""), sorted(key.split())
-    same = lambda n: n.replace(" ", "") == compact or (len(tokens) >= 2 and sorted(n.split()) == tokens)
-    return any((same(n) if exact else names_match(key, n)) and a <= hi and b >= lo
+    same = lambda n: n.replace(" ", "") == compact or ((reorder_allowed(tokens) or (reorder and len(tokens) >= 2))
+                                                       and sorted(n.split()) == tokens)
+    return any((same(n) if exact else names_match(key, n, reorder)) and a <= hi and b >= lo
                for n, a, b in profile_name_spans(profile))
 
 
-def name_valid_throughout(profile: dict, key: str, first: str, last: str, slack: int = NAME_SLACK_DAYS) -> bool:
+def name_valid_throughout(profile: dict, key: str, first: str, last: str, slack: int = NAME_SLACK_DAYS,
+                          reorder: bool = False) -> bool:
     """The CIK bore a name matching ``key`` both when the listing was first and last seen."""
-    return name_valid(profile, key, first, first, slack=slack) and name_valid(profile, key, last, last, slack=slack)
+    return name_valid(profile, key, first, first, slack=slack, reorder=reorder) and \
+        name_valid(profile, key, last, last, slack=slack, reorder=reorder)
 
 
 def active_during(profile: dict, first: str, last: str, slack_days: int = 400) -> bool:
@@ -810,7 +949,9 @@ def resolve_listing(symbol: str, name: str, cands: Candidates, profiles: dict[in
             return 0
         return 1 if distinct else 0
 
-    named = [c for c in ticker_ciks if name_valid(profiles[c], key, first, last)]
+    # A name in another word order counts only for a CIK with ticker evidence (or initials, which any
+    # match admits): 'First Bank' found Bank First Corp through SEC's name list alone.
+    named = [c for c in ticker_ciks if name_valid(profiles[c], key, first, last, reorder=not lookup_only(c))]
     mapped_named = [c for c in named if not lookup_only(c)]
     if any(issuer_like(profiles[c]) and (not first or active_during(profiles[c], first, last))
            for c in ticker_ciks if not lookup_only(c)):  # a sub-entity listing the ticker never beats the issuer
@@ -827,7 +968,7 @@ def resolve_listing(symbol: str, name: str, cands: Candidates, profiles: dict[in
     if len(by_name) > 1:  # a mapped ticker beats a name-list hit
         by_name = mapped_named if len(mapped_named) == 1 else by_name
     if len(by_name) > 1 and first:  # a name valid over the whole listing beats one valid over part of it
-        whole = [c for c in by_name if name_valid_throughout(profiles[c], key, first, last)]
+        whole = [c for c in by_name if name_valid_throughout(profiles[c], key, first, last, reorder=not lookup_only(c))]
         by_name = whole if len(whole) == 1 else by_name
     if len(by_name) > 1 and first:  # SEC's current holder of the ticker, if it reported during the listing
         holder = [c for c in by_name if symbol in profiles[c]["tickers"] and reported_during(profiles[c], first, last)]
@@ -844,9 +985,17 @@ def resolve_listing(symbol: str, name: str, cands: Candidates, profiles: dict[in
                    and name_valid(profiles[c], key, first, last) and issuer_like(profiles[c])]
         if partial and not covers(profiles[by_name[0]], first, last):
             return None, "ambiguous"
+        lo, hi = activity_window(profiles[by_name[0]])
+        if lookup_only(by_name[0]) and lo and (lo > _shift(first, LOOKUP_COVER_SLACK_DAYS)
+                                               or hi < _shift(last, -LOOKUP_COVER_SLACK_DAYS)):
+            # Found through SEC's name list alone and active over only part of the listing (by more
+            # than a year: a listing outlives the last filing by months in a bankruptcy): split by
+            # date ('First Bank', FRBA 2014-2024, against FIRSTBANK CORP, which stopped filing in 2014).
+            return None, "ambiguous"
         rivals = partial or [c for c in mapped_any if c != by_name[0] and issuer_like(profiles[c])
                              and active_during(profiles[c], first, last)]
-        if not name_valid_throughout(profiles[by_name[0]], key, first, last) and (lookup_only(by_name[0]) or rivals):
+        if not name_valid_throughout(profiles[by_name[0]], key, first, last, reorder=not lookup_only(by_name[0])) \
+                and (lookup_only(by_name[0]) or rivals):
             return None, "ambiguous"  # split by date; a sole mapped holder with no rival keeps the pair
     if len(by_name) == 1:
         return by_name[0], "name+lookup" if lookup_only(by_name[0]) else "name+ticker"
@@ -902,18 +1051,28 @@ def activity_window(profile: dict, today: str | None = None) -> tuple[str, str]:
 
 def resolve_by_date(symbol: str, name: str, dates: list[str], cands: Candidates, profiles: dict[int, dict],
                     name_index: dict[str, set[int]], lookup: dict[str, set[int]] | None = None,
-                    exits: dict[int, str] | None = None, truncated: bool = False) -> dict[str, int]:
+                    exits: dict[int, str] | None = None, truncated: bool = False,
+                    exits_checked: bool = False) -> dict[str, int]:
     """For a pair whose name matches several CIKs (a holding-company reorganisation reuses name and
     ticker), or a CIK for only part of the pair's dates, assign each snapshot date to the candidate
     that bore the name on that date and whose activity window holds the date.
 
     A CIK's window ends at the filing date of the Form 25 that ended its Nasdaq common listing
     (``exits``): the exchange files it once trading has stopped, so later rows of that ticker belong
-    to a successor. Where two windows overlap the incumbent (earlier start) keeps the date, unless
+    to a successor. Where two windows overlap the incumbent (the CIK assigned the dates before, else
+    the earlier window start) keeps the date, unless
     both span every date (two unrelated companies), which stays unassigned. A date with one
     candidate accepts a name within NAME_SLACK_DAYS of its EDGAR dates; competing candidates are
     judged within DATED_NAME_SLACK_DAYS.
     """
+    if exits and not exits_checked:
+        # A CIK's Form 25 ends its window only for a ticker it held before the filing: old IAC
+        # (891103) handed IAC to the new IAC on 2020-06-30 and went on as Match Group, taking MTCH
+        # from Match Group Inc (1575189), whose own Form 25 of 2020-07-01 ends its MTCH dates. Here
+        # judged on this pair's dates; ``exits_checked``: the caller judged it on every row of the
+        # symbol (Mylan Inc held MYL under its own name, not under 'Mylan N.V.').
+        base = resolve_by_date(symbol, name, dates, cands, profiles, name_index, lookup, None, truncated)
+        exits = {c: cut for c, cut in exits.items() if any(c == base.get(day) for day in dates if day <= cut)}
     key = normalize_issuer_name(name)
     options = {c for c in cands.get(symbol) if c in profiles}
     if not truncated and (distinctive_name(key) or len(key.replace(" ", "")) >= 6):
@@ -927,16 +1086,23 @@ def resolve_by_date(symbol: str, name: str, dates: list[str], cands: Candidates,
             hi = min(hi, cut)
         windows[c] = (lo, hi)
     span = lambda c: windows[c][0] <= dates[0] and windows[c][1] >= dates[-1]
-    out = {}
+    out, holder = {}, None
     for day in dates:
         inside = [c for c, (lo, hi) in windows.items() if lo and lo <= day <= hi
                   and name_valid(profiles[c], key, day, day, slack=NAME_SLACK_DAYS)]
         if len(inside) > 1:
             inside = [c for c in inside if name_valid(profiles[c], key, day, day, slack=DATED_NAME_SLACK_DAYS)]
         if len(inside) == 1:
-            out[day] = inside[0]
+            out[day] = holder = inside[0]
         elif inside and not all(span(c) for c in inside):
-            out[day] = min(inside, key=lambda c: (windows[c][0], c))
+            # The CIK that held the ticker on the dates before keeps it until its window ends (its
+            # own Form 25): Bridge Bancorp (846617, filing since 1988) took the name Dime Community
+            # Bancshares at the 2021-01-29 merger, and old Dime (1005409) listed DCOM until then
+            # (Match Group's MTCH, Xenith's XBKS and SharpLink's SBET likewise). With no holder yet,
+            # the earlier window start.
+            if holder not in inside:
+                holder = min(inside, key=lambda c: (windows[c][0], c))
+            out[day] = holder
     return out
 
 
@@ -960,6 +1126,7 @@ MATCH_RANK = {"name+ticker": 0, "name+lookup": 1, "name_only": 2, "name_profiled
               "successor": 3, "name+lookup_nonfiler": 4, "ticker_only": 4}
 # Families that list only part of Nasdaq: a symbol missing from them is no evidence of absence.
 PARTIAL_FAMILIES = {"repo_screener_300M"}
+PARTIAL_SUFFIX = ":partial_files"  # snapshot_dates key of a full family's partial files (partial_snapshot_dates)
 FAMILY_ORDER = {"repo_symdir": 0, "wayback_symdir": 1, "wayback_companylist": 2, "repo_screener_300M": 3}
 # Rows of a CIK this long after the filing of its terminal Form 25 are not its own (the exchange
 # files the 25 once trading has stopped; a few lists lag by days).
@@ -967,65 +1134,177 @@ EXIT_GRACE_DAYS = 10
 
 
 def presence_by_date(snapshots: pd.DataFrame) -> dict[str, set[str]]:
-    """date -> every symbol in that day's snapshots (any family, common or not)."""
+    """date -> every symbol in that day's snapshots (any family, common or not, with or without a
+    last sale)."""
     return {day: set(symbols) for day, symbols in snapshots.groupby("date")["symbol"]}
 
 
+# Classes that name no class letter: a row so named carries the letter of the rows around it
+# ('1-800-FLOWERS.COM Inc. Common Stock' between 'Class A Common Stock' rows is class A).
+GENERIC_CLASSES = {"COMMON", "ADS"}
+MIN_CLASS_DATES = 2  # a class letter seen on fewer dates of a run does not split it
+
+
+def run_class(classes: list[str]) -> str:
+    """The class of a run of rows: its most frequent class letter (or ticker key), else ADS or COMMON."""
+    specific = Counter(c for c in classes if c not in GENERIC_CLASSES)
+    if specific:
+        return min(specific.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    generic = Counter(classes)
+    return "ADS" if generic["ADS"] > generic["COMMON"] else "COMMON"
+
+
+def class_segments(days: list[str], class_of_day: dict[str, str], min_dates: int = MIN_CLASS_DATES) -> list[tuple[int, int, str]]:
+    """(first index, end index, class) pieces of one run whose class letter changes for good (GOOG:
+    class A until 2014-04-02, class C after). Generic days join the piece they fall in; a letter seen
+    on fewer than ``min_dates`` dates is absorbed by its neighbour, so a stray name does not split."""
+    letters = [(i, class_of_day[d]) for i, d in enumerate(days) if class_of_day[d] not in GENERIC_CLASSES]
+    if not letters:
+        return [(0, len(days), run_class([class_of_day[d] for d in days]))]
+    pieces: list[list] = []  # [letter, first index, n dates]
+    for i, letter in letters:
+        if pieces and pieces[-1][0] == letter:
+            pieces[-1][2] += 1
+        else:
+            pieces.append([letter, i, 1])
+    while len(pieces) > 1 and min(p[2] for p in pieces) < min_dates:
+        k = min(range(len(pieces)), key=lambda j: (pieces[j][2], j))
+        into = k - 1 if k > 0 else k + 1
+        pieces[into][2] += pieces[k][2]
+        pieces[into][1] = min(pieces[into][1], pieces[k][1])
+        del pieces[k]
+        merged = [pieces[0]]
+        for piece in pieces[1:]:
+            if piece[0] == merged[-1][0]:
+                merged[-1][2] += piece[2]
+            else:
+                merged.append(piece)
+        pieces = merged
+    bounds = [0] + [p[1] for p in pieces[1:]] + [len(days)]
+    return [(bounds[k], bounds[k + 1], p[0]) for k, p in enumerate(pieces)]
+
+
 def build_intervals(rows: pd.DataFrame, snapshot_dates: dict[str, list[str]],
-                    present: dict[str, set[str]] | None = None) -> pd.DataFrame:
-    """Intervals of each (cik, share_class, ticker) from resolved snapshot rows of every family.
+                    present: dict[str, set[str]] | None = None, split_classes: set[int] | None = None) -> pd.DataFrame:
+    """Intervals of each (cik, ticker) from resolved snapshot rows of every family.
 
     ``rows`` has symbol, date, cik, share_class, family, source_url, how, name.
     ``snapshot_dates`` maps each family to its sorted dates and ``present`` maps a date to the
-    symbols in that day's snapshots (default: the symbols in ``rows``). A run breaks only when, on the
-    union of the full-list families' dates, the symbol is missing from two snapshots in a row, or
-    another security holds the ticker in between. A stretch with no snapshot at all (no source covers
-    it) never breaks a run; the longest such stretch inside the interval is ``coverage_gap_days``.
+    symbols in that day's snapshots (default: the symbols in ``rows``; company-list rows without a
+    last sale count as present). A run breaks only when, on the union of the full-list families'
+    dates, the symbol is missing from two snapshots between two observations, or another CIK holds the
+    ticker in between. The class is assigned to each run afterwards (``run_class``: names that state
+    no class do not break a run); for the CIKs in ``split_classes`` (multi-class issuers, whose
+    security depends on the class) a run is split where its class letter changes for good. A stretch
+    with no snapshot at all (no source covers it) never breaks a run; the longest such stretch inside
+    the interval is ``coverage_gap_days``.
     """
-    full = sorted({d for family, days in snapshot_dates.items() if family not in PARTIAL_FAMILIES for d in days})
+    full = sorted({d for family, days in snapshot_dates.items() if not is_partial_family(family) for d in days})
     every = sorted({d for days in snapshot_dates.values() for d in days})
     if present is None:
         present = presence_by_date(rows)
+    split_classes = split_classes or set()
     out = []
     ordered = rows.sort_values(["symbol", "date"])
     columns = ["date", "cik", "share_class", "family", "source_url", "how", "name"]
     for symbol, group in ordered.groupby("symbol", sort=False):
         holders: dict[str, set] = defaultdict(set)
-        by_key: dict[tuple, list] = defaultdict(list)
+        by_key: dict[int, list] = defaultdict(list)
         for record in zip(*(group[c].tolist() for c in columns)):
-            key = (int(record[1]), record[2])
-            holders[record[0]].add(key)
-            by_key[key].append(record)
-        for key, records in by_key.items():
+            holders[record[0]].add(int(record[1]))
+            by_key[int(record[1])].append(record)
+        for cik, records in by_key.items():
             days = sorted({r[0] for r in records})
             runs, begin = [], 0
             for i in range(1, len(days)):
                 a, b = days[i - 1], days[i]
                 between = full[bisect.bisect_right(full, a):bisect.bisect_left(full, b)]
                 absent = sum(1 for u in between if symbol not in present.get(u, ()))
-                other = any(holders.get(u, set()) - {key}
+                other = any(holders.get(u, set()) - {cik}
                             for u in every[bisect.bisect_right(every, a):bisect.bisect_left(every, b)])
                 if absent >= 2 or other:
                     runs.append(days[begin:i])
                     begin = i
             runs.append(days[begin:])
+            classes_of_day: dict[str, list[str]] = defaultdict(list)
+            for r in records:
+                classes_of_day[r[0]].append(r[2])
+            class_of_day = {d: run_class(c) for d, c in classes_of_day.items()}
             for run in runs:
-                start, end = run[0], run[-1]
-                inside = sorted((r for r in records if start <= r[0] <= end),
-                                key=lambda r: (r[0], FAMILY_ORDER.get(r[3], 9)))
-                covered = every[bisect.bisect_left(every, start):bisect.bisect_right(every, end)]
-                gap = max(((pd.Timestamp(y) - pd.Timestamp(x)).days for x, y in zip(covered, covered[1:])), default=0)
-                i, j = bisect.bisect_left(full, start), bisect.bisect_right(full, end)
-                out.append({"cik": key[0], "share_class": key[1], "ticker": symbol, "start": start, "end": end,
-                            "start_prev_absent": full[i - 1] if i > 0 else "",
-                            "end_next_absent": full[j] if j < len(full) else "",
-                            "n_snapshots": len(run), "exchange": "NASDAQ", "source": inside[0][3],
-                            "source_url": inside[0][4],
-                            "match": max((r[5] for r in inside), key=lambda m: MATCH_RANK.get(m, 9)),
-                            "name_in_source": inside[-1][6],
-                            "sources": " ".join(sorted({r[3] for r in inside})), "n_evidence_rows": len(inside),
-                            "coverage_gap_days": gap})
+                pieces = (class_segments(run, class_of_day) if cik in split_classes
+                          else [(0, len(run), run_class([c for d in run for c in classes_of_day[d]]))])
+                for first, stop, share_class in pieces:
+                    part = run[first:stop]
+                    start, end = part[0], part[-1]
+                    inside = sorted((r for r in records if start <= r[0] <= end),
+                                    key=lambda r: (r[0], FAMILY_ORDER.get(r[3], 9)))
+                    covered = every[bisect.bisect_left(every, start):bisect.bisect_right(every, end)]
+                    gap = max(((pd.Timestamp(y) - pd.Timestamp(x)).days for x, y in zip(covered, covered[1:])), default=0)
+                    i, j = bisect.bisect_left(full, start), bisect.bisect_right(full, end)
+                    out.append({"cik": cik, "share_class": share_class, "ticker": symbol, "start": start, "end": end,
+                                "start_prev_absent": full[i - 1] if i > 0 else "",
+                                "end_next_absent": full[j] if j < len(full) else "",
+                                "n_snapshots": len(part), "exchange": "NASDAQ", "source": inside[0][3],
+                                "source_url": inside[0][4],
+                                "match": max((r[5] for r in inside), key=lambda m: MATCH_RANK.get(m, 9)),
+                                "name_in_source": inside[-1][6],
+                                "sources": " ".join(sorted({r[3] for r in inside})), "n_evidence_rows": len(inside),
+                                "coverage_gap_days": gap})
     return pd.DataFrame(out)
+
+
+# A security seen in a full-list snapshot this long after its delist date (the Form 25 filing date plus
+# FORM25_EFFECTIVE_LAG_DAYS), in the run that held it at the delisting, keeps no delist date: lists lag
+# a few days, and the tail of the run before that is dropped after an exit.
+DELIST_TOLERANCE_DAYS = 30
+FORM25_EFFECTIVE_LAG_DAYS = 10  # reversal_data_form25.EFFECTIVE_LAG_DAYS (Rule 12d2-2(d)(1))
+# A ticker continues past a Form 25 when its CIK is seen on it CONTINUE_DAYS or more after the filing
+# (the delist date plus DELIST_TOLERANCE_DAYS) before the run breaks (two full-list snapshots without
+# the symbol, or another CIK on it). Sightings before that are the lag of the lists; stale copies of
+# older lists are dropped on loading (stale_duplicate_dates).
+CONTINUE_DAYS = FORM25_EFFECTIVE_LAG_DAYS + DELIST_TOLERANCE_DAYS
+
+
+def continuation_after(obs: list[str], filed: str, days: list[str], full: set[str], present: dict[str, set[str]],
+                       symbol: str, other_holder=None, grace_days: int = EXIT_GRACE_DAYS,
+                       continue_days: int = CONTINUE_DAYS) -> dict:
+    """How one CIK's ticker fares after a Form 25 filed on ``filed``, from its observation dates ``obs``.
+
+    Walks every snapshot date after the last observation on or before the filing plus ``grace_days``:
+    an observation extends the run, another CIK holding the ticker (``other_holder(day)``) ends it,
+    and so do two full-list snapshots without the symbol. A full-list snapshot listing the symbol but
+    not under this CIK (an unresolved or no-last-sale row) is neutral. Returns status 'continued',
+    'ended' (the run broke first; 'handover' says whether another CIK took it) or 'open' (the
+    snapshots ran out first), with ``after``, the observations after the cutoff that belong to the run
+    (the tail a terminal filing drops), and ``unresolved``, the neutral full-list dates seen.
+    """
+    obs = sorted(obs)
+    cutoff = _shift(filed, grace_days)
+    horizon = _shift(filed, continue_days)
+    seen = set(obs)
+    i = bisect.bisect_right(obs, cutoff)
+    start = obs[i - 1] if i else cutoff
+    absent, after, unresolved = 0, [], 0
+    result = lambda status, handover=False: {"status": status, "after": after, "unresolved": unresolved,
+                                             "handover": handover, "last_before": obs[i - 1] if i else ""}
+    for day in days[bisect.bisect_right(days, start):]:
+        if day in seen:
+            absent = 0
+            if day > cutoff:
+                after.append(day)
+                if day >= horizon:
+                    return result("continued")
+            continue
+        if other_holder is not None and other_holder(day):
+            return result("ended", handover=True)
+        if day in full:
+            if symbol in present.get(day, ()):
+                unresolved += 1
+            else:
+                absent += 1
+                if absent >= 2:
+                    return result("ended")
+    return result("open")
 
 
 def ticker_conflicts(rows: pd.DataFrame) -> list[tuple]:
@@ -1100,22 +1379,93 @@ def resolve_ticker_conflicts(rows: pd.DataFrame, profiles: dict[int, dict],
 
 
 def drop_rows_after_exit(rows: pd.DataFrame, exits: dict[int, str], successors: dict[tuple[int, str], int],
-                         grace_days: int = EXIT_GRACE_DAYS) -> tuple[pd.DataFrame, int, int]:
-    """Rows of a CIK dated more than ``grace_days`` after the Form 25 that ended its Nasdaq listing
-    belong to someone else: to the successor that took the ticker, when there is one ('successor'),
-    else to nobody ('after_exit')."""
+                         covered: dict[int, set[str]] | None = None, *, days: list[str] | None = None,
+                         full: set[str] | None = None, present: dict[str, set[str]] | None = None,
+                         grace_days: int = EXIT_GRACE_DAYS) -> tuple[pd.DataFrame, dict]:
+    """The tail of a ticker's run after the Form 25 that ended its CIK's Nasdaq listing belongs to
+    someone else: rows of the run dated more than ``grace_days`` after the filing go to the
+    successor that took the ticker, when there is one ('successor'), else to nobody ('after_exit').
+
+    Only the tickers the filing covered (``covered``: its tickers before and ended, when it names any)
+    lose rows, and only rows of the run that held the ticker at the filing (``continuation_after``):
+    rows after the run broke (two full-list snapshots without the symbol, or another holder) are a
+    relisting and stay. A run that continues past the filing contradicts the exit; its rows stay too.
+    ``days``/``full``/``present`` are the snapshot dates, the full-list dates and the symbols per date
+    (default: from ``rows``). Returns the rows and counts: dropped, moved, kept_after_exit,
+    contradicted (a list of (cik, ticker))."""
     rows = rows.copy()
-    cut = rows["cik"].map(lambda c: _shift(exits[int(c)], grace_days) if pd.notna(c) and int(c) in exits else "9999-12-31")
-    late = rows.index[rows["date"] > cut]
-    moved = 0
-    for i in late:
-        successor = successors.get((int(rows.at[i, "cik"]), rows.at[i, "symbol"]))
+    days = days if days is not None else sorted(rows["date"].unique())
+    full = full if full is not None else set(days)
+    present = present if present is not None else presence_by_date(rows)
+    live = rows[rows["cik"].notna()]
+    holders: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for symbol, day, cik in zip(live["symbol"], live["date"], live["cik"]):
+        holders[(symbol, day)].add(int(cik))
+    counts = {"dropped": 0, "moved": 0, "kept_after_exit": 0, "contradicted": []}
+    mine = live[live["cik"].astype(int).isin(set(exits))]
+    for (cik, symbol), group in mine.groupby([mine["cik"].astype(int), "symbol"]):
+        filed = exits[cik]
+        if covered and covered.get(cik) and symbol not in covered[cik]:
+            continue
+        obs = sorted(group["date"].unique())
+        cutoff = _shift(filed, grace_days)
+        if obs[0] > cutoff:
+            counts["kept_after_exit"] += len(group)
+            continue  # first seen after the filing: a new listing
+        fate = continuation_after(obs, filed, days, full, present, symbol,
+                                  lambda day: bool(holders.get((symbol, day), set()) - {cik}), grace_days)
+        late = group[group["date"] > cutoff]
+        if fate["status"] == "continued":
+            counts["contradicted"].append((cik, symbol))
+            counts["kept_after_exit"] += len(late)
+            continue
+        tail = late.index[late["date"].isin(set(fate["after"]))]
+        counts["kept_after_exit"] += len(late) - len(tail)
+        successor = successors.get((cik, symbol))
         if successor:
-            rows.at[i, "cik"], rows.at[i, "how"] = successor, "successor"
-            moved += 1
+            rows.loc[tail, ["cik", "how"]] = [successor, "successor"]
+            counts["moved"] += len(tail)
         else:
-            rows.at[i, "cik"], rows.at[i, "how"] = None, "after_exit"
-    return rows, len(late) - moved, moved
+            rows.loc[tail, ["cik", "how"]] = [None, "after_exit"]
+            counts["dropped"] += len(tail)
+    return rows, counts
+
+
+def form25_cuts(form25: pd.DataFrame | None) -> dict[int, str]:
+    """cik -> filing date of its latest Form 25 removing common equity from Nasdaq, whatever the
+    classification (an issuer withdrawal before any listing aside). Name-shared tickers are split
+    by date at it, so a same-name successor takes the dates after it (Mylan N.V. after Mylan Inc).
+    It depends only on the filings and their class, never on the step-3 exit decision, which itself
+    reads the rows resolved here."""
+    if form25 is None or form25.empty:
+        return {}
+    kinds = form25["class_kind"] if "class_kind" in form25 else pd.Series("common", index=form25.index)
+    rows = form25[kinds.isin(["common", "ads"]) & (form25["classification"] != "unlisted_withdrawal")]
+    return rows.groupby("subject_cik")["filing_date"].max().to_dict()
+
+
+def listed_past_delisting(spans: list[tuple[str, str]], delist_date: str, full: list[str],
+                          tolerance_days: int = DELIST_TOLERANCE_DAYS) -> str:
+    """'' when a security's snapshot intervals (start, end) respect its delist date; otherwise why not.
+
+    The intervals that began by the delist date must end by it plus ``tolerance_days``, and an
+    interval that begins after it counts as a relisting only when at least two full-list snapshots
+    (``full``, sorted) without the security lie between the two (the evidence that it left; WW's new
+    stock listed 19 days after the Form 25 of its old one, two monthly lists after its last sighting)."""
+    limit = _shift(delist_date, tolerance_days)
+    spans = sorted((s, e) for s, e in spans if s and e)
+    held = [e for s, e in spans if s <= delist_date]
+    last = max(held) if held else ""
+    if last > limit:
+        return f"listed through {last} in the interval holding the delisting"
+    later = [s for s, _ in spans if s > delist_date]
+    if later:
+        first = min(later)
+        lo = last or delist_date
+        between = bisect.bisect_left(full, first) - bisect.bisect_right(full, lo)
+        if between < 2:
+            return f"listed again from {first} with {max(between, 0)} full-list snapshot(s) without it since {lo}"
+    return ""
 
 
 def detect_ticker_reuse(intervals: pd.DataFrame) -> dict[str, list[int]]:
@@ -1140,10 +1490,20 @@ def fetch_profiles(ciks: set[int], *, offline: bool = False) -> tuple[dict[int, 
 def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     form25 = read_form25(FORM25)
     exits = terminal_exits(form25)
+    cuts = form25_cuts(form25)
     sec_current = fetch_sec_tickers_exchange(offline=offline)
     cands = collect_candidates(sec_current, form25)
-    snapshots = fill_symbol_only_names(load_listing_snapshots())
+    snapshots = load_listing_snapshots()
+    stale = stale_duplicate_dates(snapshots)
+    if stale:  # stale copies of an older file: neither presence nor absence evidence
+        drop = pd.Series(list(zip(snapshots["source"], snapshots["date"])), index=snapshots.index).isin(set(stale))
+        snapshots = snapshots[~drop]
+    uncorroborated = uncorroborated_sightings(snapshots)  # NYSE/OTC names in company lists, stale catalogs
+    dropped_sightings = snapshots[uncorroborated]
+    snapshots = snapshots[~uncorroborated]
+    snapshots = fill_symbol_only_names(snapshots)
     listings = common_snapshot_rows(snapshots)
+    partial_files = partial_snapshot_dates(listings)
     prices = price_file_ranges()
     print(f"snapshots: {snapshots['date'].nunique()} dates, {len(listings)} common rows, "
           f"{listings['symbol'].nunique()} symbols; price files: {len(prices)}", flush=True)
@@ -1200,9 +1560,28 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     listings = listings.merge(pd.DataFrame([{"symbol": s, "name": n, "cik": c, "how": h}
                                             for (s, n), (c, h) in resolved.items()]), on=["symbol", "name"], how="left")
     dated = 0
-    for (symbol, name), group in listings[listings["how"] == "ambiguous"].groupby(["symbol", "name"]):
-        by_day = resolve_by_date(symbol, name, sorted(group["date"].unique()), cands, profiles, name_index, lookup,
-                                 exits, (symbol, name) in truncated_pairs)
+    ambiguous = [(key, group, sorted(group["date"].unique()))
+                 for key, group in listings[listings["how"] == "ambiguous"].groupby(["symbol", "name"])]
+    uncut = {key: resolve_by_date(key[0], key[1], days, cands, profiles, name_index, lookup, None, key in truncated_pairs)
+             for key, _, days in ambiguous}
+    # The CIKs that held each symbol on or before the date of their latest common Form 25, on any row
+    # (resolved pairs and the uncut dated split): only their Form 25 cuts the symbol's dates.
+    seen = pd.concat([listings.loc[listings["cik"].notna(), ["symbol", "date", "cik"]],
+                      pd.DataFrame([(key[0], day, cik) for key, by_day in uncut.items() for day, cik in by_day.items()],
+                                   columns=["symbol", "date", "cik"])], ignore_index=True)
+    seen["cik"] = seen["cik"].astype(int)
+    seen = seen[seen["cik"].isin(set(cuts))]
+    seen = seen[seen["date"] <= seen["cik"].map(cuts)]
+    held = seen.groupby("symbol")["cik"].apply(set).to_dict()
+    for (symbol, name), group, days in ambiguous:
+        truncated = (symbol, name) in truncated_pairs
+        # A date after a CIK's latest common Form 25 goes to a rival bearing the name then, when one
+        # is active; otherwise it stays with the CIK (whether the filing ended the listing is step 3's
+        # call, made from these rows).
+        cut_here = {c: cuts[c] for c in held.get(symbol, ())}
+        by_day = {**uncut[(symbol, name)],
+                  **resolve_by_date(symbol, name, days, cands, profiles, name_index, lookup, cut_here, truncated,
+                                    exits_checked=True)}
         hit = group.index[group["date"].isin(by_day)]
         listings.loc[hit, "cik"] = group.loc[hit, "date"].map(by_day)
         listings.loc[hit, "how"] = "name+dated"
@@ -1210,19 +1589,39 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     listings["share_class"] = listings["name"].map(share_class_from_name)
     listings["family"] = listings["source"]
     snapshot_dates = {family: sorted(group["date"].unique()) for family, group in snapshots.groupby("source")}
+    for family, days in partial_files.items():  # a partial file shows presence, not absence
+        snapshot_dates[family] = [d for d in snapshot_dates[family] if d not in set(days)]
+        snapshot_dates[family + PARTIAL_SUFFIX] = sorted(days)
+    every_date = sorted({d for days in snapshot_dates.values() for d in days})
+    full_dates = sorted({d for f, days in snapshot_dates.items() if not is_partial_family(f) for d in days})
+    present = presence_by_date(snapshots)
     matched = listings[listings["cik"].notna()].copy()
     matched["cik"] = matched["cik"].astype(int)
-    # No rows after a CIK's terminal Form 25 (they go to the successor that took the ticker, if any),
-    # and one CIK per (ticker, date): the weaker evidence is dropped where two CIKs overlap.
-    matched, after_exit_dropped, after_exit_moved = drop_rows_after_exit(matched, exits, successor_tickers(form25))
-    conflicts_before = len(ticker_conflicts(matched[matched["cik"].notna()]))
+    # One CIK per (ticker, date): the weaker evidence is dropped where two CIKs overlap.
+    conflicts_before = len(ticker_conflicts(matched))
     conflict_rows = 0
-    for _ in range(3):
-        live = matched[matched["cik"].notna()]
-        if not ticker_conflicts(live):
-            break
-        matched, dropped = resolve_ticker_conflicts(matched, profiles, exits)
-        conflict_rows += dropped
+
+    def settle_conflicts(frame):
+        nonlocal conflict_rows
+        for _ in range(3):
+            if not ticker_conflicts(frame[frame["cik"].notna()]):
+                break
+            frame, dropped = resolve_ticker_conflicts(frame, profiles, cuts)
+            conflict_rows += dropped
+        return frame
+
+    matched = settle_conflicts(matched)
+    # The raw evidence step 3 reads (every resolved row, before any row is dropped for a Form 25),
+    # so its exit decisions never rest on rows this step removed because of them.
+    write_raw_rows(matched, snapshots)
+    # The tail of a run after the Form 25 that ended the CIK's listing goes to the successor that
+    # took the ticker, or to nobody; rows after the run broke are a relisting and stay.
+    pre_drop = matched["cik"].copy()
+    matched, exit_counts = drop_rows_after_exit(matched, exits, successor_tickers(form25), exit_coverage(form25),
+                                                days=every_date, full=set(full_dates), present=present)
+    # Sightings for the delist-date rule: every row as resolved, a row handed to a successor as the successor's.
+    sightings = matched[["date", "symbol"]].assign(cik=matched["cik"].where(matched["how"] != "after_exit", pre_drop))
+    matched = settle_conflicts(matched)
     for how in ("after_exit", "conflict", "successor"):
         hit = matched.index[matched["how"] == how]
         listings.loc[hit, "how"] = how
@@ -1245,8 +1644,7 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     collide = set(clash[clash >= MULTI_CLASS_MIN_DATES].index) & multi
     keyed = matched["cik"].isin(collide)
     matched.loc[keyed, "share_class"] = "T-" + matched.loc[keyed, "symbol"]
-    present = presence_by_date(snapshots)
-    intervals = build_intervals(matched, snapshot_dates, present)
+    intervals = build_intervals(matched, snapshot_dates, present, split_classes=multi)
     if not intervals.empty:
         intervals["security_id"] = [security_id(c, s, c in multi) for c, s in zip(intervals["cik"], intervals["share_class"])]
 
@@ -1312,13 +1710,17 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     price_map = pd.DataFrame(price_map)
     price_map["cik"] = price_map["cik"].astype("Int64")
 
-    master = build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing)
+    master = build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing, full_dates)
+    delist_cleared = int(master["identity_notes"].str.contains("gives no delist date", regex=False).sum())
+    violations = delist_date_violations(master, intervals, sightings, full_dates)
     # Per-family runs (the same rule on one family's dates) are kept as audit evidence.
     evidence = []
     for family, days in snapshot_dates.items():
         own = matched[matched["family"] == family]
-        if not own.empty:
-            evidence.append(build_intervals(own, {family: days}, presence_by_date(snapshots[snapshots["source"] == family])))
+        if not own.empty and not family.endswith(PARTIAL_SUFFIX):
+            dates_of = {family: days, family + PARTIAL_SUFFIX: snapshot_dates.get(family + PARTIAL_SUFFIX, [])}
+            evidence.append(build_intervals(own, dates_of, presence_by_date(snapshots[snapshots["source"] == family]),
+                                            split_classes=multi))
     evidence = pd.concat(evidence, ignore_index=True) if evidence else pd.DataFrame(columns=INTERVAL_COLUMNS)
     if not evidence.empty:
         evidence["security_id"] = [security_id(c, k, c in multi) for c, k in zip(evidence["cik"], evidence["share_class"])]
@@ -1349,19 +1751,35 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "terminal_form25_exits_used": len(exits),
         "ticker_conflicts_before": conflicts_before, "ticker_conflict_rows_dropped": conflict_rows,
         "ticker_conflicts_after": len(ticker_conflicts(matched)),
-        "rows_after_exit_dropped": after_exit_dropped, "rows_after_exit_to_successor": after_exit_moved,
+        "rows_after_exit_dropped": exit_counts["dropped"], "rows_after_exit_to_successor": exit_counts["moved"],
+        "rows_after_exit_kept_relisting": exit_counts["kept_after_exit"],
+        "exits_contradicted_by_continuation": [f"{c}:{t}" for c, t in exit_counts["contradicted"]],
         "intervals_bridging_coverage_gap_over_120d": int((intervals["coverage_gap_days"] > 120).sum()) if not intervals.empty else 0,
         "master_delist_dates": int(master["delist_date"].fillna("").ne("").sum()),
+        "delist_dates_cleared_listed_after": delist_cleared,
+        "master_relisted_after_delist_date": int(relisted_after_delisting(master)),
+        "ticker_breaks_same_security": break_stats(intervals, full_dates, present),
+        "still_listed_with_delist_date": int(violations["security_id"].nunique()),
+        "still_listed_with_delist_date_rows": int(violations["n_rows_after"].sum()),
+        "still_listed_with_delist_date_examples": violations.head(20).to_dict("records"),
+        "partial_snapshot_files": {f: d for f, d in partial_files.items()},
+        "stale_duplicate_snapshots_dropped": {f"{f} {d}": first for (f, d), first in sorted(stale.items())},
+        "uncorroborated_sightings_dropped": {"rows": len(dropped_sightings),
+                                             "by_family": dict(Counter(dropped_sightings["source"])),
+                                             "top_symbols": dict(Counter(dropped_sightings["symbol"]).most_common(25))},
         "master_successor_links": int(master["successor_security_id"].fillna("").ne("").sum()),
         "master_transfers": int(master["transfer_date"].fillna("").ne("").sum()),
     }
     WORK.mkdir(parents=True, exist_ok=True)
     common.atomic_write(WORK / "listing_unresolved.csv", unresolved_pairs.to_csv(index=False).encode())
+    common.atomic_write(WORK / "delist_date_violations.csv", violations.to_csv(index=False).encode())
     common.atomic_write(WORK / "price_file_cik_map.csv", price_map.to_csv(index=False).encode())
     common.atomic_write(WORK / "ticker_reuse.json", (json.dumps(reuse, indent=1) + "\n").encode())
     common.atomic_write(WORK / "ciks_not_found.json", (json.dumps(missing) + "\n").encode())
     common.atomic_write(WORK / "snapshot_dates.json", (json.dumps(
-        {"families": snapshot_dates, "partial_families": sorted(PARTIAL_FAMILIES)}, indent=0) + "\n").encode())
+        {"families": snapshot_dates, "partial_families": sorted(f for f in snapshot_dates if is_partial_family(f)),
+         "stale_duplicates_dropped": {f"{f} {d}": first for (f, d), first in sorted(stale.items())}},
+        indent=0) + "\n").encode())
     common.atomic_write(WORK / "security_master_build_summary.json",
                         (json.dumps({k: v for k, v in stats.items()}, indent=2, default=str) + "\n").encode())
     write_files_read(profiles, form25)
@@ -1398,6 +1816,123 @@ def terminal_exits(form25: pd.DataFrame | None) -> dict[int, str]:
         rows = form25[(form25["classification"] == "common_delisting")
                       & ~form25["classification_evidence"].str.contains("stayed on Nasdaq|relisted", na=False)]
     return rows.groupby("subject_cik")["filing_date"].max().to_dict()
+
+
+def exit_coverage(form25: pd.DataFrame | None) -> dict[int, set[str]]:
+    """cik -> the tickers its terminal Form 25 covered: its Nasdaq tickers before the filing and those
+    that ended at it (empty when the filing names none; then every ticker of the CIK is covered)."""
+    if form25 is None or form25.empty or not form25["subject_exit"].eq("Y").any():
+        return {}
+    exits = terminal_exits(form25)
+    rows = form25[form25["subject_exit"].eq("Y") & form25["filing_date"].eq(form25["subject_cik"].map(exits))]
+    out: dict[int, set[str]] = defaultdict(set)
+    for row in rows.itertuples():
+        out[int(row.subject_cik)] |= set(row.tickers_before.split()) | set(row.tickers_ended.split())
+    return dict(out)
+
+
+RAW_ROWS = WORK / "ticker_rows_raw.csv.gz"
+
+
+def write_raw_rows(matched: pd.DataFrame, snapshots: pd.DataFrame, path: Path | None = None) -> int:
+    """Every resolved (date, symbol, cik) before any row is dropped for a Form 25, plus every other
+    (date, symbol) of the snapshots with an empty cik (unresolved, non-common or without a last sale),
+    so a reader knows where a symbol was listed under no CIK. Step 3 reads it."""
+    path = path or RAW_ROWS
+    resolved = matched.loc[matched["cik"].notna(), ["date", "symbol", "cik"]].drop_duplicates()
+    resolved["cik"] = resolved["cik"].astype(int)
+    seen = snapshots[["date", "symbol"]].drop_duplicates()
+    bare = seen.merge(resolved[["date", "symbol"]].drop_duplicates(), how="left", indicator=True)
+    bare = bare.loc[bare["_merge"] == "left_only", ["date", "symbol"]]
+    frame = pd.concat([resolved, bare.assign(cik=pd.NA)], ignore_index=True)
+    frame["cik"] = frame["cik"].astype("Int64")
+    frame = frame.sort_values(["symbol", "date", "cik"], na_position="last")
+    common.atomic_write(path, gzip.compress(frame.to_csv(index=False).encode("utf-8"), mtime=0))
+    return len(frame)
+
+
+def read_raw_rows(path: Path | None = None) -> pd.DataFrame | None:
+    """The rows ``write_raw_rows`` wrote (date, symbol, cik as Int64), or None when absent."""
+    path = Path(path or RAW_ROWS)
+    if not path.exists():
+        return None
+    frame = pd.read_csv(path, dtype={"date": str, "symbol": str}, keep_default_na=False, na_values={"cik": [""]})
+    frame["cik"] = frame["cik"].astype("Int64")
+    return frame
+
+
+def relisted_after_delisting(master: pd.DataFrame, days: int = DELIST_TOLERANCE_DAYS) -> int:
+    """Master rows whose last listing is more than ``days`` after their delist date (a relisting)."""
+    has = master["delist_date"].fillna("").ne("") & master["last_listed"].fillna("").ne("")
+    later = [str(l) > _shift(d, days) for d, l in zip(master.loc[has, "delist_date"], master.loc[has, "last_listed"])]
+    return int(sum(later))
+
+
+def delist_date_violations(master: pd.DataFrame, intervals: pd.DataFrame, rows: pd.DataFrame, full_dates: list[str],
+                           tolerance_days: int = DELIST_TOLERANCE_DAYS) -> pd.DataFrame:
+    """Securities seen in a full-list snapshot more than ``tolerance_days`` after their delist date
+    outside a recorded relisting: the rule every delist date must pass.
+
+    ``rows`` (date, symbol, cik) are the snapshot rows the CIK was resolved to before any row was
+    dropped for a Form 25 (rows handed to a successor count for the successor). A sighting after the
+    delist date plus the tolerance is allowed only inside an interval of the same security that
+    began after the delist date and that ``listed_past_delisting`` accepts as a relisting (two
+    full-list snapshots without the security before it). One row per (security, ticker) at fault."""
+    columns = ["security_id", "cik", "ticker", "delist_date", "first_seen_after", "last_seen_after", "n_rows_after",
+               "reason"]
+    if master.empty or intervals.empty or rows.empty:
+        return pd.DataFrame(columns=columns)
+    full = sorted(full_dates)
+    full_set = set(full)
+    snap = intervals[intervals["source"] != "sec_company_tickers_exchange"]
+    by_sid = {sid: g for sid, g in snap.groupby("security_id")}
+    live = rows[rows["cik"].notna() & rows["date"].isin(full_set)]
+    seen = {key: sorted(g) for key, g in live.groupby([live["cik"].astype(int), "symbol"])["date"]}
+    out = []
+    for row in master[master["delist_date"].fillna("").ne("")].itertuples():
+        own = by_sid.get(row.security_id)
+        if own is None:
+            continue
+        spans = sorted(zip(own["start"], own["end"]))
+        verdict = listed_past_delisting(spans, row.delist_date, full, tolerance_days)
+        relisted = [] if verdict else [(s, e) for s, e in spans if s > row.delist_date]
+        limit = _shift(row.delist_date, tolerance_days)
+        for ticker in sorted(set(own["ticker"])):
+            days = seen.get((int(row.cik), ticker), [])
+            late = [d for d in days[bisect.bisect_right(days, limit):] if not any(s <= d <= e for s, e in relisted)]
+            if late:
+                out.append({"security_id": row.security_id, "cik": int(row.cik), "ticker": ticker,
+                            "delist_date": row.delist_date, "first_seen_after": late[0], "last_seen_after": late[-1],
+                            "n_rows_after": len(late),
+                            "reason": verdict or "rows outside every interval of the security (dropped after the exit)"})
+    return pd.DataFrame(out, columns=columns)
+
+
+def break_stats(intervals: pd.DataFrame, full_dates: list[str], present: dict[str, set[str]]) -> dict:
+    """Breaks between consecutive snapshot intervals of one security on one ticker: how many, how many
+    change share class, and how many have neither two full-list snapshots without the symbol nor another
+    CIK's interval of the ticker in between (unexplained), with the security-days they leave uncovered."""
+    out = {"breaks": 0, "class_change": 0, "unexplained": 0, "unexplained_securities": 0, "uncovered_days": 0}
+    if intervals.empty:
+        return out
+    snap = intervals[intervals["source"] != "sec_company_tickers_exchange"]
+    by_ticker = {t: g for t, g in snap.groupby("ticker")}
+    hit = set()
+    for (sid, ticker), group in snap.groupby(["security_id", "ticker"]):
+        spans = sorted(zip(group["start"], group["end"], group["share_class"], group["cik"]))
+        for (s1, e1, k1, c1), (s2, e2, k2, _) in zip(spans, spans[1:]):
+            out["breaks"] += 1
+            out["class_change"] += int(k1 != k2)
+            between = full_dates[bisect.bisect_right(full_dates, e1):bisect.bisect_left(full_dates, s2)]
+            absent = sum(1 for u in between if ticker not in present.get(u, ()))
+            others = by_ticker[ticker]
+            other = ((others["cik"] != c1) & (others["start"] < s2) & (others["end"] > e1)).any()
+            if absent < 2 and not other:
+                out["unexplained"] += 1
+                out["uncovered_days"] += max((pd.Timestamp(s2) - pd.Timestamp(e1)).days - 1, 0)
+                hit.add(sid)
+    out["unexplained_securities"] = len(hit)
+    return out
 
 
 def successor_tickers(form25: pd.DataFrame | None) -> dict[tuple[int, str], int]:
@@ -1462,7 +1997,14 @@ def write_files_read(profiles: dict[int, dict], form25: pd.DataFrame | None) -> 
     return summary
 
 
-def build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing) -> pd.DataFrame:
+def build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing,
+                 full_dates: list[str] | None = None) -> pd.DataFrame:
+    """One row per security. Its delist date is that of its latest common Form 25 delisting that its
+    snapshot intervals respect (``listed_past_delisting`` on the sorted full-list dates
+    ``full_dates``): a security still listed after a Form 25 in the run that held it at the filing
+    keeps no delist date from it, unless a later relisting is a separate interval after two full-list
+    snapshots without it."""
+    full_dates = sorted(full_dates or [])
     form25 = form25 if form25 is not None else pd.DataFrame(columns=["subject_cik", *FORM25_TEXT_COLUMNS, "successor_cik"])
     f25_by_cik = {int(c): g for c, g in form25.groupby("subject_cik")}
     prices_by_cik = {int(c): g for c, g in price_map.dropna(subset=["cik"]).groupby("cik")}
@@ -1513,7 +2055,14 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             return chosen.sort_values("filing_date") if not chosen.empty else None
 
         exits = mine(("common_delisting",))  # a reorganisation or transfer is not a delisting
-        last_exit = exits.iloc[-1] if exits is not None else None
+        last_exit, refused = None, []
+        spans = list(zip(listed["start"], listed["end"])) if not listed.empty else []
+        for _, candidate in (exits.iloc[::-1].iterrows() if exits is not None else []):
+            reason = listed_past_delisting(spans, candidate["effective_date"], full_dates)
+            if not reason:
+                last_exit = candidate
+                break
+            refused.append(f"Form 25 {candidate['accession']} ({candidate['effective_date']}) gives no delist date: {reason}")
         reorgs = mine(("reorg", "reorg_review"))
         handover = None
         if reorgs is not None:
@@ -1537,8 +2086,13 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             notes.append("some snapshot rows reassigned from a predecessor after its Form 25 (successor)")
         if exits is not None and len(exits) > 1:
             notes.append(f"{len(exits)} common Form 25 delistings")
+        notes.extend(refused)
         if last_exit is not None and not listed.empty and listed["end"].max() > _shift(last_exit["effective_date"], 30):
             notes.append(f"listed on Nasdaq again after the {last_exit['effective_date']} delisting")
+        if last_transfer is not None and not listed.empty \
+                and listed["end"].max() > _shift(last_transfer["effective_date"], DELIST_TOLERANCE_DAYS):
+            notes.append(f"in Nasdaq lists until {listed['end'].max()}, after the {last_transfer['effective_date']} "
+                         "transfer to another exchange")
         if handover is not None and handover["classification"] == "reorg_review":
             notes.append("successor link from a ticker handover with differing names (reorg_review)")
         if cik in missing:

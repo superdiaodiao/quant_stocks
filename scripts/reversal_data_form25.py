@@ -32,15 +32,22 @@ Classification of a row (plan column ``classification``):
   passes at the next snapshot (whatever the gap) to a new registrant with a
   matching name (a holding company). ``reorg_review``: such a handover under
   Rule 12d2-2(a)(3) to a new registrant with a different name (Google to
-  Alphabet, Apache to APA). Both need ``ticker_intervals.csv`` and
-  ``snapshot_dates.json`` from the security master; the script is run again after it.
+  Alphabet, Apache to APA). Both read the security master's raw snapshot rows
+  (``ticker_rows_raw.csv.gz``: every resolved row before any was dropped for a
+  Form 25) and ``snapshot_dates.json``; the script is run again after it.
 - ``transfer``: common, and the class moves to another exchange: an issuer
   withdrawal whose Form 25 names another exchange or that comes with a Form
   8-A12B, or a subject that keeps filing periodic reports and that SEC lists
   today on another exchange under the same ticker.
 
 ``subject_exit`` is Y when the filing ended the subject CIK's Nasdaq common
-listing; the security master ends the CIK's dates at that filing date.
+listing: no common ticker the CIK listed at the filing is seen 40 days or more after
+it before its run breaks (two full-list snapshots without it); a filing with no
+snapshot rows of the CIK either way falls back on SEC's submissions. A documented
+transfer to another exchange ends the listing unless a continuing ticker is one SEC
+still lists on Nasdaq. ``unlisted_withdrawal``: an issuer's own Form 25 filed before the
+CIK's first Nasdaq row (ShiftPixy), which ended nothing. The security master drops the
+tail of the run after an exit only for the tickers it covered.
 
 ``effective_date`` is the filing date plus 10 days (Rule 12d2-2(d)(1)); the
 document carries no effective date, and trading has usually stopped before.
@@ -83,7 +90,6 @@ FLOAT_CONCEPT, SHARES_CONCEPT = ("EntityPublicFloat", "USD"), ("EntityCommonStoc
 FRAME_FIRST, FRAME_LAST = (2011, 1), (2026, 2)
 OUTPUT = common.INPUTS / "form25_nasdaq_2012_2026.csv"
 OLD_LIST = Path("output/research_only/sue_lt_2020_2026/inputs/sec_form25_nasdaq_2020_2026.csv")
-TICKER_INTERVALS = common.INPUTS / "ticker_intervals.csv"
 SNAPSHOT_DATES = SEC_RAW / "derived" / "snapshot_dates.json"
 FILES_READ: set[str] = set()  # raw/sec files read in this run (written to derived/files_read_form25.json)
 COMPARISON = SEC_RAW / "derived" / "form25_vs_sue_lt_2020_2026.json"
@@ -104,7 +110,7 @@ PLAN_COLUMNS = ["filing_date", "effective_date", "accession", "subject_cik", "su
 EXTRA_COLUMNS = ["form", "document", "rule_provision", "rule_parse", "delisting_basis", "class_kind", "class_kinds",
                  "subject_tickers_sec", "n_subject_ciks", "float_end_date", "float_accession", "float_obs_3y",
                  "float_facts_dropped", "shares_outstanding", "shares_end_date", "implied_float_per_share",
-                 "tickers_before", "tickers_ended", "tickers_new", "successor_cik", "successor_tickers",
+                 "tickers_before", "tickers_ended", "tickers_new", "tickers_continued", "successor_cik", "successor_tickers",
                  "subject_exit", "classification_evidence", "doc_url"]
 
 
@@ -402,18 +408,31 @@ def _first_kind(text: str) -> str:
     return "other"
 
 
+_CURRENCY = r"(?:US\$|NT\$|HK\$|C\$|A\$|R\$|\$|€|£|DKK|NIS|CHF|EUR|GBP|ILS|SEK|NOK|RMB)"
+_AMOUNT = rf"(?:{_CURRENCY}\s*)?[\d.,]*\d(?:\s*(?:cents?|dollars?|euros?|pence|(?:Danish\s+)?kroner|{_CURRENCY}))?"
+_PER_SHARE = r"(?:\s+(?:per|each)\s+(?:ordinary\s+|common\s+)?share)?"
+# 'par value $0.001 per share', '$0.01 par value', 'no par value', 'nominal value €1.00 per share': these
+# describe the item before them, and their 'share' is no class of its own (Masimo's 'Preferred Stock
+# Purchase Rights, par value $0.001 per share' removed the rights only).
+PAR_VALUE = re.compile(rf"\b(?:with(?:out)?\s+)?(?:a\s+)?(?:no\s+)?(?:par|nominal)\s+value(?:\s+of)?(?:\s*{_AMOUNT})?{_PER_SHARE}"
+                       rf"|{_AMOUNT}\s+(?:par|nominal)\s+value{_PER_SHARE}", re.I)
+
+
 def class_kinds(description: str) -> list[str]:
     """The kind of every class a Form 25 description lists, in order (sub-descriptions skipped).
 
     'Common stock and preferred stock' -> [common, preferred]; 'Units, each consisting of one share
-    of Class A common stock and one-half of one warrant' -> [unit].
+    of Class A common stock and one-half of one warrant' -> [unit]. Par-value phrases are cut first,
+    and leave an item break behind ('Common shares without par value Warrants' lists two classes); a
+    fragment naming no security of its own ('Series A', an address line) belongs to the item before it.
     """
     text = re.sub(r"\([^)]*\)", " ", str(description or ""))  # parentheticals describe, they do not list
+    text = PAR_VALUE.sub(", ", text)
     kinds = []
     for segment in text.split(";"):
         described = False  # inside the sub-description of the previous item
         for part in ITEM_SPLIT.split(segment):
-            part = part.strip(" .:-")
+            part = part.strip(" .:-—")
             if not part or described:
                 continue
             qualifier = QUALIFIER.search(part)
@@ -425,6 +444,8 @@ def class_kinds(description: str) -> list[str]:
                     continue
                 if kind in ("common", "ads"):
                     kind = _first_kind(head)
+            if kind == "other" and kinds:
+                continue  # no security noun: part of the item before it
             kinds.append(kind)
     return kinds
 
@@ -537,17 +558,147 @@ def _matching_shares(own_shares: pd.DataFrame, accession: str, end: pd.Timestamp
     return same.iloc[0] if not same.empty else None
 
 
+# A float FLOAT_JUMP_RATIO times the CIK's lowest other float nearby, at X1000_MIN_PER_SHARE or more a
+# share, is taken for a x1000 error (a SPAC's float can grow 25-fold or more at its merger, but at about
+# $10 to $40 a share). A float below 1/FLOAT_JUMP_RATIO of the CIK's other floats is no reference (a
+# /1000 fact of a large company would make its real floats look like jumps).
+FLOAT_JUMP_RATIO = 50
+X1000_MIN_PER_SHARE = 100.0
+# A float above MARKET_CAP_MULTIPLE times the largest Nasdaq market cap listed for the CIK within two
+# years of the float date (company lists 2011-2019, screeners 2025-2026) is a unit error when it also
+# implies X1000_MIN_PER_SHARE or more a share, or exceeds MARKET_CAP_GROSS times that cap (Crosstex's
+# shares fact is x1000 too). Fast growers stay below it (Trillium 2020 at 14 times its 2019 cap,
+# Nikola at 54 times VectoIQ's but $34 a share).
+MARKET_CAP_MULTIPLE = 20.0
+MARKET_CAP_GROSS = 200.0
+MARKET_CAP_WINDOW_DAYS = 730
+COMPANY_LIST_DIR = common.CACHE / "listings" / "companylist"
+SCREENER_GLOB = "stocks_list_dir/nasdaq/snapshots/nasdaq_300M_*.csv"
+# The screeners list every Nasdaq stock with a market cap of $300M or more (their smallest is $300.05M):
+# a CIK seen in the Nasdaq lists within SCREENER_NEAR_DAYS on both sides of a screener date (the 2025
+# symbol files are monthly) but absent from it was worth less, which bounds its cap where no company
+# list does (Lyra's $13.8B float of 2024-06, x1000).
+SCREENER_FLOOR = 3e8
+SCREENER_NEAR_DAYS = 45
+# A shares fact this many times (up to SHARES_X1000_BAND[1]) another shares fact of the CIK within
+# SHARES_X1000_DAYS is a x1000 error; a float of SHARES_X1000_MIN_FLOAT or more that looks right per
+# share against it is x1000 too (Crosstex 2011: 47.4B shares and $364B against 47.6M shares in 2012).
+# Below that the other fact is as likely the one in error (reported in thousands: Power One 2012,
+# Interactive Intelligence, Approach Resources and Yellow keep their sub-$1B floats).
+SHARES_X1000_BAND = (500.0, 2000.0)
+SHARES_X1000_DAYS = 400
+SHARES_X1000_MIN_FLOAT = 2e10
+
+
+def load_market_caps(raw_rows: pd.DataFrame | None, company_list_dir: Path = COMPANY_LIST_DIR,
+                     screener_glob: str = SCREENER_GLOB) -> dict[int, pd.Series]:
+    """cik -> market caps (USD) by date, from the Nasdaq company lists and screeners whose (date, symbol)
+    the security master resolved to the CIK (``ticker_rows_raw.csv.gz``). Data only: the listed
+    market cap bounds the float for the unit check; no price enters any output."""
+    if raw_rows is None or raw_rows.empty:
+        return {}
+    frames = []
+    paths = sorted(Path(company_list_dir).glob("*.csv")) if Path(company_list_dir).is_dir() else []
+    for path in paths + sorted(Path().glob(screener_glob)):
+        frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+        cap = "MarketCap" if "MarketCap" in frame else "Market Cap" if "Market Cap" in frame else None
+        if cap is None or "Symbol" not in frame:
+            continue
+        day = frame["Observed At"].str[:10] if "Observed At" in frame else pd.Series(
+            re.search(r"(\d{4}-\d{2}-\d{2})", path.name).group(1), index=frame.index)
+        frames.append(pd.DataFrame({"date": day, "symbol": frame["Symbol"].str.strip().str.upper(),
+                                    "cap": pd.to_numeric(frame[cap].str.lstrip("$"), errors="coerce")}))
+    if not frames:
+        return {}
+    caps = pd.concat(frames, ignore_index=True).dropna(subset=["cap"])
+    caps = caps[caps["cap"] > 0]
+    resolved = raw_rows[raw_rows["cik"].notna()][["date", "symbol", "cik"]]
+    caps = caps.merge(resolved, on=["date", "symbol"])
+    caps = pd.concat([caps, screener_bounds(resolved, sorted(Path().glob(screener_glob)))], ignore_index=True)
+    caps["date"] = pd.to_datetime(caps["date"])
+    return {int(c): g.groupby("date")["cap"].sum().sort_index() for c, g in caps.groupby("cik")}
+
+
+def screener_bounds(resolved: pd.DataFrame, screener_paths: list[Path], floor: float = SCREENER_FLOOR,
+                    near_days: int = SCREENER_NEAR_DAYS) -> pd.DataFrame:
+    """(date, symbol, cik, cap=floor) for each CIK seen in the Nasdaq lists within ``near_days`` both
+    before and after a screener date (so listed on it), none of whose symbols that screener lists: its
+    market cap was below the floor then, an upper bound for the unit check. ``resolved`` holds the
+    resolved (date, symbol, cik) rows."""
+    out = []
+    for path in screener_paths:
+        found = re.search(r"(\d{4}-\d{2}-\d{2})", Path(path).name)
+        if not found:
+            continue
+        day = found.group(1)
+        listed = set(pd.read_csv(path, dtype=str, keep_default_na=False)["Symbol"].str.strip().str.upper())
+        lo = (pd.Timestamp(day) - pd.Timedelta(days=near_days)).date().isoformat()
+        hi = (pd.Timestamp(day) + pd.Timedelta(days=near_days)).date().isoformat()
+        near = resolved[(resolved["date"] >= lo) & (resolved["date"] <= hi)]
+        both_sides = set(near.loc[near["date"] <= day, "cik"]) & set(near.loc[near["date"] >= day, "cik"])
+        inside = near.groupby("cik")["symbol"].apply(lambda symbols: bool(set(symbols) & listed))
+        for cik in inside.index[~inside.values & inside.index.isin(both_sides)]:
+            out.append({"date": day, "symbol": "", "cik": cik, "cap": floor})
+    return pd.DataFrame(out, columns=["date", "symbol", "cik", "cap"])
+
+
+def market_cap_near(caps: pd.Series | None, end: pd.Timestamp, days: int = MARKET_CAP_WINDOW_DAYS) -> float | None:
+    """The largest listed market cap of the CIK within ``days`` of ``end`` (None when none is listed)."""
+    if caps is None or caps.empty:
+        return None
+    near = caps[(caps.index >= end - pd.Timedelta(days=days)) & (caps.index <= end + pd.Timedelta(days=days))]
+    return float(near.max()) if not near.empty else None
+
+
+def float_unit_flag(value: float, end: pd.Timestamp, shares: float | None, lowest_other: float | None,
+                    caps: pd.Series | None = None) -> str:
+    """``check_float_units`` plus two cross-checks for a float that passes it: above MARKET_CAP_MULTIPLE
+    times the CIK's largest listed Nasdaq market cap within two years ('above_listed_market_cap'); or,
+    with no listed cap near, FLOAT_JUMP_RATIO times the CIK's lowest other float nearby at
+    X1000_MIN_PER_SHARE or more a share ('x1000_vs_other_floats': SeaChange's $23.1B in 2022 after
+    $46M in 2021, at $457 a share). A float whose shares fact is x1000 too passes both when the CIK has
+    no listed cap near it (Crosstex 2011: $364B at $7.68 a share; its Nasdaq symbol is unresolved), and
+    a float jump alone cannot tell it from a real one (Cassava rose 200-fold in 2020-2021)."""
+    flag = check_float_units(value, shares)
+    if flag not in ("ok", "review", "no_shares"):
+        return flag
+    per_share = value / shares if shares and shares > 0 else None
+    high = per_share is None or per_share >= X1000_MIN_PER_SHARE
+    cap = market_cap_near(caps, end)
+    if cap is not None:  # a listed market cap is the better reference: the jump test is not needed
+        if value > MARKET_CAP_GROSS * cap or (value > MARKET_CAP_MULTIPLE * cap and high):
+            return "above_listed_market_cap"
+        return flag
+    if lowest_other and per_share is not None and high and value >= FLOAT_JUMP_RATIO * lowest_other:
+        return "x1000_vs_other_floats"
+    return flag
+
+
+def shares_x1000(own_shares: pd.DataFrame, count: pd.Series | None, band: tuple[float, float] = SHARES_X1000_BAND,
+                 days: int = SHARES_X1000_DAYS) -> bool:
+    """Whether the shares fact ``count`` is SHARES_X1000_BAND times another shares fact of the CIK within
+    ``days`` (a x1000 error: a reverse split of 1-for-500 or more is far rarer)."""
+    if count is None or not count["val"] > 0 or own_shares.empty:
+        return False
+    near = own_shares[((own_shares["end"] - count["end"]).abs() <= pd.Timedelta(days=days)) & (own_shares["val"] > 0)]
+    ratios = float(count["val"]) / near["val"].astype(float)
+    return bool(((ratios >= band[0]) & (ratios <= band[1])).any())
+
+
 def float_for_filing(floats: pd.DataFrame, shares: pd.DataFrame, cik: int, filing_date: str,
-                     years: int = FLOAT_LOOKBACK_YEARS) -> dict:
+                     years: int = FLOAT_LOOKBACK_YEARS, caps: pd.Series | None = None) -> dict:
     """Maximum checked public float with an end date in the ``years`` before ``filing_date``.
 
-    Every fact in the window is unit-checked against its own shares count first. A fact that fails
-    the check is dropped; so is a fact the check cannot clear ('review': above $1,000 a share, or
-    'no_shares') that exceeds FLOAT_MEDIAN_MULTIPLE times the lower median of the CIK's facts over
-    twice the window (of its cleanly checked facts when it has any; an issuer can file several
-    x1000 facts in a row). A fact that passes cleanly is kept whatever its size (a SPAC's float can grow
-    25-fold at its merger). The maximum is taken over the kept facts; when every fact is dropped the
-    largest is reported with its failure flag. ``float_facts_dropped`` counts the dropped facts.
+    Every fact in the window is unit-checked against its own shares count first (``float_unit_flag``,
+    with the CIK's listed market caps ``caps``, including the $300M bound of an absence from the
+    screeners, and its other float facts over twice the window; a float of $20B or more whose shares
+    count is x1000 another shares fact nearby is 'shares_x1000_vs_other_shares'). A
+    fact that fails the check is dropped; so is a fact the check cannot clear ('review': above $1,000
+    a share, or 'no_shares') that exceeds FLOAT_MEDIAN_MULTIPLE times the lower median of the CIK's
+    facts over twice the window (of its cleanly checked facts when it has any; an issuer can file
+    several x1000 facts in a row). A fact that passes cleanly is kept whatever its size (a SPAC's float
+    can grow 25-fold at its merger). The maximum is taken over the kept facts; when every fact is
+    dropped the largest is reported with its failure flag. ``float_facts_dropped`` counts the dropped facts.
     """
     empty = {"public_float_usd": None, "float_end_date": "", "float_accession": "", "float_obs_3y": 0,
              "float_facts_dropped": 0, "shares_outstanding": None, "shares_end_date": "", "implied_float_per_share": None}
@@ -557,18 +708,33 @@ def float_for_filing(floats: pd.DataFrame, shares: pd.DataFrame, cik: int, filin
     if own.empty:
         return {**empty, "float_check_flag": "no_float"}
     own_shares = shares[shares["cik"] == cik]
+    wide_facts = mine[(mine["end"] > filed - pd.DateOffset(years=2 * years)) & (mine["val"] > 0)]
+
+    def lowest_other(fact) -> float | None:
+        others = wide_facts.loc[(wide_facts["accn"] != fact.accn) | (wide_facts["end"] != fact.end), "val"]
+        if others.empty:
+            return None
+        typical = statistics.median_low(sorted(others))
+        usable = others[others >= typical / FLOAT_JUMP_RATIO]
+        return float(usable.min()) if not usable.empty else None
+
+    def flag_of(fact, count) -> str:
+        flag = float_unit_flag(float(fact.val), fact.end, float(count["val"]) if count is not None else None,
+                               lowest_other(fact), caps)
+        if flag in ("ok", "review") and fact.val >= SHARES_X1000_MIN_FLOAT and shares_x1000(own_shares, count):
+            return "shares_x1000_vs_other_shares"  # the float per share looks right only against x1000 shares
+        return flag
+
     checked = []  # (value, flag) of every fact over twice the window, for the reference median
     for fact in mine[mine["end"] > filed - pd.DateOffset(years=2 * years)].itertuples():
-        count = _matching_shares(own_shares, fact.accn, fact.end)
-        checked.append((float(fact.val), check_float_units(float(fact.val), float(count["val"]) if count is not None else None)))
+        checked.append((float(fact.val), flag_of(fact, _matching_shares(own_shares, fact.accn, fact.end))))
     clean = sorted(v for v, flag in checked if flag == "ok")
     wide = clean or sorted(v for v, _ in checked if v > 0)
     median = statistics.median_low(wide) if wide else None
     facts = []
     for fact in own.itertuples():
         count = _matching_shares(own_shares, fact.accn, fact.end)
-        n = float(count["val"]) if count is not None else None
-        flag = check_float_units(float(fact.val), n)
+        flag = flag_of(fact, count)
         if flag in ("review", "no_shares") and median is not None and fact.val > FLOAT_MEDIAN_MULTIPLE * median:
             flag = f"{flag}_above_{FLOAT_MEDIAN_MULTIPLE}x_median"
         facts.append({"val": float(fact.val), "end": fact.end, "accn": fact.accn, "flag": flag,
@@ -603,10 +769,13 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
     """
     if class_kind not in ("common", "ads"):
         return "other_class", f"class_kind={class_kind}"
+    if evidence.get("unlisted"):
+        return "unlisted_withdrawal", (f"{basis}; issuer Form 25 with no Nasdaq snapshot row of the CIK before it "
+                                       f"(first seen {evidence.get('first_seen', '')})")
     handover = evidence.get("successor")
     if handover and basis not in ("issuer_withdrawal", "exchange_removal"):  # a move or a removal, not a reorganisation
         tickers = " ".join(handover["tickers"])
-        if handover["new"] and (handover["names_match"] or basis == "substituted_merger_or_exchange"):
+        if handover["new"] and (handover["names_match"] or basis in ("substituted_merger_or_exchange", "redeemed_or_matured")):
             label = "reorg" if handover["names_match"] else "reorg_review"
             names = "matching" if handover["names_match"] else "different"
             return label, f"{basis}; ticker {tickers} passed at the next snapshot to new Nasdaq registrant CIK {handover['cik']} ({names} names)"
@@ -618,13 +787,19 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
     later = evidence.get("current_tickers", "")
     before, ended = evidence.get("tickers_before", ""), evidence.get("tickers_ended", "")
     if evidence.get("still_on_nasdaq_same_cik"):
+        continued = set(evidence.get("tickers_continued", "").split())
+        began = " ".join(t for t in evidence.get("tickers_new", "").split() if t in continued or not continued)
+        renamed = [t for t in ended.split() if t not in evidence.get("tickers_handed_over", "").split()]
+        kept = " ".join(sorted(continued)) or later
         if basis == "exchange_removal":
-            return "common_delisting", f"{basis}; relisted on Nasdaq later ({later})"
-        began = evidence.get("tickers_new", "")
-        if ended and began:
+            what = f"ticker(s) {ended} removed while {kept} continued" if ended else f"ticker(s) {kept} continued in the snapshots"
+            return "common_delisting", f"{basis}; {what}"
+        if renamed and began:
             return "reorg", f"{basis}; ticker(s) {ended} ended and {began} began under the same CIK ({later})"
         if ended:
-            return "common_delisting", f"{basis}; ticker(s) {ended} ended while the CIK stayed on Nasdaq ({later})"
+            return "common_delisting", f"{basis}; ticker(s) {ended} ended while the CIK stayed on Nasdaq ({kept})"
+        if evidence.get("snapshot_continues"):
+            return "reorg", f"{basis}; the CIK's Nasdaq ticker(s) {kept} continued past the filing ({later})"
         note = f"Nasdaq tickers before the filing: {before}" if before else "no snapshot ticker evidence"
         return "reorg", f"subject CIK still on Nasdaq ({later}) and files periodic reports >400d later; {note}"
     if evidence.get("listed_elsewhere_now"):
@@ -632,49 +807,159 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
         if basis != "exchange_removal" and kept:
             return "transfer", f"ticker {' '.join(kept)} listed today on {evidence['listed_elsewhere_now']}; files periodic reports >400d later"
         return "common_delisting", f"{basis}; listed on {evidence['listed_elsewhere_now']} today ({later})"
+    if evidence.get("relisted_later"):
+        gone = f"ticker(s) {ended} left the Nasdaq lists at the filing" if ended else "not in the Nasdaq lists after the filing"
+        return "common_delisting", f"{basis}; {gone}; relisted on Nasdaq later ({later})"
     return "common_delisting", basis
 
 
 def subject_exit(classification: str, evidence: dict) -> str:
     """'Y' when the filing ended the subject CIK's Nasdaq common listing: a delisting, transfer or
-    handover to a new registrant that left no Nasdaq ticker of the CIK behind."""
+    handover to a new registrant that left no Nasdaq ticker of the CIK behind.
+
+    It is 'Y' only when no ticker the CIK listed before the filing continued after it and no new
+    ticker of the CIK took over (``still_on_nasdaq_same_cik``, from the step-4 raw snapshot rows
+    through ``snapshot_evidence``); a filing with no snapshot evidence either way ends the listing.
+    """
     if classification not in ("common_delisting", "transfer", "reorg", "reorg_review"):
         return "N"
     if classification.startswith("reorg") and not evidence.get("successor"):
         return "N"  # the same CIK continues
+    if classification == "transfer" and evidence.get("transfer_hint"):
+        # A documented move to another exchange (a Form 8-A12B, or the Form 25 names it) ends the listing
+        # unless a ticker that continued in the lists is one SEC still lists on Nasdaq: the company lists
+        # of 2016-2017 kept America Movil, Condor and Lilis for months after their moves to NYSE markets,
+        # where no symbol directory is near enough to check them.
+        credible = set(evidence.get("tickers_continued", "").split()) & set(evidence.get("nasdaq_now", "").split())
+        return "N" if credible else "Y"
     if evidence.get("still_on_nasdaq_same_cik"):
-        return "N"  # one class ended, or the CIK is listed on Nasdaq again later
+        return "N"  # a ticker of the CIK continued past the filing (one class ended, or a ticker change)
+    if evidence.get("tickers_continued"):
+        return "N"
     before, ended = set(evidence.get("tickers_before", "").split()), set(evidence.get("tickers_ended", "").split())
     if ended and not before <= ended and not evidence.get("successor"):
         return "N"  # one class ended and another class of the CIK continued
-    # No ticker ended in the snapshot intervals although SEC shows no Nasdaq listing of the CIK any
-    # more: the intervals carry the ticker past the filing under the old CIK (a successor's rows
-    # assigned to it), so the filing still ends the listing.
     return "Y"
 
 
-def nasdaq_tickers_around(intervals: pd.DataFrame | None, cik: int, filing_date: str,
-                          already_ended: set[str] = frozenset()) -> tuple[list[str], list[str], list[str]]:
-    """From the security master's snapshot intervals: the tickers the CIK had listed on Nasdaq up to
-    60 days before the filing (less ``already_ended``, attributed to an earlier filing), those of them
-    not seen 30 days or more after it, and tickers of the CIK first seen from 30 days before to 45
-    days after the filing (a ticker change or new classes in exchange)."""
-    if intervals is None or intervals.empty:
-        return [], [], []
-    own = intervals[intervals["cik"] == cik]
-    if own.empty:
-        return [], [], []
-    filed = pd.Timestamp(filing_date)
-    before = own[(own["start"] <= filed) & (own["end"] >= filed - pd.Timedelta(days=60))]
-    tickers = sorted(set(before["ticker"]) - set(already_ended))
-    after = own[own["end"] >= filed + pd.Timedelta(days=30)]
-    first_seen = own.groupby("ticker")["start"].min()
-    new = first_seen[(first_seen > filed - pd.Timedelta(days=30)) & (first_seen <= filed + pd.Timedelta(days=45))]
-    return tickers, sorted(set(tickers) - set(after["ticker"])), sorted(set(new.index) - set(tickers))
+BEFORE_WINDOW_DAYS = 180  # a ticker seen this close before the filing was listed when it was filed
+# (a suspended stock leaves the lists weeks or months before the exchange files: Windtree, WW)
+NEW_TICKER_WINDOW = (30, 45)  # a ticker of the CIK first seen this many days before/after is new
+
+
+class SnapshotEvidence:
+    """The security master's raw snapshot rows (``ticker_rows_raw.csv.gz``: every resolved row before
+    any row was dropped for a Form 25, and every other listed symbol with no CIK) with the snapshot
+    dates, for the continuation tests of ``snapshot_evidence``."""
+
+    def __init__(self, rows: pd.DataFrame, snapshot_dates: dict[str, list[str]], partial: set[str] = frozenset()):
+        from scripts.reversal_data_security_master import build_intervals, presence_by_date
+        self.days = sorted({d for days in snapshot_dates.values() for d in days})
+        self.full = {d for family, days in snapshot_dates.items() if family not in partial for d in days}
+        self.present = presence_by_date(rows)
+        resolved = rows[rows["cik"].notna()].copy()
+        resolved["cik"] = resolved["cik"].astype(int)
+        self.obs = {key: sorted(set(g)) for key, g in resolved.groupby(["cik", "symbol"])["date"]}
+        self.holders: dict[tuple[str, str], set[int]] = {}
+        for (symbol, day), g in resolved.groupby(["symbol", "date"])["cik"]:
+            self.holders[(symbol, day)] = set(g)
+        self.tickers_of: dict[int, list[str]] = {}
+        for cik, symbol in self.obs:
+            self.tickers_of.setdefault(cik, []).append(symbol)
+        runs_in = resolved.assign(share_class="COMMON", family="raw", source_url="", how="raw", name="")
+        families = {family: days for family, days in snapshot_dates.items()}
+        self.runs = build_intervals(runs_in, families, self.present)
+        if not self.runs.empty:
+            self.runs["start"] = pd.to_datetime(self.runs["start"])
+            self.runs["end"] = pd.to_datetime(self.runs["end"])
+
+    @classmethod
+    def load(cls, rows_path: Path, dates_path: Path) -> "SnapshotEvidence | None":
+        from scripts.reversal_data_security_master import read_raw_rows
+        rows = read_raw_rows(rows_path)
+        if rows is None or not Path(dates_path).exists():
+            return None
+        dates = json.loads(Path(dates_path).read_text())
+        return cls(rows, dates["families"], set(dates.get("partial_families", [])))
+
+    def status(self, cik: int, symbol: str, filing_date: str) -> dict:
+        from scripts.reversal_data_security_master import continuation_after
+        other = lambda day: bool(self.holders.get((symbol, day), set()) - {cik})
+        return continuation_after(self.obs.get((cik, symbol), []), filing_date, self.days, self.full, self.present,
+                                  symbol, other)
+
+
+def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str, already_ended: set[str] = frozenset(),
+                      sec_nasdaq_tickers: set[str] = frozenset(), sec_nasdaq: bool = False, recent: bool = False,
+                      periodic_later: bool = False) -> dict:
+    """Which of the CIK's Nasdaq tickers continued past the filing, from the raw snapshot rows.
+
+    ``tickers_new``: tickers of the CIK first seen from 30 days before to 45 days after it (a ticker
+    change, or new classes in exchange); ``tickers_before``: the other tickers the CIK was seen on
+    within BEFORE_WINDOW_DAYS before the filing (less ``already_ended``, attributed to an earlier
+    filing of the CIK). Each is 'continued' when ``continuation_after`` says so; ``tickers_ended`` are
+    those listed at the filing that did not continue. A run that the snapshots stop following
+    before that ('open': the lists end, or list the symbol under no CIK) continues when SEC lists the
+    CIK on Nasdaq today (for a filing at least 400 days old, only while the CIK keeps filing periodic
+    reports); an open run with no observation after the filing ends with it. ``rows_before``: whether
+    the CIK has any snapshot row on or before the filing date.
+    """
+    from scripts.reversal_data_security_master import EXIT_GRACE_DAYS
+    out = {"tickers_before": "", "tickers_ended": "", "tickers_new": "", "tickers_continued": "",
+           "tickers_handed_over": "", "rows_before": False, "rows_any": False, "first_seen": "",
+           "snapshot_continues": None}
+    if snap is None:
+        return out
+    tickers = snap.tickers_of.get(cik, [])
+    if not tickers:
+        return out
+    shift = lambda days: (pd.Timestamp(filing_date) + pd.Timedelta(days=days)).date().isoformat()
+    lo, new_lo, new_hi = shift(-BEFORE_WINDOW_DAYS), shift(-NEW_TICKER_WINDOW[0]), shift(NEW_TICKER_WINDOW[1])
+    cutoff = shift(EXIT_GRACE_DAYS)
+    first_seen = min(snap.obs[(cik, s)][0] for s in tickers)
+    out.update(rows_any=True, rows_before=first_seen <= filing_date, first_seen=first_seen)
+    before, new = [], []
+    for symbol in tickers:
+        if symbol in already_ended:
+            continue
+        obs = snap.obs[(cik, symbol)]
+        i = bisect.bisect_right(obs, cutoff)
+        if new_lo < obs[0] <= new_hi:  # first seen around the filing: a new ticker (PCSC -> FRNM)
+            new.append(symbol)
+        elif i and obs[i - 1] >= lo:
+            before.append(symbol)
+    out["snapshot_continues"] = False
+    if not before and not new:
+        return out
+    continued, ended, handed = [], [], []
+    for symbol in sorted(before) + sorted(new):
+        fate = snap.status(cik, symbol, filing_date)
+        keeps = fate["status"] == "continued"
+        if fate["status"] == "open" and (fate["after"] or fate["unresolved"] >= 2):
+            keeps = sec_nasdaq and (symbol in sec_nasdaq_tickers or bool(fate["after"])) and (recent or periodic_later)
+        if keeps:
+            continued.append(symbol)
+        elif symbol in before or snap.obs[(cik, symbol)][0] <= cutoff:  # listed at the filing, and gone
+            ended.append(symbol)
+            if fate["handover"]:
+                handed.append(symbol)
+    out.update(tickers_before=" ".join(sorted(before)), tickers_ended=" ".join(sorted(ended)),
+               tickers_new=" ".join(sorted(new)), tickers_continued=" ".join(sorted(continued)),
+               tickers_handed_over=" ".join(sorted(handed)), snapshot_continues=bool(continued))
+    return out
+
+
+def issuer_form25_before_listing(form: str, seen: dict) -> bool:
+    """An issuer's own Form 25 filed before the CIK's first Nasdaq snapshot row: nothing listed was
+    removed (ShiftPixy filed one on 2017-02-14 and first listed in 2017-07), so it ends no listing."""
+    return str(form) in ("25", "25/A") and bool(seen.get("rows_any")) and not seen.get("rows_before")
 
 
 def subject_evidence(subject_cik: int, filing_date: str, submissions: dict | None) -> dict:
-    """Continuation evidence from the subject's own submissions JSON (cached by the security master)."""
+    """SEC evidence from the subject's own submissions JSON (cached by the security master): periodic
+    reports more than 400 days after the filing, and the exchanges SEC lists the CIK on today.
+    ``still_on_nasdaq_same_cik`` is set here only as a fallback; ``snapshot_evidence`` overrides it
+    whenever the snapshots follow the CIK's tickers past the filing."""
     if not submissions:
         return {}
     from scripts.reversal_data_security_master import parse_submissions
@@ -685,7 +970,8 @@ def subject_evidence(subject_cik: int, filing_date: str, submissions: dict | Non
     evidence = {"periodic_after_400d": len(later)}
     evidence["tickers_elsewhere"] = " ".join(t for t, x in zip(profile["tickers"], profile["exchanges"])
                                              if x and x not in ("Nasdaq", "OTC"))
-    if later:
+    evidence["sec_nasdaq_tickers"] = {t for t, x in zip(profile["tickers"], profile["exchanges"]) if x == "Nasdaq"}
+    if later or "Nasdaq" in exchanges:
         evidence["current_tickers"] = " ".join(f"{t}:{x}" for t, x in zip(profile["tickers"], profile["exchanges"]))
     if later and "Nasdaq" in exchanges:
         evidence["still_on_nasdaq_same_cik"] = True
@@ -837,23 +1123,29 @@ def build(offline: bool = False) -> pd.DataFrame:
     rows["effective_date"] = [(date.fromisoformat(d) + timedelta(days=EFFECTIVE_LAG_DAYS)).isoformat() for d in rows["filing_date"]]
     rows["doc_url"] = [doc_url(c, a, d) for c, a, d in zip(rows["subject_cik"], rows["accession"], rows["document"])]
 
+    from scripts.reversal_data_security_master import (RAW_ROWS, foreign_filer_flag, load_submissions,
+                                                       parse_submissions, read_raw_rows)
+    # The security master's raw snapshot rows, from before it dropped any row for a Form 25: the
+    # exit decisions below never rest on rows removed because of them.
+    raw_rows = read_raw_rows(RAW_ROWS)
+    caps = load_market_caps(raw_rows)
     floats = fetch_float_frames(*FLOAT_CONCEPT, frame_periods(), offline=offline)
     shares = fetch_float_frames(*SHARES_CONCEPT, frame_periods(), offline=offline)
-    print(f"frames: {len(floats)} float facts, {len(shares)} shares facts", flush=True)
+    print(f"frames: {len(floats)} float facts, {len(shares)} shares facts; listed market caps for {len(caps)} CIKs",
+          flush=True)
     float_by_cik = {c: g for c, g in floats.groupby("cik")}
     shares_by_cik = {c: g for c, g in shares.groupby("cik")}
     empty = floats.iloc[:0]
-    float_rows = pd.DataFrame([float_for_filing(float_by_cik.get(c, empty), shares_by_cik.get(c, empty), c, d)
+    float_rows = pd.DataFrame([float_for_filing(float_by_cik.get(c, empty), shares_by_cik.get(c, empty), c, d,
+                                                caps=caps.get(int(c)))
                                for c, d in zip(rows["subject_cik"], rows["filing_date"])])
     rows = pd.concat([rows, float_rows], axis=1)
 
-    from scripts.reversal_data_security_master import foreign_filer_flag, load_submissions, parse_submissions
-    intervals = pd.read_csv(TICKER_INTERVALS, low_memory=False) if TICKER_INTERVALS.exists() else None
-    if intervals is not None:  # Nasdaq snapshot intervals only; SEC's current-ticker rows carry no dates
-        intervals = intervals[intervals["source"] != "sec_company_tickers_exchange"].copy()
-        intervals["start"] = pd.to_datetime(intervals["start"], errors="coerce")
-        intervals["end"] = pd.to_datetime(intervals["end"], errors="coerce")
-        intervals["cik"] = intervals["cik"].astype(int)
+    snap = None
+    if raw_rows is not None and SNAPSHOT_DATES.exists():
+        dates = json.loads(SNAPSHOT_DATES.read_text())
+        snap = SnapshotEvidence(raw_rows, dates["families"], set(dates.get("partial_families", [])))
+    runs = snap.runs if snap is not None else None
     snapshot_dates = []
     if SNAPSHOT_DATES.exists():
         dates = json.loads(SNAPSHOT_DATES.read_text())
@@ -861,6 +1153,7 @@ def build(offline: bool = False) -> pd.DataFrame:
                                  if family not in dates.get("partial_families", []) for d in days})
     rows = rows.sort_values(["filing_date", "accession"]).reset_index(drop=True)
     names, evidence, ended_by_cik, payloads = {}, [], {}, {}
+    recent_from = (pd.Timestamp(END) - pd.Timedelta(days=400)).date().isoformat()
 
     def payload_of(cik: int) -> dict | None:
         if cik not in payloads:
@@ -883,10 +1176,22 @@ def build(offline: bool = False) -> pd.DataFrame:
         ev = subject_evidence(row.subject_cik, row.filing_date, payload)
         if common_rows[row.Index]:
             done = {t for t, day in ended_by_cik.get(row.subject_cik, {}).items()
-                    if pd.Timestamp(row.filing_date) - pd.Timestamp(day) <= pd.Timedelta(days=60)}
-            before, ended, began = nasdaq_tickers_around(intervals, row.subject_cik, row.filing_date, done)
-            ev.update(tickers_before=" ".join(before), tickers_ended=" ".join(ended), tickers_new=" ".join(began))
-            ended_by_cik.setdefault(row.subject_cik, {}).update({t: row.filing_date for t in ended})
+                    if pd.Timestamp(row.filing_date) - pd.Timestamp(day) <= pd.Timedelta(days=BEFORE_WINDOW_DAYS)}
+            sec_tickers = ev.pop("sec_nasdaq_tickers", set())
+            ev["nasdaq_now"] = " ".join(sorted(sec_tickers))
+            seen = snapshot_evidence(snap, row.subject_cik, row.filing_date, done, sec_tickers, bool(sec_tickers),
+                                     row.filing_date >= recent_from, ev.get("periodic_after_400d", 0) > 0)
+            ev.update({k: v for k, v in seen.items() if k != "snapshot_continues"})
+            if seen["snapshot_continues"] is not None:  # the snapshots follow the CIK: they decide
+                sec_says = bool(ev.get("still_on_nasdaq_same_cik"))
+                ev["still_on_nasdaq_same_cik"] = seen["snapshot_continues"]
+                ev["snapshot_continues"] = seen["snapshot_continues"]
+                if sec_says and not seen["snapshot_continues"]:
+                    ev["relisted_later"] = True
+                    ev.pop("listed_elsewhere_now", None)
+                if issuer_form25_before_listing(row.form, seen):
+                    ev["unlisted"] = True
+            ended_by_cik.setdefault(row.subject_cik, {}).update({t: row.filing_date for t in seen["tickers_ended"].split()})
             if row.delisting_basis == "issuer_withdrawal":
                 hints = []
                 if row.doc_other_exchange:
@@ -896,17 +1201,19 @@ def build(offline: bool = False) -> pd.DataFrame:
                     hints.append(f"Form {near[0][0]} filed {near[0][1]} (registration on another exchange)")
                 if hints:
                     ev["transfer_hint"] = "; ".join(hints)
+        else:
+            ev.pop("sec_nasdaq_tickers", None)
         evidence.append(ev)
-    if intervals is not None:  # names of the CIKs that held a ticker some subject held (possible successors)
+    if runs is not None and not runs.empty:  # names of the CIKs that held a ticker some subject held (possible successors)
         subjects = set(rows.loc[common_rows, "subject_cik"].astype(int))
-        shared = set(intervals.loc[intervals["cik"].isin(subjects), "ticker"])
-        for cik in intervals.loc[intervals["ticker"].isin(shared), "cik"].unique():
+        shared = set(runs.loc[runs["cik"].isin(subjects), "ticker"])
+        for cik in runs.loc[runs["ticker"].isin(shared), "cik"].unique():
             if cik not in names:
                 payload = payload_of(int(cik))
                 if payload:
                     profile = parse_submissions(payload)
                     names[int(cik)] = [profile["name"], *[f["name"] for f in profile["former_names"]]]
-    successors = successor_evidence(rows[common_rows], intervals, names, snapshot_dates)
+    successors = successor_evidence(rows[common_rows], runs, names, snapshot_dates)
     out = []
     for row, ev in zip(rows.itertuples(), evidence):
         if row.accession in successors:
@@ -922,7 +1229,7 @@ def build(offline: bool = False) -> pd.DataFrame:
     rows["subject_exit"] = [o[2] for o in out]
     rows["successor_cik"] = pd.array([o[3] for o in out], dtype="Int64")
     rows["successor_tickers"] = [o[4] for o in out]
-    for column in ("tickers_before", "tickers_ended", "tickers_new"):
+    for column in ("tickers_before", "tickers_ended", "tickers_new", "tickers_continued"):
         rows[column] = [ev.get(column, "") for ev in evidence]
     rows = rows.sort_values(["filing_date", "accession"]).reset_index(drop=True)
     table = rows[PLAN_COLUMNS + EXTRA_COLUMNS]

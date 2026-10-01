@@ -140,7 +140,8 @@ def test_subject_evidence_from_submissions():
     payload["exchanges"] = ["Nasdaq"]
     assert f25.subject_evidence(1, "2014-06-01", payload).get("still_on_nasdaq_same_cik")
     payload["filings"]["recent"]["filingDate"] = ["2014-09-01", "2014-08-01", "2014-06-01"]
-    assert f25.subject_evidence(1, "2014-06-01", payload) == {"periodic_after_400d": 0, "tickers_elsewhere": ""}
+    assert f25.subject_evidence(1, "2014-06-01", payload) == {
+        "periodic_after_400d": 0, "tickers_elsewhere": "", "sec_nasdaq_tickers": {"XX"}, "current_tickers": "XX:Nasdaq"}
 
 
 def test_check_float_units():
@@ -436,19 +437,18 @@ def test_a_name_handed_from_one_cik_to_another_is_split_by_date():
     assert out == {"2018-01-19": 891103, "2019-06-17": 891103, "2020-09-01": 1800227, "2021-06-01": 1800227}
 
 
-def test_nasdaq_tickers_around_a_filing():
-    intervals = pd.DataFrame({"cik": [1, 1, 1], "ticker": ["LSXMA", "FWONA", "FWONA"],
-                              "start": pd.to_datetime(["2020-01-01", "2020-01-01", "2024-09-20"]),
-                              "end": pd.to_datetime(["2024-09-01", "2024-09-01", "2026-07-01"])})
-    assert f25.nasdaq_tickers_around(intervals, 1, "2024-09-09") == (["FWONA", "LSXMA"], ["LSXMA"], [])
-    assert f25.nasdaq_tickers_around(intervals, 1, "2024-09-09", {"LSXMA"}) == (["FWONA"], [], [])
-    assert f25.nasdaq_tickers_around(intervals, 2, "2024-09-09") == ([], [], [])
-    change = pd.DataFrame({"cik": [5, 5], "ticker": ["DISCA", "WBD"],
-                           "start": pd.to_datetime(["2018-01-01", "2022-04-11"]),
-                           "end": pd.to_datetime(["2022-04-01", "2026-07-01"])})
-    assert f25.nasdaq_tickers_around(change, 5, "2022-04-08") == (["DISCA"], ["DISCA"], ["WBD"])
-    assert f25.classify_row("common", "x", {"still_on_nasdaq_same_cik": True, "tickers_before": "DISCA",
-                                            "tickers_ended": "DISCA", "tickers_new": "WBD"})[0] == "reorg"
+def test_snapshot_evidence_around_a_filing():
+    days = _monthly("2024-01-01", "2026-07-01")
+    rows = _raw([("LSXMA", d, 1) for d in days if d <= "2024-09-01"] + [("FWONA", d, 1) for d in days]
+                + [("DISCA", d, 5) for d in days if d <= "2024-09-01"] + [("WBD", d, 5) for d in days if d >= "2024-10-01"])
+    snap = f25.SnapshotEvidence(rows, {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 1, "2024-09-09")
+    assert (ev["tickers_before"], ev["tickers_ended"], ev["tickers_continued"]) == ("FWONA LSXMA", "LSXMA", "FWONA")
+    assert f25.snapshot_evidence(snap, 1, "2024-09-09", {"LSXMA"})["tickers_before"] == "FWONA"
+    assert f25.snapshot_evidence(snap, 2, "2024-09-09")["snapshot_continues"] is None  # no rows: no evidence
+    change = f25.snapshot_evidence(snap, 5, "2024-09-20")
+    assert (change["tickers_before"], change["tickers_ended"], change["tickers_new"]) == ("DISCA", "DISCA", "WBD")
+    assert f25.classify_row("common", "x", {**change, "still_on_nasdaq_same_cik": True})[0] == "reorg"
 
 
 
@@ -698,8 +698,21 @@ def test_an_issuer_withdrawal_with_a_new_exchange_is_a_transfer():
 ])
 def test_inverted_edgar_names_match(edgar, listed):
     a, b = sm.normalize_issuer_name(edgar), sm.normalize_issuer_name(listed)
-    assert sm.names_match(a, b)
-    assert sm.names_in(sm.build_name_index({1: _profile(edgar)}), b) == {1}
+    assert sm.names_match(a, b, reorder=True)
+    reordered_only = a.split() != b.split() and sorted(a.split()) == sorted(b.split())
+    if sm.reorder_allowed(a.split()) or not reordered_only:  # initials, or no reordering needed
+        assert sm.names_match(a, b)
+        assert sm.names_in(sm.build_name_index({1: _profile(edgar)}), b) == {1}
+    else:
+        # A reordering without initials (a person's name, 'Bank of the Ozarks') needs ticker evidence:
+        # through SEC's name list alone 'First Bank' would be Bank First Corp (round-2 review, FRBA).
+        assert not sm.names_match(a, b)
+        assert sm.names_in(sm.build_name_index({1: _profile(edgar)}), b) == set()
+        cands = sm.Candidates()
+        cands.add("TICK", 1, "repo_historical_ticker_ciks")
+        profiles = {1: _issuer(edgar, ["TICK"])}
+        assert sm.resolve_listing("TICK", listed, cands, profiles, sm.build_name_index(profiles),
+                                  "2014-01-02", "2016-01-04") == (1, "name+ticker")
 
 
 def test_spaced_hyphen_is_cut_only_before_a_security_phrase():
@@ -918,11 +931,16 @@ def test_one_cik_per_ticker_and_date():
 
 
 def test_rows_after_a_terminal_form25_go_to_the_successor_or_nobody():
-    rows = _rows([("MYL", "2015-02-20", 69499, "x"), ("MYL", "2015-03-02", 69499, "x"), ("MYL", "2015-08-10", 69499, "x"),
-                  ("ABC", "2014-01-01", 5, "x"), ("ABC", "2014-03-01", 5, "x")])
-    out, dropped, moved = sm.drop_rows_after_exit(rows, {69499: "2015-02-27", 5: "2014-01-05"}, {(69499, "MYL"): 1623613})
+    # The tail of the run that held the ticker at the filing (sightings within the lists' lag) goes to
+    # the successor that took the ticker, or to nobody.
+    rows = _rows([("MYL", "2015-02-20", 69499, "x"), ("MYL", "2015-03-02", 69499, "x"), ("MYL", "2015-03-20", 69499, "x"),
+                  ("ABC", "2014-01-01", 5, "x"), ("ABC", "2014-01-20", 5, "x")])
+    days = ["2014-01-01", "2014-01-20", "2014-02-01", "2014-03-01", "2015-02-20", "2015-03-02", "2015-03-20", "2015-04-01",
+            "2015-05-01"]
+    out, counts = sm.drop_rows_after_exit(rows, {69499: "2015-02-27", 5: "2014-01-05"}, {(69499, "MYL"): 1623613},
+                                          days=days, full=set(days))
     assert out["cik"].tolist()[:4] == [69499, 69499, 1623613, 5] and pd.isna(out["cik"].tolist()[4])
-    assert (dropped, moved) == (1, 1)
+    assert (counts["dropped"], counts["moved"], counts["contradicted"]) == (1, 1, [])
     assert out["how"].tolist()[2] == "successor" and out["how"].tolist()[4] == "after_exit"
 
 
@@ -960,14 +978,16 @@ def test_nan_is_never_a_ticker():
     assert sm.text_value(float("nan")) == "" and sm.text_value(None) == "" and sm.text_value("JOSB") == "JOSB"
 
 
-def test_company_list_rows_without_a_last_sale_are_dropped(tmp_path):
+def test_company_list_rows_without_a_last_sale_are_no_listing_evidence_but_present(tmp_path):
     hook = tmp_path / "companylist"
     hook.mkdir()
     (hook / "nasdaq_companylist_2019-01-03.csv").write_text(
         "Symbol,Name,LastSale,MarketCap,Observed At\nAAPL,Apple Inc.,157.92,7.5E11,2019-01-03\n"
         "GNST,GenSight Inc.,,,2019-01-03\nSCCI,Some IPO Corp,n/a,n/a,2019-01-03\n")
     snaps = sm.load_listing_snapshots(tmp_path / "none", {"wayback_companylist": hook})
-    assert snaps["symbol"].tolist() == ["AAPL"]
+    assert snaps["no_last_sale"].tolist() == [False, True, True]
+    assert sm.common_snapshot_rows(snaps)["symbol"].tolist() == ["AAPL"]  # no listing evidence
+    assert sm.presence_by_date(snaps)["2019-01-03"] == {"AAPL", "GNST", "SCCI"}  # but no absence either
 
 
 def test_truncated_file_names_borrow_the_nearest_full_name():
@@ -1055,3 +1075,496 @@ def test_edgar_name_spans_are_chained():
                                           ("exp realty international", "2013-08-20", "2016-04-27"),
                                           ("exp world holdings", "2016-04-27", "2026-06-01")]
     assert sm.name_valid_throughout(exp, "exp world holdings", "2018-05-21", "2026-05-01")
+
+
+# ------------------------------------------------------------------ round-2 review regressions
+
+def _monthly(start, end):
+    return [d.date().isoformat() for d in pd.date_range(start, end, freq="MS")]
+
+
+def _raw(records):
+    """ticker_rows_raw-style rows (date, symbol, cik as Int64; None for a listed symbol with no CIK)."""
+    frame = pd.DataFrame([{"date": d, "symbol": s, "cik": c} for s, d, c in records], columns=["date", "symbol", "cik"])
+    frame["cik"] = frame["cik"].astype("Int64")
+    return frame
+
+
+def _f25(rows):
+    frame = pd.DataFrame(rows)
+    for column in sm.FORM25_TEXT_COLUMNS:
+        frame[column] = frame.get(column, pd.Series([""] * len(frame))).fillna("")
+    frame["successor_cik"] = pd.array([r.get("successor_cik") for r in rows], dtype="Int64")
+    return frame
+
+
+NO_PRICES = pd.DataFrame(columns=["ticker", "file", "first_date", "last_date", "rows", "cik", "how",
+                                  "ciks_on_ticker_in_file_range"])
+
+
+def _master(intervals, form25, profiles, multi=frozenset(), full=()):
+    return sm.build_master(profiles, intervals, intervals, form25, NO_PRICES, set(multi), [], list(full)).set_index("security_id")
+
+
+def _profiles(*ciks):
+    return {c: {**sm.parse_submissions({}), "name": f"Issuer {c}"} for c in ciks}
+
+
+def test_the_continuation_horizon_is_the_delist_tolerance():
+    # A ticker seen at the horizon continued, so it can keep no delist date; before it is the lists' lag.
+    assert sm.CONTINUE_DAYS == f25.EFFECTIVE_LAG_DAYS + sm.DELIST_TOLERANCE_DAYS
+    days = ["2024-01-01", "2024-02-01", "2024-02-20", "2024-03-01", "2024-04-01"]
+    assert sm.continuation_after(["2024-01-01", "2024-02-20"], "2024-01-10", days, set(days), {}, "X")["status"] == "continued"
+    lag = sm.continuation_after(["2024-01-01", "2024-02-01"], "2024-01-10", days, set(days), {}, "X")
+    assert lag["status"] == "ended" and lag["after"] == ["2024-02-01"]
+
+
+def test_liberty_live_split_off_does_not_end_fwona_fwonk():
+    # Form 25 0001354457-25-001270 (2025-12-15) removed LLYVA/LLYVK only; Liberty Live Holdings (2078416)
+    # listed them from 2026-01. FWONA/FWONK kept trading under 1560385.
+    days = _monthly("2025-06-01", "2026-08-01")
+    rows = _raw([(t, d, 1560385) for t in ("FWONA", "FWONK") for d in days]
+                + [(t, d, 1560385 if d <= "2025-12-01" else 2078416) for t in ("LLYVA", "LLYVK") for d in days])
+    snap = f25.SnapshotEvidence(rows, {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 1560385, "2025-12-15", sec_nasdaq_tickers={"FWONA", "FWONK"}, sec_nasdaq=True,
+                               recent=True)
+    assert ev["tickers_before"] == "FWONA FWONK LLYVA LLYVK"
+    assert (ev["tickers_continued"], ev["tickers_ended"], ev["tickers_handed_over"]) == ("FWONA FWONK", "LLYVA LLYVK",
+                                                                                        "LLYVA LLYVK")
+    successor = f25.successor_evidence(pd.DataFrame({"accession": ["a"], "subject_cik": [1560385],
+                                                     "filing_date": ["2025-12-15"]}),
+                                       snap.runs, {1560385: ["Liberty Media Corp"], 2078416: ["Liberty Live Holdings, Inc."]},
+                                       days)["a"]
+    assert successor["cik"] == 2078416 and successor["tickers"] == ["LLYVA", "LLYVK"]
+    ev = {**ev, "still_on_nasdaq_same_cik": ev["snapshot_continues"], "successor": successor}
+    label, _ = f25.classify_row("common", "redeemed_or_matured", ev)
+    assert label == "reorg_review" and f25.subject_exit(label, ev) == "N"
+    # Even a wrong exit (round 2's) cannot delete FWONK's later rows: the run continued, so it contradicts it.
+    sm_rows = _rows([("FWONK", d, 1560385, "repo_symdir") for d in days])
+    out, counts = sm.drop_rows_after_exit(sm_rows, {1560385: "2025-12-15"}, {}, {1560385: {"FWONA", "FWONK"}},
+                                          days=days, full=set(days))
+    assert out["cik"].notna().all() and counts["contradicted"] == [(1560385, "FWONK")]
+    # Only the tickers the filing covered lose rows.
+    out, counts = sm.drop_rows_after_exit(sm_rows, {1560385: "2025-12-15"}, {}, {1560385: {"LLYVA", "LLYVK"}},
+                                          days=days, full=set(days))
+    assert out["cik"].notna().all() and counts["contradicted"] == []
+
+
+def test_a_security_seen_after_its_delist_date_keeps_no_delist_date():
+    # The rule every delist date must pass: FWONK listed through 2026-08 in the run that held it at the
+    # 2025-12-15 filing cannot take that filing's delist date; a relisting after two full-list
+    # snapshots without it may (Windtree, 2017 removal, relisted 2020).
+    days = _monthly("2016-01-01", "2026-08-01")
+    iv = pd.DataFrame([
+        {"security_id": "1560385.T-FWONK", "cik": 1560385, "ticker": "FWONK", "start": "2017-01-01", "end": "2026-08-01",
+         "share_class": "T-FWONK"},
+        {"security_id": "946486", "cik": 946486, "ticker": "WINT", "start": "2016-04-01", "end": "2017-04-01",
+         "share_class": "COMMON"},
+        {"security_id": "946486", "cik": 946486, "ticker": "WINT", "start": "2020-06-01", "end": "2025-08-01",
+         "share_class": "COMMON"},
+    ]).assign(source="repo_symdir", match="name+ticker", exchange="NASDAQ")
+    form25 = _f25([
+        {"subject_cik": 1560385, "filing_date": "2025-12-15", "effective_date": "2025-12-25", "accession": "llyv",
+         "classification": "common_delisting", "class_kind": "common", "class_of_security": "Common Stock",
+         "tickers_ended": "FWONK"},
+        {"subject_cik": 946486, "filing_date": "2017-07-21", "effective_date": "2017-07-31", "accession": "wint",
+         "classification": "common_delisting", "class_kind": "common", "class_of_security": "Common Stock"}])
+    master = _master(iv, form25, _profiles(1560385, 946486), multi={1560385}, full=days)
+    assert master.loc["1560385.T-FWONK", "delist_date"] == ""
+    assert "gives no delist date: listed through 2026-08-01" in master.loc["1560385.T-FWONK", "identity_notes"]
+    assert master.loc["946486", "delist_date"] == "2017-07-31"
+    assert "listed on Nasdaq again" in master.loc["946486", "identity_notes"]
+    sightings = _raw([("FWONK", d, 1560385) for d in days if d >= "2017-01-01"]
+                     + [("WINT", d, 946486) for d in days if "2016-04-01" <= d <= "2017-04-01" or "2020-06-01" <= d <= "2025-08-01"])
+    assert sm.delist_date_violations(master.reset_index(), iv, sightings, days).empty
+    # A delist date kept while the security was still seen (its rows dropped after the exit) is reported.
+    forced = master.reset_index().assign(delist_date=lambda m: m["delist_date"].where(m["security_id"] != "1560385.T-FWONK",
+                                                                                          "2025-12-25"))
+    cut = iv.assign(end=lambda f: f["end"].where(f["ticker"] != "FWONK", "2025-12-01"))
+    bad = sm.delist_date_violations(forced, cut, sightings, days)
+    assert bad[["security_id", "first_seen_after", "last_seen_after"]].values.tolist() == [
+        ["1560385.T-FWONK", "2026-02-01", "2026-08-01"]]
+
+
+def test_windtree_relisting_is_a_separate_interval():
+    # Windtree 946486: suspended in 2017-04, removed by Form 25 2017-07-21, back on Nasdaq 2020-05-22.
+    days = _monthly("2016-01-01", "2025-09-01")
+    seen = [d for d in days if "2016-04-01" <= d <= "2017-04-01" or "2020-06-01" <= d <= "2025-08-01"]
+    snap = f25.SnapshotEvidence(_raw([("WINT", d, 946486) for d in seen]), {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 946486, "2017-07-21")
+    assert (ev["tickers_before"], ev["tickers_ended"], ev["tickers_continued"]) == ("WINT", "WINT", "")
+    assert f25.subject_exit("common_delisting", ev) == "Y"
+    rows = _rows([("WINT", d, 946486, "repo_symdir") for d in seen])
+    out, counts = sm.drop_rows_after_exit(rows, {946486: "2017-07-21"}, {}, {946486: {"WINT"}}, days=days, full=set(days))
+    assert out["cik"].notna().all() and counts["kept_after_exit"] == len([d for d in seen if d >= "2020-06-01"])
+    intervals = sm.build_intervals(out.astype({"cik": int}), {"repo_symdir": days})
+    assert intervals[["start", "end"]].values.tolist() == [["2016-04-01", "2017-04-01"], ["2020-06-01", "2025-08-01"]]
+    assert sm.listed_past_delisting(list(zip(intervals["start"], intervals["end"])), "2017-07-31", days) == ""
+
+
+def test_shiftpixy_form25_before_its_ipo_ends_nothing():
+    # ShiftPixy 1675634 filed an issuer Form 25 on 2017-02-14; its first Nasdaq row is 2017-07-01.
+    days = _monthly("2016-06-01", "2024-11-01")
+    seen = [d for d in days if "2017-07-01" <= d <= "2024-10-01"]
+    snap = f25.SnapshotEvidence(_raw([("PIXY", d, 1675634) for d in seen]), {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 1675634, "2017-02-14")
+    assert ev["rows_any"] and not ev["rows_before"] and f25.issuer_form25_before_listing("25", ev)
+    assert not f25.issuer_form25_before_listing("25-NSE", ev)  # an exchange's own 25-NSE is never ignored
+    label, _ = f25.classify_row("common", "issuer_withdrawal", {**ev, "unlisted": True})
+    assert label == "unlisted_withdrawal" and f25.subject_exit(label, ev) == "N"
+    form25 = _f25([{"subject_cik": 1675634, "filing_date": "2017-02-14", "classification": label, "class_kind": "common"}])
+    assert sm.form25_cuts(form25) == {}  # nor does it split a shared name by date
+    rows = _rows([("PIXY", d, 1675634, "repo_symdir") for d in seen])
+    out, counts = sm.drop_rows_after_exit(rows, {1675634: "2017-02-14"}, {}, days=days, full=set(days))
+    assert out["cik"].notna().all() and counts["kept_after_exit"] == len(seen)
+
+
+def test_ww_bankruptcy_relisting_keeps_its_rows_and_its_delist_date():
+    # WW 105319: last seen 2025-05-01, Form 25 2025-07-03, the new stock listed 2025-08 under the same CIK.
+    days = _monthly("2025-01-01", "2026-07-01")
+    seen = [d for d in days if d <= "2025-05-01" or d >= "2025-08-01"]
+    snap = f25.SnapshotEvidence(_raw([("WW", d, 105319) for d in seen]), {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 105319, "2025-07-03", sec_nasdaq_tickers={"WW"}, sec_nasdaq=True, recent=True)
+    assert (ev["tickers_ended"], ev["tickers_continued"]) == ("WW", "") and f25.subject_exit("common_delisting", ev) == "Y"
+    rows = _rows([("WW", d, 105319, "repo_symdir") for d in seen])
+    out, counts = sm.drop_rows_after_exit(rows, {105319: "2025-07-03"}, {}, {105319: {"WW"}}, days=days, full=set(days))
+    assert out["cik"].notna().all()
+    iv = sm.build_intervals(out.astype({"cik": int}), {"repo_symdir": days}).assign(security_id="105319")
+    assert iv[["start", "end"]].values.tolist() == [["2025-01-01", "2025-05-01"], ["2025-08-01", "2026-07-01"]]
+    # The new listing starts 19 days after the delist date, two monthly lists after the last sighting.
+    assert sm.listed_past_delisting(list(zip(iv["start"], iv["end"])), "2025-07-13", days) == ""
+    form25 = _f25([{"subject_cik": 105319, "filing_date": "2025-07-03", "effective_date": "2025-07-13", "accession": "ww",
+                    "classification": "common_delisting", "class_kind": "common", "class_of_security": "Common Stock"}])
+    master = _master(iv.assign(match="name+ticker"), form25, _profiles(105319), full=days)
+    assert master.loc["105319", "delist_date"] == "2025-07-13" and master.loc["105319", "last_listed"] == "2026-07-01"
+
+
+def test_freenome_ticker_change_is_a_reorganisation():
+    # Freenome 2017526: the SPAC's PCSC became FRNM under the same CIK; the Form 25 of 2026-07-20 removed PCSC.
+    symdir, screener = _monthly("2024-07-01", "2026-07-01"), ["2026-07-17", "2026-07-27", "2026-07-31", "2026-08-01"]
+    rows = _raw([("PCSC", d, 2017526) for d in symdir] + [("FRNM", d, 2017526) for d in screener[1:]])
+    snap = f25.SnapshotEvidence(rows, {"repo_symdir": symdir, "repo_screener_300M": screener}, {"repo_screener_300M"})
+    ev = f25.snapshot_evidence(snap, 2017526, "2026-07-20", sec_nasdaq_tickers={"FRNM"}, sec_nasdaq=True, recent=True)
+    assert (ev["tickers_before"], ev["tickers_new"], ev["tickers_continued"], ev["tickers_ended"]) == (
+        "PCSC", "FRNM", "FRNM", "PCSC")
+    label, note = f25.classify_row("common", "substituted_merger_or_exchange", {**ev, "still_on_nasdaq_same_cik": True})
+    assert label == "reorg" and "PCSC ended and FRNM began" in note and f25.subject_exit(label, ev) == "N"
+
+
+def test_share_class_flip_flops_do_not_break_a_run():
+    # FLWS 2022-06: symbol files alternate 'Class A Common Stock' and plain 'Common Stock' names.
+    days = [d.date().isoformat() for d in pd.bdate_range("2022-06-07", "2022-06-24")]
+    rows = _rows([("FLWS", d, 1084869, "repo_symdir") for d in days])
+    rows["share_class"] = ["A" if i % 2 else "COMMON" for i in range(len(days))]
+    out = sm.build_intervals(rows, {"repo_symdir": days})
+    assert out[["start", "end", "share_class", "n_snapshots"]].values.tolist() == [[days[0], days[-1], "A", len(days)]]
+    # ICLR: ADS names until the 2012 coverage gap, ordinary shares after it: one interval.
+    dates = {"wayback_symdir": ["2012-05-01", "2012-06-22", "2012-10-24", "2012-12-01"]}
+    iclr = _rows([("ICLR", d, 1060955, "wayback_symdir") for d in dates["wayback_symdir"]])
+    iclr["share_class"] = ["ADS", "ADS", "COMMON", "COMMON"]
+    out = sm.build_intervals(iclr, dates)
+    assert len(out) == 1 and out.iloc[0]["coverage_gap_days"] == 124
+
+
+def test_rush_cl_a_is_class_a():
+    assert sm.share_class_from_name("Rush Enterprises, Inc. - Common Stock Cl A") == "A"
+    assert sm.share_class_from_name("Rush Enterprises Inc Cl B") == "B"
+    assert sm.share_class_from_name("Clarus Corporation - Common Stock") == "COMMON"
+    days = ["2015-01-10", "2015-02-01", "2015-03-01", "2015-04-01"]
+    rows = _rows([("RUSHA", d, 1012019, "repo_symdir") for d in days] + [("RUSHB", d, 1012019, "repo_symdir") for d in days])
+    rows["name"] = ["Rush Enterprises, Inc. - Class A Common Stock", "Rush Enterprises Inc. Common Stock Cl A",
+                    "Rush Enterprises, Inc.", "Rush Enterprises Inc. Common Stock Cl A"] + ["Rush Enterprises Inc Cl B"] * 4
+    rows["share_class"] = sm.fill_classes(rows.assign(share_class=rows["name"].map(sm.share_class_from_name)))
+    out = sm.build_intervals(rows, {"repo_symdir": days}, split_classes={1012019})
+    assert sorted(zip(out["ticker"], out["share_class"])) == [("RUSHA", "A"), ("RUSHB", "B")]
+
+
+def test_blank_last_sale_rows_count_as_present(tmp_path):
+    # SunPower in every 2015-2016 company list with a blank LastSale: no break between symbol files.
+    repo, hook = tmp_path / "repo", tmp_path / "companylist"
+    repo.mkdir(), hook.mkdir()
+    for day in ("2015-03-01", "2016-03-01"):
+        (repo / f"nasdaq_listed_{day}.csv").write_text("Symbol,Name,ETF,Test Issue,NextShares\n"
+                                                       "SPWR,SunPower Corporation - Class A Common Stock,N,N,N\n")
+    for day in ("2015-03-05", "2015-08-10", "2016-02-02"):
+        (hook / f"nasdaq_companylist_{day}.csv").write_text(
+            f"Symbol,Name,LastSale,MarketCap,Observed At\nSPWR,SunPower Corporation,,,{day}\nAAPL,Apple Inc.,1,1,{day}\n")
+    snaps = sm.load_listing_snapshots(repo, {"wayback_companylist": hook})
+    listed = sm.common_snapshot_rows(snaps)
+    rows = listed[listed["symbol"] == "SPWR"].assign(cik=867773, share_class="A", family=lambda f: f["source"], how="x")
+    dates = {f: sorted(g["date"].unique()) for f, g in snaps.groupby("source")}
+    assert len(sm.build_intervals(rows, dates, sm.presence_by_date(snaps))) == 1
+    assert len(sm.build_intervals(rows, dates, sm.presence_by_date(snaps[~snaps["no_last_sale"]]))) == 2  # round 2
+
+
+def test_breaks_count_another_class_key_of_the_same_security_as_the_same_holder():
+    iv = pd.DataFrame([{"security_id": "1", "cik": 1, "ticker": "X", "start": "2020-01-01", "end": "2020-03-01",
+                        "share_class": "A", "source": "repo_symdir"},
+                       {"security_id": "1", "cik": 1, "ticker": "X", "start": "2020-04-01", "end": "2020-06-01",
+                        "share_class": "COMMON", "source": "repo_symdir"}])
+    full = _monthly("2020-01-01", "2020-06-01")
+    stats = sm.break_stats(iv, full, {d: {"X"} for d in full})
+    assert (stats["breaks"], stats["unexplained"], stats["uncovered_days"]) == (1, 1, 30)
+
+
+# ------------------------------------------------------------------ round-2 review regressions: listing evidence
+
+def test_stale_copies_of_an_older_symbol_file_are_dropped():
+    # nasdaq_listed_2024-05-18 repeats 2024-03-28 (same source file and commit); a weekend repeat is real.
+    frame = pd.DataFrame([{"source": "repo_symdir", "date": d, "symbol": s}
+                          for d, syms in [("2024-03-28", "AB"), ("2024-04-20", "A"), ("2024-05-18", "AB"),
+                                          ("2024-10-05", "C"), ("2024-10-08", "C")] for s in syms])
+    assert sm.stale_duplicate_dates(frame) == {("repo_symdir", "2024-05-18"): "2024-03-28"}
+
+
+def test_a_short_file_is_presence_not_absence():
+    counts = [3800, 3770, 3037, 3780, 3790]
+    days = _monthly("2022-04-01", "2022-08-01")
+    listings = pd.DataFrame([{"source": "repo_symdir", "date": d, "symbol": f"S{i}"} for d, n in zip(days, counts)
+                             for i in range(n)])
+    assert sm.partial_snapshot_dates(listings) == {"repo_symdir": ["2022-06-01"]}
+    assert sm.is_partial_family("repo_symdir" + sm.PARTIAL_SUFFIX) and sm.is_partial_family("repo_screener_300M")
+
+
+def test_company_list_sightings_need_a_symbol_directory():
+    # America Movil (NYSE from 2016-12) stayed in nasdaq.com company lists; a symbol directory on either
+    # side within 70 days that lacks it makes the row no listing evidence.
+    rows = [("wayback_symdir", "2017-09-12", "http://nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", "AAPL"),
+            ("wayback_symdir", "2017-10-13", "http://nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", "AAPL"),
+            ("wayback_companylist", "2017-09-30", "http://www.nasdaq.com/screening/companies-by-name.aspx", "AAPL"),
+            ("wayback_companylist", "2017-09-30", "http://www.nasdaq.com/screening/companies-by-name.aspx", "AMOV"),
+            ("wayback_companylist", "2017-03-16", "http://www.nasdaq.com/screening/companies-by-name.aspx", "AMOV")]
+    frame = pd.DataFrame(rows, columns=["source", "date", "source_url", "symbol"])
+    mask = sm.uncorroborated_sightings(frame)
+    assert mask.tolist() == [False, False, False, True, False]  # 2017-03-16: no symbol directory near to check it
+
+
+def test_abbreviated_preferreds_notes_and_warrants_are_not_common():
+    for name in ["Huntington Bancshares Incorporated - Non Cumulative Perp Conv Pfd Ser A",
+                 "TriState Capital Holdings, Inc. - Dep Shs Rep 1/40th Int 6.75% Srs A Non-Cum Pfd",
+                 "Banc of California, Inc. - Baby Bond", "Conifer Holdings, Inc. - Senior Unsecured Notes",
+                 "Great Elm Capital Corp. - Notes", "Polestar Automotive Holding UK Limited - Class C-1 ADS (ADW)",
+                 "PepperLime Health Acquisition Corporation - Warrrant"]:
+        assert not sm.is_common_equity(name), name
+    assert sm.is_common_equity("Biodexa Pharmaceuticals plc American Depositary Shs")
+    assert sm.is_common_equity("Alphabet Inc. - Class A Common Stock")
+
+
+# ------------------------------------------------------------------ round-2 review regressions: Form 25
+
+@pytest.mark.parametrize("text,kinds,kind", [
+    ("Preferred Stock Purchase Rights, par value $0.001 per share", ["right"], "right"),  # Masimo 2016
+    ("8.75% Series A Cumulative Redeemable Perpetual Preferred Stock, par value $0.001 per share (Nasdaq : CCLDP)",
+     ["preferred"], "preferred"),  # CareCloud 2025-03-21
+    ("Units of beneficial interest, no par value per share (See exhibit A)", ["unit"], "unit"),  # Global X 2013
+    ("Common shares without par value Warrants, each warrant exercisable for 1/30th common share", ["common", "warrant"],
+     "common"),  # Clever Leaves 2024
+    ("Common Stock, $0.01 par value per share", ["common"], "common"),
+    ("Ordinary Shares, nominal value €0.12 per share", ["common"], "common"),
+    ("Common Stock, Series A", ["common"], "common"),
+])
+def test_par_value_phrases_are_no_class(text, kinds, kind):
+    assert f25.class_kinds(text) == kinds and f25.classify_security_class(text) == kind
+
+
+def test_a_withdrawal_followed_by_a_relisting_is_a_delisting():
+    # Interlink 828146: Form 25 2019-02-04, LINK out of the lists until 2021-03-25.
+    days = _monthly("2018-06-01", "2021-06-01")
+    seen = [d for d in days if d <= "2019-01-01" or d >= "2021-04-01"]
+    snap = f25.SnapshotEvidence(_raw([("LINK", d, 828146) for d in seen]), {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 828146, "2019-02-04", sec_nasdaq_tickers={"LINK"}, sec_nasdaq=True,
+                               periodic_later=True)
+    assert ev["tickers_ended"] == "LINK" and not ev["snapshot_continues"]
+    label, note = f25.classify_row("common", "issuer_withdrawal", {**ev, "relisted_later": True, "current_tickers": "LINK:Nasdaq"})
+    assert label == "common_delisting" and "relisted on Nasdaq later" in note
+    assert f25.subject_exit(label, ev) == "Y"
+
+
+def test_a_documented_transfer_ends_the_listing_despite_company_list_sightings():
+    ev = {"transfer_hint": "Form 8-A12B filed 2016-12-01 (registration on another exchange)", "tickers_before": "AMOV",
+          "tickers_continued": "AMOV", "still_on_nasdaq_same_cik": True, "nasdaq_now": ""}
+    assert f25.classify_row("common", "issuer_withdrawal", ev)[0] == "transfer"
+    assert f25.subject_exit("transfer", ev) == "Y"
+    assert f25.subject_exit("transfer", {**ev, "nasdaq_now": "AMOV"}) == "N"  # SEC still lists it on Nasdaq
+
+
+def _caps(rows):
+    return pd.Series([v for _, v in rows], index=pd.to_datetime([d for d, _ in rows]))
+
+
+def test_float_cross_checks_catch_x1000_errors_only():
+    end = pd.Timestamp("2022-07-29")
+    # SeaChange 2022: $23.1B at $457 a share after $46M a year before, no listed cap near: a x1000 error.
+    assert f25.float_unit_flag(2.31e10, end, 5.05e7, 4.57e7) == "x1000_vs_other_floats"
+    # A SPAC's float growing 50-fold at about $10 a share is real.
+    assert f25.float_unit_flag(5e9, end, 5e8, 1e8) == "ok"
+    # National American University 2016: $19.7B against listed caps near $70M.
+    assert f25.float_unit_flag(1.97e10, pd.Timestamp("2016-11-30"), 2.42e7, None,
+                               _caps([("2016-06-01", 7e7), ("2017-06-01", 6e7)])) == "above_listed_market_cap"
+    # Trillium 2020 at 14 times its 2019 cap, Nikola at 54 times VectoIQ's but $34 a share: kept.
+    assert f25.float_unit_flag(6.84e8, pd.Timestamp("2020-06-30"), 1.03e8, None, _caps([("2019-06-11", 5e7)])) == "ok"
+    assert f25.float_unit_flag(1.25e10, pd.Timestamp("2020-06-30"), 3.66e8, None, _caps([("2019-06-11", 2.3e8)])) == "ok"
+    # A listed cap near the float settles it: no jump test (Electronic Arts with a /1000 fact in its history).
+    assert f25.float_unit_flag(4.8e10, pd.Timestamp("2025-09-30"), 2.5e8, 4.8e7, _caps([("2026-07-17", 4.0e10)])) == "ok"
+
+
+def test_a_tiny_float_fact_is_no_reference_for_the_jump_test():
+    floats = _facts([("2021-06-30", 3.5e10, "a"), ("2022-06-30", 4.0e10, "b"), ("2023-06-30", 4.0e7, "c"),
+                     ("2024-06-30", 4.8e10, "d")])
+    shares = _facts([("2021-08-01", 2.6e8, "a"), ("2022-08-01", 2.6e8, "b"), ("2023-08-01", 2.6e8, "c"),
+                     ("2024-08-01", 2.5e8, "d")])
+    out = f25.float_for_filing(floats, shares, 7, "2025-03-01")
+    assert out["public_float_usd"] == 4.8e10 and out["float_check_flag"] == "ok"
+
+
+# ------------------------------------------------------------------ round-3 review regressions: low items
+
+def test_names_in_another_word_order_need_initials():
+    # FRBA (First Bank, NJ, an FDIC filer) is not Bank First Corp (1746109); EDGAR's inversions of
+    # initials still match ('PRICE T ROWE GROUP', 'FOSTER L B', 'BARRY R G', 'MAYS J W').
+    norm = sm.normalize_issuer_name
+    assert not sm.names_match(norm("First Bank"), norm("BANK FIRST CORP"))
+    assert not any(k.startswith("~") for k in sm.index_keys(norm("First Bank")))
+    assert sm.names_in(sm.build_name_index({1746109: _issuer("Bank First Corp")}), norm("First Bank - Common Stock")) == set()
+    for listed, edgar in [("T. Rowe Price Group, Inc.", "PRICE T ROWE GROUP INC"), ("L.B. Foster Company", "FOSTER L B CO"),
+                          ("R.G. Barry Corporation", "BARRY R G CORP /OH/"), ("J. W. Mays, Inc.", "MAYS J W INC")]:
+        assert sm.names_match(norm(listed), norm(edgar)), listed
+        assert sm.names_in(sm.build_name_index({1: _issuer(edgar)}), norm(listed)) == {1}, listed
+
+
+def test_the_first_bearer_of_a_name_keeps_the_ticker_until_its_form25():
+    # Old Dime (1005409) listed DCOM until its Form 25 of 2021-01-29; Bridge Bancorp (846617, filing
+    # since 1988 with unfetched older pages) took the name Dime Community Bancshares at the merger.
+    old = _issuer("DIME COMMUNITY BANCSHARES INC", periodic=("2012-03-01", "2020-11-06"),
+                  former=[{"name": "DIME COMMUNITY BANCORP INC", "from": "1996-05-20", "to": "1998-03-10"}])
+    old["older_pages"], old["coverage_start"] = [{"from": "1996-05-20"}], "2012-01-01"
+    old["filing_dates"] = ["2012-03-01", "2021-02-04"]  # its window runs to 2021-03-06, past the Form 25
+    new = _issuer("Dime Community Bancshares, Inc. /NY/", ["DCOM"],
+                  former=[{"name": "BRIDGE BANCORP INC", "from": "1996-08-05", "to": "2021-01-29"}])
+    new["older_pages"] = [{"from": "1990-01-01"}]
+    profiles = {1005409: old, 846617: new}
+    cands = sm.Candidates()
+    cands.add("DCOM", 846617, "sec_company_tickers_exchange")
+    cands.add("DCOM", 1005409, "repo_historical_ticker_ciks")
+    index = sm.build_name_index(profiles)
+    days = ["2020-11-02", "2020-12-30", "2021-01-15", "2021-02-26"]
+    out = sm.resolve_by_date("DCOM", "Dime Community Bancshares, Inc. - Common Stock", days, cands, profiles, index,
+                             exits={1005409: "2021-01-29"})
+    assert out == {"2020-11-02": 1005409, "2020-12-30": 1005409, "2021-01-15": 1005409, "2021-02-26": 846617}
+
+
+def test_a_form25_cuts_only_a_ticker_its_cik_held():
+    # Match Group Inc (1575189) listed MTCH until its Form 25 of 2020-07-01; old IAC (891103) filed a
+    # Form 25 for IAC on 2020-06-30, renamed itself Match Group and took MTCH. Its own cut must not end
+    # its MTCH dates (round 3 first gave 2020-07-29..08-07 to 1575189 and dropped them after its exit).
+    old = _issuer("Match Group Holdings II, LLC", periodic=("2016-03-01", "2020-05-08"),
+                  former=[{"name": "MATCH GROUP, INC.", "from": "2014-02-07", "to": "2020-07-01"}])
+    old["filing_dates"] = ["2016-03-01", "2020-07-10"]
+    new = _issuer("Match Group, Inc.", ["MTCH"],
+                  former=[{"name": "IAC/InterActiveCorp", "from": "2008-08-20", "to": "2020-07-01"}])
+    profiles = {1575189: old, 891103: new}
+    cands = sm.Candidates()
+    cands.add("MTCH", 891103, "sec_company_tickers_exchange")
+    cands.add("MTCH", 1575189, "repo_historical_ticker_ciks")
+    index = sm.build_name_index(profiles)
+    days = ["2020-05-22", "2020-06-29", "2020-07-29", "2020-08-10"]
+    out = sm.resolve_by_date("MTCH", "Match Group, Inc. - Common Stock", days, cands, profiles, index,
+                             exits={1575189: "2020-07-01", 891103: "2020-06-30"})
+    assert out == {"2020-05-22": 1575189, "2020-06-29": 1575189, "2020-07-29": 891103, "2020-08-10": 891103}
+
+
+def test_an_edgar_inversion_of_the_cik_s_own_name_matches_by_name():
+    # Bob Evans Farms (33769) was 'EVANS BOB FARMS INC' in EDGAR until 2011-08-01 and is found only
+    # through SEC's name list: its own current name vouches for the inverted one.
+    bob = _issuer("BOB EVANS FARMS INC", periodic=("2011-03-01", "2018-01-10"),
+                  former=[{"name": "EVANS BOB FARMS INC", "from": "1994-03-08", "to": "2011-08-01"}])
+    assert sm.name_valid(bob, "bob evans farms", "2011-01-25", "2011-01-25", slack=30)
+    assert not sm.name_valid(_issuer("BANK FIRST CORP"), "first bank", "2020-01-02", "2020-01-02")
+    cands = sm.Candidates()
+    cands.add("BOBE", 33769, "sec_cik_lookup")
+    profiles = {33769: bob}
+    assert sm.resolve_listing("BOBE", "Bob Evans Farms, Inc. - Common Stock", cands, profiles,
+                              sm.build_name_index(profiles), "2010-12-31", "2017-12-15") == (33769, "name+lookup")
+
+
+def test_a_name_list_match_active_for_a_small_part_of_the_listing_is_split_by_date():
+    # 'First Bank' (FRBA, 2014-2024) and FIRSTBANK CORP (778972), which stopped filing in 2014.
+    firstbank = _issuer("FIRSTBANK CORP", periodic=("2011-03-01", "2014-03-14"))
+    cands = sm.Candidates()
+    cands.add("FRBA", 778972, "sec_cik_lookup")
+    profiles = {778972: firstbank}
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("FRBA", "First Bank", cands, profiles, index, "2014-01-22", "2024-02-27") == (
+        None, "ambiguous")
+    assert sm.resolve_by_date("FRBA", "First Bank", ["2014-01-22", "2019-01-03", "2024-02-27"], cands, profiles,
+                              index) == {"2014-01-22": 778972}
+    # A listing that outlives the last filing by months (a bankruptcy) stays whole.
+    assert sm.resolve_listing("FRBA", "First Bank", cands, profiles, index, "2012-01-22", "2014-12-01") == (
+        778972, "name+lookup")
+
+
+def test_x1000_shares_facts_expose_x1000_floats():
+    # Crosstex 2011: $364B float against 47.4B shares ($7.68 a share), while the 2012 10-K reports 47.6M
+    # shares; the 2013 float of $652M against 47.7M shares is the right one.
+    floats = _facts([("2011-12-31", 3.639612e11, "a"), ("2012-12-31", 4.574057e11, "b"), ("2013-06-30", 6.517286e8, "c")])
+    shares = _facts([("2011-12-31", 4.738972e10, "a"), ("2012-12-31", 4.755868e7, "b"), ("2013-03-31", 4.759951e10, "x"),
+                     ("2013-07-25", 4.772358e7, "c")])
+    assert f25.shares_x1000(shares, shares.iloc[0]) and not f25.shares_x1000(shares, shares.iloc[3])
+    out = f25.float_for_filing(floats, shares, 7, "2014-03-07")
+    assert out["public_float_usd"] == 6.517286e8 and out["float_check_flag"] == "ok" and out["float_facts_dropped"] == 2
+    # A 1-for-40 reverse split is no x1000 error (Lyra 2025: 65.9M shares, then 1.6M).
+    split = _facts([("2025-02-28", 6.588e7, "a"), ("2025-08-08", 1.644e6, "b")])
+    assert not f25.shares_x1000(split, split.iloc[0]) and not f25.shares_x1000(split, split.iloc[1])
+    # Below $20B the other shares fact is as likely the one in error (in thousands): Yellow 2023 keeps
+    # its $227M float at $4.4 a share although a nearby shares fact reads 51 thousand.
+    floats = _facts([("2023-06-30", 2.273e8, "a")])
+    shares = _facts([("2023-08-01", 5.15e7, "a"), ("2023-05-01", 5.15e4, "q")])
+    out = f25.float_for_filing(floats, shares, 7, "2023-09-08")
+    assert out["public_float_usd"] == 2.273e8 and out["float_check_flag"] == "ok"
+
+
+def test_absence_from_the_300m_screener_bounds_the_market_cap(tmp_path):
+    # Lyra 1327273 was in the Nasdaq lists in 2025-04 but not in the $300M-and-up screener: its 2024-06
+    # float of $13.8B ($209 a share) is a x1000 error. A CIK last seen before the screener date (GONE) or
+    # long before it (OLD) gives no bound.
+    screener = tmp_path / "nasdaq_300M_2025-04-14.csv"
+    screener.write_text("Symbol,Name,Market Cap\nAAPL,Apple Inc. Common Stock,3e12\n")
+    resolved = _raw([("LYRA", "2025-04-01", 1327273), ("LYRA", "2025-05-01", 1327273), ("AAPL", "2025-04-11", 320193),
+                     ("AAPL", "2025-04-18", 320193), ("OLD", "2025-01-02", 9), ("GONE", "2025-04-01", 8)])
+    bounds = f25.screener_bounds(resolved, [screener])
+    assert bounds[["date", "cik", "cap"]].values.tolist() == [["2025-04-14", 1327273, 3e8]]
+    caps = _caps([("2025-04-14", 3e8)])
+    assert f25.float_unit_flag(1.380319e10, pd.Timestamp("2024-06-28"), 6.588e7, None, caps) == "above_listed_market_cap"
+    assert f25.float_unit_flag(1.112e7, pd.Timestamp("2025-06-30"), 1.644e6, None, caps) == "ok"
+
+
+# ------------------------------------------------------------------ the built tables (skipped when absent)
+
+BUILT = [sm.MASTER, sm.INTERVALS, sm.RAW_ROWS, sm.WORK / "snapshot_dates.json", f25.OUTPUT]
+
+
+@pytest.mark.skipif(not all(p.exists() for p in BUILT), reason="step 3/4 outputs not built")
+def test_built_tables_respect_every_delist_date_and_the_named_cases():
+    import json
+    master = pd.read_csv(sm.MASTER, dtype=str, keep_default_na=False)
+    iv = pd.read_csv(sm.INTERVALS, dtype=str, keep_default_na=False)
+    raw = sm.read_raw_rows()
+    dates = json.loads((sm.WORK / "snapshot_dates.json").read_text())
+    full = sorted({d for f, ds in dates["families"].items() if not sm.is_partial_family(f) for d in ds})
+    assert sm.delist_date_violations(master, iv[iv["source"] != "sec_company_tickers_exchange"], raw, full).empty
+    by_sid = master.set_index("security_id")
+    for sid in ("1560385.T-FWONA", "1560385.T-FWONK"):
+        assert by_sid.loc[sid, "delist_date"] == "" and by_sid.loc[sid, "last_listed"] >= "2026-07-01"
+    snap = iv[iv["source"] != "sec_company_tickers_exchange"]
+    spans = lambda t, c: snap[(snap["ticker"] == t) & (snap["cik"] == c)][["start", "end"]].values.tolist()
+    assert len(spans("WINT", "946486")) == 2 and spans("WINT", "946486")[1][0] >= "2020-05-01"
+    assert by_sid.loc["946486", "delist_date"] == "2017-07-31"
+    assert spans("PIXY", "1675634") and by_sid.loc["1675634", "delist_date"] == ""
+    assert spans("WW", "105319")[-1][1] >= "2026-07-01" and by_sid.loc["105319", "delist_date"] == "2025-07-13"
+    assert spans("FRNM", "2017526") and by_sid.loc["2017526", "delist_date"] == ""
+    for ticker, cik in [("FLWS", "1084869"), ("ICLR", "1060955"), ("RUSHA", "1012019")]:
+        assert len(spans(ticker, cik)) == 1, ticker
+    assert len(spans("SPWR", "867773")) == 1
+    form25 = pd.read_csv(f25.OUTPUT, dtype=str, keep_default_na=False).set_index("accession")
+    assert form25.loc["0001354457-25-001270", "subject_exit"] == "N"
+    assert form25.loc["0000937556-16-000212", "class_kind"] == "right"
