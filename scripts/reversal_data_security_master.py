@@ -19,14 +19,36 @@ and the tickers on the Form 25 search hits. Each candidate's submissions JSON
 is fetched once and cached (``CACHE/raw/sec/submissions``).
 
 A snapshot row (date, symbol, name) is assigned to a CIK when the listed name
-matches the CIK's SEC name or one of its former names (``name+ticker`` when the
-CIK is also a ticker candidate, ``name_only`` when the name is unique among all
-fetched CIKs); with no name match it falls back to a single ticker candidate
-(``ticker_only``, low confidence). Consecutive snapshot appearances with the
-same CIK and share class form one interval; an interval breaks when the symbol
-is missing from two snapshots in a row or the gap exceeds 120 days. ``start``
-and ``end`` are observed dates; ``start_prev_absent``/``end_next_absent`` give
-the snapshots that bound them from outside.
+matches the CIK's SEC name or one of its former names, in any word order ('PRICE T
+ROWE GROUP INC'), at the time of the listing (``name+ticker`` when the CIK is also
+a ticker candidate, ``name_only`` when the name is unique among all fetched CIKs,
+``name+lookup`` when the candidate came from SEC's name list); with no name match
+it falls back to a single ticker candidate (``ticker_only``, low confidence). An
+EDGAR entity that files no periodic reports (a subsidiary, or a bank filing with
+the FDIC) never beats an issuer; alone, for a distinctive name, it is kept as
+``name+lookup_nonfiler``. Truncated names (two repo files cut names at the first
+hyphen) borrow the nearest full name and otherwise support no name-only match. A
+name valid for only part of a listing while a rival could hold the rest, or shared
+by two CIKs (a holding-company reorganisation), is split by date; a CIK's dates end
+at the Form 25 that ended its Nasdaq common listing, and its rows more than 10 days
+after that filing go to the successor that took the ticker, or to nobody. One
+ticker has one CIK on any date: where two CIKs' rows of a ticker overlap in time,
+the weaker evidence is dropped.
+
+Intervals are runs of one (CIK, share class, ticker) across every snapshot family.
+A run breaks only when the symbol is missing from two full-list snapshots in a row
+(any family), or another security holds the ticker in between; a stretch that no
+source covers (2011-01-25..2011-05-27, 2012-06-22..2012-10-24) does not break it
+and is recorded as ``coverage_gap_days``. ``start`` and ``end`` are observed
+dates; ``start_prev_absent``/``end_next_absent`` give the full-list snapshots that
+bound them from outside.
+
+Run order (each step reads the other's output; both are cache-first, and a rerun
+from cache takes a few minutes)::
+
+    form25 -> security_master -> form25 -> security_master
+
+repeated until neither table changes (round 2 converged after two alternations).
 
 Usage::
 
@@ -39,7 +61,6 @@ import argparse
 import bisect
 import html
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import gzip
 import json
@@ -75,7 +96,6 @@ MASTER = common.INPUTS / "security_master.csv"
 INTERVALS = common.INPUTS / "ticker_intervals.csv"
 WORK = SEC_RAW / "derived"
 FILINGS_SINCE = "2011-06-01"
-RUN_BREAK_DAYS = 120
 MULTI_CLASS_MIN_DATES = 3
 # SEC answers in about a second, so a few threads share SEC_LIMITER to reach its 7 requests a second.
 WORKERS = 6
@@ -95,24 +115,27 @@ MASTER_COLUMNS = ["security_id", "cik", "first_ticker", "name", "share_class", "
                   "tickers_observed", "tickers_sec_current", "exchanges_sec_current", "former_names", "sic",
                   "sic_description", "state_of_incorporation", "entity_type", "filer_category",
                   "domestic_periodic_first", "domestic_periodic_last", "foreign_forms_first", "foreign_forms_last",
-                  "filings_coverage_start", "older_pages_not_fetched", "in_form25", "form25_classes", "found_via"]
+                  "filings_coverage_start", "older_pages_not_fetched", "in_form25", "form25_classes", "found_via",
+                  "successor_security_id", "successor_date", "successor_form25_accession",
+                  "transfer_date", "transfer_form25_accession"]
 INTERVAL_COLUMNS = ["security_id", "ticker", "start", "end", "exchange", "source", "source_url",
                     # extras
                     "cik", "share_class", "start_prev_absent", "end_next_absent", "n_snapshots", "match",
-                    "name_in_source"]
+                    "name_in_source", "sources", "n_evidence_rows", "coverage_gap_days"]
 
 
 # ------------------------------------------------------------------ SEC submissions
 
-def parallel_map(function, items: list, workers: int = WORKERS, label: str = "", every: int = 500) -> list:
-    """``[function(item) for item in items]`` on a few threads (the shared SEC_LIMITER sets the pace)."""
-    results = [None] * len(items)
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(function, item): i for i, item in enumerate(items)}
-        for done, future in enumerate(futures, 1):
-            results[futures[future]] = future.result()
-            if label and done % every == 0:
-                print(f"  {label} {done}/{len(items)}", flush=True)
+def parallel_map(function, items: list, workers: int = WORKERS, label: str = "") -> list:
+    """``[function(item) for item in items]`` through ``common.parallel_map`` (threads sharing
+    SEC_LIMITER); the first failure is raised once every item has finished."""
+    items = list(items)
+    if label:
+        print(f"  {label}: {len(items)} items on {workers} threads", flush=True)
+    results = common.parallel_map(function, items, workers)
+    failures = [r for r in results if isinstance(r, Exception)]
+    if failures:
+        raise RuntimeError(f"{label or 'parallel_map'}: {len(failures)} of {len(items)} failed; first: {failures[0]}")
     return results
 
 
@@ -208,6 +231,7 @@ def full_profile(cik: int, *, offline: bool = False) -> dict | None:
                 pages.append({**page, "_page_name": name})
         profile = parse_submissions(payload, pages)
         profile["older_pages_fetched"] = len(pages)
+        profile["pages_read"] = [p["_page_name"] for p in pages]
     return profile
 
 
@@ -221,14 +245,44 @@ TRAILING_WORDS = {"new", "del", "md", "l", "p", "as"}
 ROMAN = {"ii": "2", "iii": "3", "iv": "4", "vi": "6", "vii": "7", "viii": "8", "ix": "9",
          "hldgs": "holdings", "hldg": "holding", "intl": "international", "grp": "group", "bancorporation": "bancorp"}
 SECURITY_TAIL = re.compile(
-    r"\s+-\s+.*$|\s+(?:class [a-z]\b|series [a-z]\b|common stock|common shares|ordinary shares|capital stock|"
+    r"\s+(?:class [a-z]\b|series [a-z]\b|common stock|common shares|ordinary shares|capital stock|"
     r"american depositary|american depository|depositary shares|sponsored adr|adr\b|ads\b|shares of beneficial|"
     r"new york registry|subordinate voting|common units?).*$", re.I)
+# A ' - ' part of a listed name is cut only when it names a security ('PMC - Sierra, Inc. - Common Stock'
+# keeps 'PMC - Sierra, Inc.').
+SECURITY_PHRASE = re.compile(
+    r"\b(?:stock|shares?|units?|warrants?|rights?|notes?|debentures?|bonds?|preferred|deposit[ao]ry|adrs?|adss?|"
+    r"receipts?|interests?|ordinary|common|class [a-z]|series [a-z]|issued|certificates?|voting|subordinate|"
+    r"tracking)\b|%", re.I)
+
+
+def strip_security_phrase(text: str) -> str:
+    parts = re.split(r"\s+-\s+", text)
+    while len(parts) > 1 and SECURITY_PHRASE.search(parts[-1]):
+        parts.pop()
+    return " ".join(parts)
+
+
+def _join_single_letters(tokens: list[str]) -> list[str]:
+    """'hunt j b transport' -> 'hunt jb transport' (EDGAR drops the dots of initials, listings keep them)."""
+    out, run = [], []
+    for token in tokens:
+        if len(token) == 1 and token.isalpha():
+            run.append(token)
+            continue
+        if run:
+            out.append("".join(run))
+            run = []
+        out.append(token)
+    if run:
+        out.append("".join(run))
+    return out
 
 
 def normalize_issuer_name(text: str) -> str:
     """'Achillion Pharmaceuticals, Inc. - Common Stock' and 'ACHILLION PHARMACEUTICALS INC' -> 'achillion pharmaceuticals'."""
     text = html.unescape(str(text or "")).strip()
+    text = strip_security_phrase(text)
     text = SECURITY_TAIL.sub("", text)
     text = re.sub(r"\s*[\\/]\s*[A-Za-z]{2,4}\s*[\\/]?\s*$", "", text)  # COST PLUS INC/CA/, LANDEC CORP \CA\, X INC / CT
     text = re.sub(r"\([^)]*\)", " ", text)  # Bank of Commerce Holdings (CA), Elmira Savings Bank (The)
@@ -236,28 +290,40 @@ def normalize_issuer_name(text: str) -> str:
     text = re.sub(r"['’`]", "", text)  # Conn's -> Conns
     text = text.lower().replace("&", " and ")
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    tokens = [ROMAN.get(t, t) for t in text.split() if t not in LEGAL_WORDS]
+    tokens = [ROMAN.get(t, t) for t in _join_single_letters(text.split()) if t not in LEGAL_WORDS]
     while tokens and tokens[-1] in TRAILING_WORDS:
         tokens.pop()
     return " ".join(tokens)
 
 
+FILLER_WORDS = {"of", "and", "the", "for"}
 GENERIC_FIRST = {"first", "american", "united", "china", "national", "global", "international", "new", "great",
                  "general", "southern", "northern", "western", "eastern", "pacific", "atlantic", "community", "bank",
                  "citizens", "peoples", "home", "us", "north", "south", "west", "east", "central", "capital"}
 
 
 def names_match(a: str, b: str) -> bool:
-    """Normalized names equal, or one a token prefix of the other (two tokens, or one distinctive token)."""
+    """Normalized names equal (in any word order: EDGAR stores 'PRICE T ROWE GROUP INC'), or one a token
+    prefix of the other (two tokens, or one distinctive token)."""
     if not a or not b:
         return False
     if a == b or a.replace(" ", "") == b.replace(" ", ""):
         return True
     ta, tb = a.split(), b.split()
+    if len(ta) >= 2 and sorted(ta) == sorted(tb):
+        return True
+    fa, fb = [t for t in ta if t not in FILLER_WORDS], [t for t in tb if t not in FILLER_WORDS]
+    if len(fa) >= 2 and fa == fb:  # 'motorcar parts of america' and EDGAR's 'MOTORCAR PARTS AMERICA INC'
+        return True
     short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
     if long_[:len(short)] != short:
         return False
     return len(short) >= 2 or (len(short[0]) >= 5 and short[0] not in GENERIC_FIRST)
+
+
+def distinctive_name(key: str) -> bool:
+    """A normalized name that may identify a company by itself: two tokens or more, six letters or more."""
+    return len(key.split()) >= 2 and len(key.replace(" ", "")) >= 6
 
 
 def share_class_from_name(name: str) -> str:
@@ -278,8 +344,11 @@ NON_COMMON = re.compile(
     r"BLDRS|VelocityShares|NextShares|Index Tracking Stock|\bTrust,? Series 1\b", re.I)
 
 
-ADR_NAME = re.compile(r"american depositary|american depository|\bADS\b|\bADRs?\b|new york registry", re.I)
+ADR_NAME = re.compile(r"\bamer\w*\s+deposit[ao]ry|\bADS\b|\bADRs?\b|new york registry", re.I)
 ADR_EXCLUDE = re.compile(r"preferred|warrant|\brights?\b|\bunits?\b|notes? due", re.I)
+# On Nasdaq a depositary share or receipt that is not an American depositary share is a fractional
+# preferred (SRCLP 'Depository Receipt', IBKCP 'Depositary Shares Representing Series B').
+DEPOSITARY_PREFERRED = re.compile(r"deposit[ao]ry (?:shares?|receipts?)\b", re.I)
 
 
 def is_common_equity(name: str) -> bool:
@@ -291,6 +360,8 @@ def is_common_equity(name: str) -> bool:
     name = str(name or "")
     if ADR_NAME.search(name) and not ADR_EXCLUDE.search(name):
         return True
+    if DEPOSITARY_PREFERRED.search(name) and not re.search(r"ordinary|common share", name, re.I):
+        return False
     return not NON_COMMON.search(name)
 
 
@@ -304,13 +375,27 @@ def _date_from_name(path: Path) -> str:
     return text if "-" in text else f"{text[:4]}-{text[4:6]}-{text[6:]}"
 
 
+# Repo files whose names were cut at the first hyphen ('Coca' for Coca-Cola, 'G' for G-III, '1' for
+# 1-800-Flowers): their rows borrow the nearest full name of the same symbol.
+TRUNCATED_NAME_FILES = {"nasdaq_listed_2015-01-10.csv", "nasdaq_listed_2018-08-22.csv"}
+NO_LAST_SALE = {"", "N/A", "NA", "NAN", "NONE"}
+
+
 def _read_snapshot(path: Path, source: str) -> pd.DataFrame:
+    """One snapshot file as rows (symbol, name, date, flags, source, source_url, name_truncated).
+
+    Company-list rows without a last sale are dropped: they are companies in the IPO
+    pipeline, not listed securities.
+    """
     frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     columns = {c.lower().strip(): c for c in frame.columns}
     symbol = columns.get("symbol") or columns.get("ticker")
     name = columns.get("name") or columns.get("security name") or columns.get("company name")
     if not symbol or not name:
         return pd.DataFrame()
+    last_sale = columns.get("lastsale") or columns.get("last sale")
+    if last_sale and source == "wayback_companylist":
+        frame = frame[~frame[last_sale].str.strip().str.lstrip("$").str.upper().isin(NO_LAST_SALE)]
     observed = columns.get("observed at") or columns.get("snapshot_date") or columns.get("date")
     out = pd.DataFrame({"symbol": frame[symbol].str.strip().str.upper(), "name": frame[name].str.strip()})
     out["date"] = frame[observed].str[:10] if observed else _date_from_name(path)
@@ -320,6 +405,7 @@ def _read_snapshot(path: Path, source: str) -> pd.DataFrame:
     source_file = columns.get("source file")
     out["source"] = source
     out["source_url"] = frame[source_file] if source_file else str(path)
+    out["name_truncated"] = Path(path).name in TRUNCATED_NAME_FILES
     return out
 
 
@@ -336,8 +422,10 @@ def load_listing_snapshots(snapshot_dir: Path = SNAPSHOT_DIR, hook_dirs: dict[st
                 frames.append(_read_snapshot(path, source))
     frames = [f for f in frames if not f.empty]
     if not frames:
-        return pd.DataFrame(columns=["symbol", "name", "date", "ETF", "Test Issue", "NextShares", "source", "source_url"])
+        return pd.DataFrame(columns=["symbol", "name", "date", "ETF", "Test Issue", "NextShares", "source", "source_url",
+                                     "name_truncated"])
     snapshots = pd.concat(frames, ignore_index=True)
+    snapshots["name_truncated"] = snapshots["name_truncated"].fillna(False).astype(bool)
     return snapshots[(snapshots["symbol"] != "") & (snapshots["date"] != "")]
 
 
@@ -351,17 +439,38 @@ NEAREST_TYPED_DAYS = 3 * 365
 
 def fill_symbol_only_names(snapshots: pd.DataFrame, days: int = 90) -> pd.DataFrame:
     """Rows whose name is just the symbol (the 2019-06-17 file) borrow the name of the nearest other
-    row of the same symbol within ``days``; with none the name is left empty."""
+    row of the same symbol within ``days``; with none the name is left empty.
+
+    Rows of a file with names cut at the first hyphen (``name_truncated``) borrow the nearest full
+    name of the same symbol within ``days`` when the cut name is its start ('Coca' -> 'Coca-Cola
+    Consolidated, Inc.'); otherwise they keep the cut name and stay flagged.
+    """
     frame = snapshots.copy()
+    if "name_truncated" not in frame:
+        frame["name_truncated"] = False
     bare = frame["name"].str.strip().str.upper().eq(frame["symbol"])
-    if not bare.any():
+    cut = frame["name_truncated"].astype(bool) & ~bare
+    if not bare.any() and not cut.any():
         return frame
     frame["_day"] = pd.to_datetime(frame["date"], errors="coerce")
-    named = frame[~bare & frame["_day"].notna()][["symbol", "_day", "name"]].rename(columns={"name": "borrowed"})
-    rows = frame[bare & frame["_day"].notna()].reset_index()
-    near = pd.merge_asof(rows.sort_values("_day"), named.sort_values("_day"), on="_day", by="symbol",
-                         direction="nearest", tolerance=pd.Timedelta(days=days)).set_index("index")["borrowed"]
-    frame.loc[near.index, "name"] = near.fillna("")
+    named = frame[~bare & ~cut & frame["_day"].notna()][["symbol", "_day", "name"]].rename(columns={"name": "borrowed"})
+    named = named.sort_values("_day")
+    if bare.any():
+        rows = frame[bare & frame["_day"].notna()].reset_index()
+        near = pd.merge_asof(rows.sort_values("_day"), named, on="_day", by="symbol",
+                             direction="nearest", tolerance=pd.Timedelta(days=days)).set_index("index")["borrowed"]
+        frame.loc[near.index, "name"] = near.fillna("")
+        frame.loc[near.index[near.notna()], "name_truncated"] = False
+    if cut.any():
+        rows = frame[cut & frame["_day"].notna()].reset_index()
+        near = pd.merge_asof(rows.sort_values("_day"), named, on="_day", by="symbol",
+                             direction="nearest", tolerance=pd.Timedelta(days=days)).set_index("index")
+        compact = lambda text: re.sub(r"[^a-z0-9]", "", str(text).lower())
+        fits = [isinstance(b, str) and bool(compact(n)) and compact(b).startswith(compact(n))
+                for n, b in zip(near["name"], near["borrowed"])]
+        fit = near[fits]
+        frame.loc[fit.index, "name"] = fit["borrowed"]
+        frame.loc[fit.index, "name_truncated"] = False
     return frame.drop(columns="_day")
 
 
@@ -424,6 +533,13 @@ def price_file_ranges(price_dir: Path = PRICE_DIR) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def text_value(value) -> str:
+    """``value`` as text, with None and NaN as '' (``str(nan or '')`` is 'nan')."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value)
+
+
 class Candidates:
     """ticker -> {cik: set(sources)}."""
 
@@ -431,7 +547,9 @@ class Candidates:
         self.map: dict[str, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
 
     def add(self, ticker, cik, source: str) -> None:
-        ticker = str(ticker or "").strip().upper()
+        ticker = text_value(ticker).strip().upper()
+        if ticker in ("NAN", "NONE", "NULL"):
+            return
         try:
             cik = int(cik)
         except (TypeError, ValueError):
@@ -496,7 +614,7 @@ def collect_candidates(sec_current: list[dict], form25: pd.DataFrame | None) -> 
                 cands.add(row.ticker, row.source_cik, f"repo_{path.name}")
     if form25 is not None:
         for row in form25.itertuples():
-            for ticker in str(row.subject_tickers_sec or "").split():
+            for ticker in text_value(row.subject_tickers_sec).split():
                 cands.add(ticker, row.subject_cik, "form25_efts_display_name")
     # Old symbols take the CIK of the ticker they became (same issuer, renamed).
     for path in SYMBOL_HISTORY_FILES:
@@ -520,14 +638,41 @@ def name_key(text: str) -> str:
     return normalize_issuer_name(text).replace(" ", "")
 
 
+def index_keys(normalized: str) -> list[str]:
+    """Keys of a normalized name in a name index: without spaces, and (two tokens or more) its sorted
+    tokens, so 'price t rowe group' and 't rowe price group' share a key."""
+    if not normalized:
+        return []
+    keys = [normalized.replace(" ", "")]
+    tokens = normalized.split()
+    if len(tokens) >= 2:
+        keys.append("~" + " ".join(sorted(tokens)))
+    return keys
+
+
+def names_in(index: dict[str, set[int]] | None, normalized: str) -> set[int]:
+    """CIKs filed under ``normalized`` (any key) in a name index."""
+    if not index:
+        return set()
+    found: set[int] = set()
+    for key in index_keys(normalized):
+        found |= index.get(key, set())
+    return found
+
+
 def build_name_index(profiles: dict[int, dict]) -> dict[str, set[int]]:
     index: dict[str, set[int]] = defaultdict(set)
     for cik, profile in profiles.items():
         for name in [profile["name"], *[f["name"] for f in profile["former_names"]]]:
-            key = name_key(name)
-            if key:
+            for key in index_keys(normalize_issuer_name(name)):
                 index[key].add(cik)
     return index
+
+
+def issuer_like(profile: dict) -> bool:
+    """False for an EDGAR entity typed 'other' that never filed a 10-K, 10-Q, 20-F or 40-F (a
+    subsidiary, trust or filing agent sharing the issuer's name)."""
+    return not (str(profile.get("entity_type") or "").lower() == "other" and not profile.get("periodic_dates"))
 
 
 def profile_names(profile: dict) -> list[str]:
@@ -539,14 +684,32 @@ def _shift(day: str, days: int) -> str:
 
 
 def profile_name_spans(profile: dict) -> list[tuple[str, str, str]]:
-    """(normalized name, from, to) for the current and each former EDGAR name."""
+    """(normalized name, from, to) for the current and each former EDGAR name.
+
+    EDGAR's 'from' dates are unreliable: the earliest recorded name can be dated from a late filing
+    (MICROSTRATEGY INC from 2018-10-25), and a name can start years after the one before it ended
+    (eXp World Holdings from 2025-02-19 after eXp Realty International ended 2016-04-27). The names
+    are chained in order of their end dates: each starts where the previous one ended, and the
+    earliest reaches back to the CIK's first filing (from the submissions' page index, fetched or
+    not), never before it, as a holding company formed in 2013 did not bear its predecessor's name
+    in 2010.
+    """
     spans = profile.get("_name_spans")
     if spans is None:
-        former = profile.get("former_names") or []
-        current_from = max((f["to"] for f in former if f.get("to")), default="") or "0000-00-00"
-        spans = [(normalize_issuer_name(profile["name"]), current_from, "9999-12-31")]
-        spans += [(normalize_issuer_name(f["name"]), f.get("from") or "0000-00-00", f.get("to") or "9999-12-31")
-                  for f in former]
+        former = sorted((f for f in profile.get("former_names") or [] if f.get("name")),
+                        key=lambda f: (f.get("to") or "9999-12-31", f.get("from") or ""))
+        first_filed = min([q.get("from") or "" for q in profile.get("older_pages") or [] if isinstance(q, dict)]
+                          + [profile.get("coverage_start") or ""], default="")
+        first_filed = first_filed if first_filed and first_filed > "0000" else "0000-00-00"
+        spans, previous_end = [], first_filed
+        for f in former:
+            begin = min(f.get("from") or previous_end, previous_end) if spans or f.get("from") else previous_end
+            begin = min(begin, f.get("from") or begin)
+            end_ = f.get("to") or "9999-12-31"
+            spans.append((normalize_issuer_name(f["name"]), begin, end_))
+            previous_end = max(previous_end, end_) if end_ != "9999-12-31" else previous_end
+        current_from = max((f["to"] for f in former if f.get("to")), default="") or first_filed
+        spans.insert(0, (normalize_issuer_name(profile["name"]), current_from, "9999-12-31"))
         spans = [span for span in spans if span[0]]
         profile["_name_spans"] = spans
     return spans
@@ -557,9 +720,15 @@ def name_valid(profile: dict, key: str, first: str = "", last: str = "", exact: 
     """The CIK carried a name matching ``key`` at some time in first..last (give or take ``slack`` days)."""
     lo = _shift(first, -slack) if first else "0000-00-00"
     hi = _shift(last or first, slack) if (last or first) else "9999-12-31"
-    compact = key.replace(" ", "")
-    return any((n.replace(" ", "") == compact if exact else names_match(key, n)) and a <= hi and b >= lo
+    compact, tokens = key.replace(" ", ""), sorted(key.split())
+    same = lambda n: n.replace(" ", "") == compact or (len(tokens) >= 2 and sorted(n.split()) == tokens)
+    return any((same(n) if exact else names_match(key, n)) and a <= hi and b >= lo
                for n, a, b in profile_name_spans(profile))
+
+
+def name_valid_throughout(profile: dict, key: str, first: str, last: str, slack: int = NAME_SLACK_DAYS) -> bool:
+    """The CIK bore a name matching ``key`` both when the listing was first and last seen."""
+    return name_valid(profile, key, first, first, slack=slack) and name_valid(profile, key, last, last, slack=slack)
 
 
 def active_during(profile: dict, first: str, last: str, slack_days: int = 400) -> bool:
@@ -581,6 +750,15 @@ def periodic_during(profile: dict, first: str, last: str, slack_days: int = 400)
     return i < len(dates) and dates[i] <= hi
 
 
+def reported_during(profile: dict, first: str, last: str, slack_days: int = 400) -> bool:
+    """A periodic report within ``slack_days`` of first..last; or, for a CIK that files periodic reports
+    and whose fetched filings start after that, presumed (its older pages hold that period)."""
+    if periodic_during(profile, first, last, slack_days):
+        return True
+    return bool(profile.get("periodic_dates")) and bool(profile.get("older_pages")) and \
+        profile.get("coverage_start", "") > _shift(last, slack_days)
+
+
 def covers(profile: dict, first: str, last: str) -> bool:
     lo, hi = activity_window(profile)
     return bool(lo) and lo <= first and hi >= last
@@ -588,55 +766,111 @@ def covers(profile: dict, first: str, last: str) -> bool:
 
 def resolve_listing(symbol: str, name: str, cands: Candidates, profiles: dict[int, dict],
                     name_index: dict[str, set[int]], first: str = "", last: str = "",
-                    lookup: dict[str, set[int]] | None = None) -> tuple[int | None, str]:
+                    lookup: dict[str, set[int]] | None = None, truncated: bool = False) -> tuple[int | None, str]:
     """(cik, how) for one snapshot (symbol, name) seen first..last.
 
     Names are compared with the EDGAR name the CIK carried at the time (current and
-    former names with their dates). how: name+ticker (a ticker candidate with that
-    name), name+lookup (that candidate came from SEC's name list), name_only (the only
-    CIK, among every EDGAR entity of that name, filing during the listing),
-    name_profiled (the name is too common in EDGAR, but only one profiled company bore
-    it and filed then), ticker_only (one mapped ticker candidate filing then, names
-    differ), ambiguous (split later by date), unresolved.
+    former names with their dates), in any word order. how: name+ticker (a ticker
+    candidate with that name), name+lookup (that candidate came from SEC's name list: an
+    issuer filing during the listing; for a name of one token or under six letters, the
+    only one filing periodic reports then), name+lookup_nonfiler (a distinctive name whose
+    only EDGAR entity files no periodic reports, such as a bank filing with the FDIC),
+    name_only (the only CIK, among every EDGAR entity of that name, filing during the
+    listing), name_profiled (the name is too common in EDGAR, but only one profiled
+    company bore it and filed then), ticker_only (one mapped ticker candidate filing then,
+    names differ), ambiguous (split later by date: two candidates, or a name the CIK bore
+    for only part of the listing), unresolved. A non-issuer (entity type 'other' with no
+    periodic report) never beats an issuer. ``truncated`` marks a name cut short in its
+    source file: it supports no name-derived match.
     """
     key = normalize_issuer_name(name)
     compact = key.replace(" ", "")
     options = cands.get(symbol)
     ticker_ciks = [c for c in options if c in profiles]
-    same_name = set(name_index.get(compact, set())) | (lookup.get(compact, set()) if lookup else set())
-    by_name = [c for c in ticker_ciks if name_valid(profiles[c], key, first, last)]
-    if len(by_name) > 1:  # a mapped ticker beats a name-list hit; then exact names; then filing at the time
-        mapped_by_name = [c for c in by_name if options[c] - {"sec_cik_lookup"}]
-        by_name = mapped_by_name if len(mapped_by_name) == 1 else by_name
-    if len(by_name) > 1:
+    same_name = names_in(name_index, key) | names_in(lookup, key)
+    # A candidate from SEC's name list only is accepted when it is an issuer filing periodic reports
+    # during the listing (for a one-token or short name, the only such CIK), or, for a distinctive
+    # name with no competitor, an entity that files no periodic reports with SEC (a bank filing with
+    # the FDIC, such as Signature Bank): 'name+lookup_nonfiler'. Never for a truncated name.
+    lookup_only = lambda c: options[c] <= {"sec_cik_lookup"}
+    reporting = lambda c: not first or active_during(profiles[c], first, last) or reported_during(profiles[c], first, last)
+    distinct = distinctive_name(key)
+    short_ok = not truncated and len(compact) >= 2 and compact not in GENERIC_FIRST
+    name_ok = not truncated and (distinct or short_ok)
+
+    def lookup_strength(c) -> int:
+        profile = profiles[c]
+        if truncated:
+            return 0
+        if issuer_like(profile):
+            if distinct and reporting(c):
+                return 2
+            if short_ok and (not first or reported_during(profile, first, last)):
+                return 2
+            return 0
+        return 1 if distinct else 0
+
+    named = [c for c in ticker_ciks if name_valid(profiles[c], key, first, last)]
+    mapped_named = [c for c in named if not lookup_only(c)]
+    if any(issuer_like(profiles[c]) and (not first or active_during(profiles[c], first, last))
+           for c in ticker_ciks if not lookup_only(c)):  # a sub-entity listing the ticker never beats the issuer
+        mapped_named = [c for c in mapped_named if issuer_like(profiles[c])]
+    strong = [c for c in named if lookup_only(c) and lookup_strength(c) == 2]
+    weak = [c for c in named if lookup_only(c) and lookup_strength(c) == 1]
+    if not mapped_named and not distinct and len(strong) > 1:
+        return None, "ambiguous"
+    mapped_any = [c for c in ticker_ciks if not lookup_only(c)]
+    if not mapped_any and not strong and len(weak) == 1 and not any(
+            c in profiles and issuer_like(profiles[c]) for c in same_name - set(weak)):
+        return weak[0], "name+lookup_nonfiler"
+    by_name = mapped_named + strong
+    if len(by_name) > 1:  # a mapped ticker beats a name-list hit
+        by_name = mapped_named if len(mapped_named) == 1 else by_name
+    if len(by_name) > 1 and first:  # a name valid over the whole listing beats one valid over part of it
+        whole = [c for c in by_name if name_valid_throughout(profiles[c], key, first, last)]
+        by_name = whole if len(whole) == 1 else by_name
+    if len(by_name) > 1 and first:  # SEC's current holder of the ticker, if it reported during the listing
+        holder = [c for c in by_name if symbol in profiles[c]["tickers"] and reported_during(profiles[c], first, last)]
+        by_name = holder if len(holder) == 1 else by_name
+    if len(by_name) > 1:  # then exact names; then filing at the time
         exact = [c for c in by_name if name_valid(profiles[c], key, first, last, exact=True)] or by_name
         active = [c for c in exact if not first or active_during(profiles[c], first, last)] or exact
         by_name = active
-    if len(by_name) == 1 and first and not covers(profiles[by_name[0]], first, last):
+    if len(by_name) == 1 and first:
         # A same-name CIK that filed during only part of the listing too: a holding-company
-        # reorganisation (old and new CIK share name and ticker); split by date later.
+        # reorganisation (old and new CIK share name and ticker); split by date later. So is a
+        # name that was the CIK's EDGAR name for only part of the listing.
         partial = [c for c in same_name - set(by_name) if c in profiles and active_during(profiles[c], first, last)
-                   and name_valid(profiles[c], key, first, last)]
-        if partial:
+                   and name_valid(profiles[c], key, first, last) and issuer_like(profiles[c])]
+        if partial and not covers(profiles[by_name[0]], first, last):
             return None, "ambiguous"
+        rivals = partial or [c for c in mapped_any if c != by_name[0] and issuer_like(profiles[c])
+                             and active_during(profiles[c], first, last)]
+        if not name_valid_throughout(profiles[by_name[0]], key, first, last) and (lookup_only(by_name[0]) or rivals):
+            return None, "ambiguous"  # split by date; a sole mapped holder with no rival keeps the pair
     if len(by_name) == 1:
-        lookup_only = options[by_name[0]] <= {"sec_cik_lookup"}
-        return by_name[0], "name+lookup" if lookup_only else "name+ticker"
+        return by_name[0], "name+lookup" if lookup_only(by_name[0]) else "name+ticker"
     if len(by_name) > 1:
         return None, "ambiguous"
     live = [c for c in same_name if c in profiles and (not first or active_during(profiles[c], first, last))
-            and name_valid(profiles[c], key, first, last)]
+            and name_valid(profiles[c], key, first, last) and issuer_like(profiles[c])]
     if len(live) > 1 and first:  # a parent filing periodic reports beats a same-name subsidiary
-        reporting = [c for c in live if periodic_during(profiles[c], first, last)]
-        live = reporting if len(reporting) == 1 else live
-    if 0 < len(same_name) <= LOOKUP_MAX_CIKS and len(live) == 1 and all(c in profiles for c in same_name):
+        reporting_now = [c for c in live if reported_during(profiles[c], first, last)]
+        live = reporting_now if len(reporting_now) == 1 else live
+    if not distinct and first:  # a one-token or short name needs an issuer reporting during the listing
+        live = [c for c in live if reported_during(profiles[c], first, last)]
+    if name_ok and len(live) == 1 and first and not name_valid_throughout(profiles[live[0]], key, first, last):
+        return None, "ambiguous"
+    if name_ok and 0 < len(same_name) <= LOOKUP_MAX_CIKS and len(live) == 1 and all(c in profiles for c in same_name):
         return live[0], "name_only"
-    if len(same_name) > LOOKUP_MAX_CIKS and len(live) == 1 and len(compact) >= 6:
+    if name_ok and len(same_name) > LOOKUP_MAX_CIKS and len(live) == 1:
         return live[0], "name_profiled"
-    mapped = [c for c in ticker_ciks if options[c] - {"sec_cik_lookup"}]
+    mapped = [c for c in ticker_ciks if not lookup_only(c)]
+    if any(issuer_like(profiles[c]) for c in mapped):
+        mapped = [c for c in mapped if issuer_like(profiles[c])]
     if len(mapped) == 1 and (not first or active_during(profiles[mapped[0]], first, last)):
         return mapped[0], "ticker_only"
-    if len(mapped) > 1 or len(live) > 1:
+    if len(mapped) > 1 or (name_ok and len(live) > 1):
         return None, "ambiguous"
     return None, "unresolved"
 
@@ -667,23 +901,38 @@ def activity_window(profile: dict, today: str | None = None) -> tuple[str, str]:
 
 
 def resolve_by_date(symbol: str, name: str, dates: list[str], cands: Candidates, profiles: dict[int, dict],
-                    name_index: dict[str, set[int]], lookup: dict[str, set[int]] | None = None) -> dict[str, int]:
+                    name_index: dict[str, set[int]], lookup: dict[str, set[int]] | None = None,
+                    exits: dict[int, str] | None = None, truncated: bool = False) -> dict[str, int]:
     """For a pair whose name matches several CIKs (a holding-company reorganisation reuses name and
-    ticker), assign each snapshot date to the candidate that bore the name and whose activity window
-    holds the date; where two windows overlap the incumbent (earlier start) keeps it, unless both
-    span every date (two unrelated companies), which stays unassigned."""
+    ticker), or a CIK for only part of the pair's dates, assign each snapshot date to the candidate
+    that bore the name on that date and whose activity window holds the date.
+
+    A CIK's window ends at the filing date of the Form 25 that ended its Nasdaq common listing
+    (``exits``): the exchange files it once trading has stopped, so later rows of that ticker belong
+    to a successor. Where two windows overlap the incumbent (earlier start) keeps the date, unless
+    both span every date (two unrelated companies), which stays unassigned. A date with one
+    candidate accepts a name within NAME_SLACK_DAYS of its EDGAR dates; competing candidates are
+    judged within DATED_NAME_SLACK_DAYS.
+    """
     key = normalize_issuer_name(name)
-    compact = key.replace(" ", "")
     options = {c for c in cands.get(symbol) if c in profiles}
-    options |= {c for c in set(name_index.get(compact, set())) | (lookup.get(compact, set()) if lookup else set())
-                if c in profiles}
-    options = {c for c in options if name_valid(profiles[c], key, dates[0], dates[-1])}
-    windows = {c: activity_window(profiles[c]) for c in options}
+    if not truncated and (distinctive_name(key) or len(key.replace(" ", "")) >= 6):
+        options |= {c for c in names_in(name_index, key) | names_in(lookup, key) if c in profiles}
+    options = {c for c in options if name_valid(profiles[c], key, dates[0], dates[-1]) and issuer_like(profiles[c])}
+    windows = {}
+    for c in options:
+        lo, hi = activity_window(profiles[c])
+        cut = (exits or {}).get(c)
+        if cut and lo and cut >= lo:
+            hi = min(hi, cut)
+        windows[c] = (lo, hi)
     span = lambda c: windows[c][0] <= dates[0] and windows[c][1] >= dates[-1]
     out = {}
     for day in dates:
         inside = [c for c, (lo, hi) in windows.items() if lo and lo <= day <= hi
-                  and name_valid(profiles[c], key, day, day, slack=DATED_NAME_SLACK_DAYS)]
+                  and name_valid(profiles[c], key, day, day, slack=NAME_SLACK_DAYS)]
+        if len(inside) > 1:
+            inside = [c for c in inside if name_valid(profiles[c], key, day, day, slack=DATED_NAME_SLACK_DAYS)]
         if len(inside) == 1:
             out[day] = inside[0]
         elif inside and not all(span(c) for c in inside):
@@ -702,85 +951,171 @@ def load_cik_lookup(*, offline: bool = False) -> dict[str, set[int]]:
     for line in text.splitlines():
         name, _, rest = line.rstrip().rstrip(":").rpartition(":")
         if rest.isdigit() and name:
-            key = name_key(name)
-            if key:
+            for key in index_keys(normalize_issuer_name(name)):
                 index[key].add(int(rest))
     return index
 
 
-def build_intervals(rows: pd.DataFrame, snapshot_dates: dict[str, list[str]]) -> pd.DataFrame:
-    """Intervals from resolved snapshot rows (symbol, date, cik, share_class, source, ...).
+MATCH_RANK = {"name+ticker": 0, "name+lookup": 1, "name_only": 2, "name_profiled": 2, "name+dated": 3,
+              "successor": 3, "name+lookup_nonfiler": 4, "ticker_only": 4}
+# Families that list only part of Nasdaq: a symbol missing from them is no evidence of absence.
+PARTIAL_FAMILIES = {"repo_screener_300M"}
+FAMILY_ORDER = {"repo_symdir": 0, "wayback_symdir": 1, "wayback_companylist": 2, "repo_screener_300M": 3}
+# Rows of a CIK this long after the filing of its terminal Form 25 are not its own (the exchange
+# files the 25 once trading has stopped; a few lists lag by days).
+EXIT_GRACE_DAYS = 10
 
-    ``snapshot_dates`` maps each source family to its sorted snapshot dates, so a
-    run breaks when the symbol is missing from two snapshots in a row, or when
-    consecutive appearances are more than RUN_BREAK_DAYS apart.
+
+def presence_by_date(snapshots: pd.DataFrame) -> dict[str, set[str]]:
+    """date -> every symbol in that day's snapshots (any family, common or not)."""
+    return {day: set(symbols) for day, symbols in snapshots.groupby("date")["symbol"]}
+
+
+def build_intervals(rows: pd.DataFrame, snapshot_dates: dict[str, list[str]],
+                    present: dict[str, set[str]] | None = None) -> pd.DataFrame:
+    """Intervals of each (cik, share_class, ticker) from resolved snapshot rows of every family.
+
+    ``rows`` has symbol, date, cik, share_class, family, source_url, how, name.
+    ``snapshot_dates`` maps each family to its sorted dates and ``present`` maps a date to the
+    symbols in that day's snapshots (default: the symbols in ``rows``). A run breaks only when, on the
+    union of the full-list families' dates, the symbol is missing from two snapshots in a row, or
+    another security holds the ticker in between. A stretch with no snapshot at all (no source covers
+    it) never breaks a run; the longest such stretch inside the interval is ``coverage_gap_days``.
     """
+    full = sorted({d for family, days in snapshot_dates.items() if family not in PARTIAL_FAMILIES for d in days})
+    every = sorted({d for days in snapshot_dates.values() for d in days})
+    if present is None:
+        present = presence_by_date(rows)
     out = []
-    for (family, symbol), group in rows.sort_values("date").groupby(["family", "symbol"], sort=False):
-        dates = snapshot_dates[family]
-        position = {d: i for i, d in enumerate(dates)}
-        run: list = []
-
-        def flush():
-            if not run:
-                return
-            first, last = run[0], run[-1]
-            i, j = position[first.date], position[last.date]
-            out.append({"cik": first.cik, "share_class": first.share_class, "ticker": symbol,
-                        "start": first.date, "end": last.date,
-                        "start_prev_absent": dates[i - 1] if i > 0 else "",
-                        "end_next_absent": dates[j + 1] if j + 1 < len(dates) else "",
-                        "n_snapshots": len(run), "exchange": "NASDAQ", "source": family,
-                        "source_url": first.source_url, "match": first.how, "name_in_source": last.name})
-
-        for row in group.itertuples():
-            if run:
-                prev = run[-1]
-                skipped = position[row.date] - position[prev.date] - 1
-                gap = (pd.Timestamp(row.date) - pd.Timestamp(prev.date)).days
-                if (row.cik, row.share_class) != (prev.cik, prev.share_class) or skipped >= 2 or gap > RUN_BREAK_DAYS:
-                    flush()
-                    run = []
-            run.append(row)
-        flush()
+    ordered = rows.sort_values(["symbol", "date"])
+    columns = ["date", "cik", "share_class", "family", "source_url", "how", "name"]
+    for symbol, group in ordered.groupby("symbol", sort=False):
+        holders: dict[str, set] = defaultdict(set)
+        by_key: dict[tuple, list] = defaultdict(list)
+        for record in zip(*(group[c].tolist() for c in columns)):
+            key = (int(record[1]), record[2])
+            holders[record[0]].add(key)
+            by_key[key].append(record)
+        for key, records in by_key.items():
+            days = sorted({r[0] for r in records})
+            runs, begin = [], 0
+            for i in range(1, len(days)):
+                a, b = days[i - 1], days[i]
+                between = full[bisect.bisect_right(full, a):bisect.bisect_left(full, b)]
+                absent = sum(1 for u in between if symbol not in present.get(u, ()))
+                other = any(holders.get(u, set()) - {key}
+                            for u in every[bisect.bisect_right(every, a):bisect.bisect_left(every, b)])
+                if absent >= 2 or other:
+                    runs.append(days[begin:i])
+                    begin = i
+            runs.append(days[begin:])
+            for run in runs:
+                start, end = run[0], run[-1]
+                inside = sorted((r for r in records if start <= r[0] <= end),
+                                key=lambda r: (r[0], FAMILY_ORDER.get(r[3], 9)))
+                covered = every[bisect.bisect_left(every, start):bisect.bisect_right(every, end)]
+                gap = max(((pd.Timestamp(y) - pd.Timestamp(x)).days for x, y in zip(covered, covered[1:])), default=0)
+                i, j = bisect.bisect_left(full, start), bisect.bisect_right(full, end)
+                out.append({"cik": key[0], "share_class": key[1], "ticker": symbol, "start": start, "end": end,
+                            "start_prev_absent": full[i - 1] if i > 0 else "",
+                            "end_next_absent": full[j] if j < len(full) else "",
+                            "n_snapshots": len(run), "exchange": "NASDAQ", "source": inside[0][3],
+                            "source_url": inside[0][4],
+                            "match": max((r[5] for r in inside), key=lambda m: MATCH_RANK.get(m, 9)),
+                            "name_in_source": inside[-1][6],
+                            "sources": " ".join(sorted({r[3] for r in inside})), "n_evidence_rows": len(inside),
+                            "coverage_gap_days": gap})
     return pd.DataFrame(out)
 
 
-MERGE_COLUMNS = INTERVAL_COLUMNS + ["sources", "n_evidence_rows"]
-MATCH_RANK = {"name+ticker": 0, "name+lookup": 1, "name_only": 2, "name_profiled": 2, "name+dated": 3, "ticker_only": 4}
+def ticker_conflicts(rows: pd.DataFrame) -> list[tuple]:
+    """(ticker, cik_a, cik_b, overlap_start, overlap_end) where two CIKs' rows of one ticker overlap in
+    time: the first-to-last date spans of the two CIKs on the ticker intersect (two families
+    disagreeing, or assignments alternating between two CIKs)."""
+    found = []
+    hulls = rows.groupby(["symbol", "cik"])["date"].agg(["min", "max"]).reset_index()
+    for ticker, group in hulls.groupby("symbol"):
+        if len(group) < 2:
+            continue
+        spans = sorted(zip(group["min"], group["max"], group["cik"].astype(int)))
+        for i, (s1, e1, c1) in enumerate(spans):
+            for s2, e2, c2 in spans[i + 1:]:
+                if s2 > e1:
+                    break
+                found.append((ticker, c1, c2, max(s1, s2), min(e1, e2)))
+    return found
 
 
-def merge_intervals(evidence: pd.DataFrame, gap_days: int = RUN_BREAK_DAYS) -> pd.DataFrame:
-    """One row per run of a (security, ticker) across every snapshot family: evidence intervals that
-    overlap or lie within ``gap_days`` of each other are joined. ``source`` and ``source_url`` are the
-    earliest evidence's; ``sources`` lists every family; ``match`` is the weakest match joined."""
-    out = []
-    for (sid, ticker), group in evidence.sort_values("start").groupby(["security_id", "ticker"], sort=False):
-        run: list = []
+def resolve_ticker_conflicts(rows: pd.DataFrame, profiles: dict[int, dict],
+                             exits: dict[int, str] | None = None) -> tuple[pd.DataFrame, int]:
+    """One CIK per (ticker, date). Where two CIKs' rows of one ticker overlap in time:
 
-        def flush():
-            if not run:
-                return
-            first = run[0]
-            last = max(run, key=lambda r: r.end)
-            weakest = max((r.match for r in run), key=lambda m: MATCH_RANK.get(m, 9))
-            out.append({"security_id": sid, "ticker": ticker, "start": first.start, "end": last.end,
-                        "exchange": first.exchange, "source": first.source, "source_url": first.source_url,
-                        "cik": first.cik, "share_class": first.share_class,
-                        "start_prev_absent": first.start_prev_absent, "end_next_absent": last.end_next_absent,
-                        "n_snapshots": sum(int(r.n_snapshots) for r in run), "match": weakest,
-                        "name_in_source": last.name_in_source,
-                        "sources": " ".join(sorted({r.source for r in run})), "n_evidence_rows": len(run)})
+    1. over both spans, a row is dropped when its CIK could not hold the ticker on that date (its
+       EDGAR name not exactly the listed name then, or the date after its terminal Form 25) but the
+       other CIK could;
+    2. if the spans still intersect, the CIK with more rows it could hold inside the intersection
+       (then more name+ticker rows, then more rows) keeps it, and the other's rows there are dropped.
 
-        reach = ""
-        for row in group.itertuples():
-            if run and row.start > _shift(reach, gap_days):
-                flush()
-                run = []
-            run.append(row)
-            reach = max(reach, row.end)
-        flush()
-    return pd.DataFrame(out, columns=MERGE_COLUMNS)
+    Dropped rows get how 'conflict'.
+    """
+    rows = rows.copy()
+    exits = exits or {}
+    dropped = 0
+    cache: dict[tuple, bool] = {}
+
+    def could_hold(cik, name, day, exact=True) -> bool:
+        key = (cik, name, day, exact)
+        if key not in cache:
+            profile = profiles.get(int(cik))
+            cut = _shift(exits[int(cik)], EXIT_GRACE_DAYS) if int(cik) in exits else "9999-12-31"
+            cache[key] = bool(profile) and day <= cut and name_valid(
+                profile, normalize_issuer_name(name), day, day, exact=exact, slack=DATED_NAME_SLACK_DAYS)
+        return cache[key]
+
+    for ticker, a, b, lo, hi in ticker_conflicts(rows):
+        pair = rows[(rows["symbol"] == ticker) & rows["cik"].isin([a, b])]
+        if pair["cik"].nunique() < 2:
+            continue  # settled by an earlier conflict of this ticker
+        drop = [i for i, c, n, d in zip(pair.index, pair["cik"], pair["name"], pair["date"])
+                if not could_hold(c, n, d) and could_hold(b if int(c) == a else a, n, d)]
+        rows.loc[drop, ["cik", "how"]] = [None, "conflict"]
+        dropped += len(drop)
+        pair = rows[(rows["symbol"] == ticker) & rows["cik"].isin([a, b])]
+        hull = pair.groupby("cik")["date"].agg(["min", "max"])
+        if len(hull) < 2 or hull["min"].max() > hull["max"].min():
+            continue
+        lo, hi = hull["min"].max(), hull["max"].min()
+        inside = pair[(pair["date"] >= lo) & (pair["date"] <= hi)]
+
+        def score(cik):
+            own = inside[inside["cik"] == cik]
+            valid = sum(could_hold(cik, n, d, exact=False) for n, d in zip(own["name"], own["date"]))
+            return (valid, int((own["how"] == "name+ticker").sum()), len(own), -int(cik))
+
+        loser = min((a, b), key=score)
+        hit = inside.index[inside["cik"] == loser]
+        rows.loc[hit, ["cik", "how"]] = [None, "conflict"]
+        dropped += len(hit)
+    return rows, dropped
+
+
+def drop_rows_after_exit(rows: pd.DataFrame, exits: dict[int, str], successors: dict[tuple[int, str], int],
+                         grace_days: int = EXIT_GRACE_DAYS) -> tuple[pd.DataFrame, int, int]:
+    """Rows of a CIK dated more than ``grace_days`` after the Form 25 that ended its Nasdaq listing
+    belong to someone else: to the successor that took the ticker, when there is one ('successor'),
+    else to nobody ('after_exit')."""
+    rows = rows.copy()
+    cut = rows["cik"].map(lambda c: _shift(exits[int(c)], grace_days) if pd.notna(c) and int(c) in exits else "9999-12-31")
+    late = rows.index[rows["date"] > cut]
+    moved = 0
+    for i in late:
+        successor = successors.get((int(rows.at[i, "cik"]), rows.at[i, "symbol"]))
+        if successor:
+            rows.at[i, "cik"], rows.at[i, "how"] = successor, "successor"
+            moved += 1
+        else:
+            rows.at[i, "cik"], rows.at[i, "how"] = None, "after_exit"
+    return rows, len(late) - moved, moved
 
 
 def detect_ticker_reuse(intervals: pd.DataFrame) -> dict[str, list[int]]:
@@ -803,7 +1138,8 @@ def fetch_profiles(ciks: set[int], *, offline: bool = False) -> tuple[dict[int, 
 
 
 def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    form25 = pd.read_csv(FORM25, dtype={"subject_tickers_sec": str}) if FORM25.exists() else None
+    form25 = read_form25(FORM25)
+    exits = terminal_exits(form25)
     sec_current = fetch_sec_tickers_exchange(offline=offline)
     cands = collect_candidates(sec_current, form25)
     snapshots = fill_symbol_only_names(load_listing_snapshots())
@@ -829,9 +1165,12 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
 
     # Resolve each distinct (symbol, name) once, over the dates it was seen.
     lookup = load_cik_lookup(offline=offline)
-    pairs = listings.groupby(["symbol", "name"])["date"].agg(["min", "max"]).reset_index()
+    pairs = listings.groupby(["symbol", "name"]).agg(min=("date", "min"), max=("date", "max"),
+                                                    truncated=("name_truncated", "all")).reset_index()
+    truncated_pairs = {(p.symbol, p.name) for p in pairs.itertuples() if p.truncated}
     resolve_all = lambda: {(p.symbol, p.name): resolve_listing(p.symbol, p.name, cands, profiles, name_index,
-                                                               p.min, p.max, lookup) for p in pairs.itertuples()}
+                                                               p.min, p.max, lookup, bool(p.truncated))
+                           for p in pairs.itertuples()}
     resolved = resolve_all()
     first_pass = dict(Counter(how for _, how in resolved.values()))
     # Second pass: every EDGAR entity carrying a weakly matched name (SEC's full name list) is
@@ -842,7 +1181,9 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
             or (how == "name+ticker" and not covers(profiles[c], *span[(s, n)]))]
     extra = set()
     for symbol, name in weak:
-        found = lookup.get(name_key(name), set())
+        if (symbol, name) in truncated_pairs:
+            continue
+        found = names_in(lookup, normalize_issuer_name(name))
         if 0 < len(found) <= LOOKUP_MAX_CIKS:
             for cik in found:
                 cands.add(symbol, cik, "sec_cik_lookup")
@@ -860,7 +1201,8 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
                                             for (s, n), (c, h) in resolved.items()]), on=["symbol", "name"], how="left")
     dated = 0
     for (symbol, name), group in listings[listings["how"] == "ambiguous"].groupby(["symbol", "name"]):
-        by_day = resolve_by_date(symbol, name, sorted(group["date"].unique()), cands, profiles, name_index, lookup)
+        by_day = resolve_by_date(symbol, name, sorted(group["date"].unique()), cands, profiles, name_index, lookup,
+                                 exits, (symbol, name) in truncated_pairs)
         hit = group.index[group["date"].isin(by_day)]
         listings.loc[hit, "cik"] = group.loc[hit, "date"].map(by_day)
         listings.loc[hit, "how"] = "name+dated"
@@ -869,6 +1211,23 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     listings["family"] = listings["source"]
     snapshot_dates = {family: sorted(group["date"].unique()) for family, group in snapshots.groupby("source")}
     matched = listings[listings["cik"].notna()].copy()
+    matched["cik"] = matched["cik"].astype(int)
+    # No rows after a CIK's terminal Form 25 (they go to the successor that took the ticker, if any),
+    # and one CIK per (ticker, date): the weaker evidence is dropped where two CIKs overlap.
+    matched, after_exit_dropped, after_exit_moved = drop_rows_after_exit(matched, exits, successor_tickers(form25))
+    conflicts_before = len(ticker_conflicts(matched[matched["cik"].notna()]))
+    conflict_rows = 0
+    for _ in range(3):
+        live = matched[matched["cik"].notna()]
+        if not ticker_conflicts(live):
+            break
+        matched, dropped = resolve_ticker_conflicts(matched, profiles, exits)
+        conflict_rows += dropped
+    for how in ("after_exit", "conflict", "successor"):
+        hit = matched.index[matched["how"] == how]
+        listings.loc[hit, "how"] = how
+        listings.loc[hit, "cik"] = matched.loc[hit, "cik"]
+    matched = matched[matched["cik"].notna()].copy()
     matched["cik"] = matched["cik"].astype(int)
     # A row whose name carries no class (company lists, the truncated 2015 file) takes the class
     # of the nearest typed row of the same CIK and ticker (GOOG was class A until 2014, then C).
@@ -886,7 +1245,8 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     collide = set(clash[clash >= MULTI_CLASS_MIN_DATES].index) & multi
     keyed = matched["cik"].isin(collide)
     matched.loc[keyed, "share_class"] = "T-" + matched.loc[keyed, "symbol"]
-    intervals = build_intervals(matched, snapshot_dates)
+    present = presence_by_date(snapshots)
+    intervals = build_intervals(matched, snapshot_dates, present)
     if not intervals.empty:
         intervals["security_id"] = [security_id(c, s, c in multi) for c, s in zip(intervals["cik"], intervals["share_class"])]
 
@@ -899,7 +1259,8 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
                             "exchange": str(row.get("exchange") or "").upper(), "source": "sec_company_tickers_exchange",
                             "source_url": TICKERS_EXCHANGE_URL, "share_class": "", "match": "sec",
                             "name_in_source": row.get("name", ""), "n_snapshots": 0,
-                            "start_prev_absent": "", "end_next_absent": ""})
+                            "start_prev_absent": "", "end_next_absent": "", "sources": "sec_company_tickers_exchange",
+                            "n_evidence_rows": 1, "coverage_gap_days": None})
     current = pd.DataFrame(current)
     if not current.empty:
         class_by_ticker = {}
@@ -949,8 +1310,18 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
                           "last_date": row.last_date, "rows": row.rows, "cik": cik, "how": how,
                           "ciks_on_ticker_in_file_range": spans})
     price_map = pd.DataFrame(price_map)
+    price_map["cik"] = price_map["cik"].astype("Int64")
 
     master = build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing)
+    # Per-family runs (the same rule on one family's dates) are kept as audit evidence.
+    evidence = []
+    for family, days in snapshot_dates.items():
+        own = matched[matched["family"] == family]
+        if not own.empty:
+            evidence.append(build_intervals(own, {family: days}, presence_by_date(snapshots[snapshots["source"] == family])))
+    evidence = pd.concat(evidence, ignore_index=True) if evidence else pd.DataFrame(columns=INTERVAL_COLUMNS)
+    if not evidence.empty:
+        evidence["security_id"] = [security_id(c, k, c in multi) for c, k in zip(evidence["cik"], evidence["share_class"])]
     reuse = detect_ticker_reuse(intervals) if not intervals.empty else {}
     unresolved_pairs = listings[listings["cik"].isna()].groupby(["symbol", "name", "how"]).agg(
         first=("date", "min"), last=("date", "max"), n=("date", "size")).reset_index()
@@ -974,19 +1345,125 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "interval_rows": len(all_intervals), "interval_rows_by_source": dict(Counter(all_intervals["source"])),
         "older_pages_fetched_for": sum(1 for p in profiles.values() if p.get("older_pages_fetched")),
         "wayback_hook_rows": int(snapshots["source"].str.startswith("wayback").sum()),
+        "truncated_name_pairs": len(truncated_pairs),
+        "terminal_form25_exits_used": len(exits),
+        "ticker_conflicts_before": conflicts_before, "ticker_conflict_rows_dropped": conflict_rows,
+        "ticker_conflicts_after": len(ticker_conflicts(matched)),
+        "rows_after_exit_dropped": after_exit_dropped, "rows_after_exit_to_successor": after_exit_moved,
+        "intervals_bridging_coverage_gap_over_120d": int((intervals["coverage_gap_days"] > 120).sum()) if not intervals.empty else 0,
+        "master_delist_dates": int(master["delist_date"].fillna("").ne("").sum()),
+        "master_successor_links": int(master["successor_security_id"].fillna("").ne("").sum()),
+        "master_transfers": int(master["transfer_date"].fillna("").ne("").sum()),
     }
     WORK.mkdir(parents=True, exist_ok=True)
     common.atomic_write(WORK / "listing_unresolved.csv", unresolved_pairs.to_csv(index=False).encode())
     common.atomic_write(WORK / "price_file_cik_map.csv", price_map.to_csv(index=False).encode())
     common.atomic_write(WORK / "ticker_reuse.json", (json.dumps(reuse, indent=1) + "\n").encode())
     common.atomic_write(WORK / "ciks_not_found.json", (json.dumps(missing) + "\n").encode())
+    common.atomic_write(WORK / "snapshot_dates.json", (json.dumps(
+        {"families": snapshot_dates, "partial_families": sorted(PARTIAL_FAMILIES)}, indent=0) + "\n").encode())
     common.atomic_write(WORK / "security_master_build_summary.json",
                         (json.dumps({k: v for k, v in stats.items()}, indent=2, default=str) + "\n").encode())
-    return master, all_intervals, stats
+    write_files_read(profiles, form25)
+    return master, all_intervals, stats, evidence
+
+
+FORM25_TEXT_COLUMNS = ["subject_tickers_sec", "class_of_security", "classification", "classification_evidence",
+                       "class_kind", "tickers_before", "tickers_ended", "tickers_new", "successor_tickers",
+                       "subject_exit", "form", "effective_date", "filing_date", "accession", "subject_name"]
+
+
+def read_form25(path: Path = FORM25) -> pd.DataFrame | None:
+    """The step-3 table with text columns as '' (never NaN) and CIKs as integers."""
+    if not Path(path).exists():
+        return None
+    frame = pd.read_csv(path, dtype={c: str for c in FORM25_TEXT_COLUMNS}, keep_default_na=False, low_memory=False)
+    for column in FORM25_TEXT_COLUMNS:
+        if column not in frame:
+            frame[column] = ""
+    frame["subject_cik"] = frame["subject_cik"].astype(int)
+    if "successor_cik" not in frame:
+        frame["successor_cik"] = ""
+    frame["successor_cik"] = pd.to_numeric(frame["successor_cik"], errors="coerce").astype("Int64")
+    return frame
+
+
+def terminal_exits(form25: pd.DataFrame | None) -> dict[int, str]:
+    """cik -> filing date of the latest Form 25 that ended the CIK's Nasdaq common listing."""
+    if form25 is None or form25.empty:
+        return {}
+    if form25["subject_exit"].ne("").any():
+        rows = form25[form25["subject_exit"] == "Y"]
+    else:  # a table from before subject_exit existed
+        rows = form25[(form25["classification"] == "common_delisting")
+                      & ~form25["classification_evidence"].str.contains("stayed on Nasdaq|relisted", na=False)]
+    return rows.groupby("subject_cik")["filing_date"].max().to_dict()
+
+
+def successor_tickers(form25: pd.DataFrame | None) -> dict[tuple[int, str], int]:
+    """(subject CIK, ticker) -> successor CIK, from Form 25 reorganisations with a ticker handover."""
+    if form25 is None or form25.empty:
+        return {}
+    out = {}
+    for row in form25[form25["successor_cik"].notna()].itertuples():
+        for ticker in row.successor_tickers.split():
+            out[(int(row.subject_cik), ticker)] = int(row.successor_cik)
+    return out
+
+
+GENERIC_COMMON = re.compile(r"common|ordinary|capital stock|depositary", re.I)
+
+
+def exit_matches_class(description: str, tickers_ended: str, share_class: str, observed: set[str],
+                       cik_classes: set[str]) -> bool:
+    """Whether a common Form 25 of a multi-class CIK removed the class ``share_class``.
+
+    By the class or series letters it names ('Class A Common Stock', 'Series C Liberty SiriusXM');
+    by the tickers that ended at the filing (from the snapshot intervals); and a filing naming
+    generic 'Common Stock' applies to the classes keyed COMMON or by ticker (T-...), or to every
+    class when the CIK has none of those.
+    """
+    letters = {x.upper() for x in re.findall(r"\b(?:class|series)\s+([a-z])\b", str(description), re.I)}
+    if share_class in letters:
+        return True
+    if set(str(tickers_ended).split()) & observed:
+        return True
+    unkeyed = {k for k in cik_classes if k == "COMMON" or k.startswith("T-")}
+    if letters and letters & cik_classes:
+        return False
+    if not GENERIC_COMMON.search(str(description)) and not letters:
+        return False
+    if str(tickers_ended).split():
+        return False  # the ticker evidence names other classes
+    return share_class in unkeyed if unkeyed else True
+
+
+def write_files_read(profiles: dict[int, dict], form25: pd.DataFrame | None) -> dict:
+    """The raw/sec files this builder read (for the manifest, which should hash only these), and how
+    many cached submissions files no builder reads any more (left over from earlier iterations)."""
+    read = set()
+    for cik, profile in profiles.items():
+        read.add(str(submissions_path(cik)))
+        read |= {str(SEC_RAW / "submissions" / f"{name}.gz") for name in profile.get("pages_read", [])}
+    tickers = sorted((SEC_RAW / "ticker_maps").glob("company_tickers_exchange_*.json.gz"))
+    read |= {str(tickers[-1])} if tickers else set()
+    read.add(str(SEC_RAW / "cik-lookup-data.txt.gz"))
+    form25_list = WORK / "files_read_form25.json"
+    form25_read = set(json.loads(form25_list.read_text())["files"]) if form25_list.exists() else set()
+    on_disk = {str(p) for p in (SEC_RAW / "submissions").glob("*.gz")}
+    summary = {"files": sorted(read), "submissions_on_disk": len(on_disk),
+               "submissions_read_by_builders": len(on_disk & (read | form25_read)),
+               "submissions_orphans": sorted(on_disk - read - form25_read),
+               "manual_one_off_requests": {
+                   "raw/sec/companyfacts/CIK0001704760.json.gz, CIK0001748252.json.gz":
+                       "two companyfacts requests made by hand during round 1 (logged as sec_companyfacts); "
+                       "no builder reads them"}}
+    common.atomic_write(WORK / "files_read_security_master.json", (json.dumps(summary, indent=1) + "\n").encode())
+    return summary
 
 
 def build_master(profiles, all_intervals, intervals, form25, price_map, multi, missing) -> pd.DataFrame:
-    form25 = form25 if form25 is not None else pd.DataFrame(columns=["subject_cik"])
+    form25 = form25 if form25 is not None else pd.DataFrame(columns=["subject_cik", *FORM25_TEXT_COLUMNS, "successor_cik"])
     f25_by_cik = {int(c): g for c, g in form25.groupby("subject_cik")}
     prices_by_cik = {int(c): g for c, g in price_map.dropna(subset=["cik"]).groupby("cik")}
     reuse = detect_ticker_reuse(intervals) if not intervals.empty else {}
@@ -1000,38 +1477,76 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
         if cik not in ciks_with_rows:
             keys[security_id(cik, "COMMON", False)] = (cik, "COMMON")
     by_sid = {sid: g for sid, g in all_intervals.groupby("security_id")} if not all_intervals.empty else {}
+    classes_of = defaultdict(set)
+    for _, (c, k) in keys.items():
+        classes_of[c].add(k)
     successor_of, predecessor_of = defaultdict(set), defaultdict(set)
-    if "classification_evidence" in form25:
-        for row in form25[form25["classification"] == "reorg"].itertuples():
-            match = re.search(r"under CIK (\d+)", str(row.classification_evidence))
-            if match:
-                successor_of[int(row.subject_cik)].add(int(match.group(1)))
-                predecessor_of[int(match.group(1))].add(int(row.subject_cik))
+    for row in form25[form25["successor_cik"].notna()].itertuples():
+        successor_of[int(row.subject_cik)].add(int(row.successor_cik))
+        predecessor_of[int(row.successor_cik)].add(int(row.subject_cik))
+    snapshot_iv = intervals if not intervals.empty else pd.DataFrame(columns=["cik", "ticker", "start", "security_id"])
+
+    def successor_security(row) -> str:
+        """The successor's security holding a handed-over ticker from the filing on."""
+        tickers = set(row.successor_tickers.split())
+        after = snapshot_iv[(snapshot_iv["cik"] == int(row.successor_cik)) & snapshot_iv["ticker"].isin(tickers)
+                            & (snapshot_iv["start"] >= _shift(row.filing_date, -60))]
+        return after.sort_values("start").iloc[0]["security_id"] if not after.empty else str(int(row.successor_cik))
+
     rows = []
     for sid, (cik, share_class) in sorted(keys.items(), key=lambda kv: (kv[1][0], kv[0])):
         profile = profiles.get(cik)
         own = by_sid.get(sid, pd.DataFrame(columns=all_intervals.columns))
         listed = own[own["source"] != "sec_company_tickers_exchange"] if not own.empty else own
         f25 = f25_by_cik.get(cik)
-        exits = f25[f25["classification"].isin(["common_delisting", "reorg"])] if f25 is not None else None
-        if exits is not None and cik in multi and not exits.empty:
-            exits = exits[exits["class_of_security"].str.contains(rf"\bclass {share_class}\b", case=False, na=False)]
-        last_exit = exits.sort_values("filing_date").iloc[-1] if exits is not None and not exits.empty else None
-        notes = []
         observed = sorted(set(own["ticker"])) if not own.empty else []
+
+        def mine(kinds: tuple) -> pd.DataFrame | None:
+            """This security's Form 25 rows of the given classifications (class-matched when multi-class)."""
+            if f25 is None:
+                return None
+            chosen = f25[f25["classification"].isin(kinds)]
+            if cik in multi and not chosen.empty:
+                keep = [exit_matches_class(r.class_of_security, r.tickers_ended or r.successor_tickers, share_class,
+                                           set(observed), classes_of[cik]) for r in chosen.itertuples()]
+                chosen = chosen[keep]
+            return chosen.sort_values("filing_date") if not chosen.empty else None
+
+        exits = mine(("common_delisting",))  # a reorganisation or transfer is not a delisting
+        last_exit = exits.iloc[-1] if exits is not None else None
+        reorgs = mine(("reorg", "reorg_review"))
+        handover = None
+        if reorgs is not None:
+            linked = reorgs[reorgs["successor_cik"].notna()]
+            if cik in multi and not linked.empty:
+                linked = linked[[bool(set(t.split()) & set(observed)) or not t for t in linked["successor_tickers"]]]
+            handover = linked.iloc[-1] if not linked.empty else None
+        if handover is not None and last_exit is not None and last_exit["filing_date"] > handover["filing_date"]:
+            handover = None  # delisted after the reorganisation (relisted in between)
+        transfers = mine(("transfer",))
+        last_transfer = transfers.iloc[-1] if transfers is not None else None
+        notes = []
         for ticker in observed:
             if ticker in reuse:
                 notes.append(f"ticker {ticker} also held by CIK " + " ".join(str(c) for c in reuse[ticker] if c != cik))
         if not listed.empty and (listed["match"] == "ticker_only").any():
             notes.append("some snapshot names did not match SEC names (ticker_only)")
-        if f25 is not None and exits is not None and len(exits) > 1:
-            notes.append(f"{len(exits)} common 25-NSE filings")
+        if not listed.empty and (listed["match"] == "name+lookup_nonfiler").any():
+            notes.append("CIK of a same-name EDGAR entity that files no periodic reports (name+lookup_nonfiler)")
+        if not listed.empty and (listed["match"] == "successor").any():
+            notes.append("some snapshot rows reassigned from a predecessor after its Form 25 (successor)")
+        if exits is not None and len(exits) > 1:
+            notes.append(f"{len(exits)} common Form 25 delistings")
+        if last_exit is not None and not listed.empty and listed["end"].max() > _shift(last_exit["effective_date"], 30):
+            notes.append(f"listed on Nasdaq again after the {last_exit['effective_date']} delisting")
+        if handover is not None and handover["classification"] == "reorg_review":
+            notes.append("successor link from a ticker handover with differing names (reorg_review)")
         if cik in missing:
             notes.append("SEC submissions not found")
         if successor_of.get(cik):
-            notes.append("25-NSE reorg: successor CIK " + " ".join(map(str, sorted(successor_of[cik]))))
+            notes.append("Form 25 reorg: successor CIK " + " ".join(map(str, sorted(successor_of[cik]))))
         if predecessor_of.get(cik):
-            notes.append("25-NSE reorg: predecessor CIK " + " ".join(map(str, sorted(predecessor_of[cik]))))
+            notes.append("Form 25 reorg: predecessor CIK " + " ".join(map(str, sorted(predecessor_of[cik]))))
         price_rows = prices_by_cik.get(cik)
         if price_rows is not None and cik in multi:
             price_rows = price_rows[price_rows["ticker"].str.split("_").str[0].isin(observed)]
@@ -1041,8 +1556,8 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             first_ticker = listed.sort_values("start").iloc[0]["ticker"]
         elif profile and profile["tickers"]:
             first_ticker = profile["tickers"][0]
-        elif f25 is not None and str(f25.iloc[0].get("subject_tickers_sec") or "").strip():
-            first_ticker = str(f25.iloc[0]["subject_tickers_sec"]).split()[0]
+        elif f25 is not None and text_value(f25.iloc[0].get("subject_tickers_sec")).strip():
+            first_ticker = text_value(f25.iloc[0]["subject_tickers_sec"]).split()[0]
         found_via = []
         if f25 is not None:
             found_via.append("form25")
@@ -1085,6 +1600,11 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             "form25_classes": " | ".join(sorted(set(f"{c}:{k}" for c, k in zip(f25["classification"], f25["class_kind"]))))
             if f25 is not None else "",
             "found_via": " ".join(found_via),
+            "successor_security_id": successor_security(handover) if handover is not None else "",
+            "successor_date": handover["filing_date"] if handover is not None else "",
+            "successor_form25_accession": handover["accession"] if handover is not None else "",
+            "transfer_date": last_transfer["effective_date"] if last_transfer is not None else "",
+            "transfer_form25_accession": last_transfer["accession"] if last_transfer is not None else "",
         })
     return pd.DataFrame(rows, columns=MASTER_COLUMNS)
 
@@ -1093,19 +1613,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
     args = parser.parse_args(argv)
-    master, intervals, stats = build(offline=args.offline)
+    master, intervals, stats, evidence = build(offline=args.offline)
     common.atomic_write(MASTER, master.to_csv(index=False).encode("utf-8"))
-    evidence = intervals.reindex(columns=INTERVAL_COLUMNS).sort_values(["ticker", "start", "source"], na_position="first")
+    evidence = evidence.reindex(columns=INTERVAL_COLUMNS).sort_values(["ticker", "start", "source"], na_position="first")
     common.atomic_write(WORK / "ticker_intervals_evidence.csv.gz",
                         gzip.compress(evidence.to_csv(index=False).encode("utf-8"), mtime=0))
-    snapshot = evidence[evidence["source"] != "sec_company_tickers_exchange"]
-    current = evidence[evidence["source"] == "sec_company_tickers_exchange"].assign(sources="sec_company_tickers_exchange",
-                                                                                   n_evidence_rows=1)
-    merged = pd.concat([merge_intervals(snapshot), current.reindex(columns=MERGE_COLUMNS)], ignore_index=True)
-    merged = merged.sort_values(["ticker", "start", "source"], na_position="first")
+    merged = intervals.reindex(columns=INTERVAL_COLUMNS).sort_values(["ticker", "start", "source"], na_position="first")
+    merged["cik"] = merged["cik"].astype("Int64")
+    merged["coverage_gap_days"] = merged["coverage_gap_days"].astype("Int64")
     common.atomic_write(INTERVALS, merged.to_csv(index=False).encode("utf-8"))
     stats["interval_rows_merged"] = len(merged)
     stats["interval_rows_merged_snapshot"] = int((merged["source"] != "sec_company_tickers_exchange").sum())
+    stats["interval_rows_family_evidence"] = len(evidence)
     common.atomic_write(WORK / "security_master_build_summary.json",
                         (json.dumps(stats, indent=2, default=str) + "\n").encode())
     print(json.dumps({k: v for k, v in stats.items() if k != "price_files_unresolved"}, indent=2, default=str))

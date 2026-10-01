@@ -104,7 +104,7 @@ def test_parse_form25_xml_reads_class_and_rule():
     ("Common Units representing limited partner interests", "lp_units"),
     ("Warant", "warrant"),
     ("ADSs", "ads"),
-    ("Depository Receipt", "ads"),
+    ("Depository Receipt", "receipt"),
     ("Dorsey Wright MLP Index ETNs due December 10, 2036", "fund"),
     ("PowerShares Global Wind Energy Portfolio", "fund"),
     ("Brandes Value NextShares", "fund"),
@@ -125,7 +125,8 @@ def test_classify_row_uses_evidence_only_for_common():
                                             "tickers_ended": "LSXMA"})[0] == "common_delisting"
     assert f25.classify_row("common", "x", {"listed_elsewhere_now": "NYSE", "tickers_before": "ACXM",
                                             "tickers_elsewhere": "RAMP"})[0] == "common_delisting"
-    assert f25.classify_row("common", "x", {"successor_same_ticker": 5})[0] == "reorg"
+    new_same = {"cik": 5, "tickers": ["ABC"], "new": True, "names_match": True}
+    assert f25.classify_row("common", "x", {"successor": new_same})[0] == "reorg"
     assert f25.classify_row("ads", "x", {"listed_elsewhere_now": "NYSE", "tickers_before": "ABC",
                                          "tickers_elsewhere": "ABC"})[0] == "transfer"
 
@@ -169,12 +170,14 @@ def test_float_for_filing_takes_the_three_year_maximum_and_matching_shares():
 def test_successor_evidence_finds_same_ticker_new_cik():
     rows = pd.DataFrame({"accession": ["acc1"], "subject_cik": [1], "filing_date": ["2020-05-01"]})
     intervals = pd.DataFrame({
-        "cik": [1, 2, 3], "ticker": ["ABC", "ABC", "ABC"], "exchange": "NASDAQ",
+        "cik": [1, 2, 3], "ticker": ["ABC", "ABC", "ABC"], "exchange": "NASDAQ", "n_snapshots": 100,
         "start": ["2018-01-19", "2020-05-08", "2023-01-01"], "end": ["2020-04-28", "2026-07-01", "2026-07-01"]})
     names = {1: ["Abcam Holdings Inc"], 2: ["ABCAM HOLDINGS CORP NEW"], 3: ["Abc Unrelated Inc"]}
-    assert f25.successor_evidence(rows, intervals, names) == {"acc1": 2}
+    snapshots = ["2020-04-28", "2020-05-08", "2023-01-01"]
+    assert f25.successor_evidence(rows, intervals, names, snapshots) == {
+        "acc1": {"cik": 2, "tickers": ["ABC"], "new": True, "names_match": True}}
     names[2] = ["Different Co"]
-    assert f25.successor_evidence(rows, intervals, names) == {}
+    assert f25.successor_evidence(rows, intervals, names, snapshots)["acc1"]["names_match"] is False
 
 
 # ------------------------------------------------------------------ security master
@@ -448,16 +451,607 @@ def test_nasdaq_tickers_around_a_filing():
                                             "tickers_ended": "DISCA", "tickers_new": "WBD"})[0] == "reorg"
 
 
-def test_merge_intervals_joins_families_within_the_gap():
-    base = {"security_id": "1", "ticker": "ABC", "exchange": "NASDAQ", "source_url": "u", "cik": 1,
-            "share_class": "COMMON", "start_prev_absent": "", "end_next_absent": "", "name_in_source": "n"}
-    evidence = pd.DataFrame([
-        {**base, "start": "2012-01-01", "end": "2014-06-01", "source": "wayback_companylist", "n_snapshots": 30, "match": "name+ticker"},
-        {**base, "start": "2013-02-19", "end": "2013-02-19", "source": "wayback_symdir", "n_snapshots": 1, "match": "name+lookup"},
-        {**base, "start": "2014-08-01", "end": "2016-01-01", "source": "wayback_symdir", "n_snapshots": 9, "match": "name+ticker"},
-        {**base, "start": "2018-01-19", "end": "2026-07-01", "source": "repo_symdir", "n_snapshots": 300, "match": "name+ticker"},
+
+
+# ------------------------------------------------------------------ round-1 review regressions: Form 25
+
+@pytest.mark.parametrize("text,kind", [
+    # A filing that removes the common stock together with other classes is a common delisting.
+    ("Common stock and preferred stock", "common"),  # SVB 0001354457-23-000327
+    ("Common Stock, 3.600% Notes due 2025, 2.125% Notes due 2026", "common"),  # Walgreens 0001354457-25-000854
+    ("Common Stock & Associated Purchase Rights", "common"),  # Life Technologies
+    ("Common Stock & Perpetual Preferred Series A Fixed-to-floating Rate", "common"),  # People's United
+    ("Common Stock & Depositary Shares Each Representing a 1/40th Interest in a Share of 7.75% Fixed Rate "
+     "Non-Cumulative Perpetual Preferred Stock, Series A", "common"),  # PacWest
+    ("Common Stock & Depositary Shares representing 5.70% Series C Non-Cumulative Preferred Stock", "common"),  # TCF
+    ("Common Stock, Depositary Shares, each representing a 1/400th ownership interest in a share of 7.00% "
+     "Fixed-Rate Reset Non-Cumulative Perpetual Preferred Stock, Series E", "common"),  # Heartland
+    ("Class A Common Stock, Class C Common Stock, and Series A Cumulative Redeemable Preferred Stock", "common"),  # LBRDA/K
+    ("Common Stock & Contingent Value Right", "common"),  # Wright Medical
+    ("Common Stock and Warrants", "common"),  # US Ecology
+    ("Common Stock & Warrant", "common"),  # Velodyne
+    ("Common Stock, Warrant", "common"),  # EQRx
+    ("Common stock and warrants", "common"),  # Latch
+    ("Class A Common Stock, 7.75% Senior Notes due 2033", "common"),  # Cowen
+    ("American depositary shares and warrant", "ads"),
+    ("Common Stock (par value $.05 per share) with associated Series A Junior Preferred Stock Purchase Rights", "common"),
+    ("Units with one share of common stock and one warrant", "unit"),
+    ("Unit, Warrant, and Class A Common Stock", "common"),  # a SPAC removing all three
+    # The common stock inside another class's description is not a listed item.
+    ("Units, each consisting of one share of Class A common stock and one-half of one warrant", "unit"),
+    ("Unit consisting of One Common Stock and Half of a Warrant", "unit"),
+    ("Units; consisting of 1 share of common stock and a 3 year warrant", "unit"),
+    ("Warrants to purchase Common Stock", "warrant"),
+    ("Warrants, each whole warrant exercisable for one share of Class A Common Stock at an exercise price of $11.50", "warrant"),
+    ("Rights to purchase a share of Liberty Ventures Series A Common Stock", "right"),
+    ("Subscription Rights to Purchase Shares of Series C Common Stock", "right"),
+    ("Common Stock Purchase Rights", "right"),
+    ("Debentures convertible into common stock", "debt"),
+    ("Common Units Representing Limited Partner Interests", "lp_units"),
+    ("Common Units, Representing Limited Partner Interests, 8.0% Series A Cumulative Redeemable Preferred Units", "unit"),
+    ("iShares Dow Jones US Index Fund, Shares of Beneficial Interest", "fund"),
+    ("7% Cumulative Trust Preferred Securities - SVB Capital II", "preferred"),
+])
+def test_multi_item_descriptions(text, kind):
+    assert f25.classify_security_class(text) == kind
+
+
+def test_class_kinds_lists_every_item():
+    assert f25.class_kinds("Common Stock, 3.600% Notes due 2025, 2.125% Notes due 2026") == ["common", "debt", "debt"]
+    assert f25.class_kinds("Common stock and preferred stock") == ["common", "preferred"]
+    assert f25.class_kinds("Units, each consisting of one share of Class A common stock and one-half of one warrant") == ["unit"]
+
+
+def test_depository_receipt_is_a_preferred_for_a_domestic_filer():
+    # Stericycle 2018-09-14 'Depository Receipt' was the SRCLP mandatory convertible preferred.
+    assert f25.classify_security_class("Depository Receipt") == "receipt"
+    assert f25.resolve_receipt("receipt", "N") == "preferred"
+    assert f25.resolve_receipt("receipt", "Y") == "ads"
+    assert f25.resolve_receipt("receipt", "Y", "ABCDP") == "preferred"
+    assert f25.resolve_receipt("common", "Y") == "common"
+
+
+def test_float_review_band_and_failures():
+    assert f25.check_float_units(4.57e11, 3.0e8) == "review"  # $1,523 a share: real for a few names, mostly x1000
+    assert f25.check_float_units(4.57e11, 3.0e7) == "implied_per_share_high"
+    assert f25.check_float_units(1e9, 5e7) == "ok"
+
+
+def _facts(rows):
+    return pd.DataFrame([{"cik": 7, "end": pd.Timestamp(e), "val": v, "accn": a, "period": "", "entity_name": ""}
+                         for e, v, a in rows])
+
+
+def test_float_units_are_checked_per_fact_before_the_maximum():
+    # CenterState-like: the largest fact is a x1000 error ($2.3T); a plausible $1.96B fact in the window is kept.
+    floats = _facts([("2016-06-30", 1.2e9, "a"), ("2017-06-30", 2.3e12, "b"), ("2018-06-30", 1.96e9, "c")])
+    shares = _facts([("2016-08-01", 4.8e7, "a"), ("2017-08-01", 6.0e7, "b"), ("2018-08-01", 9.5e7, "c")])
+    out = f25.float_for_filing(floats, shares, 7, "2019-03-01")
+    assert out["public_float_usd"] == 1.96e9 and out["float_accession"] == "c" and out["float_check_flag"] == "ok"
+    assert out["float_obs_3y"] == 3 and out["float_facts_dropped"] == 1
+
+
+def test_a_review_fact_far_above_the_median_is_dropped():
+    # Crosstex-like: $457B at $1,500 a share against floats near $1B: dropped; the clean maximum is kept.
+    floats = _facts([("2015-06-30", 9e8, "a"), ("2016-06-30", 4.57e11, "b"), ("2017-06-30", 1.1e9, "c")])
+    shares = _facts([("2015-08-01", 3e8, "a"), ("2016-08-01", 3e8, "b"), ("2017-08-01", 3e8, "c")])
+    out = f25.float_for_filing(floats, shares, 7, "2018-03-01")
+    assert out["public_float_usd"] == 1.1e9 and out["float_facts_dropped"] == 1 and out["float_check_flag"] == "ok"
+    # Alone in its window and history, the same fact is kept but flagged for review.
+    alone = f25.float_for_filing(floats[floats["accn"] == "b"], shares, 7, "2018-03-01")
+    assert alone["public_float_usd"] == 4.57e11 and alone["float_check_flag"] == "review"
+
+
+def test_the_median_comes_from_clean_facts_when_errors_repeat():
+    # Paratek 2019-2021: three x1000 facts in a row ($127B, $231B, $315B) around clean $293M and $101M.
+    floats = _facts([("2018-06-30", 2.94e8, "a"), ("2019-06-30", 1.28e11, "b"), ("2020-06-30", 2.31e11, "c"),
+                     ("2021-06-30", 3.16e11, "d"), ("2022-06-30", 1.01e8, "e")])
+    shares = _facts([("2018-08-01", 3.0e7, "a"), ("2019-08-01", 3.3e7, "b"), ("2020-08-01", 4.6e7, "c"),
+                     ("2021-08-01", 4.9e7, "d"), ("2022-08-01", 5.5e7, "e")])
+    out = f25.float_for_filing(floats, shares, 7, "2023-09-21")
+    assert out["public_float_usd"] == 1.01e8 and out["float_check_flag"] == "ok" and out["float_facts_dropped"] == 1
+
+
+def test_a_clean_fact_is_kept_however_large_the_growth():
+    # A SPAC's float grows 25-fold at its merger; a fact that passes the per-share check is never dropped.
+    floats = _facts([("2020-06-30", 3e8, "a"), ("2021-06-30", 8e9, "b")])
+    shares = _facts([("2020-08-01", 3e7, "a"), ("2021-08-01", 4e8, "b")])
+    out = f25.float_for_filing(floats, shares, 7, "2022-03-01")
+    assert out["public_float_usd"] == 8e9 and out["float_facts_dropped"] == 0
+
+
+def test_every_fact_failing_reports_the_largest_with_its_flag():
+    floats = _facts([("2017-06-30", 4.8e12, "a")])
+    shares = _facts([("2017-08-01", 1.2e7, "a")])
+    out = f25.float_for_filing(floats, shares, 7, "2018-03-01")
+    assert out["float_check_flag"] == "implied_per_share_high" and out["float_facts_dropped"] == 1
+
+
+def _iv(rows):
+    return pd.DataFrame([{"cik": r[0], "ticker": r[1], "start": r[2], "end": r[3], "exchange": "NASDAQ",
+                          "n_snapshots": r[4] if len(r) > 4 else 50} for r in rows])
+
+
+def test_a_holding_company_handover_with_a_snapshot_gap_is_found():
+    # Broadcom Ltd (1649338) kept AVGO until 2018-05-08; Broadcom Inc (1730168) first seen 2018-05-21,
+    # the next snapshot, 47 days after the 2018-04-04 filing.
+    rows = pd.DataFrame({"accession": ["acc"], "subject_cik": [1649338], "filing_date": ["2018-04-04"]})
+    intervals = _iv([(1649338, "AVGO", "2016-02-26", "2018-05-08"), (1730168, "AVGO", "2018-05-21", "2026-08-01")])
+    names = {1649338: ["Broadcom Ltd", "Pavonia Ltd"], 1730168: ["Broadcom Inc."]}
+    found = f25.successor_evidence(rows, intervals, names, ["2018-05-08", "2018-05-21", "2018-06-01"])
+    assert found == {"acc": {"cik": 1730168, "tickers": ["AVGO"], "new": True, "names_match": True}}
+    # With a snapshot in between that lacks the ticker, the next holder is not a handover.
+    assert f25.successor_evidence(rows, intervals, names, ["2018-05-08", "2018-05-14", "2018-05-21"]) == {}
+
+
+def test_stray_rows_and_late_handovers_are_no_successor():
+    # BRCM: one lagging company-list row gave the ticker to Broadcom Ltd the day after Broadcom Corp's Form 25.
+    rows = pd.DataFrame({"accession": ["brcm"], "subject_cik": [1054374], "filing_date": ["2016-02-01"]})
+    intervals = _iv([(1054374, "BRCM", "2010-12-31", "2016-01-29"), (1649338, "BRCM", "2016-02-02", "2016-02-02", 1),
+                     (1649338, "AVGO", "2016-02-02", "2018-03-29")])
+    names = {1054374: ["BROADCOM CORP"], 1649338: ["Broadcom Ltd"]}
+    assert f25.successor_evidence(rows, intervals, names, ["2016-01-29", "2016-02-02", "2016-02-05"]) == {}
+    # Liberty Media 2016-04-18: BATRA passed to Atlanta Braves Holdings in 2023, not at this filing.
+    rows = pd.DataFrame({"accession": ["lm"], "subject_cik": [1560385], "filing_date": ["2016-04-18"]})
+    intervals = _iv([(1560385, "BATRA", "2016-04-24", "2023-07-08"), (1958140, "BATRA", "2023-07-28", "2026-08-01")])
+    names = {1560385: ["Liberty Media Corp"], 1958140: ["Atlanta Braves Holdings, Inc."]}
+    assert f25.successor_evidence(rows, intervals, names, ["2023-07-08", "2023-07-28"]) == {}
+    # Randgold: Barrick in three company-list rows within a year is no successor.
+    rows = pd.DataFrame({"accession": ["gold"], "subject_cik": [1175580], "filing_date": ["2018-12-31"]})
+    intervals = _iv([(1175580, "GOLD", "2010-12-31", "2018-11-21"), (756894, "GOLD", "2019-01-03", "2019-01-04", 2),
+                     (756894, "GOLD", "2019-06-11", "2019-06-11", 1)])
+    assert f25.successor_evidence(rows, intervals, {1175580: ["RANDGOLD RESOURCES LTD"], 756894: ["BARRICK GOLD CORP"]},
+                                  ["2018-11-21", "2019-01-03"]) == {}
+    # Sonus: Ribbon held SONS for a fortnight, then listed as RBBN; it is the successor.
+    rows = pd.DataFrame({"accession": ["sons"], "subject_cik": [1105472], "filing_date": ["2017-10-27"]})
+    intervals = _iv([(1105472, "SONS", "2010-12-31", "2017-10-17"), (1708055, "SONS", "2017-10-31", "2017-11-15", 2),
+                     (1708055, "RBBN", "2017-11-28", "2026-08-01", 300)])
+    found = f25.successor_evidence(rows, intervals, {1105472: ["Sonus, Inc."], 1708055: ["Ribbon Communications Inc."]},
+                                   ["2017-10-17", "2017-10-31"])
+    assert found["sons"]["cik"] == 1708055 and found["sons"]["new"]
+    # An issuer's own withdrawal with a handover is a move, not a reorganisation (MSG 2015 to NYSE).
+    assert f25.classify_row("common", "issuer_withdrawal", {"successor": found["sons"]})[0] == "common_delisting"
+
+
+def test_google_to_alphabet_is_reorg_review_and_an_acquirer_is_a_delisting():
+    rows = pd.DataFrame({"accession": ["goog"], "subject_cik": [1288776], "filing_date": ["2015-10-02"]})
+    intervals = _iv([(1288776, "GOOG", "2014-04-03", "2015-10-01"), (1288776, "GOOGL", "2014-04-03", "2015-10-01"),
+                     (1652044, "GOOG", "2015-10-05", "2026-08-01"), (1652044, "GOOGL", "2015-10-05", "2026-08-01")])
+    names = {1288776: ["GOOGLE INC."], 1652044: ["Alphabet Inc."]}
+    found = f25.successor_evidence(rows, intervals, names, ["2015-10-01", "2015-10-05"])["goog"]
+    assert found["tickers"] == ["GOOG", "GOOGL"] and found["new"] and not found["names_match"]
+    label, _ = f25.classify_row("common", "substituted_merger_or_exchange", {"successor": found})
+    assert label == "reorg_review"
+    assert f25.subject_exit(label, {"successor": found}) == "Y"
+    # Tornier, listed as TRNX since 2011, took Wright Medical's WMGI: a delisting of Wright Medical.
+    rows = pd.DataFrame({"accession": ["wmgi"], "subject_cik": [1], "filing_date": ["2015-10-01"]})
+    intervals = _iv([(1, "WMGI", "2011-01-01", "2015-09-30"), (2, "TRNX", "2011-02-01", "2015-09-30"),
+                     (2, "WMGI", "2015-10-02", "2020-11-10")])
+    found = f25.successor_evidence(rows, intervals, {1: ["WRIGHT MEDICAL GROUP INC"], 2: ["Wright Medical Group N.V."]},
+                                   ["2015-09-30", "2015-10-02"])["wmgi"]
+    assert not found["new"]
+    assert f25.classify_row("common", "substituted_merger_or_exchange", {"successor": found})[0] == "common_delisting"
+
+
+def test_a_same_cik_reorganisation_is_no_exit():
+    ev = {"still_on_nasdaq_same_cik": True, "tickers_before": "ULTA", "tickers_ended": ""}
+    label, _ = f25.classify_row("common", "substituted_merger_or_exchange", ev)
+    assert label == "reorg" and f25.subject_exit(label, ev) == "N"
+    assert f25.subject_exit("common_delisting", {"tickers_before": "MOLX MOLXA", "tickers_ended": "MOLX MOLXA"}) == "Y"
+    assert f25.subject_exit("common_delisting", {"tickers_before": "LSXMA FWONA", "tickers_ended": "LSXMA"}) == "N"
+    # Mylan Inc 2015-02-27: the intervals still gave MYL to the old CIK until 2015-08-10; it is an exit.
+    assert f25.subject_exit("common_delisting", {"tickers_before": "MYL", "tickers_ended": ""}) == "Y"
+
+
+ORACLE_25 = """<html><body><p>FORM 25</p><p>NOTIFICATION OF REMOVAL FROM LISTING AND/OR REGISTRATION</p>
+<p>Commission File Number 001-35992</p><p>Oracle Corporation / The NASDAQ Stock Market LLC</p>
+<p>(Exact name of Issuer as specified in its charter, and name of Exchange where security is listed and/or registered)</p>
+<p>500 Oracle Parkway, Redwood City, California 94065</p>
+<p>(Address, including zip code, and telephone number, including area code, of Issuer&#8217;s principal executive offices)</p>
+<p>Common stock, par value $0.01 per share</p><p>(Description of class of securities)</p>
+<p>Please place an X in the box to designate the rule provision relied upon:</p>
+<p>&#168; 17 CFR 240.12d2-2(a)(1)</p><p>&#168; 17 CFR 240.12d2-2(a)(3)</p>
+<p>&#168; Pursuant to 17 CFR 240.12d2-2(b), the Exchange has complied</p>
+<p>x Pursuant to 17 CFR 240.12d2-2(c), the Issuer has complied with the rules of the Exchange</p>
+<p>Pursuant to the requirements of the Securities Exchange Act of 1934, Oracle Corporation certifies</p></body></html>"""
+
+
+def test_issuer_form25_cover_is_parsed():
+    doc = f25.parse_issuer_form25(ORACLE_25)
+    assert doc["on_nasdaq"] and doc["class_of_security"] == "Common stock, par value $0.01 per share"
+    assert doc["rule_provision"] == "17 CFR 240.12d2-2(c)" and doc["rule_parse"] == "checked_box"
+    assert f25.delisting_basis(doc["rule_provision"]) == "issuer_withdrawal"
+    nyse = ORACLE_25.replace("Oracle Corporation / The NASDAQ Stock Market LLC", "Issuer: VIMPELCOM LTD. Exchange: New York Stock Exchange")
+    nyse = nyse.replace("certifies", "certifies. This delisting is in connection with its move to The NASDAQ Stock Market")
+    assert not f25.parse_issuer_form25(nyse)["on_nasdaq"]  # removed from NYSE, moving to Nasdaq
+
+
+def test_issuer_filings_keep_primary_documents_once():
+    hits = [{"_id": "0001193125-13-289328:d567579d25.htm",
+             "_source": {"ciks": ["0001341439"], "display_names": ["ORACLE CORP  (ORCL)  (CIK 0001341439)"],
+                         "file_date": "2013-07-12", "form": "25", "file_type": "25"}},
+            {"_id": "0001193125-13-289328:ex99.htm",
+             "_source": {"ciks": ["0001341439"], "display_names": [], "file_date": "2013-07-12", "form": "25",
+                         "file_type": "EX-99.1"}}]
+    rows = f25.issuer_filings(hits)
+    assert len(rows) == 1 and rows[0]["subject_cik"] == 1341439 and rows[0]["filer_cik"] == 1341439
+    assert rows[0]["subject_tickers_sec"] == "ORCL" and rows[0]["document"] == "d567579d25.htm"
+
+
+def test_an_issuer_withdrawal_with_a_new_exchange_is_a_transfer():
+    ev = {"transfer_hint": "Form 8-A12B filed 2013-07-10 (registration on another exchange)", "tickers_before": "ORCL"}
+    assert f25.classify_row("common", "issuer_withdrawal", ev)[0] == "transfer"
+    assert f25.classify_row("common", "issuer_withdrawal", {"tickers_before": "VSB"})[0] == "common_delisting"
+
+
+# ------------------------------------------------------------------ round-1 review regressions: security master
+
+@pytest.mark.parametrize("edgar,listed", [
+    ("PRICE T ROWE GROUP INC", "T. Rowe Price Group, Inc. - Common Stock"),
+    ("HUNT J B TRANSPORT SERVICES INC", "J.B. Hunt Transport Services, Inc. - Common Stock"),
+    ("SANFILIPPO JOHN B & SON INC", "John B. Sanfilippo & Son, Inc. - Common Stock"),
+    ("BANK JOS A CLOTHIERS INC /DE/", "Jos. A. Bank Clothiers, Inc. - Common Stock"),
+    ("SCHULMAN A INC", "A. Schulman, Inc. - Common Stock"),
+    ("ARDEN ELIZABETH INC", "Elizabeth Arden, Inc. - Common Stock"),
+    ("OZARKS CORP, BANK OF", "Bank of the Ozarks Corp - Common Stock"),
+    ("PMC SIERRA INC", "PMC - Sierra, Inc. - Common Stock"),
+])
+def test_inverted_edgar_names_match(edgar, listed):
+    a, b = sm.normalize_issuer_name(edgar), sm.normalize_issuer_name(listed)
+    assert sm.names_match(a, b)
+    assert sm.names_in(sm.build_name_index({1: _profile(edgar)}), b) == {1}
+
+
+def test_spaced_hyphen_is_cut_only_before_a_security_phrase():
+    assert sm.normalize_issuer_name("PMC - Sierra, Inc. - Common Stock") == "pmc sierra"
+    assert sm.normalize_issuer_name("Liberty Media Corporation - Series C Liberty SiriusXM Common Stock") == "liberty media"
+    assert sm.normalize_issuer_name("Hennessy Capital Investment Corp. IV - Units") == "hennessy capital investment 4"
+    assert sm.normalize_issuer_name("HUNT J B TRANSPORT SERVICES INC") == "hunt jb transport services"
+    assert not sm.names_match("first american", "american first financial")
+
+
+def _issuer(name, tickers=(), entity="operating", periodic=("2012-03-01", "2026-03-01"), former=()):
+    return {"name": name, "former_names": list(former), "tickers": list(tickers), "entity_type": entity,
+            "older_pages": [], "periodic_dates": list(periodic), "filing_dates": list(periodic)}
+
+
+@pytest.mark.parametrize("symbol,listed,right,wrong", [
+    ("TROW", "T. Rowe Price Group, Inc. - Common Stock",
+     (1113169, "PRICE T ROWE GROUP INC"), (1214556, "T ROWE PRICE GROUP INC")),
+    ("JBHT", "J.B. Hunt Transport Services, Inc. - Common Stock",
+     (728535, "HUNT J B TRANSPORT SERVICES INC"), (1501362, "J.B. Hunt Transport, Inc.")),
+    ("JBSS", "John B. Sanfilippo & Son, Inc. - Common Stock",
+     (880117, "SANFILIPPO JOHN B & SON INC"), (889867, "JOHN B SANFILIPPO & SON INC")),
+])
+def test_the_issuer_beats_a_same_name_entity_from_the_name_list(symbol, listed, right, wrong):
+    # The wrong CIKs have entity type 'other' and no 10-K, 10-Q, 20-F or 40-F.
+    profiles = {right[0]: _issuer(right[1], [symbol]), wrong[0]: _issuer(wrong[1], entity="other", periodic=())}
+    cands = sm.Candidates()
+    cands.add(symbol, right[0], "sec_company_tickers_exchange")
+    cands.add(symbol, wrong[0], "sec_cik_lookup")
+    index = sm.build_name_index(profiles)
+    lookup = {k: {wrong[0]} for k in sm.index_keys(sm.normalize_issuer_name(wrong[1]))}
+    assert sm.resolve_listing(symbol, listed, cands, profiles, index, "2011-01-01", "2026-07-01", lookup) == (
+        right[0], "name+ticker")
+    # Even when only the non-issuer is a ticker candidate, the issuer bearing the name wins.
+    only = sm.Candidates()
+    only.add(symbol, wrong[0], "sec_cik_lookup")
+    assert sm.resolve_listing(symbol, listed, only, profiles, index, "2011-01-01", "2026-07-01", lookup) == (
+        right[0], "name_only")
+    # With no issuer of that name at all, a distinctive name keeps the non-filer, labelled as such
+    # (Signature Bank and Hingham file with the FDIC, not SEC).
+    alone = {wrong[0]: profiles[wrong[0]]}
+    assert sm.resolve_listing(symbol, listed, only, alone, sm.build_name_index(alone), "2011-01-01", "2026-07-01",
+                              lookup) == (wrong[0], "name+lookup_nonfiler")
+
+
+def test_a_non_filer_never_beats_a_mapped_issuer():
+    # JBHT 2024-01-26 'J B Hunt Transport': the subsidiary 1501362 must not take the pair from 728535.
+    profiles = {728535: _issuer("HUNT J B TRANSPORT SERVICES INC", ["JBHT"], periodic=("2012-03-01", "2024-02-15")),
+                1501362: _issuer("J.B. Hunt Transport, Inc.", entity="other", periodic=())}
+    cands = sm.Candidates()
+    cands.add("JBHT", 728535, "sec_company_tickers_exchange")
+    cands.add("JBHT", 1501362, "sec_cik_lookup")
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("JBHT", "J B Hunt Transport", cands, profiles, index, "2024-01-26", "2024-02-27") == (
+        728535, "ticker_only")
+
+
+def test_large_filers_report_before_their_recent_block():
+    # Comcast's recent submissions block starts years after 2015; its older pages are not fetched.
+    comcast = {**_issuer("COMCAST CORP", ["CMCSA"], periodic=("2022-02-01", "2026-07-30")),
+               "older_pages": [{"name": "p1"}], "coverage_start": "2021-06-01"}
+    assert sm.reported_during(comcast, "2010-12-31", "2015-12-10")
+    assert not sm.periodic_during(comcast, "2010-12-31", "2015-12-10")
+    cands = sm.Candidates()
+    cands.add("CMCSK", 1166691, "sec_cik_lookup")
+    profiles = {1166691: comcast}
+    assert sm.resolve_listing("CMCSK", "Comcast Corporation - Class A Special Common Stock", cands, profiles,
+                              sm.build_name_index(profiles), "2010-12-31", "2015-12-10") == (1166691, "name+lookup")
+
+
+def test_short_names_from_the_name_list_need_one_reporting_issuer():
+    # Conn's ('conns'), Ebix, Zix: one-token names found only through SEC's name list.
+    profiles = {1223389: _issuer("CONNS INC", periodic=("2011-03-01", "2024-04-18"))}
+    cands = sm.Candidates()
+    cands.add("CONN", 1223389, "sec_cik_lookup")
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("CONN", "Conn's, Inc. - Common Stock", cands, profiles, index,
+                              "2010-12-31", "2024-07-10") == (1223389, "name+lookup")
+    profiles[2] = _issuer("Conns Holdings Inc", periodic=("2015-01-01", "2020-01-01"))
+    profiles[3] = _issuer("CONNS CORP", periodic=("2012-01-01", "2023-01-01"))
+    cands.add("CONN", 3, "sec_cik_lookup")
+    assert sm.resolve_listing("CONN", "Conn's, Inc. - Common Stock", cands, profiles, sm.build_name_index(profiles),
+                              "2010-12-31", "2024-07-10") == (None, "ambiguous")
+    # A non-filer never takes a short name.
+    other = {9: _issuer("CONNS INC", entity="other", periodic=())}
+    lone = sm.Candidates()
+    lone.add("CONN", 9, "sec_cik_lookup")
+    assert sm.resolve_listing("CONN", "Conn's, Inc. - Common Stock", lone, other, sm.build_name_index(other),
+                              "2010-12-31", "2024-07-10")[0] is None
+
+
+def test_an_inverted_form25_subject_resolves_by_name():
+    # A. Schulman (87565): no ticker map; the EDGAR name is inverted.
+    profiles = {87565: _issuer("SCHULMAN A INC", periodic=("2011-10-31", "2018-06-28"))}
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("SHLM", "A. Schulman, Inc. - Common Stock", sm.Candidates(), profiles, index,
+                              "2011-01-01", "2018-08-20") == (87565, "name_only")
+
+
+def test_short_or_truncated_names_give_no_name_match():
+    # Truncated repo names ('G' for G-III, 'Park' for Park-Ohio) must not resolve through the name list.
+    profiles = {5: _issuer("PARK CORP", periodic=("2012-01-01", "2026-01-01")),
+                6: _issuer("Heritage Oaks Bank", periodic=("2012-01-01", "2026-01-01"))}
+    cands = sm.Candidates()
+    cands.add("PKOH", 5, "sec_cik_lookup")
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("PKOH", "Park", cands, profiles, index, "2018-08-22", "2018-08-22")[0] is None
+    assert sm.resolve_listing("HCCI", "Heritage", sm.Candidates(), profiles, index, "2018-08-22", "2018-08-22")[0] is None
+    assert sm.resolve_listing("HEOP", "Heritage Oaks Bank", sm.Candidates(), profiles, index, "2018-08-22", "2018-08-22",
+                              truncated=True)[0] is None
+
+
+def test_a_name_valid_for_part_of_the_listing_loses_to_one_valid_throughout():
+    # COHR: Coherent Inc (21510) until 2022; II-VI (820318) took the name Coherent Corp in 2022-09.
+    profiles = {21510: _issuer("COHERENT INC", periodic=("2011-01-01", "2022-05-11", "2022-07-01")),
+                820318: _issuer("COHERENT CORP.", ["COHR"], former=[{"name": "II-VI INC", "from": "2000-01-01",
+                                                                     "to": "2022-09-08"}])}
+    cands = sm.Candidates()
+    cands.add("COHR", 21510, "repo_historical_ticker_ciks")
+    cands.add("COHR", 820318, "sec_company_tickers_exchange")
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("COHR", "Coherent, Inc. - Common Stock", cands, profiles, index,
+                              "2010-12-31", "2022-07-01") == (21510, "name+ticker")
+    # A name valid for part of the dates is split by date when a rival could hold the rest of them...
+    assert sm.resolve_listing("COHR", "Coherent Corp. - Common Stock", cands, profiles, index,
+                              "2018-01-19", "2026-07-01") == (None, "ambiguous")
+    # ...or when the candidate came from the name list only; a sole mapped holder with no rival keeps
+    # the pair (ZION: EDGAR's 'ZIONS BANCORPORATION /UT/' ended 2018, 'N.A.' is not matched after).
+    alone = sm.Candidates()
+    alone.add("COHR", 820318, "sec_cik_lookup")
+    solo = {820318: profiles[820318]}
+    assert sm.resolve_listing("COHR", "Coherent Corp. - Common Stock", alone, solo, sm.build_name_index(solo),
+                              "2018-01-19", "2026-07-01") == (None, "ambiguous")
+    zion = {109380: _issuer("ZIONS BANCORPORATION, NATIONAL ASSOCIATION /UT/", ["ZION"], former=[
+        {"name": "ZIONS BANCORPORATION /UT/", "from": "1994-03-29", "to": "2018-09-17"}])}
+    mapped = sm.Candidates()
+    mapped.add("ZION", 109380, "sec_company_tickers_exchange")
+    assert sm.resolve_listing("ZION", "Zions Bancorporation N.A. - Common Stock", mapped, zion, sm.build_name_index(zion),
+                              "2018-10-09", "2026-07-01") == (109380, "name+ticker")
+
+
+def test_resolve_by_date_ends_a_cik_at_its_terminal_form25():
+    # Mylan Inc (69499) kept filing after its 2015-02-27 Form 25; Mylan N.V. (1623613) took MYL.
+    old = _issuer("MYLAN INC.", periodic=("2012-02-28", "2015-11-01", "2016-02-01"))
+    new = _issuer("Mylan N.V.", ["MYL"], periodic=("2015-06-01", "2020-11-01"))
+    new["filing_dates"] = ["2015-02-01", "2020-11-01"]
+    profiles = {69499: old, 1623613: new}
+    cands = sm.Candidates()
+    cands.add("MYL", 69499, "repo_historical_ticker_ciks")
+    cands.add("MYL", 1623613, "repo_historical_ticker_ciks")
+    index = sm.build_name_index(profiles)
+    days = ["2015-01-10", "2015-03-02", "2015-08-10"]
+    name = "Mylan N.V. - Ordinary Shares"
+    assert sm.resolve_by_date("MYL", name, days, cands, profiles, index)["2015-08-10"] == 69499  # incumbent
+    out = sm.resolve_by_date("MYL", name, days, cands, profiles, index, exits={69499: "2015-02-27"})
+    assert out == {"2015-01-10": 69499, "2015-03-02": 1623613, "2015-08-10": 1623613}
+
+
+def _rows(records):
+    return pd.DataFrame([{"symbol": s, "date": d, "cik": c, "share_class": "COMMON", "family": f, "source_url": "u",
+                          "how": "name+ticker", "name": "n"} for s, d, c, f in records])
+
+
+def test_intervals_bridge_a_coverage_gap():
+    # No snapshot of any family between 2012-06-22 and 2012-10-24: one interval, with the gap recorded.
+    dates = {"wayback_symdir": ["2012-05-01", "2012-06-22", "2012-10-24", "2012-12-01"],
+             "wayback_companylist": ["2012-05-15", "2012-11-15"]}
+    rows = _rows([("GOOG", d, 1288776, "wayback_symdir") for d in dates["wayback_symdir"]]
+                 + [("GOOG", d, 1288776, "wayback_companylist") for d in dates["wayback_companylist"]])
+    out = sm.build_intervals(rows, dates)
+    assert out[["start", "end", "n_snapshots", "coverage_gap_days"]].values.tolist() == [["2012-05-01", "2012-12-01", 6, 124]]
+    assert out.iloc[0]["sources"] == "wayback_companylist wayback_symdir" and out.iloc[0]["n_evidence_rows"] == 6
+
+
+def test_intervals_break_on_two_absent_snapshots_or_another_holder():
+    dates = {"repo_symdir": ["2018-01-01", "2018-01-02", "2018-01-03", "2018-01-04", "2018-01-05"],
+             "repo_screener_300M": ["2018-01-03"]}
+    present = {"2018-01-01": {"ABC"}, "2018-01-02": {"ABC"}, "2018-01-03": {"XYZ"}, "2018-01-04": {"ABC"},
+               "2018-01-05": {"ABC"}}
+    rows = _rows([("ABC", d, 1, "repo_symdir") for d in ["2018-01-01", "2018-01-02", "2018-01-04", "2018-01-05"]])
+    assert len(sm.build_intervals(rows, dates, present)) == 1  # one missing snapshot (and the screener) tolerated
+    present["2018-01-02"] = set()
+    rows = rows[rows["date"] != "2018-01-02"]
+    assert len(sm.build_intervals(rows, dates, present)) == 2  # missing twice in a row
+    other = _rows([("ABC", d, 1, "repo_symdir") for d in ["2018-01-01", "2018-01-05"]] + [("ABC", "2018-01-03", 2, "repo_symdir")])
+    out = sm.build_intervals(other, dates, {d: {"ABC"} for d in dates["repo_symdir"]})
+    assert sorted(zip(out["cik"], out["start"], out["end"])) == [
+        (1, "2018-01-01", "2018-01-01"), (1, "2018-01-05", "2018-01-05"), (2, "2018-01-03", "2018-01-03")]
+
+
+def test_one_cik_per_ticker_and_date():
+    # Company lists gave COHR to 21510 while the symbol files gave it to 820318 over the same years.
+    profiles = {21510: _issuer("COHERENT INC"),
+                820318: _issuer("COHERENT CORP.", former=[{"name": "II-VI INC", "from": "2000-01-01", "to": "2022-09-08"}])}
+    rows = _rows([("COHR", d, 21510, "wayback_companylist") for d in ["2012-01-01", "2012-03-01", "2012-05-01"]]
+                 + [("COHR", d, 820318, "wayback_symdir") for d in ["2012-02-01", "2012-04-01"]])
+    rows["name"] = "Coherent, Inc."
+    assert sm.ticker_conflicts(rows) == [("COHR", 21510, 820318, "2012-02-01", "2012-04-01")]
+    kept, dropped = sm.resolve_ticker_conflicts(rows, profiles)
+    assert dropped == 2 and set(kept.loc[kept["how"] == "conflict", "date"]) == {"2012-02-01", "2012-04-01"}
+    clean = kept[kept["how"] != "conflict"].astype({"cik": int})
+    assert not sm.ticker_conflicts(clean)
+    dates = {"wayback_companylist": ["2012-01-01", "2012-03-01", "2012-05-01"], "wayback_symdir": ["2012-02-01", "2012-04-01"]}
+    assert len(sm.build_intervals(clean, dates)) == 1
+    # MTCH: alternating assignments are settled date by date by the EDGAR name each CIK bore.
+    profiles = {1575189: _issuer("Match Group Holdings II, LLC", former=[
+                    {"name": "Match Group, Inc.", "from": "2015-01-01", "to": "2020-07-01"}]),
+                891103: _issuer("Match Group, Inc.", ["MTCH"], former=[
+                    {"name": "IAC/INTERACTIVECORP", "from": "2003-01-01", "to": "2020-07-01"}])}
+    rows = _rows([("MTCH", "2016-01-04", 1575189, "x"), ("MTCH", "2018-06-01", 891103, "x"),
+                  ("MTCH", "2019-06-03", 1575189, "x"), ("MTCH", "2021-01-04", 891103, "x"),
+                  ("MTCH", "2022-01-03", 1575189, "x")])
+    rows["name"] = "Match Group, Inc. - Common Stock"
+    kept, dropped = sm.resolve_ticker_conflicts(rows, profiles)
+    assert kept["cik"].fillna(0).astype(int).tolist() == [1575189, 0, 1575189, 891103, 0] and dropped == 2
+
+
+def test_rows_after_a_terminal_form25_go_to_the_successor_or_nobody():
+    rows = _rows([("MYL", "2015-02-20", 69499, "x"), ("MYL", "2015-03-02", 69499, "x"), ("MYL", "2015-08-10", 69499, "x"),
+                  ("ABC", "2014-01-01", 5, "x"), ("ABC", "2014-03-01", 5, "x")])
+    out, dropped, moved = sm.drop_rows_after_exit(rows, {69499: "2015-02-27", 5: "2014-01-05"}, {(69499, "MYL"): 1623613})
+    assert out["cik"].tolist()[:4] == [69499, 69499, 1623613, 5] and pd.isna(out["cik"].tolist()[4])
+    assert (dropped, moved) == (1, 1)
+    assert out["how"].tolist()[2] == "successor" and out["how"].tolist()[4] == "after_exit"
+
+
+def test_multi_class_exits_match_their_class():
+    classes = {"COMMON", "A"}
+    # Molex 2013-12-09: one filing for 'Common Stock' (MOLX), one for 'Class A Common Stock' (MOLXA).
+    assert sm.exit_matches_class("Common Stock", "", "COMMON", {"MOLX"}, classes)
+    assert not sm.exit_matches_class("Common Stock", "", "A", {"MOLXA"}, classes)
+    assert sm.exit_matches_class("Class A Common Stock", "", "A", {"MOLXA"}, classes)
+    assert not sm.exit_matches_class("Class A Common Stock", "", "COMMON", {"MOLX"}, classes)
+    # Comcast 2015-12-11 'Class A Special Common Stock': ticker keys, matched by the ticker that ended.
+    keyed = {"T-CMCSA", "T-CMCSK"}
+    assert sm.exit_matches_class("Class A Special Common Stock", "CMCSK", "T-CMCSK", {"CMCSK"}, keyed)
+    assert not sm.exit_matches_class("Class A Special Common Stock", "CMCSK", "T-CMCSA", {"CMCSA"}, keyed)
+    # Liberty-style series wording and a filing naming two classes.
+    assert sm.exit_matches_class("Series C Liberty SiriusXM Common Stock", "", "C", {"LSXMK"}, {"A", "B", "C"})
+    assert sm.exit_matches_class("Class A Common Stock and Class C Capital Stock", "", "C", {"GOOG"}, {"A", "C"})
+    # Generic 'Common Stock' applies to every ticker-keyed class when no ticker evidence says otherwise.
+    assert sm.exit_matches_class("Common Stock", "", "T-SRCL", {"SRCL"}, {"T-SRCL", "T-SRCLX"})
+
+
+def test_preferred_depositary_symbols_are_not_common():
+    assert not sm.is_common_equity("Stericycle, Inc. - Depository Receipt")  # SRCLP
+    assert not sm.is_common_equity("IBERIABANK Corporation - Depositary Shares Representing Series B Fixed to Floating")
+    assert not sm.is_common_equity("Huntington Bancshares Incorporated - Depositary Shares")
+    assert sm.is_common_equity("Celsus Therapeutics Plc - Amercan Depositary Shares")  # sic, an ADR
+    assert sm.is_common_equity("Baidu, Inc. - American Depositary Shares")
+
+
+def test_nan_is_never_a_ticker():
+    cands = sm.Candidates()
+    cands.add(float("nan"), 920033, "form25_efts_display_name")
+    cands.add("nan", 920033, "x")
+    assert dict(cands.map) == {}
+    assert sm.text_value(float("nan")) == "" and sm.text_value(None) == "" and sm.text_value("JOSB") == "JOSB"
+
+
+def test_company_list_rows_without_a_last_sale_are_dropped(tmp_path):
+    hook = tmp_path / "companylist"
+    hook.mkdir()
+    (hook / "nasdaq_companylist_2019-01-03.csv").write_text(
+        "Symbol,Name,LastSale,MarketCap,Observed At\nAAPL,Apple Inc.,157.92,7.5E11,2019-01-03\n"
+        "GNST,GenSight Inc.,,,2019-01-03\nSCCI,Some IPO Corp,n/a,n/a,2019-01-03\n")
+    snaps = sm.load_listing_snapshots(tmp_path / "none", {"wayback_companylist": hook})
+    assert snaps["symbol"].tolist() == ["AAPL"]
+
+
+def test_truncated_file_names_borrow_the_nearest_full_name():
+    snaps = pd.DataFrame({"symbol": ["COKE", "COKE", "GIII", "ABCD"],
+                          "name": ["Coca-Cola Consolidated, Inc. - Common Stock", "Coca", "G", "Other Name"],
+                          "date": ["2018-08-13", "2018-08-22", "2018-08-22", "2018-08-22"],
+                          "name_truncated": [False, True, True, True]})
+    out = sm.fill_symbol_only_names(snaps)
+    assert out["name"].tolist()[:2] == ["Coca-Cola Consolidated, Inc. - Common Stock"] * 2
+    assert out["name_truncated"].tolist() == [False, False, True, True]  # no full name near: stays flagged
+
+
+def test_build_master_takes_delist_dates_from_delistings_only():
+    profiles = {1: {**_issuer("ULTA BEAUTY INC", ["ULTA"]), **sm.parse_submissions({})},
+                2: {**_issuer("GOOGLE INC."), **sm.parse_submissions({})},
+                3: {**_issuer("Alphabet Inc.", ["GOOG"]), **sm.parse_submissions({})},
+                4: {**_issuer("BENIHANA INC"), **sm.parse_submissions({})}}
+    for cik, name in [(1, "ULTA BEAUTY INC"), (2, "GOOGLE INC."), (3, "Alphabet Inc."), (4, "BENIHANA INC")]:
+        profiles[cik]["name"] = name
+    iv = pd.DataFrame([
+        {"security_id": "1", "cik": 1, "ticker": "ULTA", "start": "2011-01-01", "end": "2026-08-01", "share_class": "COMMON"},
+        {"security_id": "2", "cik": 2, "ticker": "GOOG", "start": "2011-01-01", "end": "2015-10-01", "share_class": "COMMON"},
+        {"security_id": "3", "cik": 3, "ticker": "GOOG", "start": "2015-10-05", "end": "2026-08-01", "share_class": "COMMON"},
+        {"security_id": "4", "cik": 4, "ticker": "BNHN", "start": "2011-01-01", "end": "2012-08-20", "share_class": "COMMON"},
+    ]).assign(source="repo_symdir", match="name+ticker", exchange="NASDAQ")
+    f25_rows = pd.DataFrame([
+        {"subject_cik": 1, "filing_date": "2017-01-30", "effective_date": "2017-02-09", "accession": "a1",
+         "classification": "reorg", "class_kind": "common", "class_of_security": "Common Stock", "successor_cik": None},
+        {"subject_cik": 2, "filing_date": "2015-10-02", "effective_date": "2015-10-12", "accession": "a2",
+         "classification": "reorg_review", "class_kind": "common", "class_of_security": "Common Stock",
+         "successor_cik": 3, "successor_tickers": "GOOG"},
+        {"subject_cik": 4, "filing_date": "2012-08-21", "effective_date": "2012-08-31", "accession": "a4",
+         "classification": "common_delisting", "class_kind": "common", "class_of_security": "Common Stock",
+         "successor_cik": None},
     ])
-    out = sm.merge_intervals(evidence)
-    assert out[["start", "end", "n_snapshots", "match", "n_evidence_rows"]].values.tolist() == [
-        ["2012-01-01", "2016-01-01", 40, "name+lookup", 3], ["2018-01-19", "2026-07-01", 300, "name+ticker", 1]]
-    assert out.iloc[0]["sources"] == "wayback_companylist wayback_symdir"
+    for column in sm.FORM25_TEXT_COLUMNS:
+        f25_rows[column] = f25_rows.get(column, pd.Series([""] * len(f25_rows))).fillna("")
+    f25_rows["successor_cik"] = f25_rows["successor_cik"].astype("Int64")
+    prices = pd.DataFrame(columns=["ticker", "file", "first_date", "last_date", "rows", "cik", "how",
+                                   "ciks_on_ticker_in_file_range"])
+    master = sm.build_master(profiles, iv, iv, f25_rows, prices, set(), []).set_index("security_id")
+    assert master.loc["1", "delist_date"] == ""  # ULTA: a same-CIK reorganisation
+    assert master.loc["2", "delist_date"] == "" and master.loc["2", "successor_security_id"] == "3"
+    assert master.loc["2", "successor_date"] == "2015-10-02"
+    assert master.loc["4", "delist_date"] == "2012-08-31" and master.loc["4", "delist_form25_accession"] == "a4"
+    assert "nan" not in master["first_ticker"].str.lower().tolist()
+
+
+def test_the_earliest_edgar_name_is_open_at_the_start():
+    # EDGAR dates MicroStrategy's first recorded name from 2018-10-25; the company bore it long before.
+    mstr = _issuer("Strategy Inc", ["MSTR"], former=[{"name": "MICROSTRATEGY INC", "from": "2018-10-25", "to": "2025-08-11"}])
+    mstr["older_pages"] = [{"name": "p1", "from": "1997-05-01", "to": "2019-01-01"}]
+    mstr["coverage_start"] = "2019-01-02"
+    assert sm.name_valid(mstr, "microstrategy", "2011-01-25", "2018-02-17")
+    assert not sm.name_valid(mstr, "strategy", "2011-01-25", "2018-02-17")
+    # Liberty Global plc (CIK 1570585, first filing 2013) never bore its name before 2013.
+    plc = {**_issuer("Liberty Global Ltd.", ["LBTYA"], former=[{"name": "Liberty Global plc", "from": "2013-06-07",
+                                                                "to": "2023-11-23"}]), "coverage_start": "2013-02-01"}
+    assert not sm.name_valid(plc, "liberty global", "2010-12-31", "2012-06-01")
+    assert sm.name_valid(plc, "liberty global", "2013-03-01", "2013-05-01")
+
+
+def test_filler_words_and_sub_entities():
+    assert sm.names_match(sm.normalize_issuer_name("Motorcar Parts of America, Inc. - Common Stock"),
+                          sm.normalize_issuer_name("MOTORCAR PARTS AMERICA INC"))
+    # ZION: an EDGAR sub-entity that lists the ticker does not compete with the issuer.
+    profiles = {109380: _issuer("ZIONS BANCORPORATION, NATIONAL ASSOCIATION /UT/", ["ZION"]),
+                1666757: _issuer("Zions Bancorporation, N.A.", ["ZION"], entity="other", periodic=())}
+    cands = sm.Candidates()
+    cands.add("ZION", 109380, "sec_company_tickers_exchange")
+    cands.add("ZION", 1666757, "sec_submissions_tickers")
+    index = sm.build_name_index(profiles)
+    assert sm.resolve_listing("ZION", "Zions Bancorporation N.A. - Common Stock", cands, profiles, index,
+                              "2019-05-06", "2026-07-01") == (109380, "ticker_only")
+
+
+def test_edgar_name_spans_are_chained():
+    # eXp: 'eXp World Holdings' is dated from 2025-02-19 although the name before it ended 2016-04-27.
+    exp = {"name": "AGNT, Inc.", "older_pages": [{"from": "2010-07-07"}], "coverage_start": "2019-07-31",
+           "former_names": [{"name": "EXP World Holdings, Inc.", "from": "2025-02-19", "to": "2026-06-01"},
+                            {"name": "eXp Realty International", "from": "2013-09-09", "to": "2016-04-27"},
+                            {"name": "Desert Canadians", "from": "2010-07-07", "to": "2013-08-20"}]}
+    assert sm.profile_name_spans(exp) == [("agnt", "2026-06-01", "9999-12-31"),
+                                          ("desert canadians", "2010-07-07", "2013-08-20"),
+                                          ("exp realty international", "2013-08-20", "2016-04-27"),
+                                          ("exp world holdings", "2016-04-27", "2026-06-01")]
+    assert sm.name_valid_throughout(exp, "exp world holdings", "2018-05-21", "2026-05-01")

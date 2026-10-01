@@ -69,7 +69,16 @@ def test_cdx_url_and_raw_url():
      False),
     ("http://www.nasdaq.com/screening/companies-by-industry.aspx?industry=ALL&exchange=NASDAQ&market=NGS"
      "&render=download", False),
-    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&page=2&render=download", False),
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&market=ADR&render=download", False),
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&market=NCM&render=download", False),
+    # render=download ignores paging, and market=NASDAQ is the whole exchange
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&page=2&render=download", True),
+    ("http://www.nasdaq.com:80/screening/companies-by-name.aspx?exchange=NASDAQ&page=59&render=download", True),
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&pagesize=200&render=download", True),
+    ("http://www.nasdaq.com/screening/companies-by-industry.aspx?exchange=NASDAQ&market=NASDAQ&render=download", True),
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&page=2", False),
+    ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq&sector=Technology&render=download",
+     False),
     ("http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=nasdaq", False),
 ])
 def test_full_nasdaq_company_list_filter(url, full):
@@ -101,7 +110,7 @@ def test_select_captures_keeps_first_of_each_digest_and_skips_bad_rows():
 @pytest.mark.parametrize("raw, dollars", [
     ("60755520", 60755520.0), ("33430967.84", 33430967.84), ("$58.83M", 58.83e6), ("$1.2B", 1.2e9),
     ("$612.3B", 612.3e9), ("$120K", 120e3), ("$1.01T", 1.01e12), ("n/a", None), ("", None), ("abc", None),
-    (" $3,000 ", 3000.0),
+    (" $3,000 ", 3000.0), ("0", None), ("0.0", None), ("$0", None), ("$0.00M", None),
 ])
 def test_market_cap_parsing(raw, dollars):
     value = L.parse_market_cap(raw)
@@ -128,6 +137,8 @@ def test_company_list_values():
     adr = L.parse_company_list(CL_2019).set_index("Symbol")
     assert adr.loc["YI", "ADR TSO"] == "12907195"
     assert L.market_cap_checks(L.parse_company_list(CL_2016)) == {"aapl_mcap_bn": 612.3, "mcap_over_1p5t": ""}
+    zero = L.parse_company_list(CL_2011.replace('"60755520"', '"0"')).set_index("Symbol")
+    assert pd.isna(zero.loc["FLWS", "MarketCap"]) and zero.loc["FLWS", "MarketCap Raw"] == "0"
 
 
 def test_html_is_not_a_company_list():
@@ -189,25 +200,240 @@ def test_process_capture_parses_without_network(monkeypatch):
     monkeypatch.setattr(L, "fetch_wayback_raw", lambda kind, ts, original: payload[kind])
     monkeypatch.setattr(L, "company_list_problem", lambda text, frame: "")
     sym = L.process_capture({"kind": "symdir", "timestamp": "20160312152615",
-                             "original": "http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"})
+                             "original": "http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+                             "digest": L.cdx_digest(payload["symdir"])})
     assert sym["parsed_date"] == "2016-03-11" and sym["footer_lag_days"] == 1 and sym["rows"] == 3
-    cl = L.process_capture({"kind": "companylist", "timestamp": "20160412180351",
-                            "original": "http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=NASDAQ"
-                                        "&render=download"})
+    assert sym["digest_match"] == "Y" and sym["capture_time_et"] == "2016-03-12T10:26:15-05:00"
+    assert "as_of_session" not in sym
+    original = "http://www.nasdaq.com/screening/companies-by-name.aspx?exchange=NASDAQ&render=download"
+    # Tuesday 14:03 ET: mid-session, so the values are Monday's close; AAPL's LastSale matches it.
+    closes = {"AAPL": {"2016-04-08": 108.66, "2016-04-11": 110.5}, "TFSC": {"2016-04-11": 9.89}}
+    cl = L.process_capture({"kind": "companylist", "timestamp": "20160412180351", "original": original,
+                            "digest": "NOTTHEDIGEST"}, closes)
     assert cl["parsed_date"] == "2016-04-12" and cl["rows"] == 3 and cl["market_cap_share"] == pytest.approx(2 / 3, abs=1e-4)
+    assert (cl["as_of_rule"], cl["capture_phase"]) == ("2016-04-11", "intraday")
+    assert (cl["as_of_session"], cl["as_of_check"]) == ("2016-04-11", "inconclusive")  # only 2 names compared
+    assert cl["close_matches"] == "2016-04-08:0/1;2016-04-11:2/2"
+    assert cl["digest_match"] == "N" and "digest" in cl["notes"]
+    unverified = L.process_capture({"kind": "companylist", "timestamp": "20160412180351", "original": original})
+    assert (unverified["as_of_session"], unverified["as_of_check"]) == ("2016-04-11", "unverified")
 
 
-def test_choose_per_date_prefers_more_rows_then_earlier():
-    frame = pd.DataFrame({"Symbol": ["A"], "Name": ["a"]})
+def test_process_capture_records_network_errors(monkeypatch):
+    def broken(kind, ts, original):
+        raise RuntimeError("https://web.archive.org/web/x: HTTP Error 503: Service Unavailable")
+    monkeypatch.setattr(L, "fetch_wayback_raw", broken)
+    out = L.process_capture({"kind": "companylist", "timestamp": "20160412180351", "original": "http://x"})
+    assert out["parse_error"] == "network_error" and out.get("_frame") is None
+
+
+def test_get_backs_off_on_503_and_gives_up(monkeypatch):
+    calls, sleeps = [], []
+
+    def fake_cached_get(url, cache, **kwargs):
+        calls.append(url)
+        raise RuntimeError(f"{url}: HTTP Error 503: Service Unavailable")
+    monkeypatch.setattr(L, "cached_get", fake_cached_get)
+    monkeypatch.setattr(L.time, "sleep", sleeps.append)
+    with pytest.raises(RuntimeError):
+        L._get("https://web.archive.org/web/1id_/x", L.CACHE / "never_written")
+    assert len(calls) == 3 and sleeps == [90, 180]
+    calls.clear(), sleeps.clear()
+
+    def timeout(url, cache, **kwargs):
+        calls.append(url)
+        raise RuntimeError(f"{url}: timed out")
+    monkeypatch.setattr(L, "cached_get", timeout)
+    with pytest.raises(RuntimeError):
+        L._get("https://web.archive.org/web/1id_/x", L.CACHE / "never_written")
+    assert len(calls) == 2 and sleeps == [60]
+    assert L.throttled(RuntimeError("u: HTTP Error 429: Too Many Requests"))
+    assert not L.throttled(RuntimeError("u: HTTP Error 500: oops"))
+
+
+@pytest.mark.parametrize("timestamp, et, phase, as_of", [
+    ("20160412180351", "2016-04-12T14:03:51-04:00", "intraday", "2016-04-11"),      # Tuesday mid-session
+    ("20160412120000", "2016-04-12T08:00:00-04:00", "pre_open", "2016-04-11"),
+    ("20151009224448", "2015-10-09T18:44:48-04:00", "after_close", "2015-10-08"),   # latest capture still stale
+    ("20170617003302", "2017-06-16T20:33:02-04:00", "evening", "2017-06-16"),       # earliest one fresh
+    ("20160412010000", "2016-04-11T21:00:00-04:00", "evening", "2016-04-11"),       # UTC date is a day later
+    ("20121111010514", "2012-11-10T20:05:14-05:00", "non_session_day", "2012-11-09"),  # Saturday
+    ("20121030150000", "2012-10-30T11:00:00-04:00", "non_session_day", "2012-10-26"),  # Hurricane Sandy closure
+    ("20171124190000", "2017-11-24T14:00:00-05:00", "after_close", "2017-11-22"),   # 13:00 early close
+    ("20171124210000", "2017-11-24T16:00:00-05:00", "evening", "2017-11-24"),
+])
+def test_session_facts(timestamp, et, phase, as_of):
+    facts = L.session_facts(timestamp)
+    assert (facts["capture_time_et"], facts["capture_phase"], facts["as_of_rule"]) == (et, phase, as_of)
+    assert facts["candidate_sessions"][-1] >= as_of and len(facts["candidate_sessions"]) == 4
+
+
+def test_resolve_as_of():
+    assert L.resolve_as_of("2016-04-11", {"2016-04-08": (0, 20), "2016-04-11": (20, 20)}) == ("2016-04-11", "confirmed")
+    assert L.resolve_as_of("2016-04-11", {"2016-04-08": (19, 20), "2016-04-11": (1, 20)}) == ("2016-04-08", "overridden")
+    assert L.resolve_as_of("2016-04-11", {"2016-04-08": (8, 20), "2016-04-11": (5, 20)}) == ("2016-04-11", "inconclusive")
+    assert L.resolve_as_of("2016-04-11", {"2016-04-11": (2, 2)}) == ("2016-04-11", "inconclusive")
+    assert L.resolve_as_of("2016-04-11", {"2016-04-11": (6, 20), "2016-04-08": (0, 20)}) == ("2016-04-11", "confirmed")
+    assert L.resolve_as_of("2016-04-11", {"2016-04-11": (0, 0)}) == ("2016-04-11", "unverified")
+
+
+def test_close_matches_and_reference_loading(tmp_path):
+    pd.DataFrame({"date": ["2016-04-08", "2016-04-11"], "close": [108.66, 110.5]}).to_csv(
+        tmp_path / "AAPL.csv.gz", index=False)
+    closes = L.load_reference_closes(tmp_path, ("AAPL", "MSFT"))
+    assert closes == {"AAPL": {"2016-04-08": 108.66, "2016-04-11": 110.5}}
+    frame = pd.DataFrame({"Symbol": ["AAPL", "ZZZ"], "LastSale": [110.5, None]})
+    assert L.close_matches(frame, ["2016-04-08", "2016-04-11", "2016-04-12"], closes) == {
+        "2016-04-08": (0, 1), "2016-04-11": (1, 1), "2016-04-12": (0, 0)}
+    assert L.format_matches({"2016-04-11": (1, 1), "2016-04-12": (0, 0)}) == "2016-04-11:1/1"
+
+
+def _parsed(ts, rows, session, date=None):
+    return {"kind": "companylist", "timestamp": ts, "rows": rows, "as_of_session": session,
+            "parsed_date": date or f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}", "_frame": pd.DataFrame({"Symbol": ["A"]})}
+
+
+def test_choose_snapshots_keeps_one_company_list_per_session():
     rows = [
-        {"kind": "companylist", "parsed_date": "2016-04-12", "rows": 2900, "timestamp": "20160412180351", "_frame": frame},
-        {"kind": "companylist", "parsed_date": "2016-04-12", "rows": 2950, "timestamp": "20160412173931", "_frame": frame},
-        {"kind": "companylist", "parsed_date": "2016-04-12", "rows": 2950, "timestamp": "20160412050051", "_frame": frame},
-        {"kind": "companylist", "parsed_date": "2016-04-13", "rows": 10, "timestamp": "20160413000000", "_frame": None},
+        _parsed("20160412050051", 2950, "2016-04-11"),
+        _parsed("20160412173931", 2990, "2016-04-11"),   # same session, more rows: kept
+        _parsed("20160412180351", 2990, "2016-04-11"),
+        _parsed("20160409120000", 2900, "2016-04-08"),   # Saturday and Sunday captures of Friday's values
+        _parsed("20160410120000", 2900, "2016-04-08"),
+        _parsed("20160413010000", 2900, "2016-04-12"),   # Tuesday 21:00 ET ...
+        _parsed("20160413150000", 2990, "2016-04-12"),   # ... and Wednesday mid-session: same session
+        _parsed("20160414030000", 2900, "2016-04-13"),   # Wednesday 23:00 ET ...
+        _parsed("20160414150000", 2900, "2016-04-13"),
+        _parsed("20160414233000", 2950, "2016-04-14"),   # ... and Thursday 19:30 ET: one UTC date, two sessions
+        {**_parsed("20160415000000", 10, "2016-04-14"), "_frame": None},
     ]
-    best = L.choose_per_date(rows)
-    assert list(best) == [("companylist", "2016-04-12")]
-    assert best[("companylist", "2016-04-12")]["timestamp"] == "20160412050051"
+    best = L.choose_snapshots(rows)
+    kept = {key[1]: (row["timestamp"], row["as_of_session"]) for key, row in best.items()}
+    assert kept == {"2016-04-12": ("20160412173931", "2016-04-11"),
+                    "2016-04-09": ("20160409120000", "2016-04-08"),
+                    "2016-04-13": ("20160413150000", "2016-04-12"),
+                    "2016-04-14": ("20160414233000", "2016-04-14")}
+
+
+def test_choose_snapshots_symbol_files_per_footer_date():
+    frame = pd.DataFrame({"Symbol": ["A"]})
+    rows = [{"kind": "symdir", "parsed_date": "2016-03-11", "rows": 3090, "timestamp": "20160312152615", "_frame": frame},
+            {"kind": "symdir", "parsed_date": "2016-03-11", "rows": 3090, "timestamp": "20160312000000", "_frame": frame},
+            {"kind": "symdir", "parsed_date": "2016-03-14", "rows": 3091, "timestamp": "20160315000000", "_frame": frame}]
+    best = L.choose_snapshots(rows)
+    assert {k: v["timestamp"] for k, v in best.items()} == {("symdir", "2016-03-11"): "20160312000000",
+                                                            ("symdir", "2016-03-14"): "20160315000000"}
+
+
+def test_short_company_lists_are_flagged_against_neighbours():
+    ratios = L.neighbour_row_ratios({"1": 3000, "2": 3010, "3": 2000, "4": 3020, "5": 3030})
+    assert ratios["3"] == pytest.approx(2000 / 3015, abs=1e-4) and ratios["1"] == pytest.approx(1.0, abs=0.02)
+    assert L.neighbour_row_ratios({"1": 3000}) == {}
+    processed = [_parsed(ts, n, "") for ts, n in
+                 [("20160101000000", 3000), ("20160201000000", 3010), ("20160301000000", 2800),
+                  ("20160401000000", 3020), ("20160501000000", 3030)]]
+    processed.append({"kind": "symdir", "timestamp": "20160301000000", "rows": 10, "_frame": pd.DataFrame()})
+    L.flag_short_company_lists(processed)
+    short = processed[2]
+    assert short["parse_error"] == "short_vs_neighbours_0.929" and short["_frame"] is None
+    assert all(r.get("_frame") is not None for r in processed[:2] + processed[3:])
+    assert "rows_vs_neighbours" not in processed[-1]
+
+
+def test_cdx_digest_is_base32_sha1():
+    assert L.cdx_digest(b"") == "3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ"
+
+
+def _symdir_frame(names, etf=None, test_issue=True):
+    frame = pd.DataFrame({"Symbol": [f"S{i}" for i in range(len(names))], "Name": names})
+    if etf is not None:
+        frame["ETF"] = etf
+    if test_issue:
+        frame["Test Issue"] = "N"
+    return frame
+
+
+def test_snapshot_quality_levels():
+    typed = ["Apple Inc. - Common Stock", "PowerShares QQQ Trust, Series 1", "Foo Corp. - Warrant", "Bar - Units"]
+    full = L.snapshot_quality(_symdir_frame(typed, etf=["N", "Y", "N", "N"]), "symdir")
+    assert (full["quality"], full["has_names"], full["has_security_type"], full["has_etf_flag"]) == ("full", "Y", "Y", "Y")
+    assert full["quality_note"] == ""
+    no_etf = L.snapshot_quality(_symdir_frame(typed), "symdir")
+    assert no_etf["quality"] == "no_etf_flag" and "no ETF column" in no_etf["quality_note"]
+    catalog = L.snapshot_quality(_symdir_frame(["Armada Acquisition Corp. I Common Stock", "Armada Warrant",
+                                                "X Corp Ordinary Shares", "Y Inc"], test_issue=False),
+                                 "symdir", "json_catalog")
+    assert catalog["quality"] == "no_etf_flag" and catalog["quality_note"].startswith("Source Format=json_catalog")
+    issuers = L.snapshot_quality(_symdir_frame(["Apple Inc.", "American Airlines Group, Inc.",
+                                                "iShares MSCI Asia Index Fund", "Atlantic American Corporation"],
+                                               test_issue=False), "symdir")
+    assert (issuers["quality"], issuers["has_security_type"]) == ("name_only", "N")
+    assert "no Test Issue column" in issuers["quality_note"]
+    bare = pd.DataFrame({"Symbol": ["AABA", "AAL", "F", "ZXYZ"], "Name": ["AABA", "AAL", "F", "ZXYZ"]})
+    symbol_only = L.snapshot_quality(bare, "symdir", "symbol_only")
+    assert (symbol_only["quality"], symbol_only["has_names"]) == ("symbol_only", "N")
+    assert L.snapshot_quality(_symdir_frame(typed, etf=["N"] * 4), "symdir", "symbol_only")["quality"] == "symbol_only"
+    company = L.snapshot_quality(L.parse_company_list(CL_2016), "companylist")
+    assert (company["quality"], company["has_etf_flag"]) == ("name_only", "N")
+    assert company["quality_note"].startswith("company list")
+    assert list(L.QUALITY_LEVELS) == ["full", "no_etf_flag", "name_only", "symbol_only"]
+
+
+@pytest.mark.parametrize("source_file, repository, commit, imported, expected", [
+    ("https://raw.githubusercontent.com/a/b/abc/nasdaqlisted.txt", "https://github.com/a/b", "abc", None,
+     "https://raw.githubusercontent.com/a/b/abc/nasdaqlisted.txt"),
+    ("data/nasdaqlisted.txt", "https://github.com/SamPom100/UnusualVolumeDetector.git", "9be4c99", None,
+     "https://github.com/SamPom100/UnusualVolumeDetector.git@9be4c99:data/nasdaqlisted.txt"),
+    ("/private/tmp/quant-nasdaq-2019/Trabalho 2/nasdaqlisted.txt",
+     "https://github.com/leotavares/machinelearning-2019.1.git", "02d1150", None,
+     "https://github.com/leotavares/machinelearning-2019.1.git@02d1150:Trabalho 2/nasdaqlisted.txt"),
+    ("/tmp/clone/x.txt", "https://github.com/a/b", "", None, "https://github.com/a/b:x.txt"),
+    ("", "", "f533e2a", ("https://github.com/datasets/nasdaq-listings", "f533e2a", "data/nasdaq-listed-symbols.csv"),
+     "https://github.com/datasets/nasdaq-listings@f533e2a:data/nasdaq-listed-symbols.csv"),
+    ("", "", "f533e2a", None, "git:f533e2a"),
+    ("", "", "", None, ""),
+])
+def test_repo_provenance(source_file, repository, commit, imported, expected):
+    assert L.repo_provenance(source_file, repository, commit, imported) == expected
+
+
+def test_repo_index_rows_carry_provenance_and_quality(tmp_path):
+    pd.DataFrame({"Symbol": ["AABA", "F"], "Name": ["AABA", "F"],
+                  "Source File": "/private/tmp/quant-nasdaq-2019/Trabalho 2/nasdaqlisted.txt",
+                  "Source Repository": "https://github.com/leotavares/machinelearning-2019.1.git",
+                  "Source Commit": "02d1150", "Observed At": "2019-06-17", "Source Format": "symbol_only"}
+                 ).to_csv(tmp_path / "nasdaq_listed_2019-06-17.csv", index=False)
+    pd.DataFrame({"Symbol": ["AAL"], "Name": ["American Airlines Group, Inc."], "Source Commit": "f533e2a",
+                  "Observed At": "2015-01-10"}).to_csv(tmp_path / "nasdaq_listed_2015-01-10.csv", index=False)
+    pd.DataFrame({"Symbol": ["AAPL"], "Name": ["Apple Inc. - Common Stock"], "ETF": "N", "Test Issue": "N",
+                  "Source File": "https://data.commoncrawl.org/x.warc.gz#offset=1&length=2&timestamp=20180121063325",
+                  "Source Repository": "", "Source Commit": "", "Observed At": "2018-01-19"}
+                 ).to_csv(tmp_path / "nasdaq_listed_2018-01-19.csv", index=False)
+    (tmp_path / "listings_git_import_manifest.json").write_text(json.dumps({
+        "source_repository": "https://github.com/datasets/nasdaq-listings",
+        "imported": [{"commit": "f533e2a", "source_path": "data/nasdaq-listed-symbols.csv",
+                      "snapshot": "stocks_list_dir/nasdaq/snapshots/nasdaq_listed_2015-01-10.csv"}]}))
+    rows = {r["snapshot_date"]: r for r in L.repo_index_rows(tmp_path)}
+    assert rows["2019-06-17"]["original_url"] == (
+        "https://github.com/leotavares/machinelearning-2019.1.git@02d1150:Trabalho 2/nasdaqlisted.txt")
+    assert rows["2019-06-17"]["quality"] == "symbol_only"
+    assert rows["2015-01-10"]["original_url"] == (
+        "https://github.com/datasets/nasdaq-listings@f533e2a:data/nasdaq-listed-symbols.csv")
+    assert rows["2015-01-10"]["quality"] == "name_only"
+    cc = rows["2018-01-19"]
+    assert (cc["quality"], cc["capture_timestamp"], cc["capture_time_et"]) == (
+        "full", "20180121063325", "2018-01-21T01:33:25-05:00")
+    assert not any("/tmp/" in r["original_url"] for r in rows.values())
+    assert set(L.INDEX_COLUMNS) >= set(cc)
+
+
+def test_retire_stale_snapshots(tmp_path):
+    for name in ("nasdaq_companylist_2016-04-11.csv", "nasdaq_companylist_2016-04-12.csv", "other.csv"):
+        (tmp_path / name).write_text("x")
+    moved = L.retire_stale_snapshots(tmp_path, "nasdaq_companylist_*.csv", {tmp_path / "nasdaq_companylist_2016-04-12.csv"})
+    assert moved == ["nasdaq_companylist_2016-04-11.csv"]
+    assert (tmp_path / "superseded" / "nasdaq_companylist_2016-04-11.csv").exists()
+    assert sorted(p.name for p in tmp_path.glob("*.csv")) == ["nasdaq_companylist_2016-04-12.csv", "other.csv"]
 
 
 def test_gap_table_includes_window_edges():

@@ -1,4 +1,5 @@
 import gzip
+from pathlib import Path
 import json
 import zipfile
 
@@ -126,7 +127,7 @@ def test_check_ticker_flags_single_stock_data_errors():
     rows[6][3] = rows[6][5] - 1.0                             # high below close
     rows.append(_row("X", "2012-01-01", 20.0))               # a Sunday
     group = _frame(rows).sort_values("date").reset_index(drop=True)
-    summary, flags, splits, dividends = wiki.check_ticker(group, sessions)
+    summary, flags, splits, dividends, missing = wiki.check_ticker(group, sessions)
     rules = pd.DataFrame(flags).groupby("rule")["date"].apply(list).to_dict()
     assert rules["raw_close_ratio_no_split"] == [keep[2]]
     assert rules["zero_volume"] == [keep[4]]
@@ -137,6 +138,10 @@ def test_check_ticker_flags_single_stock_data_errors():
     assert summary["splits"] == 1 and splits[0]["split_ratio"] == 2.0
     assert summary["dividends"] == 0 and dividends == []
     assert summary["rows"] == len(rows) and summary["first_date"] == "2012-01-01"
+    assert [m["date"] for m in missing] == dates[5:20]
+    assert {(m["run_start"], m["run_end"], m["run_sessions"]) for m in missing} == {(dates[5], dates[19], 15)}
+    assert summary["missing_session_runs"] == 1
+    assert splits[0]["prev_source"] == "same_ticker" and splits[0]["close_prev_raw"] == 50.0
 
 
 def test_basis_ratios_are_flat_when_bases_match():
@@ -195,3 +200,253 @@ def test_summarise_ratios_reports_year_medians():
     summary = wiki.summarise_ratios(daily)
     assert summary["full_median_by_year"] == "2016:2.00000 2017:2.01000"
     assert summary["days_dev_gt_0p5pct"] == 1 and summary["worst_dates"].startswith("2017-01-04:+0.0100")
+
+
+def _sessions(start, end):
+    return pd.DatetimeIndex(pd.bdate_range(start, end))
+
+
+def test_null_open_high_low_are_counted_and_flagged():
+    days = [d.strftime("%Y-%m-%d") for d in _sessions("2014-04-28", "2014-05-02")]
+    rows = [_row("ATMI", d, 20.0 + i) for i, d in enumerate(days)]
+    rows[1][2] = np.nan                      # open missing
+    rows[3][3] = rows[3][4] = np.nan         # high and low missing
+    group = _frame(rows)
+    summary, flags, *_ = wiki.check_ticker(group, _sessions("2014-04-28", "2014-05-02"))
+    assert (summary["null_open"], summary["null_high"], summary["null_low"]) == (1, 1, 1)
+    null_flags = [f for f in flags if f["rule"] == "null_ohlc"]
+    assert [f["date"] for f in null_flags] == [days[1], days[3]]
+    assert null_flags[0]["detail"].startswith("missing=open") and "missing=high,low" in null_flags[1]["detail"]
+    assert not any(f["rule"] == "ohlc_inconsistent" for f in flags)
+
+
+def test_short_session_gaps_are_listed_one_row_per_session():
+    sessions = _sessions("2017-07-31", "2017-08-18")
+    days = [d.strftime("%Y-%m-%d") for d in sessions]
+    keep = [d for i, d in enumerate(days) if i not in (5, 9, 10)]   # one 1-session and one 2-session gap
+    group = _frame([_row("AAPL", d, 150.0) for d in keep])
+    summary, flags, _, _, missing = wiki.check_ticker(group, sessions)
+    assert [(m["date"], m["run_sessions"]) for m in missing] == [(days[5], 1), (days[9], 2), (days[10], 2)]
+    assert missing[1]["run_start"] == days[9] and missing[1]["run_end"] == days[10]
+    assert summary["missing_sessions"] == 3 and summary["missing_session_runs"] == 2
+    assert not any(f["rule"] == "gap_gt_10_sessions" for f in flags)
+
+
+def test_prior_close_fills_a_first_row_dividend_and_split():
+    sessions = _sessions("2011-06-01", "2011-06-07")
+    days = [d.strftime("%Y-%m-%d") for d in sessions]
+    rows = [_row("BAC", d, 11.0) for d in days]
+    rows[0] = _row("BAC", days[0], 11.0, dividend=0.01, split=2.0)
+    group = _frame(rows)
+    _, _, splits, dividends, _ = wiki.check_ticker(group, sessions, {"date": "2011-05-31", "close": 10.0})
+    assert dividends[0]["pct_of_prior_close"] == pytest.approx(0.001)
+    assert (dividends[0]["prev_date"], dividends[0]["prev_source"]) == ("2011-05-31", "prior_request")
+    assert splits[0]["close_prev_raw"] == 10.0
+    _, _, _, without, _ = wiki.check_ticker(group, sessions, None)
+    assert np.isnan(without[0]["pct_of_prior_close"]) and without[0]["prev_source"] == "no_prior_row"
+    later = _frame([_row("KHC", d, 70.0, dividend=16.5 if i == 0 else 0.0) for i, d in enumerate(days[2:])])
+    _, _, _, first, _ = wiki.check_ticker(later, sessions, {"date": "2011-05-31", "close": 10.0})
+    assert first[0]["prev_source"] == "none_first_row" and np.isnan(first[0]["pct_of_prior_close"])
+
+
+def _page(rows, cursor=None):
+    return json.dumps({"datatable": {"columns": [{"name": c} for c in wiki.COLUMNS], "data": rows},
+                       "meta": {"next_cursor_id": cursor}}).encode()
+
+
+def test_fetch_paged_keys_pages_by_cursor_and_restarts_an_expired_chain(tmp_path, monkeypatch):
+    cache = tmp_path / "pages"
+    cache.mkdir()
+    # a chain cached by an earlier run: its second page points to a cursor that has since expired
+    (cache / "00000_first.json.gz").write_bytes(gzip.compress(_page([_row("A", "2012-01-03", 1.0)], "old1")))
+    (cache / f"00001_{wiki._cursor_tag('old1')}.json.gz").write_bytes(
+        gzip.compress(_page([_row("A", "2012-01-04", 1.0)], "old2")))
+    fresh = {None: _page([_row("A", "2012-01-03", 1.0)], "new1"), "new1": _page([_row("B", "2012-01-03", 2.0)])}
+    asked = []
+
+    def fake_get(params, path, symbol=""):
+        path = Path(path)
+        if path.exists():
+            return gzip.decompress(path.read_bytes())
+        cursor = params.get("qopts.cursor_id")
+        asked.append(cursor)
+        if cursor not in fresh:
+            raise RuntimeError("cursor expired")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(gzip.compress(fresh[cursor]))
+        return fresh[cursor]
+
+    monkeypatch.setattr(wiki, "api_get", fake_get)
+    paths = wiki.fetch_paged({"date.gte": "2011-06-01"}, cache)
+    assert asked == ["old2", None, "new1"]
+    assert [p.name for p in paths] == ["00000_first.json.gz", f"00001_{wiki._cursor_tag('new1')}.json.gz"]
+    assert wiki.read_pages(paths)["ticker"].tolist() == ["A", "B"]
+    stale = [p for p in tmp_path.iterdir() if p.name.startswith("pages_stale_")]
+    assert len(stale) == 1 and len(list(stale[0].glob("*.json.gz"))) == 2
+    # a second run is served wholly from the cache
+    asked.clear()
+    assert wiki.fetch_paged({"date.gte": "2011-06-01"}, cache) == paths and asked == []
+
+
+def test_fetch_prior_rows_uses_the_previous_session_then_a_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiki, "RAW_WIKI", tmp_path)
+    seen = []
+
+    def fake_get(params, path, symbol=""):
+        seen.append(dict(params))
+        if params.get("date") == "2011-05-31":
+            body = _page([_row("A", "2011-05-31", 10.0), _row("B", "2011-05-31", 20.0)])
+        else:
+            assert params["date.gte"] == "2011-05-18" and params["date.lt"] == "2011-06-01"
+            assert params["ticker"] == "C,D"
+            body = _page([_row("C", "2011-05-26", 30.0), _row("C", "2011-05-27", 31.0)])
+        common.atomic_write(path, gzip.compress(body))
+        return body
+
+    monkeypatch.setattr(wiki, "api_get", fake_get)
+    prior, facts = wiki.fetch_prior_rows(["A", "C", "D"])
+    assert prior[["ticker", "date", "close"]].values.tolist() == [
+        ["A", "2011-05-31", 10.0], ["B", "2011-05-31", 20.0], ["C", "2011-05-27", 31.0]]
+    assert facts["session"] == "2011-05-31" and facts["tickers_needing_window"] == 2
+    assert facts["tickers_asked_without_prior_row"] == 1 and len(seen) == 2
+
+
+def test_tickers_read_back_as_text(tmp_path):
+    path = tmp_path / "TRUE.csv.gz"
+    path.write_bytes(wiki._csv_gz_bytes(_frame([_row("TRUE", "2014-05-16", 9.0), _row("TRUE", "2014-05-19", 9.5)])))
+    assert pd.read_csv(path)["ticker"].dtype == bool          # the pitfall
+    back = wiki.read_ticker_file(path)
+    assert back["ticker"].tolist() == ["TRUE", "TRUE"] and back["date"].tolist() == ["2014-05-16", "2014-05-19"]
+    assert wiki.misread_by_default(["AAPL", "TRUE", "NA", "NULL", "BRK_A"]) == ["TRUE", "NA", "NULL"]
+
+
+def test_file_name_collisions_are_checked_without_case(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiki, "OUT", tmp_path)
+    monkeypatch.setattr(wiki, "BY_TICKER", tmp_path / "by_ticker")
+    sessions = pd.bdate_range("2018-03-19", "2018-03-21")
+    monkeypatch.setattr(wiki, "xnas_sessions", lambda *a, **k: sessions)
+    rows = [_row(t, d.strftime("%Y-%m-%d"), 10.0) for t in ("AB", "Ab") for d in sessions]
+    with pytest.raises(ValueError, match="map to the file name"):
+        wiki.build_outputs(_frame(rows), {"method": "test"})
+
+
+def test_stale_cleanup_never_deletes_a_case_variant_of_a_current_file(tmp_path):
+    (tmp_path / "abc.csv.gz").write_bytes(b"old")
+    (tmp_path / "OLD.csv.gz").write_bytes(b"old")
+    common.atomic_write(tmp_path / "ABC.csv.gz", b"new")
+    result = wiki._remove_stale(tmp_path, {"ABC.csv.gz"})
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["ABC.csv.gz"]
+    assert (tmp_path / "ABC.csv.gz").read_bytes() == b"new" and "OLD.csv.gz" in result["removed"]
+
+
+def test_probes_are_reproduced_from_their_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiki, "RAW_WIKI", tmp_path)
+    monkeypatch.setattr(wiki, "DELISTED_PROBES", ["BMC", "DELL"])
+    monkeypatch.setattr(wiki, "cached_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
+    monkeypatch.setattr(wiki, "_api_key", lambda: (_ for _ in ()).throw(AssertionError("no key read")))
+    (tmp_path / "probe").mkdir()
+    aapl = [_row("AAPL", "2018-03-27", 168.34), _row("AAPL", "2018-03-26", 172.77)]
+    (tmp_path / "probe" / wiki.KEY_PROBE_FILE).write_bytes(_page(aapl))
+    for ticker, rows in {"BMC": [_row("BMC", "2010-12-31", 47.0)],
+                         "DELL": [_row("DELL", "2013-10-29", 13.86), _row("DELL", "2013-10-30", 13.86, volume=0.0)]
+                         }.items():
+        (tmp_path / "probe" / f"{ticker}_all").mkdir()
+        (tmp_path / "probe" / f"{ticker}_all" / "00000_first.json.gz").write_bytes(gzip.compress(_page(rows)))
+    export = _frame([_row("AAPL", "2018-03-26", 172.77), _row("AAPL", "2018-03-27", 168.34),
+                     _row("DELL", "2013-10-29", 13.86)])
+    probes = wiki.run_probes(export)
+    assert probes["key_probe"]["rows"] == 2 and probes["key_probe"]["rows_in_export"] == 2
+    assert probes["key_probe"]["max_abs_diff_vs_export"] == 0.0
+    assert probes["delisted"]["BMC"]["rows_on_or_after_start"] == 0
+    assert probes["delisted"]["BMC"]["last_date"] == "2010-12-31"
+    dell = probes["delisted"]["DELL"]
+    assert dell["last_traded_date"] == "2013-10-29" and dell["rows_missing_from_export"] == 1
+
+
+def test_survivorship_counts_form25_coverage(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiki, "OUT", tmp_path)
+    form25 = pd.DataFrame({
+        "accession": ["a1", "a2", "a3", "a4", "a5"],
+        "effective_date": ["2012-05-10", "2013-11-08", "2013-06-01", "2015-03-02", "2016-01-04"],
+        "subject_name": ["Gone Co", "Dell Inc", "Unit Trust", "Later Co", "Reuse Co"],
+        "classification": ["common_delisting", "common_delisting", "other_class", "common_delisting",
+                           "common_delisting"],
+        "class_kind": ["common", "common", "unit", "common", "common"],
+        "subject_tickers_sec": ["", "", "", "", ""],
+    })
+    master = pd.DataFrame({"delist_form25_accession": ["a1", "a2", "a4", "a5", ""],
+                           "tickers_observed": ["GONE", "DELL", "LATR", "REUS", "AAPL"],
+                           "foreign_filer": ["N", "N", "N", "Y", "N"]})
+    form25_path, master_path = tmp_path / "f25.csv", tmp_path / "sm.csv"
+    form25.to_csv(form25_path, index=False)
+    master.to_csv(master_path, index=False)
+    frame = _frame([_row("DELL", "2013-10-29", 13.86), _row("DELL", "2014-04-01", 13.86, volume=0.0),
+                    _row("LATR", "2015-02-27", 5.0), _row("REUS", "2017-01-03", 3.0),
+                    _row("AAPL", "2018-03-27", 168.0)])
+    summary = pd.DataFrame({"ticker": ["AAPL", "DELL", "LATR", "REUS"],
+                            "first_date": ["2018-03-27", "2013-10-29", "2015-02-27", "2017-01-03"],
+                            "last_date": ["2018-03-27", "2014-04-01", "2015-02-27", "2017-01-03"],
+                            "last_traded_date": ["2018-03-27", "2013-10-29", "2015-02-27", "2017-01-03"],
+                            "rows_after_last_traded": [0, 1, 0, 0]})
+    probes = {"delisted": {"BMC": {"rows_any_date": 0, "rows_on_or_after_start": 0}}}
+    prior = _frame([_row("DELL", "2011-05-31", 16.0), _row("GONE", "2011-05-31", 3.0)])
+    out = wiki.survivorship(frame, summary, probes, prior, form25_path, master_path)
+    first, after = out["form25"]["periods"]["2012-01..2014-03"], out["form25"]["periods"]["2014-04..2018-03"]
+    assert (first["form25_common_delistings"], first["ticker_in_wiki"], first["covered"]) == (2, 1, 1)
+    assert (after["form25_common_delistings"], after["covered"], after["covered_domestic"]) == (2, 1, 1)
+    assert after["wiki_rows_on_or_before_effective"] == 1          # REUS rows only after its delisting
+    assert out["tickers_last_date_before_cutoff"] == 0 and out["min_last_date"] == "2014-04-01"
+    assert [t["ticker"] for t in out["tickers_last_traded_before_cutoff"]] == ["DELL"]
+    assert out["form25"]["covered_2012_01_to_2014_03"][0]["covering_tickers"] == "DELL"
+    assert "BMC" in out["note"] and "survivor bias" in out["note"]
+    assert out["prior_session_check"]["tickers_not_in_export"] == 1 and out["prior_session_check"]["examples"] == ["GONE"]
+    assert (first["covered_last_trading_days"], first["covered_ticker_trades_on"]) == (1, 0)
+    assert "last trading days of only 1 (DELL)" in out["note"]
+    table = wiki.read_ticker_file(tmp_path / "wiki_form25_coverage.csv")
+    assert table["covered"].tolist() == [False, True, True, False]
+    assert table["trades_on"].tolist() == [False, False, False, False]
+
+
+def test_ratio_steps_find_level_shifts_not_one_day_spikes():
+    values = [1.06672] * 20 + [1.06408] * 20
+    values[8] *= 1.012                                   # a one-day error in the stored file
+    daily = pd.DataFrame({"date": [f"d{i:02d}" for i in range(40)], "ratio_full": values})
+    steps = wiki.ratio_steps(daily)
+    assert len(steps) == 1 and steps[0][0] == "d20" and steps[0][1] == pytest.approx(1.06408 / 1.06672 - 1)
+
+
+def test_previous_session_and_wiki_symbols():
+    assert wiki.previous_session("2011-06-01") == "2011-05-31"
+    assert wiki.wiki_symbol("brk.b") == "BRK_B" and wiki.wiki_symbol("BF-A") == "BF_A"
+
+
+def test_request_export_strips_the_presigned_query_from_the_cached_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(wiki, "RAW_WIKI", tmp_path)
+    link = "https://bucket.s3.amazonaws.com/export/x.zip?X-Amz-Credential=AKIA1&X-Amz-Signature=abc"
+    payload = json.dumps({"datatable_bulk_download": {"file": {"link": link, "status": "fresh",
+                                                                "data_snapshot_time": "t"}}}).encode()
+
+    def fake_get(url, cache_path, **kwargs):
+        common.atomic_write(cache_path, payload)
+        return payload
+
+    monkeypatch.setattr(wiki, "cached_get", fake_get)
+    status = wiki.request_export("KEY", filtered=True, max_wait_s=0)
+    assert status["link"] == link
+    text = Path(status["status_file"]).read_text()
+    assert "AKIA1" not in text and "abc" not in text and "x.zip?REDACTED" in text
+
+
+def test_form25_coverage_separates_a_ticker_that_trades_on():
+    form25 = pd.DataFrame({"accession": ["r1", "r2"], "effective_date": ["2013-06-17", "2013-06-17"],
+                           "subject_name": ["Liberty Global, Inc.", "Old Holdco"],
+                           "classification": ["common_delisting"] * 2, "class_kind": ["common"] * 2,
+                           "subject_tickers_sec": ["LBTYA", "brk.b"]})
+    frame = _frame([_row("LBTYA", "2013-06-14", 70.0), _row("LBTYA", "2013-09-03", 72.0),
+                    _row("BRK_B", "2013-06-14", 110.0)])
+    table = wiki.form25_coverage(form25, None, frame, {"LBTYA": "2011-06-01", "BRK_B": "2011-06-01"})
+    assert table["covered"].tolist() == [True, True]
+    assert table["trades_on"].tolist() == [True, False]
+    assert table["covering_tickers"].tolist() == ["LBTYA", "BRK_B"]
+    counts = wiki._coverage_counts(table.assign(foreign_filer="N"))
+    assert (counts["covered_ticker_trades_on"], counts["covered_last_trading_days"]) == (1, 1)

@@ -1,38 +1,55 @@
-"""Plan step 1: Ken French factor and industry files, the Siccodes maps, CBOE VIX, and a QQQ coverage check.
+"""Plan step 1: Ken French factor and industry files, the Siccodes maps, CBOE VIX, and the QQQ total-return inputs.
 
 See docs/reversal_2012_2026_data_plan.md (step 1, sections 5.2 and 5.3).
 
 Data only. This script downloads published files, parses them into tidy
 CSVs and checks dates and coverage. It computes no strategy, portfolio or
-long-short return, no signal and no ranking by return. The QQQ check
-compares dates, closes and dividends between two stored files; it does not
-compute returns.
+long-short return, no signal and no ranking by return. For QQQ it writes the
+inputs of a total return (raw close and cash dividend per date, with the
+source of each) and checks dates, closes and dividends between sources; it
+computes no return.
 
 Every request goes through ``cached_get``, so a second run reads the cache
 and fetches nothing. The Ken French files are revised monthly; the first
 download is the pinned copy (its sha256 is recorded) and is not refreshed.
+The QQQ tail and dividend payloads are pinned the same way (their cache
+names carry the requested range and the fetch day).
+
+QQQ dividends are checked against the issuer: Invesco's own distribution
+table, read from Wayback captures of its QQQ page (the live page and its
+data API refuse scripted clients), and the trust's per-share distributions
+per fiscal period in its SEC reports (Financial Highlights).
 
 Outputs
 - CACHE/raw/kf/*.zip and CACHE/raw/kf/pages/*.html (as downloaded)
 - CACHE/raw/vix/VIX_History.csv and the CBOE page that links it
+- CACHE/raw/nasdaq/qqq/*.json (Nasdaq public API: QQQ history tail, dividend history)
+- CACHE/raw/qqq_evidence/{wayback,sec,invesco}/ (the dividend evidence, as downloaded)
 - CACHE/factors/{ff5_2x3_daily,mom_daily,st_rev_daily}.csv,
   CACHE/factors/ind49_daily.csv.gz, CACHE/factors/vix_daily.csv,
   CACHE/factors/ff_industry_maps_full.csv, CACHE/factors/kf_sources.json,
   CACHE/factors/step1_checks.json
+- CACHE/factors/qqq_joined.csv (date, close, dividend, close_source, dividend_source, in_window),
+  CACHE/factors/qqq_joined_sources.json, CACHE/factors/qqq_dividend_checks.csv
 - INPUTS/ff_industry_maps.csv (scheme, industry_id, short_name, sic_lo, sic_hi)
 """
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+from contextlib import contextmanager
 import csv
-from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import lru_cache
 import gzip
+import html as html_lib
 import io
 import json
 from pathlib import Path
 import re
+import time
+from urllib.error import HTTPError
 import zipfile
 
 from scripts import reversal_data_common as common
@@ -72,10 +89,31 @@ QQQ_TIINGO = Path("research_cache/holdout_2011_2019/qqq_tiingo_2010_2020.csv")
 QQQ_NASDAQ = Path("output/research_only/qqq_nasdaq_history.csv")
 QQQ_JOIN_SWITCH = "2018-01-01"  # Tiingo before, Nasdaq from (plan section 5.3)
 QQQ_DIVIDEND_COUNT = ("2012-01-01", "2026-07-17", 60)
+# The tail after the stored Nasdaq file (which ends 2026-08-14). The request overlaps that file
+# from 2026-07-01 so the two can be compared, and ends on the last session before the fetch day.
+QQQ_TAIL_REQUEST = ("2026-07-01", "2026-09-30")
+QQQ_DIVIDENDS_FETCHED = "2026-10-01"  # names (pins) the cached Nasdaq dividend payload
+NASDAQ_QQQ = common.RAW / "nasdaq" / "qqq"
+QQQ_EVIDENCE = common.RAW / "qqq_evidence"
+INVESCO_PAGE = "https://www.invesco.com/us/financial-products/etfs/product-detail?audienceType=Investor&ticker=QQQ"
+# The page's distribution "download" link; it now serves Invesco's script-rendered app instead of a table.
+INVESCO_LIVE_DOWNLOAD = ("https://www.invesco.com/us/financial-products/etfs/product-detail/main/distributions/03"
+                         "?audienceType=Investor&action=download&ticker=QQQ")
+# Wayback captures of INVESCO_PAGE; each carries the issuer's full distribution table (2003 on).
+INVESCO_CAPTURES = ("20240112020134", "20250827045133")
+QQQ_TRUST_CIK = "0001067839"  # Invesco QQQ Trust, Series 1
+# Reports whose Financial Highlights give distributions per share for FY2010-FY2025 (fiscal years end
+# September 30) and for the six months to 2026-03-31: N-30B-2 annual reports and the N-CSRS.
+QQQ_SEC_REPORTS = ("0001104659-15-002429", "0001193125-19-320290", "0001193125-24-285734",
+                   "0001193125-25-249697", "0001193125-26-250483")
 
 HEADERS = {"User-Agent": "quant_stocks research data acquisition (python urllib)"}
+WAYBACK_HEADERS = {"User-Agent": "quant_stocks-research/1.0 (QQQ distribution evidence; polite)"}
 KF_LIMITER = common.SlidingWindowLimiter({1: 1})
 CBOE_LIMITER = common.SlidingWindowLimiter({1: 1})
+NASDAQ_LIMITER = common.SlidingWindowLimiter({1: 1})
+ISSUER_LIMITER = common.SlidingWindowLimiter({1: 1})
+WAYBACK_LIMITER = common.SlidingWindowLimiter({3: 1, 60: 15})
 
 MISSING_MARKERS = (Decimal("-99.99"), Decimal("-999"))
 _DATA_LINE = re.compile(r"^\s*(\d{8})\s*,(.*)$")
@@ -228,8 +266,20 @@ def tidy_factor_rows(parsed: dict) -> list[list[str]]:
     return rows
 
 
+def check_industry_blocks(parsed: dict) -> None:
+    """The 49-industry file must hold exactly one value-weighted and one equal-weighted block with the
+    same columns; otherwise the tidy rows would repeat (date, weighting, industry_id) keys."""
+    kinds = sorted(weighting(b["title"]) for b in parsed["blocks"])
+    if kinds != ["ew", "vw"]:
+        raise ValueError(f"industry file blocks are {kinds}, expected one 'vw' and one 'ew' block")
+    first, second = parsed["blocks"]
+    if first["columns"] != second["columns"]:
+        raise ValueError("the vw and ew blocks have different columns")
+
+
 def tidy_industry_rows(parsed: dict) -> list[list[str]]:
     """Long rows: date, weighting, industry_id (column order, 1-based), series, value_pct, value_dec, missing."""
+    check_industry_blocks(parsed)
     rows = []
     for block in parsed["blocks"]:
         kind = weighting(block["title"])
@@ -359,7 +409,28 @@ def window_facts(dates: list[str], missing_dates: set[str], sessions: list[str])
     }
 
 
-# ---------------------------------------------------------------- QQQ check (no returns)
+def vix_window_checks(vix_rows: list[dict], sessions: list[str]) -> dict:
+    """Window facts on the VIX rows that are XNAS sessions dated up to WINDOW_END.
+
+    CBOE also publishes values on US market holidays (from 2022) and keeps
+    publishing after the window; those rows are counted and listed apart, so
+    rows_in_window and row_check compare sessions with sessions.
+    """
+    session_dates = [r["date"] for r in vix_rows if r["xnas_session"] == "Y" and r["date"] <= WINDOW_END]
+    facts = window_facts(session_dates, set(), sessions)
+    off_session = [r["date"] for r in vix_rows if r["xnas_session"] != "Y" and WINDOW_START <= r["date"] <= WINDOW_END]
+    facts.update({
+        "rows_basis": "rows with xnas_session=Y dated on or before the window end",
+        "non_session_rows_in_window": off_session,
+        "non_session_rows_in_window_on_weekends": [d for d in off_session if date.fromisoformat(d).weekday() >= 5],
+        "rows_after_window_end": len([r for r in vix_rows if r["date"] > WINDOW_END]),
+        "last_published_date": vix_rows[-1]["date"],
+        "note": "rows on dates that are not XNAS sessions are flagged xnas_session=N in vix_daily.csv",
+    })
+    return facts
+
+
+# ---------------------------------------------------------------- QQQ inputs (no returns)
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -395,9 +466,59 @@ def qqq_file_facts(rows: list[dict], dividend_column: str, sessions: list[str]) 
     return facts
 
 
+def _dividend_text(text: str | None) -> str:
+    """A published cash amount, or '0' on a day without one."""
+    return "0" if Decimal(text or "0") == 0 else text
+
+
+def qqq_total_return_join(tiingo: list[dict], nasdaq: list[dict], tail: list[dict] | None = None,
+                          tail_dividends: dict[str, str] | None = None,
+                          drop: dict[str, str] | None = None) -> list[dict]:
+    """The QQQ total-return inputs, one row per session: date, raw close, cash dividend and their sources.
+
+    Tiingo before QQQ_JOIN_SWITCH, the stored Nasdaq file from it to that
+    file's last row, then the Nasdaq API ``tail`` after it with dividends from
+    ``tail_dividends`` (ex-date -> amount). A dividend in ``drop`` (ex-date ->
+    reason) is set to 0 and its source says why. Rows start at the last
+    session before WINDOW_START, so the first window day has a previous close.
+    No return is computed: the repo loaders take these columns as
+    (close + dividend) / previous close - 1 (research_sue_lt_2020_2026.qqq_returns).
+    """
+    drop = drop or {}
+    rows = [{"date": r["date"], "close": r["close"], "dividend": _dividend_text(r["divCash"]),
+             "close_source": "tiingo_file", "dividend_source": "tiingo_file"}
+            for r in tiingo if r["date"] < QQQ_JOIN_SWITCH]
+    rows += [{"date": r["date"], "close": r["close"], "dividend": _dividend_text(r["cash_dividend"]),
+              "close_source": "nasdaq_file", "dividend_source": "nasdaq_file"}
+             for r in nasdaq if r["date"] >= QQQ_JOIN_SWITCH]
+    if tail:
+        stored_last = nasdaq[-1]["date"]
+        tail_dividends = tail_dividends or {}
+        rows += [{"date": r["date"], "close": r["close"], "dividend": _dividend_text(tail_dividends.get(r["date"])),
+                  "close_source": "nasdaq_api_history", "dividend_source": "nasdaq_api_dividends"}
+                 for r in tail if r["date"] > stored_last]
+    dates = [r["date"] for r in rows]
+    if dates != sorted(set(dates)):
+        raise ValueError("joined QQQ dates are not strictly increasing")
+    for row in rows:
+        if row["date"] in drop and row["dividend"] != "0":
+            row["dividend"], row["dividend_source"] = "0", f"dropped ({drop[row['date']]})"
+    start = max((d for d in dates if d < WINDOW_START), default=WINDOW_START)
+    joined = [r for r in rows if r["date"] >= start]
+    for row in joined:
+        row["in_window"] = "Y" if WINDOW_START <= row["date"] <= WINDOW_END else "N"
+    return joined
+
+
 def qqq_coverage_check(tiingo_path: Path = QQQ_TIINGO, nasdaq_path: Path = QQQ_NASDAQ,
-                       sessions: list[str] | None = None) -> dict:
-    """Dates, dividends and closes of the two stored QQQ files and of their join (no returns)."""
+                       sessions: list[str] | None = None, tail: list[dict] | None = None,
+                       tail_dividends: dict[str, str] | None = None, sessions_after: list[str] | None = None,
+                       drop: dict[str, str] | None = None) -> dict:
+    """Dates, dividends and closes of the stored QQQ files, of the API tail and of their join (no returns).
+
+    ``sessions`` are the window's XNAS sessions; ``sessions_after`` the
+    sessions from the day after WINDOW_END to the tail's last date.
+    """
     sessions = sessions if sessions is not None else xnas_sessions(WINDOW_START, WINDOW_END)
     tiingo, nasdaq = _read_csv(tiingo_path), _read_csv(nasdaq_path)
     result = {"files": {
@@ -424,34 +545,480 @@ def qqq_coverage_check(tiingo_path: Path = QQQ_TIINGO, nasdaq_path: Path = QQQ_N
                                                      if abs(t_div[d] - n_div[d]) > 1e-6),
         "dividends_matched": len(set(t_div) & set(n_div)),
     }
-    # The join used by the plan: Tiingo before 2018, Nasdaq from 2018-01-02.
-    joined = ([{"date": r["date"], "div": float(r["divCash"])} for r in tiingo if r["date"] < QQQ_JOIN_SWITCH]
-              + [{"date": r["date"], "div": float(r["cash_dividend"])} for r in nasdaq if r["date"] >= QQQ_JOIN_SWITCH])
-    joined_dates = [r["date"] for r in joined if WINDOW_START <= r["date"] <= WINDOW_END]
+    if tail:
+        result["tail"] = _tail_facts(nasdaq, tail, tail_dividends or {})
+    # The join used by the plan: Tiingo before 2018, the Nasdaq file from 2018-01-02, then the API tail.
+    joined = qqq_total_return_join(tiingo, nasdaq, tail, tail_dividends, drop)
+    in_window = [r for r in joined if r["in_window"] == "Y"]
+    joined_dates = [r["date"] for r in in_window]
     diff = session_diff(joined_dates, sessions)
-    dividend_days = [r["date"] for r in joined if r["div"] != 0 and WINDOW_START <= r["date"] <= WINDOW_END]
+    dividend_days = [r["date"] for r in in_window if r["dividend"] != "0"]
     per_quarter: dict[str, list[str]] = {}
     for day in dividend_days:
         per_quarter.setdefault(_quarter(day), []).append(day)
     lo, hi, expected = QQQ_DIVIDEND_COUNT
-    last = joined_dates[-1]
+    last_in_window = joined_dates[-1]
+    after = [r for r in joined if r["date"] > WINDOW_END]
     result["joined"] = {
-        "rule": f"tiingo before {QQQ_JOIN_SWITCH}, nasdaq from {QQQ_JOIN_SWITCH}",
-        "first_date_in_window": joined_dates[0], "last_date": last,
-        "covers_window": joined_dates[0] == sessions[0] and last >= sessions[-1],
+        "rule": (f"tiingo before {QQQ_JOIN_SWITCH}, nasdaq file from {QQQ_JOIN_SWITCH} to its last row"
+                 + (", nasdaq api tail after it" if tail else "")),
+        "first_row": joined[0]["date"], "first_date_in_window": joined_dates[0],
+        "last_date_in_window": last_in_window, "last_date": joined[-1]["date"],
+        "rows": len(joined), "rows_in_window": len(in_window),
+        "rows_by_close_source": dict(Counter(r["close_source"] for r in joined)),
+        "covers_window": (joined_dates[0] == sessions[0] and last_in_window == sessions[-1]
+                          and not diff["missing_sessions"]),
         "missing_sessions_to_window_end": diff["missing_sessions"],
-        "missing_sessions_before_last_date": [d for d in diff["missing_sessions"] if d <= last],
+        "missing_sessions_before_last_date": [d for d in diff["missing_sessions"] if d <= last_in_window],
         "extra_dates": diff["extra_dates"],
         "dividends_in_window": len(dividend_days),
         "dividend_count_check": {"from": lo, "to": hi, "expected": expected,
                                  "found": len([d for d in dividend_days if lo <= d <= hi])},
-        "quarters_without_dividend": [q for q in _quarters(WINDOW_START, last)
+        "quarters_without_dividend": [q for q in _quarters(WINDOW_START, last_in_window)
                                       if q not in {_quarter(d) for d in dividend_days}
-                                      and q != _quarter(last)],
+                                      and q != _quarter(last_in_window)],
         "quarters_with_several_dividends": {q: days for q, days in per_quarter.items() if len(days) > 1},
-        "dividend_2020_09_21": next((r["div"] for r in joined if r["date"] == "2020-09-21"), None),
+        "dividend_2020_09_21": next((r["dividend"] for r in joined if r["date"] == "2020-09-21"), None),
+        "rows_after_window_end": len(after),
+        "dividends_after_window_end": {r["date"]: r["dividend"] for r in after if r["dividend"] != "0"},
+        "dropped_dividends": {r["date"]: r["dividend_source"] for r in joined
+                              if r["dividend_source"].startswith("dropped")},
     }
+    if sessions_after is not None:
+        result["joined"]["sessions_after_window_end"] = session_diff([r["date"] for r in after], sessions_after)
     return result
+
+
+def _tail_facts(nasdaq: list[dict], tail: list[dict], tail_dividends: dict[str, str]) -> dict:
+    """The API tail against the stored Nasdaq file where they overlap, and what it adds after it."""
+    stored, fresh = {r["date"]: r for r in nasdaq}, {r["date"]: r for r in tail}
+    span = (tail[0]["date"], nasdaq[-1]["date"])
+    both = sorted(set(stored) & set(fresh))
+    close_diffs = [(d, abs(Decimal(stored[d]["close"]) - Decimal(fresh[d]["close"]))) for d in both]
+    stored_divs = {d: r["cash_dividend"] for d, r in stored.items()
+                   if span[0] <= d <= span[1] and Decimal(r["cash_dividend"] or "0") != 0}
+    tail_dates = {r["date"] for r in tail}
+    return {
+        "first": tail[0]["date"], "last": tail[-1]["date"], "rows": len(tail),
+        "rows_after_stored_file": len([r for r in tail if r["date"] > span[1]]),
+        "overlap_with_stored_file": {
+            "from": span[0], "to": span[1], "common_dates": len(both),
+            "dates_only_stored": sorted(d for d in stored if span[0] <= d <= span[1] and d not in fresh),
+            "dates_only_tail": sorted(d for d in fresh if d <= span[1] and d not in stored),
+            "max_abs_close_diff": str(max((x for _, x in close_diffs), default=Decimal(0))),
+            "dates_close_diff_over_1c": [d for d, x in close_diffs if x > Decimal("0.01")],
+            "dividends_stored": stored_divs,
+            "dividends_api": {d: v for d, v in tail_dividends.items() if span[0] <= d <= span[1]},
+        },
+        "dividends_after_stored_file": {d: v for d, v in tail_dividends.items() if d > span[1]},
+        "dividend_dates_after_stored_file_without_a_price_row": sorted(
+            d for d in tail_dividends if span[1] < d <= tail[-1]["date"] and d not in tail_dates),
+    }
+
+
+# ---------------------------------------------------------------- QQQ fetching (Nasdaq public API)
+
+
+@contextmanager
+def _urlopen_through_cache(module, cache_path: Path, source: str):
+    """While the block runs, ``module.urlopen`` fetches through cached_get into ``cache_path``.
+
+    src.io.nasdaq_update.fetch_history and research_v5's _nasdaq_dividend_history
+    open their one URL with ``urlopen`` and have no transport hook. Routing that
+    call lets their code run unchanged while the raw payload is cached, logged
+    and limited like every other request; a re-run reads the cache and sends
+    nothing (their cache-busting ``_=`` parameter changes the URL, not the path).
+    """
+    original = module.urlopen
+    urls: list[str] = []
+
+    def cached_urlopen(request, timeout=30):
+        urls.append(request.full_url)
+        data = common.cached_get(request.full_url, cache_path, source=source, headers=dict(request.header_items()),
+                                 limiter=NASDAQ_LIMITER, timeout=timeout, retries=1)
+        return io.BytesIO(data)
+
+    module.urlopen = cached_urlopen
+    try:
+        yield urls
+    finally:
+        module.urlopen = original
+
+
+def _request_url(urls: list[str]) -> str | None:
+    """The last URL asked for, without the per-request cache-busting parameter."""
+    return re.sub(r"[?&]_=\d+$", "", common.redact(urls[-1])) if urls else None
+
+
+def _number_text(value) -> str:
+    return repr(float(value))
+
+
+def _us_date(text: str | None) -> str:
+    """'06/22/2026' -> '2026-06-22'; anything else -> ''."""
+    try:
+        return datetime.strptime((text or "").strip(), "%m/%d/%Y").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def _fetch_pinned(fetch, path: Path):
+    """Run ``fetch``; if it fails on a payload it has just written, delete that payload so it is not pinned."""
+    existed = path.exists()
+    try:
+        return fetch(), existed
+    except Exception:
+        if not existed:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def fetch_qqq_tail(start: str = QQQ_TAIL_REQUEST[0], end: str = QQQ_TAIL_REQUEST[1]) -> tuple[list[dict], dict]:
+    """QQQ raw closes from src.io.nasdaq_update.fetch_history (asset_class='etf'), cached under raw/nasdaq/qqq."""
+    from src.io import nasdaq_update
+
+    path = NASDAQ_QQQ / f"history_etf_{start}_{end}.json"
+
+    def fetch():
+        with _urlopen_through_cache(nasdaq_update, path, "nasdaq") as urls:
+            frame = nasdaq_update.fetch_history("QQQ", date.fromisoformat(start), date.fromisoformat(end),
+                                                asset_class="etf", retries=2)
+        if frame.empty:
+            raise ValueError(f"Nasdaq returned no QQQ rows for {start}..{end}")
+        return frame, urls
+
+    (frame, urls), from_cache = _fetch_pinned(fetch, path)
+    rows = [{"date": stamp.date().isoformat(), "close": _number_text(close)}
+            for stamp, close in zip(frame["date"], frame["close"])]
+    return rows, {"function": "src.io.nasdaq_update.fetch_history('QQQ', start, end, asset_class='etf')",
+                  "request": {"start": start, "end": end}, "url": _request_url(urls), "cache_path": str(path),
+                  "from_cache": from_cache, "sha256": common.sha256_file(path), "rows": len(rows),
+                  "first": rows[0]["date"], "last": rows[-1]["date"]}
+
+
+def fetch_qqq_dividends(fetched: str = QQQ_DIVIDENDS_FETCHED) -> tuple[dict[str, dict], dict]:
+    """QQQ cash dividends from research_v5_trend_core_satellite._nasdaq_dividend_history, cached under raw/nasdaq/qqq.
+
+    Amounts are that function's; declaration, record and payment dates come from the same payload.
+    """
+    from scripts import research_v5_trend_core_satellite as v5
+
+    path = NASDAQ_QQQ / f"dividends_etf_limit500_{fetched}.json"
+
+    def fetch():
+        with _urlopen_through_cache(v5, path, "nasdaq") as urls:
+            payload, frame = v5._nasdaq_dividend_history()
+        return payload, frame, urls
+
+    (payload, frame, urls), from_cache = _fetch_pinned(fetch, path)
+    amounts = {stamp.date().isoformat(): _number_text(value)
+               for stamp, value in zip(frame["date"], frame["cash_dividend"])}
+    detail = {}
+    for row in ((json.loads(payload).get("data") or {}).get("dividends") or {}).get("rows") or []:
+        ex_date = _us_date(row.get("exOrEffDate"))
+        if ex_date in amounts and ex_date not in detail:
+            detail[ex_date] = {"amount": amounts[ex_date], "type": row.get("type"),
+                               "declaration_date": _us_date(row.get("declarationDate")),
+                               "record_date": _us_date(row.get("recordDate")),
+                               "payment_date": _us_date(row.get("paymentDate"))}
+    ordered = sorted(detail)
+    return {d: detail[d] for d in ordered}, {
+        "function": "scripts.research_v5_trend_core_satellite._nasdaq_dividend_history()",
+        "url": _request_url(urls), "cache_path": str(path), "from_cache": from_cache,
+        "sha256": common.sha256_file(path), "rows": len(detail), "first": ordered[0], "last": ordered[-1]}
+
+
+# ---------------------------------------------------------------- QQQ dividend evidence
+
+
+def html_text(data: bytes) -> str:
+    """Visible text of an HTML document on one line (tags removed, entities decoded, spaces collapsed)."""
+    text = re.sub(r"<(script|style)\b.*?</\1>", " ", data.decode("utf-8", errors="replace"), flags=re.S | re.I)
+    return re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", text))).strip()
+
+
+def parse_invesco_distributions(page: str) -> list[dict]:
+    """Rows of the distribution table on Invesco's QQQ page (id="distributionTable"): ex, record and
+    pay dates and the amount per share, as published. A page without that table gives []."""
+    start = page.find('id="distributionTable"')
+    if start < 0:
+        return []
+    rows = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", page[start:page.find("</table>", start)], flags=re.S):
+        cells = [re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", "", cell))).strip()
+                 for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.S)]
+        if len(cells) < 4 or not _us_date(cells[0]):
+            continue
+        Decimal(cells[3])  # raises on anything that is not an amount
+        rows.append({"ex_date": _us_date(cells[0]), "record_date": _us_date(cells[1]),
+                     "pay_date": _us_date(cells[2]), "amount": cells[3]})
+    return rows
+
+
+def wayback_view_url(timestamp: str, original: str) -> str:
+    return f"https://web.archive.org/web/{timestamp}/{original}"
+
+
+def fetch_wayback(timestamp: str, original: str, path: Path, attempts: int = 3) -> bytes:
+    """A capture in its raw (id_) form, gunzipped when Wayback passes the original encoding through.
+    Throttling (429/503) gets a pause and another try."""
+    url = f"https://web.archive.org/web/{timestamp}id_/{original}"
+    for attempt in range(attempts):
+        try:
+            data = common.cached_get(url, path, source="wayback", headers=WAYBACK_HEADERS, limiter=WAYBACK_LIMITER,
+                                     timeout=120, retries=1)
+            break
+        except (RuntimeError, HTTPError) as exc:
+            if attempt == attempts - 1 or (isinstance(exc, HTTPError) and exc.code not in (429, 503)):
+                raise
+            time.sleep(60 * (attempt + 1))
+    return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
+
+
+def qqq_issuer_distributions() -> tuple[dict, dict]:
+    """The issuer's distribution table, merged over INVESCO_CAPTURES (a later capture's row wins).
+
+    Also records what the live issuer link serves today: its cached answer is
+    an HTML application page with no table, so the live table is not readable
+    without a browser.
+    """
+    live_path = QQQ_EVIDENCE / "invesco" / "QQQ_distributions_live_2026-10-01.csv"
+    live = common.cached_get(INVESCO_LIVE_DOWNLOAD, live_path, source="invesco",
+                             headers={"User-Agent": "Mozilla/5.0", "Accept": "text/csv,*/*"},
+                             limiter=ISSUER_LIMITER, retries=1)
+    facts = {"issuer_page": INVESCO_PAGE,
+             "live": {"url": INVESCO_LIVE_DOWNLOAD, "cache_path": str(live_path), "bytes": len(live),
+                      "sha256": common.sha256_bytes(live), "is_html": b"<html" in live[:2000].lower(),
+                      "distribution_rows": len(parse_invesco_distributions(live.decode("utf-8", errors="replace")))},
+             "captures": []}
+    merged: dict[str, dict] = {}
+    for timestamp in INVESCO_CAPTURES:
+        path = QQQ_EVIDENCE / "wayback" / f"{timestamp}__invesco-product-detail-QQQ.html"
+        page = fetch_wayback(timestamp, INVESCO_PAGE, path)
+        rows = parse_invesco_distributions(page.decode("utf-8", errors="replace"))
+        if not rows:
+            raise ValueError(f"capture {timestamp} has no distribution table")
+        capture_day = f"{timestamp[:4]}-{timestamp[4:6]}-{timestamp[6:8]}"
+        for row in rows:
+            previous = merged.get(row["ex_date"], {})
+            row = {**row, "captures": previous.get("captures", []) + [timestamp],
+                   "evidence_urls": previous.get("evidence_urls", []) + [wayback_view_url(timestamp, INVESCO_PAGE)]}
+            if previous and Decimal(previous["amount"]) != Decimal(row["amount"]):
+                row["earlier_capture_amount"] = previous["amount"]
+            merged[row["ex_date"]] = row
+        facts["captures"].append({"timestamp": timestamp, "evidence_url": wayback_view_url(timestamp, INVESCO_PAGE),
+                                  "cache_path": str(path), "sha256": common.sha256_file(path), "rows": len(rows),
+                                  "first_ex_date": min(r["ex_date"] for r in rows),
+                                  "last_ex_date": max(r["ex_date"] for r in rows), "capture_day": capture_day})
+    facts["covered_to"] = max(c["capture_day"] for c in facts["captures"])
+    facts["amounts_changed_between_captures"] = {d: r for d, r in merged.items() if "earlier_capture_amount" in r}
+    return dict(sorted(merged.items())), facts
+
+
+_HIGHLIGHTS_HEADER = re.compile(
+    r"Financial Highlights\b(?:(?!Financial Highlights).){0,300}?"
+    r"(?:Six Months Ended (?P<month>[A-Z][a-z]+) (?P<day>\d{1,2}), (?P<year>\d{4}) (?:\(Unaudited\) )?)?"
+    r"Years? Ended September 30, (?P<years>\d{4}(?: \d{4})*)")
+_HIGHLIGHTS_DISTRIBUTIONS = re.compile(
+    r"Distributions (?:to (?:share|unit)holders )?from: Net investment income "
+    r"(?P<values>\( ?\d+\.\d+ ?\)(?: \( ?\d+\.\d+ ?\))*)")
+
+
+def parse_distribution_highlights(text: str) -> list[dict]:
+    """Distributions per share by period from a QQQ Trust report's Financial Highlights table.
+
+    Fiscal years end September 30; a semi-annual report adds the six months
+    ending at its date. Returns [{period, start, end, per_share}], newest
+    first as printed, or [] when no table with matching counts is found.
+    """
+    for header in _HIGHLIGHTS_HEADER.finditer(text):
+        found = _HIGHLIGHTS_DISTRIBUTIONS.search(text, header.end(), header.end() + 2500)
+        if not found:
+            continue
+        values = re.findall(r"\d+\.\d+", found.group("values"))
+        periods = []
+        if header.group("year"):
+            end = datetime.strptime(f"{header.group('month')} {header.group('day')} {header.group('year')}",
+                                    "%B %d %Y").date()
+            start = date(end.year if end.month >= 10 else end.year - 1, 10, 1)
+            periods.append((f"six months to {end.isoformat()}", start, end))
+        periods += [(f"FY{year}", date(int(year) - 1, 10, 1), date(int(year), 9, 30))
+                    for year in header.group("years").split()]
+        if len(values) == len(periods):
+            return [{"period": label, "start": start.isoformat(), "end": end.isoformat(), "per_share": value}
+                    for (label, start, end), value in zip(periods, values)]
+    return []
+
+
+def qqq_sec_reports() -> tuple[list[dict], list[dict]]:
+    """The QQQ_SEC_REPORTS documents (through SEC_LIMITER and sec_headers) and their per-share periods."""
+    def get(url: str, path: Path) -> bytes:
+        return common.cached_get(url, path, source="sec", headers=common.sec_headers(), limiter=common.SEC_LIMITER)
+
+    submissions_url = f"https://data.sec.gov/submissions/CIK{QQQ_TRUST_CIK}.json"
+    recent = json.loads(get(submissions_url, QQQ_EVIDENCE / "sec" / f"CIK{QQQ_TRUST_CIK}.json"))["filings"]["recent"]
+    position = {accession: i for i, accession in enumerate(recent["accessionNumber"])}
+    reports, periods = [], []
+    for accession in QQQ_SEC_REPORTS:
+        i = position[accession]
+        name = recent["primaryDocument"][i]
+        url = f"https://www.sec.gov/Archives/edgar/data/{int(QQQ_TRUST_CIK)}/{accession.replace('-', '')}/{name}"
+        path = QQQ_EVIDENCE / "sec" / accession / name
+        found = parse_distribution_highlights(html_text(get(url, path)))
+        if not found:
+            raise ValueError(f"{accession}: no Financial Highlights distributions found")
+        reports.append({"accession": accession, "form": recent["form"][i], "filing_date": recent["filingDate"][i],
+                        "url": url, "cache_path": str(path), "sha256": common.sha256_file(path),
+                        "periods": {p["period"]: p["per_share"] for p in found}})
+        periods += [{**p, "accession": accession, "url": url} for p in found]
+    return reports, periods
+
+
+def fiscal_period_checks(joined: list[dict], periods: list[dict]) -> list[dict]:
+    """Each reported period fully inside the join: the joined dividends with ex-dates in it, their sum,
+    and whether the sum equals the reported per-share distributions to the cent."""
+    dividends = [(r["date"], Decimal(r["dividend"])) for r in joined if r["dividend"] != "0"]
+    first, last = joined[0]["date"], joined[-1]["date"]
+    merged: dict[str, dict] = {}
+    for period in periods:
+        entry = merged.setdefault(period["period"], {"period": period["period"], "start": period["start"],
+                                                     "end": period["end"], "reports": {}})
+        entry["reports"][period["accession"]] = period["per_share"]
+    checks = []
+    for entry in sorted(merged.values(), key=lambda e: (e["end"], e["start"])):
+        if entry["start"] < first or entry["end"] > last:
+            continue
+        stated = sorted(set(entry["reports"].values()))
+        reported = Decimal(stated[0])
+        inside = [(d, a) for d, a in dividends if entry["start"] <= d <= entry["end"]]
+        total = sum((a for _, a in inside), Decimal(0))
+        checks.append({**entry, "per_share": stated[0], "reports_agree": len(stated) == 1,
+                       "ex_dates": [d for d, _ in inside], "dividend_sum": str(total),
+                       "dividend_sum_to_cent": str(total.quantize(Decimal("0.01"), ROUND_HALF_UP)),
+                       "matches": abs(total - reported) <= Decimal("0.005")})
+    return checks
+
+
+QQQ_CHECK_COLUMNS = ["ex_date", "amount", "dividend_source", "quarter", "dividends_in_quarter",
+                     "issuer_amount", "issuer_diff", "issuer_record_date", "issuer_pay_date", "issuer_captures",
+                     "issuer_match", "nasdaq_api_amount", "nasdaq_api_record_date", "nasdaq_api_payment_date",
+                     "nasdaq_api_match", "tiingo_amount", "tiingo_match", "fiscal_period", "fiscal_period_per_share",
+                     "fiscal_period_match", "status"]
+DIVIDEND_TOLERANCE = Decimal("0.001")  # plan section 6: dividend amounts agree within $0.001
+
+
+def _same(a: str | None, b: str | None) -> str:
+    """'Y' when both amounts exist and agree within DIVIDEND_TOLERANCE, 'N' when they differ by more,
+    '' when either is missing. Exact differences are reported separately."""
+    if a in (None, "") or b in (None, ""):
+        return ""
+    return "Y" if abs(Decimal(a) - Decimal(b)) <= DIVIDEND_TOLERANCE else "N"
+
+
+def qqq_dividend_verification(joined: list[dict], issuer: dict[str, dict], issuer_covered_to: str,
+                              api: dict[str, dict], tiingo: list[dict],
+                              period_checks: list[dict]) -> tuple[list[dict], dict]:
+    """One row per dividend in the join, checked against the issuer table (through its capture date),
+    the Nasdaq dividend API, Tiingo where its file covers the date, and the fiscal-period totals.
+
+    status: issuer_confirmed, issuer_differs, fiscal_total_confirmed (issuer table not covering the
+    date, the period total matching) or vendor_only.
+    """
+    dividends = [r for r in joined if r["dividend"] != "0"]
+    per_quarter = Counter(_quarter(r["date"]) for r in dividends)
+    tiingo_span = (tiingo[0]["date"], tiingo[-1]["date"])
+    tiingo_divs = {r["date"]: r["divCash"] for r in tiingo if Decimal(r["divCash"] or "0") != 0}
+    api_first = min(api) if api else None
+    rows = []
+    for row in dividends:
+        day = row["date"]
+        found = issuer.get(day, {})
+        covered = day <= issuer_covered_to
+        period = next((p for p in period_checks if p["start"] <= day <= p["end"]), None)
+        nasdaq = api.get(day, {})
+        check = {
+            "ex_date": day, "amount": row["dividend"], "dividend_source": row["dividend_source"],
+            "quarter": _quarter(day), "dividends_in_quarter": per_quarter[_quarter(day)],
+            "issuer_amount": found.get("amount", ""),
+            "issuer_diff": str(Decimal(row["dividend"]) - Decimal(found["amount"])) if found else "",
+            "issuer_record_date": found.get("record_date", ""),
+            "issuer_pay_date": found.get("pay_date", ""), "issuer_captures": ";".join(found.get("captures", [])),
+            "issuer_match": (_same(row["dividend"], found.get("amount")) or "N") if covered else "",
+            "nasdaq_api_amount": nasdaq.get("amount", ""), "nasdaq_api_record_date": nasdaq.get("record_date", ""),
+            "nasdaq_api_payment_date": nasdaq.get("payment_date", ""),
+            "nasdaq_api_match": ((_same(row["dividend"], nasdaq.get("amount")) or "N")
+                                 if api_first and day >= api_first else ""),
+            "tiingo_amount": tiingo_divs.get(day, ""),
+            "tiingo_match": ((_same(row["dividend"], tiingo_divs.get(day)) or "N")
+                             if tiingo_span[0] <= day <= tiingo_span[1] else ""),
+            "fiscal_period": period["period"] if period else "",
+            "fiscal_period_per_share": period["per_share"] if period else "",
+            "fiscal_period_match": ("Y" if period["matches"] else "N") if period else "",
+        }
+        check["status"] = ("issuer_confirmed" if check["issuer_match"] == "Y" else
+                           "issuer_differs" if check["issuer_match"] == "N" else
+                           "fiscal_total_confirmed" if check["fiscal_period_match"] == "Y" else "vendor_only")
+        rows.append(check)
+    joined_days = {r["date"] for r in dividends}
+    first, last = joined[0]["date"], min(joined[-1]["date"], issuer_covered_to)
+    several = {}
+    for check in rows:
+        if check["dividends_in_quarter"] > 1:
+            found = issuer.get(check["ex_date"], {})
+            several.setdefault(check["quarter"], []).append({
+                "ex_date": check["ex_date"], "amount": check["amount"], "status": check["status"],
+                "issuer_record_date": check["issuer_record_date"], "issuer_pay_date": check["issuer_pay_date"],
+                "issuer_evidence_urls": found.get("evidence_urls", []),
+                "nasdaq_api_amount": check["nasdaq_api_amount"], "tiingo_amount": check["tiingo_amount"],
+                "fiscal_period": check["fiscal_period"], "fiscal_period_per_share": check["fiscal_period_per_share"],
+                "fiscal_period_match": check["fiscal_period_match"]})
+    for quarter, items in several.items():
+        for item in items:  # whether the fiscal total also matches without this distribution
+            period = next((p for p in period_checks if p["period"] == item["fiscal_period"]), None)
+            if period:
+                without = Decimal(period["dividend_sum"]) - Decimal(item["amount"])
+                item["fiscal_period_matches_without_it"] = abs(without - Decimal(period["per_share"])) <= Decimal(
+                    "0.005")
+    summary = {
+        "dividends_checked": len(rows), "status_counts": dict(Counter(r["status"] for r in rows)),
+        "tolerance": str(DIVIDEND_TOLERANCE),
+        "issuer_differs": [r for r in rows if r["status"] == "issuer_differs"],
+        "issuer_nonzero_differences_within_tolerance": [
+            {k: r[k] for k in ("ex_date", "amount", "issuer_amount", "issuer_diff", "nasdaq_api_amount",
+                               "tiingo_amount")}
+            for r in rows if r["issuer_match"] == "Y" and Decimal(r["issuer_diff"]) != 0],
+        "issuer_dividends_missing_from_join": sorted(d for d in issuer if first <= d <= last and d not in joined_days),
+        "nasdaq_api_differs_or_missing": [r["ex_date"] for r in rows if r["nasdaq_api_match"] == "N"],
+        "tiingo_differs": [r["ex_date"] for r in rows if r["tiingo_match"] == "N"],
+        "fiscal_periods": period_checks,
+        "fiscal_periods_not_matching": [p["period"] for p in period_checks if not p["matches"]],
+        "quarters_with_several_dividends": several,
+        "vendor_only": [r["ex_date"] for r in rows if r["status"] == "vendor_only"],
+    }
+    return rows, summary
+
+
+def qqq_dividend_sources_check(tiingo: list[dict], nasdaq: list[dict], api: dict[str, dict]) -> dict:
+    """The fresh Nasdaq dividend payload against the stored files over each file's span (ex-dates and amounts)."""
+    def compare(file_divs: dict[str, str], lo: str, hi: str) -> dict:
+        fresh = {d: v["amount"] for d, v in api.items() if lo <= d <= hi}
+        both = set(file_divs) & set(fresh)
+        return {"from": lo, "to": hi, "file_dividends": len(file_divs), "api_dividends": len(fresh),
+                "dates_only_file": sorted(set(file_divs) - set(fresh)),
+                "dates_only_api": sorted(set(fresh) - set(file_divs)),
+                "amounts_differ": sorted(d for d in both if Decimal(file_divs[d]) != Decimal(fresh[d])),
+                "matched": len([d for d in both if Decimal(file_divs[d]) == Decimal(fresh[d])])}
+
+    api_first = min(api)
+    t_lo, t_hi = max(api_first, tiingo[0]["date"]), min(tiingo[-1]["date"], "2017-12-31")
+    n_lo, n_hi = nasdaq[0]["date"], nasdaq[-1]["date"]
+    return {
+        "api_first_ex_date": api_first, "api_last_ex_date": max(api),
+        "tiingo_file_vs_api": compare({r["date"]: r["divCash"] for r in tiingo if t_lo <= r["date"] <= t_hi
+                                       and Decimal(r["divCash"] or "0") != 0}, t_lo, t_hi),
+        "nasdaq_file_vs_api": compare({r["date"]: r["cash_dividend"] for r in nasdaq
+                                       if Decimal(r["cash_dividend"] or "0") != 0}, n_lo, n_hi),
+    }
 
 
 # ---------------------------------------------------------------- writing
@@ -469,17 +1036,99 @@ def write_csv(path: Path, header: list[str], rows: list[list] | list[dict]) -> s
 
 
 def scout_comparison(name: str, sha256: str) -> dict:
+    """The scout's copy against this download; its HTTP stamps describe this file only when the bytes match."""
     copy = SCOUT_KF / name
     if not copy.exists():
         return {"scout_copy": None}
     facts = {"scout_copy": str(copy), "scout_sha256_matches": common.sha256_file(copy) == sha256}
     headers = copy.with_suffix(".headers")
-    if headers.exists():
+    if headers.exists() and not facts["scout_sha256_matches"]:
+        facts["scout_http_headers"] = "not attached: the scout copy's bytes differ from this download"
+    elif headers.exists():
         for line in headers.read_text(encoding="utf-8", errors="replace").splitlines():
             key, _, value = line.partition(":")
             if key.strip().lower() in ("last-modified", "etag", "date"):
                 facts[f"scout_http_{key.strip().lower().replace('-', '_')}"] = value.strip()
     return facts
+
+
+QQQ_JOINED_COLUMNS = ["date", "close", "dividend", "close_source", "dividend_source", "in_window"]
+
+
+def build_qqq_inputs(sessions: list[str]) -> dict:
+    """Fetch the QQQ tail and dividends, check the dividends against the issuer, write the joined inputs.
+
+    A dividend in a quarter with several dividends is dropped from the join
+    unless the issuer table confirms it (date and amount).
+    """
+    tiingo, nasdaq = _read_csv(QQQ_TIINGO), _read_csv(QQQ_NASDAQ)
+    tail, tail_facts = fetch_qqq_tail()
+    api, api_facts = fetch_qqq_dividends()
+    tail_dividends = {day: facts["amount"] for day, facts in api.items()}
+    issuer, issuer_facts = qqq_issuer_distributions()
+    reports, periods = qqq_sec_reports()
+
+    unchecked = qqq_total_return_join(tiingo, nasdaq, tail, tail_dividends)
+    period_checks = fiscal_period_checks(unchecked, periods)
+    check_rows, verification = qqq_dividend_verification(unchecked, issuer, issuer_facts["covered_to"], api, tiingo,
+                                                         period_checks)
+    drop = {r["ex_date"]: "not confirmed by the issuer table" for r in check_rows
+            if r["dividends_in_quarter"] > 1 and r["status"] != "issuer_confirmed"}
+    after_end = (date.fromisoformat(WINDOW_END) + timedelta(days=1)).isoformat()
+    checks = qqq_coverage_check(QQQ_TIINGO, QQQ_NASDAQ, sessions=sessions, tail=tail, tail_dividends=tail_dividends,
+                                sessions_after=xnas_sessions(after_end, tail[-1]["date"]), drop=drop)
+    joined = qqq_total_return_join(tiingo, nasdaq, tail, tail_dividends, drop)
+
+    joined_path, checks_path = FACTORS / "qqq_joined.csv", FACTORS / "qqq_dividend_checks.csv"
+    joined_sha = write_csv(joined_path, QQQ_JOINED_COLUMNS, joined)
+    checks_sha = write_csv(checks_path, QQQ_CHECK_COLUMNS, check_rows)
+    by_source = Counter(r["close_source"] for r in joined)
+
+    def span(source: str) -> dict:
+        dates = [r["date"] for r in joined if r["close_source"] == source]
+        return {"rows_used": by_source[source], "first_used": dates[0] if dates else None,
+                "last_used": dates[-1] if dates else None}
+
+    sources = {
+        "output": str(joined_path), "sha256": joined_sha, "rows": len(joined), "columns": QQQ_JOINED_COLUMNS,
+        "computes": ("nothing: these are the inputs of a QQQ total return, not returns. The repo loader "
+                     "scripts/research_sue_lt_2020_2026.py qqq_returns reads the same columns as "
+                     "(close + dividend) / previous close - 1."),
+        "close": "raw (unadjusted) close; QQQ has no split in the joined span (tiingo splitFactor is 1 throughout)",
+        "dividend": "cash dividend per share on its ex-date as published, '0' on other days",
+        "join_rule": checks["joined"]["rule"],
+        "first_row": ("the last session before the window start, kept so the first window day has a previous "
+                      "close (in_window=N)"),
+        "rows_after_window_end": "kept to the latest published session (in_window=N)",
+        "sources": {
+            "tiingo_file": {"path": str(QQQ_TIINGO), "sha256": common.sha256_file(QQQ_TIINGO), **span("tiingo_file")},
+            "nasdaq_file": {"path": str(QQQ_NASDAQ), "sha256": common.sha256_file(QQQ_NASDAQ), **span("nasdaq_file")},
+            "nasdaq_api_history": {**tail_facts, **span("nasdaq_api_history")},
+            "nasdaq_api_dividends": api_facts,
+        },
+        "dividend_evidence": {"checks_file": str(checks_path), "checks_sha256": checks_sha,
+                              "issuer": issuer_facts, "sec_reports": reports,
+                              "status_counts": verification["status_counts"],
+                              "quarters_with_several_dividends": verification["quarters_with_several_dividends"],
+                              "dropped": checks["joined"]["dropped_dividends"]},
+    }
+    common.atomic_write(FACTORS / "qqq_joined_sources.json", (json.dumps(sources, indent=2) + "\n").encode("utf-8"))
+    checks["dividend_sources"] = qqq_dividend_sources_check(tiingo, nasdaq, api)
+    checks["dividend_verification"] = verification
+    checks["outputs"] = {"joined": str(joined_path), "joined_sha256": joined_sha, "dividend_checks": str(checks_path),
+                         "dividend_checks_sha256": checks_sha,
+                         "sources": str(FACTORS / "qqq_joined_sources.json")}
+    open_items = []
+    if not checks["joined"]["covers_window"]:
+        open_items.append("the join does not cover every window session")
+    if verification["vendor_only"]:
+        open_items.append(f"dividends resting on the Nasdaq API alone (after the latest issuer capture and the "
+                          f"latest reported fiscal period): {verification['vendor_only']}")
+    for key in ("issuer_differs", "issuer_dividends_missing_from_join", "fiscal_periods_not_matching"):
+        if verification[key]:
+            open_items.append(f"{key}: {verification[key]}")
+    checks["open_items"] = open_items
+    return checks
 
 
 def run() -> dict:
@@ -503,7 +1152,7 @@ def run() -> dict:
         parsed = parse_kf_daily(text)
         sha = common.sha256_bytes(data)
         if key == "ind49_daily":
-            rows = tidy_industry_rows(parsed)
+            rows = tidy_industry_rows(parsed)  # raises unless one vw and one ew block with the same columns
             out = FACTORS / "ind49_daily.csv.gz"
             out_sha = write_csv(out, ["date", "weighting", "industry_id", "series", "value_pct", "value_dec",
                                       "missing"], rows)
@@ -594,13 +1243,9 @@ def run() -> dict:
                                for d, v in VIX_KNOWN_CLOSES.items()},
         "tidy_output": str(vix_out),
         "tidy_sha256": write_csv(vix_out, ["date", "open", "high", "low", "close", "xnas_session"], vix_rows)}
-    vix_dates = [r["date"] for r in vix_rows]
-    checks["vix"] = window_facts(vix_dates, set(), sessions)
-    checks["vix"]["extra_dates_on_weekends"] = [d for d in checks["vix"]["extra_dates"]
-                                                if date.fromisoformat(d).weekday() >= 5]
-    checks["vix"]["note"] = "rows on dates that are not XNAS sessions are flagged xnas_session=N in vix_daily.csv"
+    checks["vix"] = vix_window_checks(vix_rows, sessions)
 
-    checks["qqq"] = qqq_coverage_check(sessions=sessions)
+    checks["qqq"] = build_qqq_inputs(sessions)
     checks["window"] = {"start": WINDOW_START, "end": WINDOW_END, "xnas_sessions": len(sessions),
                         "first_session": sessions[0], "last_session": sessions[-1]}
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -626,8 +1271,22 @@ def main() -> None:
                   f"row_check={facts['row_check']['found']}/{facts['row_check']['expected']}")
     print("links verified:", sources["links_verified"])
     print("ind49 columns match Siccodes49:", checks["ind49_columns_match_siccodes49"])
-    print("QQQ joined:", json.dumps({k: v for k, v in checks["qqq"]["joined"].items()}, default=str)[:1500])
-    print(f"wrote {FACTORS / 'kf_sources.json'} and {FACTORS / 'step1_checks.json'}")
+    qqq = checks["qqq"]
+    joined, tail, verification = qqq["joined"], qqq["tail"], qqq["dividend_verification"]
+    print(f"QQQ joined: {joined['first_row']}..{joined['last_date']} rows={joined['rows']} "
+          f"in_window={joined['rows_in_window']} covers_window={joined['covers_window']} "
+          f"missing={joined['missing_sessions_to_window_end']} by_source={joined['rows_by_close_source']}")
+    print(f"QQQ tail: {tail['first']}..{tail['last']} rows={tail['rows']} added={tail['rows_after_stored_file']} "
+          f"overlap_max_close_diff={tail['overlap_with_stored_file']['max_abs_close_diff']} "
+          f"dividends_added={tail['dividends_after_stored_file']}")
+    print(f"QQQ dividends: {verification['status_counts']} "
+          f"fiscal_periods_not_matching={verification['fiscal_periods_not_matching']} "
+          f"dropped={joined['dropped_dividends']}")
+    for quarter, items in verification["quarters_with_several_dividends"].items():
+        print(f"  {quarter}: " + "; ".join(f"{i['ex_date']} {i['amount']} {i['status']}" for i in items))
+    print("QQQ open items:", qqq["open_items"] or "none")
+    print(f"wrote {FACTORS / 'kf_sources.json'}, {FACTORS / 'step1_checks.json'}, {qqq['outputs']['joined']}, "
+          f"{qqq['outputs']['dividend_checks']} and {qqq['outputs']['sources']}")
 
 
 if __name__ == "__main__":
