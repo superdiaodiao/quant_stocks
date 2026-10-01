@@ -338,8 +338,13 @@ def test_summary_counts_only():
 
 def test_reviewed_entries_are_well_formed():
     for sid, review in tr.REVIEWED.items():
-        assert set(review) <= set(tr.REVIEW_KEYS) | {"note", "return_checked"}, sid
+        assert set(review) <= set(tr.REVIEW_KEYS) | {"note"}, sid
         assert review.get("note"), sid
+        if review.get("approved"):  # an approval that lifts the guard cites its own source
+            # a failed bank files with the FDIC, not the SEC (Signature Bank)
+            allowed = ("https://www.sec.gov/Archives/edgar/data/",) + (
+                ("https://www.fdic.gov/",) if review.get("sub") == "bank_failure" else ())
+            assert review.get("url", "").startswith(allowed), sid
         if "type" in review:
             assert review["type"] in tr.TYPES, sid
         if review.get("type") in ("stock_merger", "mixed"):
@@ -411,8 +416,8 @@ def test_atvi_filler_row_is_not_the_last_session_and_the_acquirer_close_follows_
     # ATVI 2023-10-12 close 94.42 on 7.3M shares; 2023-10-13 close 94.42 on 1 share (Nasdaq halted it before the open)
     rows = _history("1", "2023-09-01", 29, close=94.0, volume=7_000_000)
     rows += [("1", "2023-10-12", 94.42, 7_323_451, "tiingo"), ("1", "2023-10-13", 94.42, 1, "tiingo")]
-    rows += [("50", "2023-10-12", 39.0, 1e6, "tiingo"), ("50", "2023-10-13", 40.0, 1e6, "tiingo"),
-             ("50", "2023-10-16", 41.0, 1e6, "tiingo")]
+    rows += [("50", "2023-10-12", 46.9, 1e6, "tiingo"), ("50", "2023-10-13", 47.3, 1e6, "tiingo"),
+             ("50", "2023-10-16", 47.6, 1e6, "tiingo")]
     book = _book(rows)
     trade = tr.last_trade(book, "1", "2023-10-16", "2023-10-16")
     assert (trade["status"], trade["last_date"], trade["close"], trade["filler_dropped"]) == ("ok", "2023-10-12", 94.42, 1)
@@ -421,7 +426,7 @@ def test_atvi_filler_row_is_not_the_last_session_and_the_acquirer_close_follows_
                                            closing_dates="2023-10-13")], book)
     out = frame.loc["1"]
     assert (out.last_price_date, out.acquirer_price_date) == ("2023-10-12", "2023-10-13")
-    assert float(out.terminal_return) == pytest.approx(2.0 * 40.0 / 94.42 - 1)
+    assert float(out.terminal_return) == pytest.approx(2.0 * 47.3 / 94.42 - 1)
 
 
 def test_halt_stated_in_the_closing_8k_caps_the_last_session():
@@ -456,8 +461,10 @@ def test_sbny_snapshot_end_cuts_before_the_filler_run_and_books_the_first_otc_cl
     frame, used = _build([row], [_evidence("7", closing_items="", closing_accessions="", closing_dates="", bankruptcy=True)],
                          book)
     out = frame.loc["7"]
-    assert (out.terminal_type, out.status, out.last_price_date) == ("bankruptcy_otc", "computed", "2023-03-10")
-    assert float(out.terminal_return) == pytest.approx(0.13 / 70.0 - 1)
+    # the OTC close is beyond +/-5% of the last Nasdaq close, so the row waits for a hand check
+    assert (out.terminal_type, out.status, out.last_price_date) == ("bankruptcy_otc", "needs_review", "2023-03-10")
+    held = used.set_index("security_id").loc["7"]
+    assert float(held["terminal_return_checked"]) == pytest.approx(0.13 / 70.0 - 1)
     assert out.consideration_per_share == ""  # the OTC level stays local
     assert used.set_index("security_id").loc["7", "otc_date"] == "2023-03-28"
 
@@ -487,8 +494,11 @@ def test_angi_uses_its_last_day_and_the_same_ticker_next_close_not_a_late_acquir
     frame, used = tr.build_rows(scope, pd.DataFrame([ev]), book, {}, _angi_names(),
                                 pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
     out = frame.set_index("security_id").loc["1491778"]
-    assert (out.last_price_date, out.acquirer_price_date, out.status) == ("2017-09-29", "2017-10-02", "computed")
-    assert float(out.terminal_return) == pytest.approx(12.76 / 12.46 - 1)  # about +2.4%, not -9.5%
+    # the reviewed terms carry a cash election ($8.50, capped): the guard holds the value until a review approves it
+    assert (out.last_price_date, out.acquirer_price_date, out.status) == ("2017-09-29", "2017-10-02", "needs_review")
+    level = used.set_index("security_id").loc["1491778"]
+    assert float(level.terminal_return_checked) == pytest.approx(12.76 / 12.46 - 1)  # about +2.4%, not -9.5%
+    assert out.terminal_return == "" and "election" in level.review_reasons
     assert "same ticker" in out.acquirer_match
     assert out.acquirer_name == "ANGI HOMESERVICES INC"
 
@@ -573,8 +583,8 @@ def test_load_existing_keeps_each_note_on_its_own_row(tmp_path):
 
 
 def test_existing_stock_leg_value_commits_the_return_but_no_level():
-    book = _book([("1", "2019-11-20", 100.0, 1e6, "wiki")])
-    prior = {"existing_file": "holdout supplement", "terminal_return": 0.06, "consideration_per_share": 106.41,
+    book = _book([("1", "2019-11-20", 103.0, 1e6, "wiki")])
+    prior = {"existing_file": "holdout supplement", "terminal_return": 0.033, "consideration_per_share": 106.41,
              "source_url": "https://www.sec.gov/celg.htm", "verified_at": "2026-01-01",
              "note": "$50 cash + 1 BMY (56.41 close 2019-11-20) + 1 CVR valued at 0"}
     names = tr.NameIndex(_master([]))
@@ -583,7 +593,7 @@ def test_existing_stock_leg_value_commits_the_return_but_no_level():
                                 book, {"1": prior}, names, pd.DataFrame(columns=["security_id", "planned_source", "status"]),
                                 "2026-10-02")
     out = frame.set_index("security_id").loc["1"]
-    assert out.status == "computed" and float(out.terminal_return) == pytest.approx(106.41 / 100.0 - 1)
+    assert out.status == "computed" and float(out.terminal_return) == pytest.approx(106.41 / 103.0 - 1)
     assert out.consideration_per_share == "" and out.existing_consideration_per_share == ""
     assert "56.41" not in out.status_note and "$50 cash + 1 BMY" in out.status_note
     assert used.set_index("security_id").loc["1", "existing_value"] == 106.41
@@ -656,9 +666,14 @@ def test_halt_after_close_reads_close_of_business_without_the_and_a_form25_filed
 
 
 def test_effective_time_after_the_close():
+    # the LILAK closing 8-K's own words (0001570585-18-000013): no 'effective', but 'On <date> at 5:00 p.m.' and 'completed'
     lilak = ('Item 2.01. Completion of Acquisition or Disposition of Assets On December 29, 2017 at 5:00 p.m., New York '
-             'City time (the "Distribution Effective Time"), Liberty Global completed the split-off')
+             'City time (the "Distribution Date"), Liberty Global plc (the "Company") completed its previously-announced '
+             'split-off (the "Split-Off") of its former wholly-owned subsidiary Liberty Latin America Ltd. ("Splitco").')
     assert tr.effective_after_close(lilak) == "2017-12-29"
+    assert tr.effective_after_close('On June 2, 2016 at 6:00 p.m., Eastern Time, the merger was consummated') == "2016-06-02"
+    assert tr.effective_after_close("On March 1, 2016 at 5:00 p.m., the board of directors met") == ""  # no completion
+    assert tr.effective_after_close("the meeting on March 1, 2016 at 5:00 p.m., when the deal was completed") == ""
     sohu = 'On May 31, 2018 at 4:30 PM Eastern Daylight Time (such date and time, the "Effective Time"), Sohu Delaware'
     assert tr.effective_after_close(sohu) == "2018-05-31"
     ozrk = ('consummated by the filing of articles of merger, effective as of 4:00 p.m., Central Time, on June 26, 2017 '
@@ -697,7 +712,7 @@ def test_successor_reorganisation_ends_on_the_master_successor_date_not_on_the_s
     # SSYS: Form 25 and successor_date 2012-11-30 (74.95); Stratasys Ltd trades as SSYS from 2012-12-03 (70.05);
     # the snapshots end 2012-11-13 and no closing 8-K is in the window, so the window ran to 2012-12-28
     rows = _history("1", "2012-10-01", 44, close=78.0, volume=600_000, src="wiki")  # to 2012-11-29
-    rows += [("1", "2012-11-30", 74.95, 605_500, "wiki"), ("1", "2012-12-03", 70.05, 3_621_700, "wiki")]
+    rows += [("1", "2012-11-30", 74.95, 605_500, "wiki"), ("1", "2012-12-03", 73.05, 3_621_700, "wiki")]
     rows += [("1", d, 72.0, 500_000, "wiki") for d in _days("2012-12-04", 19)]  # to 2012-12-28
     book = _book(rows)
     row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2012-11-13",
@@ -708,7 +723,7 @@ def test_successor_reorganisation_ends_on_the_master_successor_date_not_on_the_s
     out = frame.set_index("security_id").loc["1"]
     assert (out.terminal_type, out.event_subtype, out.status) == ("stock_merger", "reorganization", "computed")
     assert (out.last_price_date, out.acquirer_price_date) == ("2012-11-30", "2012-12-03")
-    assert float(out.terminal_return) == pytest.approx(70.05 / 74.95 - 1)
+    assert float(out.terminal_return) == pytest.approx(73.05 / 74.95 - 1)
     assert used.set_index("security_id").loc["1", "limit_basis"] == "successor_form25_filing"
     assert tr.successor_overruns(frame, pd.DataFrame([row])) == []
     # the old reading (no successor date) books the successor's December move: the check flags such a row
@@ -854,3 +869,228 @@ def test_built_file_special_dividends_are_in_the_value(built):
         if sid in rows.index:
             assert rows.loc[sid, "consideration_per_share"] == value, sid
             assert rows.loc[sid, "special_dividend_cash"] != "", sid
+
+
+# ------------------------------------------------------------------ round 6 regressions (named cases)
+
+def test_rename_and_successor_limits_without_a_master_successor_link_are_reviewed():
+    # QRTEA/QRTEB -> QVCGA/QVCGB from the open of 2025-02-24 (8-K 0001104659-25-016368); VNOM: 12:01 a.m. on
+    # 2025-08-19, new shares began trading that day (closing 8-K 0001193125-25-183040)
+    for sid in ("1355096.T-QRTEA", "1355096.T-QRTEB"):
+        review = tr.REVIEWED[sid]
+        assert review["limit"] == "2025-02-21" and review["url"].endswith("000110465925016368/tm257272d1_8k.htm"), sid
+    vnom = tr.REVIEWED["1602065"]
+    assert vnom["limit"] == "2025-08-18" and vnom["url"].endswith("1602065/000119312525183040/d65540d8k.htm")
+    assert "1602065" not in tr.REVIEWED_SOURCES
+
+
+def test_successor_starts_with_the_date_before_a_past_tense_verb_and_without_the():
+    vnom = ("As a result of the Mergers, all shares of Former Viper Common Stock were cancelled, and New Viper became the "
+            "successor to Former Viper. Accordingly, on August 19, 2025, New Viper Class A Common Stock began trading on "
+            "Nasdaq in place of Former Viper Class A Common Stock under the ticker symbol \"VNOM\".")
+    assert tr.successor_starts(vnom) == ["2025-08-19"]
+    qrte = ("The Company's Series A common stock ... previously traded on the Nasdaq Stock Market LLC (\"Nasdaq\") under "
+            "the ticker symbols \"QRTEA\", \"QRTEB\" and \"QRTEP\", respectively and, effective as of open of trading on "
+            "February 24, 2025, will trade on Nasdaq under the new ticker symbols \"QVCGA\", \"QVCGB\" and \"QVCGP\"")
+    assert tr.successor_starts(qrte) == ["2025-02-24"]
+    assert tr.successor_starts("The new shares commenced trading on Nasdaq on June 3, 2019.") == ["2019-06-03"]
+    # a future verb with the date before it is not read; nor a date that only precedes another date
+    assert tr.successor_starts("On May 1, 2019, the Company said the new shares will begin trading.") == []
+    assert tr.successor_starts("On January 4, 2016, and December 1, 2015 the shares began trading") == []
+    assert tr.successor_starts("On March 1, 2019, the when-issued shares began trading.") == []
+
+
+def test_midnight_effective_time_caps_the_last_session_at_the_session_before():
+    vnom = ('at the effective time of the Viper Pubco Merger (the "Viper Pubco Merger Effective Time", which was 12:01 '
+            'a.m., Eastern Time, on August 19, 2025), (A) each share of Former Viper\'s Class A common stock')
+    assert tr.effective_before_open(vnom) == "2025-08-19"
+    assert tr.effective_before_open('On June 3, 2019 at 12:01 a.m., Eastern Time (the "Effective Time"), the merger was '
+                                    'completed') == "2019-06-03"
+    assert tr.effective_before_open("The Offer expired at 12:01 a.m., New York City time, on March 2, 2016, and the "
+                                    "merger became effective") == ""  # a tender offer's expiry
+    fox = ("Following the Separation, effective at 7:25 a.m. Eastern Time on March 19, 2019 (the \"Closing Date\"), 21CF "
+           "distributed all of the issued and outstanding common stock of FOX")
+    assert tr.effective_before_open(fox) == ""  # only 12 o'clock a.m.; 21CF traded on 2019-03-19
+    rows = _history("1", "2025-07-01", 35, close=30.0, volume=1e6) + [("1", "2025-08-19", 30.5, 1e6, "tiingo")]
+    book = _book(rows)  # to 2025-08-18, then the successor's first day under the same ticker
+    row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2025-09-01")
+    ev = _evidence(closing_dates="2025-08-19", terms_shares=1.0, terms_acquirer_phrase="TargetCo Holdings",
+                   effective_before_open="2025-08-19")
+    frame, used = _build([row], [ev], book)
+    assert frame.loc["1", "last_price_date"] == "2025-08-18"
+    assert used.set_index("security_id").loc["1", "limit_basis"] == "session_before_midnight_effective_time_in_closing_8k"
+
+
+def test_last_trade_at_the_snapshot_slack_limit_with_an_earlier_stored_end_is_held():
+    # QRTEA before the reviewed limit: snapshots end 2025-02-01, slack limit 2025-03-18; the vendor rows run to the
+    # limit (QVCGA's under the same ticker) while the stored series ends on 2025-02-21
+    rows = _history("1", "2025-01-02", 51, close=30.0, volume=5e6)  # to 2025-03-13
+    rows += [("1", d, 30.6 + 0.1 * i, 5e6, "tiingo")
+             for i, d in enumerate(("2025-03-14", "2025-03-17", "2025-03-18", "2025-03-19"))]
+    rows += [("1", d, 30.0, 5e6, "stored") for d in _days("2025-01-02", 36)]  # stored to 2025-02-20
+    rows += [("1", "2025-02-21", 30.0, 5e6, "stored")]
+    book = _book(rows)
+    row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2025-02-01")
+    ev = _evidence(closing_items="", closing_accessions="", closing_dates="", terms_shares=1.0,
+                   terms_acquirer_phrase="TargetCo Holdings", reorganization=True)
+    frame, used = _build([row], [ev], book)
+    level = used.set_index("security_id").loc["1"]
+    assert (level.limit, level.limit_basis, level.last_date) == ("2025-03-18", "snapshots_end", "2025-03-18")
+    out = frame.loc["1"]
+    assert (out.status, out.terminal_return) == ("needs_review", "")
+    assert "snapshot-slack limit" in out.status_note
+    # the check over the built rows flags such a row if it were ever computed
+    stale = frame.reset_index().assign(status="computed")
+    assert tr.successor_overruns(stale, pd.DataFrame([row]), used) == ["1"]
+    assert tr.successor_overruns(stale, pd.DataFrame([row])) == []  # without the levels only the successor date counts
+
+
+def test_brcm_traded_share_is_a_cash_electing_share_from_the_read_election_results():
+    review = tr.REVIEWED["1054374"]
+    assert (review["cash"], review["shares"], review["acq"]) == (51.4829, 0.0242, "1649338")
+    assert review["url"].endswith("1441634/000119312516446897/d121614dex992.htm") and "d10800d425.htm" in review["approved"]
+    for path in ("1441634/0001193125-16-446897/d121614dex992.htm.gz", "1054374/0001193125-16-437104/d10800d425.htm.gz"):
+        if (tr.OUT / "review_docs").exists():
+            assert (tr.OUT / "review_docs" / path).exists(), path
+    book = _book([("1054374", "2016-01-29", 54.67, 1e6, "wiki"), ("1649338", "2016-02-01", 137.68, 1e6, "wiki")])
+    names = tr.NameIndex(_master([{"security_id": "1649338", "cik": "1649338", "name": "BROADCOM LTD",
+                                   "first_listed": "2016-02-01", "last_listed": "2018-04-04"}]))
+    row = _row(security_id="1054374", f25_filing_date="2016-02-01")
+    frame, _ = tr.build_rows(pd.DataFrame([row]), pd.DataFrame([_evidence("1054374", terms_election=True)]), book, {},
+                             names, pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    out = frame.set_index("security_id").loc["1054374"]
+    assert out.status == "computed" and out.election == "Y"  # an election, approved by the reviewed results
+    assert float(out.terminal_return) == pytest.approx((51.4829 + 0.0242 * 137.68) / 54.67 - 1)  # not 0.4378 x 137.68
+
+
+def test_21cf_non_electing_shares_wait_for_a_dis_close(monkeypatch):
+    for sid in ("1308161.A", "1308161.B"):
+        review = tr.REVIEWED[sid]
+        assert (review["type"], review["shares"], review.get("cash"), review.get("rule")) == ("stock_merger", 0.4517, None, None)
+        assert tr.ACQUIRER_SYMBOLS[sid] == "DIS" and review["url"].endswith("1308161/000095015719000308/form8k.htm")
+    assert len(set(tr.ACQUIRER_SYMBOLS.values())) > tr.YAHOO_MAX  # the cap is used up: DIS is not fetched
+    book = _book([("1308161.A", "2019-03-18", 49.0, 1e7, "tiingo"), ("1308161.A", "2019-03-19", 49.6, 1e7, "tiingo")])
+    row = _row(security_id="1308161.A", end_source="snapshots", delist_date="", f25_delisting_basis="",
+               f25_filing_date="", end_date="2019-03-13")
+    ev = _evidence("1308161.A", closing_dates="2019-03-20", halt_before_open="2019-03-20", terms_election=True)
+    monkeypatch.setattr(tr, "acquirer_chart", lambda symbol: pd.DataFrame(columns=["date", "close", "volume", "src"]))
+    frame, used = _build([row], [ev], book)
+    out = frame.loc["1308161.A"]
+    assert (out.status, out.terminal_return, out.last_price_date) == ("needs_acquirer_price", "", "2019-03-19")
+    queue = tr.manual_review_queue(frame.reset_index(), used)
+    assert "DIS chart" in queue.set_index("security_id").loc["1308161.A", "reason"]
+    chart = pd.DataFrame({"date": pd.to_datetime(["2019-03-19", "2019-03-20"]), "close": [111.0, 110.0],
+                          "volume": [1e7, 2e7], "src": "yahoo_acquirer"})
+    monkeypatch.setattr(tr, "acquirer_chart", lambda symbol: chart)
+    frame, _ = _build([row], [ev], book)
+    out = frame.loc["1308161.A"]
+    assert (out.status, out.acquirer_price_date) == ("computed", "2019-03-20")
+    assert float(out.terminal_return) == pytest.approx(0.4517 * 110.0 / 49.6 - 1)
+
+
+def test_reviewed_hold_on_the_last_session_blanks_last_price_date():
+    assert tr.REVIEWED["6769"]["hold_last_session"] and tr.REVIEWED["912752"]["hold_last_session"]
+    book = _book([("6769", "2021-02-26", 21.8, 1e7, "tiingo"), ("6769", "2021-03-01", 21.9, 1e7, "tiingo"),
+                  ("6769", "2021-03-02", 22.0, 1e7, "tiingo")])
+    row = _row(security_id="6769", end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="",
+               end_date="2021-03-01")
+    frame, used = _build([row], [_evidence("6769", closing_dates="2021-03-01")], book)
+    out = frame.loc["6769"]
+    assert (out.status, out.last_price_date, out.acquirer_price_date, out.terminal_return) == ("needs_review", "", "", "")
+    level = used.set_index("security_id").loc["6769"]
+    assert (level.last_price_date_held, level.acquirer_price_date_held) == ("2021-03-01", "2021-03-02")
+
+
+def test_guard_holds_elections_cvrs_and_values_beyond_5pct_unless_approved_with_a_url():
+    book = _book([("1", "2019-04-18", 43.0, 100, "tiingo"), ("1", "2019-04-19", 43.2, 100, "tiingo")])
+    for ev, word in ((_evidence(terms_cash=43.5, terms_cvr=True), "CVR"),
+                     (_evidence(terms_cash=43.5, terms_election=True), "election"),
+                     (_evidence(terms_cash=46.0), "5%")):
+        frame, used = _build([_row()], [ev], book)
+        out = frame.loc["1"]
+        assert (out.status, out.terminal_return, out.consideration_per_share) == ("needs_review", "", ""), word
+        assert out.consideration_cash != "" and word in used.set_index("security_id").loc["1", "review_reasons"], word
+    original = tr.REVIEWED.get("1")
+    try:
+        tr.REVIEWED["1"] = {"type": "cash_merger", "cash": 43.5, "approved": "CVR checked", "note": "synthetic"}
+        frame, _ = _build([_row()], [_evidence(terms_cash=43.5, terms_cvr=True)], book)
+        assert frame.loc["1", "status"] == "needs_review"  # an approval without its own url does not count
+        tr.REVIEWED["1"]["url"] = "https://www.sec.gov/Archives/edgar/data/1/0001/x.htm"
+        frame, _ = _build([_row()], [_evidence(terms_cash=43.5, terms_cvr=True)], book)
+        assert frame.loc["1", "status"] == "computed" and frame.loc["1", "consideration_per_share"] == "43.5"
+    finally:
+        tr.REVIEWED.pop("1")
+        if original is not None:
+            tr.REVIEWED["1"] = original
+    # a bankruptcy's OTC close is not exempt from the 5% rule: its OTC close is checked by hand first
+    rows = _history("7", "2023-01-02", 40, close=110.0, volume=1_500_000) + [("7", "2023-03-01", 1.0, 5e6, "tiingo")]
+    frame, _ = _build([_row(security_id="7", f25_delisting_basis="exchange_removal", f25_filing_date="2023-02-28")],
+                      [_evidence("7", closing_items="3.01")], _book(rows))
+    assert frame.loc["7", "status"] == "needs_review"
+
+
+def test_manual_review_queue_lists_held_and_flagged_rows_by_best_rank():
+    book = _book([("1", "2019-04-19", 43.2, 100, "tiingo"), ("2", "2019-04-19", 43.2, 100, "tiingo")])
+    candidates = pd.DataFrame({"security_id": ["3"], "planned_source": ["tiingo"], "status": ["pending"]})
+    rows = [_row(best_rank=120.0), _row(security_id="2", best_rank=7.0), _row(security_id="3", best_rank=50.0)]
+    evidence = [_evidence(terms_cash=43.5, terms_cvr=True), _evidence("2", terms_cash=43.5),
+                _evidence("3", terms_cash=10.0, terms_election=True)]
+    frame, used = _build(rows, evidence, book, candidates)
+    queue = tr.manual_review_queue(frame.reset_index(), used)
+    assert list(queue.columns) == ["security_id", "ticker", "best_rank", "reason", "documents"]
+    assert list(queue["security_id"]) == ["3", "1"]  # by best rank; the computed row 2 is not queued
+    assert queue.loc[0, "reason"].startswith("pending_price: to check once priced: the consideration involves")
+    assert queue.loc[1, "reason"].startswith("needs_review: the consideration includes a CVR")
+    assert "https://www.sec.gov/8k.htm" in queue.loc[1, "documents"]
+
+
+def test_built_file_round_6_cases(built):
+    rows = built.set_index("security_id")
+    if "1054374" in rows.index and rows.loc["1054374", "terminal_return"]:
+        assert abs(float(rows.loc["1054374", "terminal_return"])) < 0.02  # BRCM: not the all-stock +10.25%
+    for sid in ("1308161.A", "1308161.B"):
+        if sid in rows.index:
+            assert rows.loc[sid, "status"] != "computed" or rows.loc[sid, "acquirer_price_date"] == "2019-03-20", sid
+    for sid in ("6769", "912752"):
+        if sid in rows.index and rows.loc[sid, "status"] == "needs_review":
+            assert rows.loc[sid, "last_price_date"] == "", sid
+    for sid in ("1355096.T-QRTEA", "1355096.T-QRTEB"):
+        if sid in rows.index and rows.loc[sid, "last_price_date"]:
+            assert rows.loc[sid, "last_price_date"] <= "2025-02-21", sid
+    if "1602065" in rows.index and rows.loc["1602065", "last_price_date"]:
+        assert rows.loc["1602065", "last_price_date"] <= "2025-08-18"
+    held = rows[rows["status"].eq("needs_review")]
+    assert held["terminal_return"].eq("").all() and held["consideration_per_share"].eq("").all()
+    computed = rows[rows["status"].eq("computed") & ~rows["terminal_type"].eq("bankruptcy_otc")]
+    beyond = computed[pd.to_numeric(computed["terminal_return"]).abs() > tr.GUARD_RETURN]
+    flagged = computed[computed["cvr"].eq("Y") | computed["election"].eq("Y")]
+    approved = {sid for sid, r in tr.REVIEWED.items() if r.get("approved") and r.get("url")}
+    assert set(beyond.index) <= approved and set(flagged.index) <= approved
+    queue_path = tr.MANUAL_REVIEW_QUEUE
+    if queue_path.exists():
+        queue = tr.read_csv_text(queue_path)
+        assert list(queue.columns) == ["security_id", "ticker", "best_rank", "reason", "documents"]
+        assert set(held.index) <= set(queue["security_id"])
+        ranks = pd.to_numeric(queue["best_rank"], errors="coerce")
+        assert ranks.dropna().is_monotonic_increasing
+
+
+def test_an_election_stated_only_in_the_closing_documents_holds_the_row():
+    from scripts import reversal_data_terminal as t
+    decided, out = {"note": ""}, {"election": "N", "cvr": "N"}
+    assert t.guard_reasons(decided, out, {"election": "True", "cvr": "False"}) == [
+        "the consideration involves a holder election or a proration"]
+    assert t.guard_reasons(decided, out, {"election": "False", "cvr": "True"}) == [
+        "the consideration includes a CVR (valued at 0)"]
+    assert t.guard_reasons(decided, out, {}) == []
+
+
+def test_built_file_has_no_unapproved_computed_value_far_from_its_last_close():
+    import pandas as pd
+    from scripts import reversal_data_terminal as t
+    rows = pd.read_csv(t.OUTPUT, dtype=str, keep_default_na=False)
+    computed = rows[rows["status"] == "computed"]
+    returns = pd.to_numeric(computed["terminal_return"], errors="coerce")
+    far = computed[returns.abs() > t.GUARD_RETURN]
+    approved = {sid for sid, r in t.REVIEWED.items() if r.get("approved") and r.get("url")}
+    assert set(far["security_id"]) <= approved
