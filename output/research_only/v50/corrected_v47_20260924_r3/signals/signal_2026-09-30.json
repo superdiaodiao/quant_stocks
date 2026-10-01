@@ -1,0 +1,742 @@
+{
+  "broker_action_authorized": false,
+  "bundle_manifest_sha256": "b4a93a9b53aee8d552c758382456ff873cb9cc70cea434b499a8b3fa60331dbd",
+  "code_closure_sha256": "bc0dc85e63c7eb154b4e0c9e46fe3855ccf0eaec92b220fc31939b8d48b90065",
+  "contains_index_etf_holdings": false,
+  "corrected_price_policy_verified": true,
+  "execution_date": null,
+  "execution_policy": "first common trading-session close after signal",
+  "identity_breaks": {
+    "BKYI": "2026-04-30",
+    "CODX": "2026-01-02",
+    "MOB": "2025-12-08",
+    "OPI": "2026-06-18",
+    "QH": "2026-07-22",
+    "RNA": "2026-02-27",
+    "SPCX": "2026-06-12",
+    "TDTH": "2026-07-16"
+  },
+  "live_price_events": {
+    "provider_adjustments_applied": [
+      {
+        "factor": 16.0,
+        "session": "2026-07-20",
+        "ticker": "AEHL"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "AEMD"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "AGRZ"
+      },
+      {
+        "factor": 7.0,
+        "session": "2026-07-20",
+        "ticker": "AIXI"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "ALP"
+      },
+      {
+        "factor": 9.0,
+        "session": "2026-07-20",
+        "ticker": "ARTL"
+      },
+      {
+        "factor": 13.0,
+        "session": "2026-07-20",
+        "ticker": "BANL"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "BIAF"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "BRTX"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "BYAH"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "CALC"
+      },
+      {
+        "factor": 35.0,
+        "session": "2026-07-20",
+        "ticker": "CCG"
+      },
+      {
+        "factor": 250.0,
+        "session": "2026-07-20",
+        "ticker": "CDT"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "CIIT"
+      },
+      {
+        "factor": 40.0,
+        "session": "2026-07-20",
+        "ticker": "CISS"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "CLGN"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "CPOP"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "CSAI"
+      },
+      {
+        "factor": 149.92505555555553,
+        "session": "2026-07-20",
+        "ticker": "CTNT"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "CTSO"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "CURX"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "CXAI"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "CYCU"
+      },
+      {
+        "factor": 40.0,
+        "session": "2026-07-20",
+        "ticker": "DBGI"
+      },
+      {
+        "factor": 160.0,
+        "session": "2026-07-20",
+        "ticker": "DCX"
+      },
+      {
+        "factor": 125.0,
+        "session": "2026-07-20",
+        "ticker": "DFNS"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "DLXY"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "ELAB"
+      },
+      {
+        "factor": 45.0,
+        "session": "2026-07-20",
+        "ticker": "ELPW"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "EPOW"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "FBGL"
+      },
+      {
+        "factor": 149.92498946481246,
+        "session": "2026-07-20",
+        "ticker": "FFAI"
+      },
+      {
+        "factor": 100.0,
+        "session": "2026-07-20",
+        "ticker": "FGL"
+      },
+      {
+        "factor": 4.0,
+        "session": "2026-07-20",
+        "ticker": "FTFT"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "GAME"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "GAUZ"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "GCTK"
+      },
+      {
+        "factor": 9.0,
+        "session": "2026-07-20",
+        "ticker": "GMEX"
+      },
+      {
+        "factor": 80.0,
+        "session": "2026-07-20",
+        "ticker": "GOSS"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "GRML"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "GRNQ"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "GTBP"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "HAO"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "HUBC"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "IMCC"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "IMMP"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "IPDN"
+      },
+      {
+        "factor": 9.0,
+        "session": "2026-07-20",
+        "ticker": "IPW"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "IZM"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "JAGX"
+      },
+      {
+        "factor": 75.0,
+        "session": "2026-07-20",
+        "ticker": "JUNS"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "KIDZ"
+      },
+      {
+        "factor": 6.0,
+        "session": "2026-07-20",
+        "ticker": "KITT"
+      },
+      {
+        "factor": 200.0,
+        "session": "2026-07-20",
+        "ticker": "LBGJ"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "LEXX"
+      },
+      {
+        "factor": 125.0,
+        "session": "2026-07-20",
+        "ticker": "LGCL"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "LGHL"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "LGVN"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "LIMN"
+      },
+      {
+        "factor": 6.0,
+        "session": "2026-07-20",
+        "ticker": "LRHC"
+      },
+      {
+        "factor": 7.0,
+        "session": "2026-07-20",
+        "ticker": "MBAI"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "MGN"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "MSGY"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "MSS"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "MVIS"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "MYSZ"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "NCT"
+      },
+      {
+        "factor": 11.0,
+        "session": "2026-07-20",
+        "ticker": "NEXR"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "NFE"
+      },
+      {
+        "factor": 3.0,
+        "session": "2026-07-20",
+        "ticker": "NIVF"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "NRSN"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "NVX"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "NXL"
+      },
+      {
+        "factor": 100.0,
+        "session": "2026-07-20",
+        "ticker": "NXTT"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "NXXT"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "OFAL"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "OMH"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "ONFO"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "ONMD"
+      },
+      {
+        "factor": 4.0,
+        "session": "2026-07-20",
+        "ticker": "PFSA"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "PRPL"
+      },
+      {
+        "factor": 200.0,
+        "session": "2026-07-20",
+        "ticker": "RCON"
+      },
+      {
+        "factor": 16.0,
+        "session": "2026-07-20",
+        "ticker": "RPGL"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "SCNI"
+      },
+      {
+        "factor": 7.0,
+        "session": "2026-07-20",
+        "ticker": "SEGG"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "SFWL"
+      },
+      {
+        "factor": 14.0,
+        "session": "2026-07-20",
+        "ticker": "SGLY"
+      },
+      {
+        "factor": 12.0,
+        "session": "2026-07-20",
+        "ticker": "SHFS"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "SKYE"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "SMTK"
+      },
+      {
+        "factor": 12.0,
+        "session": "2026-07-20",
+        "ticker": "SMXT"
+      },
+      {
+        "factor": 0.6666666666666666,
+        "session": "2026-07-20",
+        "ticker": "SNEX"
+      },
+      {
+        "factor": 3.0,
+        "session": "2026-07-20",
+        "ticker": "STKH"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "SUGP"
+      },
+      {
+        "factor": 80.0,
+        "session": "2026-07-20",
+        "ticker": "SXTC"
+      },
+      {
+        "factor": 50.0,
+        "session": "2026-07-20",
+        "ticker": "TANH"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "THH"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "TNMG"
+      },
+      {
+        "factor": 35.0,
+        "session": "2026-07-20",
+        "ticker": "TNON"
+      },
+      {
+        "factor": 3.0,
+        "session": "2026-07-20",
+        "ticker": "TOMZ"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-20",
+        "ticker": "TRIB"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "TRUG"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "UCAR"
+      },
+      {
+        "factor": 23.0,
+        "session": "2026-07-20",
+        "ticker": "UZX"
+      },
+      {
+        "factor": 25.0,
+        "session": "2026-07-20",
+        "ticker": "VBIO"
+      },
+      {
+        "factor": 15.0,
+        "session": "2026-07-20",
+        "ticker": "VCIG"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "VEEA"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "VMAR"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-20",
+        "ticker": "VRME"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "VWAV"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "WCT"
+      },
+      {
+        "factor": 100.0,
+        "session": "2026-07-20",
+        "ticker": "WETO"
+      },
+      {
+        "factor": 180.00180878552973,
+        "session": "2026-07-20",
+        "ticker": "WHLR"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "XCH"
+      },
+      {
+        "factor": 12.0,
+        "session": "2026-07-20",
+        "ticker": "XPON"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-20",
+        "ticker": "YAAS"
+      },
+      {
+        "factor": 16.0,
+        "session": "2026-07-20",
+        "ticker": "YMT"
+      },
+      {
+        "factor": 20.0,
+        "session": "2026-07-20",
+        "ticker": "YYAI"
+      },
+      {
+        "factor": 8.0,
+        "session": "2026-07-20",
+        "ticker": "ZNB"
+      },
+      {
+        "factor": 30.0,
+        "session": "2026-07-21",
+        "ticker": "BYND"
+      },
+      {
+        "factor": 0.5,
+        "session": "2026-07-21",
+        "ticker": "IESC"
+      },
+      {
+        "factor": 0.9743589743589745,
+        "session": "2026-07-21",
+        "ticker": "METCB"
+      },
+      {
+        "factor": 0.5,
+        "session": "2026-07-21",
+        "ticker": "MNST"
+      },
+      {
+        "factor": 10.0,
+        "session": "2026-07-21",
+        "ticker": "REAX"
+      },
+      {
+        "factor": 0.6666666666666666,
+        "session": "2026-07-21",
+        "ticker": "RUSHA"
+      },
+      {
+        "factor": 0.6666666666666666,
+        "session": "2026-07-21",
+        "ticker": "RUSHB"
+      },
+      {
+        "factor": 5.0,
+        "session": "2026-07-21",
+        "ticker": "TOP"
+      },
+      {
+        "factor": 0.3333333333333333,
+        "session": "2026-07-21",
+        "ticker": "WLFC"
+      }
+    ],
+    "provider_adjustments_ignored": [],
+    "supplement_rows": 0
+  },
+  "market_regime_on": true,
+  "model_version": "v50r3-corrected-v47-sourced-actions",
+  "parameters_changed_after_observation": false,
+  "protocol_sha256": "7344212da86aef866755f7eade2627b48cb5e78b459b271fc257353395d24529",
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "runtime_environment": {
+    "exchange_calendars": "4.13.2",
+    "numpy": "1.26.4",
+    "pandas": "2.2.3",
+    "python": "3.12.14"
+  },
+  "runtime_repair": {
+    "bundle_manifest_scalars": "numpy_scalars_normalized_to_python",
+    "code_binding": "complete_project_import_closure",
+    "development_replay": "reused_from_v50r1_unchanged",
+    "future_available_fundamentals": "removed_from_staged_parsed_outputs_and_recorded",
+    "invented_cik_allowed": false,
+    "mark_all_cash": "valued_against_the_benchmark",
+    "mark_closes_required": "stocks_held_into_or_bought_on_the_mark_date",
+    "mark_input_rows": "already_valued_rows_carried_forward_unchanged",
+    "mark_post_freeze_events": "append_only_sourced_event_supplement",
+    "mark_prefix_digest": "closes_only",
+    "mark_price_events_checked": "inside_holding_windows_only",
+    "mark_procedure": "v50r3-exposure-aware-mark",
+    "mark_replay": "prospective_replay_live_stop_armed_while_held_unexecutable_to_cash",
+    "mark_terminal_return": "ends_the_stock_history",
+    "mark_unbound_signal_files": "ignored_and_reported",
+    "mark_unsourced_terminal_return": "fail_closed",
+    "mark_valued_bundle_copy": "git_tracked_beside_the_ledger",
+    "maximum_unmapped_fraction": 0.05,
+    "missed_signal_backfill_allowed": false,
+    "missed_signal_window": "one_catch_up_as_of_the_latest_completed_session_inside_its_own_window_before_the_next_month_end",
+    "new_threshold_search": false,
+    "profitable_rule": "latest_four_consecutive_quarters_no_older_window",
+    "provider_split_rescalings": "measured_from_update_overlap_recorded_never_rewritten",
+    "r1_runner_modified": false,
+    "r2_runner_modified": false,
+    "reused_ticker_identity_breaks": "latest_security_history_only",
+    "sec_ticker_map": "one_pinned_snapshot_per_refresh",
+    "sec_unmapped_tickers": "refresh_cik_mapped_tickers_only_keep_unmapped_in_universe",
+    "selection_missing_value_policy_changed": false,
+    "signal_candidate_data_gates": "as_of_close_momentum_start_explained_moves",
+    "signal_frozen_after_window_allowed": false,
+    "signal_sourced_events": "supplement_bound_into_the_signal_bundle",
+    "signal_window": "official_close_plus_30_minutes_until_next_session_premarket_open",
+    "split_like_move_review": "large_or_whole_factor_moves_need_an_explanation",
+    "stale_build_recovery": "quarantine_never_promoted_builds_under_exclusive_lock",
+    "working_directory": "repository_root"
+  },
+  "schema_version": 1,
+  "selected_count": 5,
+  "signal_date": "2026-09-30",
+  "signal_role": "REGULAR",
+  "signal_staging_timeliness_verified": true,
+  "targets": [
+    {
+      "target_weight": 0.2,
+      "ticker": "OKTA"
+    },
+    {
+      "target_weight": 0.2,
+      "ticker": "ILMN"
+    },
+    {
+      "target_weight": 0.2,
+      "ticker": "PLTR"
+    },
+    {
+      "target_weight": 0.2,
+      "ticker": "SMCI"
+    },
+    {
+      "target_weight": 0.2,
+      "ticker": "WDAY"
+    }
+  ]
+}
