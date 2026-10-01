@@ -1538,6 +1538,100 @@ def test_absence_from_the_300m_screener_bounds_the_market_cap(tmp_path):
     assert f25.float_unit_flag(1.112e7, pd.Timestamp("2025-06-30"), 1.644e6, None, caps) == "ok"
 
 
+# ------------------------------------------------------------------ round-3 review regressions
+
+def _ivs(rows):
+    return pd.DataFrame([{"security_id": s, "cik": c, "ticker": t, "start": a, "end": b, "share_class": k}
+                         for s, c, t, a, b, k in rows]).assign(source="repo_symdir", match="name+ticker", exchange="NASDAQ")
+
+
+def test_avidity_cash_out_is_a_delisting_with_no_successor_link_to_atrium():
+    # Form 25 0001354457-26-000224 (2026-02-27, Rule 12d2-2(a)(2)): Novartis bought Avidity (1599901) for
+    # cash; Atrium Therapeutics (2093101), spun off just before, listed under RNA from 2026-03.
+    days = _monthly("2025-06-01", "2026-07-01")
+    snap = f25.SnapshotEvidence(_raw([("RNA", d, 1599901 if d <= "2026-02-01" else 2093101) for d in days]),
+                                {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 1599901, "2026-02-27")
+    assert (ev["tickers_before"], ev["tickers_ended"], ev["tickers_continued"]) == ("RNA", "RNA", "")
+    names = {1599901: ["Avidity Biosciences, Inc."], 2093101: ["Atrium Therapeutics, Inc."]}
+    filing = pd.DataFrame({"accession": ["rna"], "subject_cik": [1599901], "filing_date": ["2026-02-27"]})
+    successor = f25.successor_evidence(filing, snap.runs, names, days)["rna"]
+    assert successor["cik"] == 2093101 and successor["new"] and not successor["names_match"]
+    label, note = f25.classify_row("common", "redeemed_or_matured", {**ev, "successor": successor})
+    assert label == "common_delisting" and "no successor" in note and f25.subject_exit(label, ev) == "Y"
+    # The same handover under a merger substitution, or to a registrant of the same name, stays a reorganisation;
+    # so does a redemption while the subject keeps another ticker (Liberty, test_liberty_live_split_off_...).
+    assert f25.classify_row("common", "substituted_merger_or_exchange", {**ev, "successor": successor})[0] == "reorg_review"
+    same_name = {**ev, "successor": {**successor, "names_match": True}}
+    assert f25.classify_row("common", "redeemed_or_matured", same_name)[0] == "reorg"
+    kept = {**ev, "tickers_continued": "RNAX", "successor": successor}
+    assert f25.classify_row("common", "redeemed_or_matured", kept)[0] == "reorg_review"
+    # The master keeps Avidity's delist date and links it to no successor.
+    iv = _ivs([("1599901", 1599901, "RNA", "2025-06-01", "2026-02-01", "COMMON"),
+               ("2093101", 2093101, "RNA", "2026-03-01", "2026-07-01", "COMMON")])
+    form25 = _f25([{"subject_cik": 1599901, "filing_date": "2026-02-27", "effective_date": "2026-03-09",
+                    "accession": "rna", "classification": label, "class_kind": "common", "class_of_security": "Common Stock"}])
+    master = _master(iv, form25, _profiles(1599901, 2093101), full=days)
+    assert master.loc["1599901", "delist_date"] == "2026-03-09"
+    assert master.loc["1599901", "successor_security_id"] == "" and master.loc["2093101", "delist_date"] == ""
+
+
+def test_tickers_renamed_before_a_filing_did_not_end_at_it():
+    # QVC Group 1355096: QRTEA/QRTEB became QVCGA/QVCGB in 2025-02/03; its own Form 25 of 2025-05-27
+    # (0001104659-25-052986) withdrew the Series B stock (QVCGB) only. QVCGA went on to 2026-04.
+    days = _monthly("2024-06-01", "2026-05-01")
+    rows = _raw([(t, d, 1355096) for t in ("QRTEA", "QRTEB") for d in days if d <= "2025-02-01"]
+                + [("QVCGA", d, 1355096) for d in days if d >= "2025-03-01"]
+                + [("QVCGB", d, 1355096) for d in days if "2025-03-01" <= d <= "2025-05-01"])
+    snap = f25.SnapshotEvidence(rows, {"repo_symdir": days})
+    ev = f25.snapshot_evidence(snap, 1355096, "2025-05-27")
+    assert (ev["tickers_before"], ev["tickers_ended"], ev["tickers_continued"], ev["tickers_ended_earlier"]) == (
+        "QVCGA QVCGB", "QVCGB", "QVCGA", "QRTEA QRTEB")
+    # A CIK with no ticker on the last full list before the filing keeps the window (a suspension, as
+    # Windtree's in test_windtree_relisting_is_a_separate_interval).
+    suspended = f25.SnapshotEvidence(_raw([("SUSP", d, 7) for d in days if d <= "2025-02-01"]), {"repo_symdir": days})
+    assert f25.snapshot_evidence(suspended, 7, "2025-05-27")["tickers_ended"] == "SUSP"
+    # The Series B filing gives a ticker-keyed class ending in another class letter no delist date,
+    # even with the round-3 ticker evidence that listed QRTEA among the tickers ended.
+    keyed = {"T-QRTEA", "T-QRTEB", "T-QVCGA", "T-QVCGB"}
+    series_b = "Series B Common Stock, par value $0.01 per share"
+    assert sm.exit_matches_class(series_b, ev["tickers_ended"], "T-QVCGB", {"QVCGB"}, keyed)
+    for key in ("T-QRTEA", "T-QRTEB", "T-QVCGA"):
+        assert not sm.exit_matches_class(series_b, ev["tickers_ended"], key, {key[2:]}, keyed)
+    assert not sm.exit_matches_class(series_b, "QRTEA QRTEB QVCGB", "T-QRTEA", {"QRTEA"}, keyed)
+    # A K suffix is not compared (Comcast's Class A Special is CMCSK; Liberty's Series C is LSXMK).
+    assert sm.exit_matches_class("Class A Special Common Stock", "CMCSK", "T-CMCSK", {"CMCSK"}, {"T-CMCSA", "T-CMCSK"})
+    assert sm.exit_matches_class("Series C Liberty SiriusXM Common Stock", "LSXMK", "T-LSXMK", {"LSXMK"},
+                                 {"T-LSXMA", "T-LSXMB", "T-LSXMK"})
+
+
+def test_successor_links_follow_the_ticker_then_the_class_letter():
+    # Liberty Live split-off (2025-12-15): LLYVA went to Liberty Live Holdings' class A, LLYVK to its class C.
+    # 7 -> 8 (made up): the successor holds neither old ticker, so the class letter decides.
+    days = _monthly("2014-01-01", "2026-08-01")
+    iv = _ivs([("1560385.T-LLYVA", 1560385, "LLYVA", "2023-08-01", "2025-12-01", "T-LLYVA"),
+               ("1560385.T-LLYVK", 1560385, "LLYVK", "2023-08-01", "2025-12-01", "T-LLYVK"),
+               ("2078416.A", 2078416, "LLYVA", "2026-01-01", "2026-08-01", "A"),
+               ("2078416.C", 2078416, "LLYVK", "2026-01-01", "2026-08-01", "C"),
+               ("7.A", 7, "OLDA", "2014-01-01", "2015-06-01", "A"), ("7.C", 7, "OLDK", "2014-01-01", "2015-06-01", "C"),
+               ("8.A", 8, "NEWA", "2015-07-01", "2026-08-01", "A"), ("8.C", 8, "NEWK", "2015-07-01", "2026-08-01", "C")])
+    form25 = _f25([
+        {"subject_cik": 1560385, "filing_date": "2025-12-15", "effective_date": "2025-12-25", "accession": "llyv",
+         "classification": "reorg_review", "class_kind": "common", "tickers_ended": "LLYVA LLYVK",
+         "class_of_security": "Liberty Media Corporation Series A Liberty Live Common Stock & Liberty Media "
+                              "Corporation Series C Liberty Live Common Stock",
+         "successor_cik": 2078416, "successor_tickers": "LLYVA LLYVK"},
+        {"subject_cik": 7, "filing_date": "2015-06-15", "effective_date": "2015-06-25", "accession": "seven",
+         "classification": "reorg", "class_kind": "common", "class_of_security": "Class A and Class C Common Stock",
+         "successor_cik": 8, "successor_tickers": "OLDA OLDK"}])
+    master = _master(iv, form25, _profiles(1560385, 2078416, 7, 8), multi={1560385, 2078416, 7, 8}, full=days)
+    assert master.loc["1560385.T-LLYVA", "successor_security_id"] == "2078416.A"
+    assert master.loc["1560385.T-LLYVK", "successor_security_id"] == "2078416.C"
+    assert master.loc["7.A", "successor_security_id"] == "8.A" and master.loc["7.C", "successor_security_id"] == "8.C"
+    assert (sm.class_letter("T-BATRK"), sm.class_letter("T-QRTEA"), sm.class_letter("C"), sm.class_letter("COMMON"),
+            sm.class_letter("T-SRCL")) == ("C", "A", "C", "", "")
+
+
 # ------------------------------------------------------------------ the built tables (skipped when absent)
 
 BUILT = [sm.MASTER, sm.INTERVALS, sm.RAW_ROWS, sm.WORK / "snapshot_dates.json", f25.OUTPUT]
@@ -1568,3 +1662,30 @@ def test_built_tables_respect_every_delist_date_and_the_named_cases():
     form25 = pd.read_csv(f25.OUTPUT, dtype=str, keep_default_na=False).set_index("accession")
     assert form25.loc["0001354457-25-001270", "subject_exit"] == "N"
     assert form25.loc["0000937556-16-000212", "class_kind"] == "right"
+    # Round-3 review: Avidity's cash-out, QVC Group's Series B withdrawal, successor classes.
+    avidity = form25.loc["0001354457-26-000224"]
+    assert (avidity["classification"], avidity["successor_cik"], avidity["subject_exit"]) == ("common_delisting", "", "Y")
+    assert by_sid.loc["1599901", "delist_date"] == "2026-03-09" and by_sid.loc["1599901", "successor_security_id"] == ""
+    assert form25.loc["0001104659-25-052986", "tickers_ended"] == "QVCGB"
+    assert by_sid.loc["1355096.T-QVCGB", "delist_date"] == "2025-06-06"
+    assert by_sid.loc["1355096.T-QRTEA", "delist_date"] == "" and by_sid.loc["1355096.T-QRTEB", "delist_date"] == ""
+    for sid, successor in [("1560385.T-LLYVK", "2078416.C"), ("1560385.T-LLYVA", "2078416.A"),
+                           ("1560385.T-BATRK", "1958140.C"), ("1288776.A", "1652044.A"), ("1288776.C", "1652044.C"),
+                           ("1308161.A", "1754301.A"), ("1316631.C", "1570585.T-LBTYK"), ("1570585.T-LILAK", "1712184.C")]:
+        assert by_sid.loc[sid, "successor_security_id"] == successor, sid
+
+
+def test_a_delist_date_long_after_the_last_listing_is_flagged_for_review():
+    # Community First Bancshares 1691507 (CFBI) left the lists at its 2021-01 conversion to Affinity
+    # Bancshares; Nasdaq's Form 25 for it came with Affinity's in 2026-08. Avidity's comes 8 days after.
+    days = _monthly("2020-01-01", "2026-08-01")
+    iv = _ivs([("1691507", 1691507, "CFBI", "2020-01-01", "2021-01-01", "COMMON"),
+               ("1599901", 1599901, "RNA", "2020-01-01", "2026-03-01", "COMMON")])
+    form25 = _f25([{"subject_cik": 1691507, "filing_date": "2026-08-17", "effective_date": "2026-08-27",
+                    "accession": "cfbi", "classification": "common_delisting", "class_kind": "common"},
+                   {"subject_cik": 1599901, "filing_date": "2026-02-27", "effective_date": "2026-03-09",
+                    "accession": "rna", "classification": "common_delisting", "class_kind": "common"}])
+    master = _master(iv, form25, _profiles(1691507, 1599901), full=days)
+    assert master.loc["1691507", "delist_date"] == "2026-08-27"
+    assert "review: delist date 2064 days after the last Nasdaq listing 2021-01-01" in master.loc["1691507", "identity_notes"]
+    assert "review" not in master.loc["1599901", "identity_notes"]

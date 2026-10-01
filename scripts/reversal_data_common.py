@@ -100,14 +100,23 @@ def atomic_write(path: str | Path, data: bytes) -> None:
 
 
 def _append_line(path: Path, header: str, line: str, compressed: bool) -> None:
+    """Append one line; a lock file keeps concurrent processes from interleaving
+    their gzip members (which corrupted the index once, on 2026-10-01)."""
+    import fcntl
+
     with _LOCK:
         path.parent.mkdir(parents=True, exist_ok=True)
-        new = not path.exists()
-        opener = gzip.open if compressed else open
-        with opener(path, "at", encoding="utf-8") as handle:
-            if new:
-                handle.write(header + "\n")
-            handle.write(line + "\n")
+        with open(path.with_name(path.name + ".lock"), "a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                new = not path.exists()
+                opener = gzip.open if compressed else open
+                with opener(path, "at", encoding="utf-8") as handle:
+                    if new:
+                        handle.write(header + "\n")
+                    handle.write(line + "\n")
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def _csv_field(value) -> str:

@@ -74,7 +74,7 @@ from cache takes a few minutes)::
 
     form25 -> security_master -> form25 -> security_master
 
-repeated until neither table changes (round 3 converged after two alternations; the
+repeated until neither table changes (round 4 converged after one alternation; the
 raw rows depend on step 3 only through the filing dates of its common Form 25 rows).
 
 Usage::
@@ -1257,6 +1257,10 @@ def build_intervals(rows: pd.DataFrame, snapshot_dates: dict[str, list[str]],
 # FORM25_EFFECTIVE_LAG_DAYS), in the run that held it at the delisting, keeps no delist date: lists lag
 # a few days, and the tail of the run before that is dropped after an exit.
 DELIST_TOLERANCE_DAYS = 30
+# A delist date this long after the security's last Nasdaq listing is flagged for review: a long
+# suspension (Nasdaq's 2025-08 batch for stocks suspended in 2024-04), or a Form 25 naming a
+# predecessor CIK no longer listed (Community First Bancshares after its 2021 conversion to Affinity).
+LATE_DELIST_DAYS = 365
 FORM25_EFFECTIVE_LAG_DAYS = 10  # reversal_data_form25.EFFECTIVE_LAG_DAYS (Rule 12d2-2(d)(1))
 # A ticker continues past a Form 25 when its CIK is seen on it CONTINUE_DAYS or more after the filing
 # (the delist date plus DELIST_TOLERANCE_DAYS) before the run breaks (two full-list snapshots without
@@ -1757,6 +1761,8 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "intervals_bridging_coverage_gap_over_120d": int((intervals["coverage_gap_days"] > 120).sum()) if not intervals.empty else 0,
         "master_delist_dates": int(master["delist_date"].fillna("").ne("").sum()),
         "delist_dates_cleared_listed_after": delist_cleared,
+        "delist_dates_over_365d_after_last_listing": int(master["identity_notes"].str.contains(
+            "days after the last Nasdaq listing", regex=False).sum()),
         "master_relisted_after_delist_date": int(relisted_after_delisting(master)),
         "ticker_breaks_same_security": break_stats(intervals, full_dates, present),
         "still_listed_with_delist_date": int(violations["security_id"].nunique()),
@@ -1956,11 +1962,17 @@ def exit_matches_class(description: str, tickers_ended: str, share_class: str, o
     By the class or series letters it names ('Class A Common Stock', 'Series C Liberty SiriusXM');
     by the tickers that ended at the filing (from the snapshot intervals); and a filing naming
     generic 'Common Stock' applies to the classes keyed COMMON or by ticker (T-...), or to every
-    class when the CIK has none of those.
+    class when the CIK has none of those. A class keyed by a ticker ending in A, B or C is not
+    removed by a filing naming only other class letters, whatever the ticker evidence (QVC Group's
+    'Series B Common Stock' Form 25 of 2025-05-27 did not remove QRTEA); a K suffix (Liberty's Series
+    C, Comcast's Class A Special) is not compared.
     """
     letters = {x.upper() for x in re.findall(r"\b(?:class|series)\s+([a-z])\b", str(description), re.I)}
     if share_class in letters:
         return True
+    suffix = share_class[-1] if share_class.startswith("T-") else ""
+    if letters and suffix in ("A", "B", "C") and suffix not in letters:
+        return False
     if set(str(tickers_ended).split()) & observed:
         return True
     unkeyed = {k for k in cik_classes if k == "COMMON" or k.startswith("T-")}
@@ -1971,6 +1983,18 @@ def exit_matches_class(description: str, tickers_ended: str, share_class: str, o
     if str(tickers_ended).split():
         return False  # the ticker evidence names other classes
     return share_class in unkeyed if unkeyed else True
+
+
+def class_letter(share_class: str) -> str:
+    """The class letter of a share class: 'A' for A, the ticker's A/B/C suffix for a ticker-keyed class
+    (a K suffix is Liberty's and Discovery's Series C), '' otherwise."""
+    share_class = str(share_class or "")
+    if len(share_class) == 1 and share_class.isalpha():
+        return share_class
+    if share_class.startswith("T-") and len(share_class) > 3:
+        suffix = share_class[-1]
+        return "C" if suffix == "K" else suffix if suffix in "ABC" else ""
+    return ""
 
 
 def write_files_read(profiles: dict[int, dict], form25: pd.DataFrame | None) -> dict:
@@ -2026,14 +2050,26 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
     for row in form25[form25["successor_cik"].notna()].itertuples():
         successor_of[int(row.subject_cik)].add(int(row.successor_cik))
         predecessor_of[int(row.successor_cik)].add(int(row.subject_cik))
-    snapshot_iv = intervals if not intervals.empty else pd.DataFrame(columns=["cik", "ticker", "start", "security_id"])
+    snapshot_iv = intervals if not intervals.empty else pd.DataFrame(
+        columns=["cik", "ticker", "start", "end", "share_class", "security_id"])
 
-    def successor_security(row) -> str:
-        """The successor's security holding a handed-over ticker from the filing on."""
-        tickers = set(row.successor_tickers.split())
-        after = snapshot_iv[(snapshot_iv["cik"] == int(row.successor_cik)) & snapshot_iv["ticker"].isin(tickers)
-                            & (snapshot_iv["start"] >= _shift(row.filing_date, -60))]
-        return after.sort_values("start").iloc[0]["security_id"] if not after.empty else str(int(row.successor_cik))
+    def successor_security(row, listed: pd.DataFrame, share_class: str) -> str:
+        """The successor's security that took this security's stock, from the filing on: the one holding
+        this security's last ticker (LLYVK went to Liberty Live Holdings' class C, FOXA to Fox Corp's
+        class A); else the one of the same class letter; else the one holding a handed-over ticker."""
+        succ = snapshot_iv[(snapshot_iv["cik"] == int(row.successor_cik))
+                           & (snapshot_iv["start"] >= _shift(row.filing_date, -60))].sort_values("start")
+        own = listed.sort_values("end", ascending=False)["ticker"].drop_duplicates() if not listed.empty else []
+        for ticker in own:
+            hit = succ[succ["ticker"] == ticker]
+            if not hit.empty:
+                return hit.iloc[0]["security_id"]
+        letter = class_letter(share_class)
+        same = succ[[class_letter(k) == letter for k in succ["share_class"]]] if letter else succ.iloc[:0]
+        if same["security_id"].nunique() == 1:
+            return same.iloc[0]["security_id"]
+        after = succ[succ["ticker"].isin(set(row.successor_tickers.split()))]
+        return after.iloc[0]["security_id"] if not after.empty else str(int(row.successor_cik))
 
     rows = []
     for sid, (cik, share_class) in sorted(keys.items(), key=lambda kv: (kv[1][0], kv[0])):
@@ -2087,6 +2123,11 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
         if exits is not None and len(exits) > 1:
             notes.append(f"{len(exits)} common Form 25 delistings")
         notes.extend(refused)
+        if last_exit is not None and not listed.empty \
+                and last_exit["effective_date"] > _shift(listed["end"].max(), LATE_DELIST_DAYS):
+            lag = (pd.Timestamp(last_exit["effective_date"]) - pd.Timestamp(listed["end"].max())).days
+            notes.append(f"review: delist date {lag} days after the last Nasdaq listing {listed['end'].max()} "
+                         "(a long suspension, or a Form 25 naming a predecessor CIK no longer listed)")
         if last_exit is not None and not listed.empty and listed["end"].max() > _shift(last_exit["effective_date"], 30):
             notes.append(f"listed on Nasdaq again after the {last_exit['effective_date']} delisting")
         if last_transfer is not None and not listed.empty \
@@ -2154,7 +2195,7 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             "form25_classes": " | ".join(sorted(set(f"{c}:{k}" for c, k in zip(f25["classification"], f25["class_kind"]))))
             if f25 is not None else "",
             "found_via": " ".join(found_via),
-            "successor_security_id": successor_security(handover) if handover is not None else "",
+            "successor_security_id": successor_security(handover, listed, share_class) if handover is not None else "",
             "successor_date": handover["filing_date"] if handover is not None else "",
             "successor_form25_accession": handover["accession"] if handover is not None else "",
             "transfer_date": last_transfer["effective_date"] if last_transfer is not None else "",

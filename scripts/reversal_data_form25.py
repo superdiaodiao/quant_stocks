@@ -32,7 +32,10 @@ Classification of a row (plan column ``classification``):
   passes at the next snapshot (whatever the gap) to a new registrant with a
   matching name (a holding company). ``reorg_review``: such a handover under
   Rule 12d2-2(a)(3) to a new registrant with a different name (Google to
-  Alphabet, Apache to APA). Both read the security master's raw snapshot rows
+  Alphabet, Apache to APA), or under (a)(2) while the subject keeps another
+  Nasdaq ticker (a Liberty split-off); an (a)(2) handover that leaves the
+  subject with no ticker is a cash-out, a common delisting with no successor
+  (Avidity's RNA to Atrium). Both read the security master's raw snapshot rows
   (``ticker_rows_raw.csv.gz``: every resolved row before any was dropped for a
   Form 25) and ``snapshot_dates.json``; the script is run again after it.
 - ``transfer``: common, and the class moves to another exchange: an issuer
@@ -773,15 +776,25 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
         return "unlisted_withdrawal", (f"{basis}; issuer Form 25 with no Nasdaq snapshot row of the CIK before it "
                                        f"(first seen {evidence.get('first_seen', '')})")
     handover = evidence.get("successor")
+    unlinked = ""  # a handover the classification does not accept, named in the evidence note
     if handover and basis not in ("issuer_withdrawal", "exchange_removal"):  # a move or a removal, not a reorganisation
         tickers = " ".join(handover["tickers"])
-        if handover["new"] and (handover["names_match"] or basis in ("substituted_merger_or_exchange", "redeemed_or_matured")):
+        # A redemption (Rule 12d2-2(a)(2)) handing a ticker to a new registrant of another name is a
+        # split-off only while the subject keeps another Nasdaq ticker (Liberty Media's Braves and Live
+        # tracking stocks); otherwise the stock was cashed out and a spun-off company took the ticker
+        # (Avidity's RNA, bought for cash by Novartis, went to Atrium Therapeutics in 2026-03).
+        kept = set(evidence.get("tickers_continued", "").split()) - set(handover["tickers"])
+        split_off = basis == "redeemed_or_matured" and bool(kept)
+        if handover["new"] and (handover["names_match"] or basis == "substituted_merger_or_exchange" or split_off):
             label = "reorg" if handover["names_match"] else "reorg_review"
             names = "matching" if handover["names_match"] else "different"
             return label, f"{basis}; ticker {tickers} passed at the next snapshot to new Nasdaq registrant CIK {handover['cik']} ({names} names)"
         if not handover["new"]:
             return "common_delisting", (f"{basis}; ticker {tickers} taken over by CIK {handover['cik']}, "
                                         "already listed under another ticker (acquirer)")
+        if basis == "redeemed_or_matured":
+            unlinked = (f"; ticker {tickers} passed to new registrant CIK {handover['cik']} of a different name "
+                        "and the subject kept no other Nasdaq ticker: no successor")
     if basis == "issuer_withdrawal" and evidence.get("transfer_hint"):
         return "transfer", f"{basis}; {evidence['transfer_hint']}"
     later = evidence.get("current_tickers", "")
@@ -810,7 +823,7 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
     if evidence.get("relisted_later"):
         gone = f"ticker(s) {ended} left the Nasdaq lists at the filing" if ended else "not in the Nasdaq lists after the filing"
         return "common_delisting", f"{basis}; {gone}; relisted on Nasdaq later ({later})"
-    return "common_delisting", basis
+    return "common_delisting", basis + unlinked
 
 
 def subject_exit(classification: str, evidence: dict) -> str:
@@ -856,6 +869,7 @@ class SnapshotEvidence:
         from scripts.reversal_data_security_master import build_intervals, presence_by_date
         self.days = sorted({d for days in snapshot_dates.values() for d in days})
         self.full = {d for family, days in snapshot_dates.items() if family not in partial for d in days}
+        self.full_days = sorted(self.full)
         self.present = presence_by_date(rows)
         resolved = rows[rows["cik"].notna()].copy()
         resolved["cik"] = resolved["cik"].astype(int)
@@ -888,6 +902,27 @@ class SnapshotEvidence:
         return continuation_after(self.obs.get((cik, symbol), []), filing_date, self.days, self.full, self.present,
                                   symbol, other)
 
+    def last_full_before(self, day: str) -> str:
+        """The last full-list snapshot date on or before ``day`` ('' when none)."""
+        i = bisect.bisect_right(self.full_days, day)
+        return self.full_days[i - 1] if i else ""
+
+    def seen_on(self, cik: int, symbol: str, day: str) -> bool:
+        obs = self.obs.get((cik, symbol), [])
+        i = bisect.bisect_left(obs, day)
+        return i < len(obs) and obs[i] == day
+
+    def ended_before(self, cik: int, symbol: str, day: str) -> bool:
+        """Whether the CIK's run on ``symbol`` broke before ``day``: two full-list snapshots after its
+        last sighting on or before ``day``, and up to it, do not list the symbol at all."""
+        obs = self.obs.get((cik, symbol), [])
+        i = bisect.bisect_right(obs, day)
+        if not i:
+            return False
+        lo, hi = bisect.bisect_right(self.full_days, obs[i - 1]), bisect.bisect_right(self.full_days, day)
+        absent = sum(1 for d in self.full_days[lo:hi] if symbol not in self.present.get(d, ()))
+        return absent >= 2
+
 
 def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str, already_ended: set[str] = frozenset(),
                       sec_nasdaq_tickers: set[str] = frozenset(), sec_nasdaq: bool = False, recent: bool = False,
@@ -897,7 +932,9 @@ def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str,
     ``tickers_new``: tickers of the CIK first seen from 30 days before to 45 days after it (a ticker
     change, or new classes in exchange); ``tickers_before``: the other tickers the CIK was seen on
     within BEFORE_WINDOW_DAYS before the filing (less ``already_ended``, attributed to an earlier
-    filing of the CIK). Each is 'continued' when ``continuation_after`` says so; ``tickers_ended`` are
+    filing of the CIK, and less ``tickers_ended_earlier``: those absent from the last full list before
+    the filing, where the CIK was listed under another ticker, and whose run had broken by then).
+    Each is 'continued' when ``continuation_after`` says so; ``tickers_ended`` are
     those listed at the filing that did not continue. A run that the snapshots stop following
     before that ('open': the lists end, or list the symbol under no CIK) continues when SEC lists the
     CIK on Nasdaq today (for a filing at least 400 days old, only while the CIK keeps filing periodic
@@ -906,8 +943,8 @@ def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str,
     """
     from scripts.reversal_data_security_master import EXIT_GRACE_DAYS
     out = {"tickers_before": "", "tickers_ended": "", "tickers_new": "", "tickers_continued": "",
-           "tickers_handed_over": "", "rows_before": False, "rows_any": False, "first_seen": "",
-           "snapshot_continues": None}
+           "tickers_handed_over": "", "tickers_ended_earlier": "", "rows_before": False, "rows_any": False,
+           "first_seen": "", "snapshot_continues": None}
     if snap is None:
         return out
     tickers = snap.tickers_of.get(cik, [])
@@ -928,6 +965,15 @@ def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str,
             new.append(symbol)
         elif i and obs[i - 1] >= lo:
             before.append(symbol)
+    # A ticker whose run broke before the filing while the CIK was still listed under another ticker on
+    # the last full list before it was renamed or exchanged earlier, not listed at the filing (QRTEA
+    # became QVCGA in 2025-02/03, months before QVC Group's Series B Form 25 of 2025-05-27). A CIK with
+    # no ticker on that list keeps the window (a suspended stock leaves the lists before the filing).
+    last_full = snap.last_full_before(filing_date)
+    on_last = {s for s in tickers if last_full and snap.seen_on(cik, s, last_full)}
+    earlier = sorted(s for s in before if on_last and s not in on_last and snap.ended_before(cik, s, filing_date))
+    before = [s for s in before if s not in earlier]
+    out["tickers_ended_earlier"] = " ".join(earlier)
     out["snapshot_continues"] = False
     if not before and not new:
         return out
