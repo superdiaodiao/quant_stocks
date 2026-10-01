@@ -25,7 +25,10 @@ How the listing ended (``terminal_type``):
 - ``liquidation``: a redemption or dissolution (Altaba: the liquidating distributions paid
   after the record date, undiscounted);
 - ``exchange_move``: the listing moved to another exchange (``destination_exchange``); the
-  series continues elsewhere, so there is no terminal return (status ``no_terminal_return``);
+  series continues elsewhere, so there is no terminal return (status ``no_terminal_return``).
+  ``last_price_date`` is the last Nasdaq session: the session before the first day on the new
+  exchange that the Item 3.01 8-K or its press release states (``destination_start_date``), else
+  the transfer Form 25 filing date, never the Form 25 effective date (trading has moved by then);
 - ``bankruptcy_otc``: removed by Nasdaq (Rule 12d2-2(b)), a bankruptcy, a voluntary delisting
   or a bank failure; the value is the first OTC vendor close after the last Nasdaq session
   (before the suspension date the 8-K states), else a sourced existing row, else it is left
@@ -44,10 +47,19 @@ is recomputed against this step's vendor last close and the difference reported.
 
 Last price: the last session with volume > 0 on or before the listing end (a merger's Form 25
 filing date; an issuer's own Form 25 effective date; the day before a stated suspension; the
-last closing 8-K for a snapshot-dated end), over every vendor raw source (WIKI, the old
-Tiingo caches and the step-8 files, Yahoo step 7 and the holdout charts) and the stored
-files. The close must come from a vendor on that session and, for a merger, within a week of
-the Form 25 filing. Otherwise:
+session before a halt the closing 8-K states, 'prior to the open of trading on <day>' or 'on the
+Closing Date' (dated by the 8-K's filing day); the last closing 8-K for a snapshot-dated end, else
+the end plus SNAPSHOT_END_SLACK_DAYS cut before the first run of filler rows or a raw price break
+above 50% (SBNY); a reviewed ``limit``), over every vendor raw source (WIKI, the old Tiingo caches
+and the step-8 files, Yahoo step 7 and the holdout charts) and the stored files. A vendor filler
+row (plan rule R5: the previous close repeated on less than 5% of the median volume of the last
+20 real sessions, e.g. ATVI 2023-10-13 on 1 share) is not a session: not a last trade, not an
+acquirer close, not an OTC close. The close must come from a vendor on that session and, for a
+merger, within a week of the Form 25 filing. A stock part is valued at the acquirer's vendor
+close on the next XNAS session (or the target's own series under the same ticker for a
+one-for-one reorganisation, rename or same-ticker conversion; on a tie the own series wins); a
+first close 2 to 5 sessions later gives a value held as ``needs_review``, a later one none.
+Otherwise:
 - ``pending_price``: a Tiingo fetch for the security is planned or running and its file has
   not arrived (the run of October 2026, or month 2); rerun the build when it has;
 - ``no_vendor_price``: no vendor reaches the last session (the stored files are never used
@@ -57,9 +69,13 @@ the Form 25 filing. Otherwise:
 - ``needs_review``: a merger value more than 25% from the last close (a data check on that
   one security); the figure stays in the local cache.
 
-Committed columns hold SEC facts and ratios only: ``consideration_per_share`` is blank where
-the value comes from a vendor close (stock parts, OTC closes); the levels are in
-``CACHE/terminal/prices_used.csv``.
+Committed columns hold SEC facts, dates and returns only: ``consideration_per_share`` (and
+``existing_consideration_per_share``) is blank where the value comes from a vendor close (stock
+parts, OTC closes, and existing-file values that price a stock leg), and copied notes are
+stripped of closes; the levels are in ``CACHE/terminal/prices_used.csv``. One exception to the
+next-session convention: an existing-file value for a stock leg prices the acquirer at that
+file's close (often the target's last day); such rows say so (``existing_row_value_stock_leg``).
+An existing row whose value is only the last close (no acquirer price there) is not used.
 
 Outputs:
   INPUTS/terminal_returns_2012_2026.csv   one row per scoped security (plan section 1.1 columns first)
@@ -182,6 +198,7 @@ def terminal_candidates(master: pd.DataFrame | None = None, candidates: pd.DataF
         rows[f"f25_{column}"] = rows["delist_form25_accession"].map(by_accession[column]).fillna("")
     rows["transfer_basis"] = rows["transfer_form25_accession"].map(by_accession["delisting_basis"]).fillna("")
     rows["transfer_form25_doc_url"] = rows["transfer_form25_accession"].map(by_accession["doc_url"]).fillna("")
+    rows["transfer_filing_date"] = rows["transfer_form25_accession"].map(by_accession["filing_date"]).fillna("")
     rows["end_date"] = [
         delist_date or transfer or last
         for delist_date, transfer, last in zip(rows["delist_date"], rows["transfer_date"], rows["last_listed"])]
@@ -779,12 +796,74 @@ def suspension_date(text: str) -> str:
     return ""
 
 
+MONTH_NAMES = r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+WEEKDAY = r"(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday),?\s+)?"
+DATE_TEXT = MONTH_NAMES + r"\s+(\d{1,2}),?\s+(\d{4})"
+HALT_BEFORE_OPEN = re.compile(r"\b(?:halt|suspend)\w*\b[^.;]{0,220}?\b(?:prior to|before)\s+the\s+open(?:ing)?\b", re.I)
+HALT_AFTER_CLOSE = re.compile(r"\b(?:halt|suspend)\w*\b[^.;]{0,40}?\b(?:after|following|as of|at|upon)\s+the\s+close\s+of\s+"
+                              r"(?:trading|the market|business)\b[^.;]{0,40}?\bon\s+" + WEEKDAY + DATE_TEXT, re.I)
+HALT_DAY = re.compile(r"^[^.;]{0,70}?\bon\s+" + WEEKDAY + r"(?:(?P<closing>the\s+(?:Merger\s+)?Closing\s+Date)|" + DATE_TEXT + ")", re.I)
+NEW_EXCHANGE_START = re.compile(r"\b(?:begin|commence|start)(?:s|ed|ing)?\s+trading\b", re.I)
+START_BEFORE = re.compile(r"\b(?:On|Effective)\s+" + WEEKDAY + DATE_TEXT + r",?[^.;]{0,120}$")
+
+
+def _iso(month: str, day: str, year: str) -> str:
+    try:
+        return f"{int(year):04d}-{MONTHS[month.lower()]:02d}-{int(day):02d}"
+    except (KeyError, ValueError):
+        return ""
+
+
+def halt_dates(text: str) -> dict:
+    """What a closing 8-K says about the end of Nasdaq trading: ``before_open`` the day trading was
+    halted or suspended before the open ('closing_date' when it says 'on the Closing Date'), and
+    ``after_close`` the day it was halted after the close ('' when not stated)."""
+    out = {"before_open": "", "after_close": ""}
+    for match in HALT_BEFORE_OPEN.finditer(text):
+        day = HALT_DAY.match(text[match.end():match.end() + 140])
+        if day:
+            out["before_open"] = "closing_date" if day.group("closing") else _iso(*day.group(2, 3, 4))
+            if out["before_open"]:
+                break
+    match = HALT_AFTER_CLOSE.search(text)
+    if match:
+        out["after_close"] = _iso(*match.groups()[-3:])
+    return out
+
+
+def new_exchange_starts(text: str) -> list[str]:
+    """The days a document says the shares begin trading on another exchange ('expects that its common
+    stock will begin trading on the NYSE on July 15, 2013'); a sentence that names only Nasdaq (a new
+    ticker there) does not count."""
+    out = []
+    for match in NEW_EXCHANGE_START.finditer(text):
+        tail = re.match(r"[^.;]{0,220}", text[match.end():]).group(0)
+        head = text[max(0, match.start() - 160):match.start()]
+        head = head[max(head.rfind("."), head.rfind(";")) + 1:]
+        named = [name for name, pattern in EXCHANGES[:-1] if re.search(pattern, head + " " + tail)]
+        if not named:
+            continue
+        day = DATE_WORDS.search(tail)
+        if day:
+            iso = _iso(*day.groups())
+        else:
+            before = START_BEFORE.search(head)
+            iso = _iso(*before.groups()) if before else ""
+        if iso:
+            out.append(iso)
+    return out
+
+
 def doc_evidence(text: str, own_names: list[str] | None = None) -> dict:
     """Flags and consideration leads read from one document's text."""
     leads = conversion_leads(text, own_names)
+    halts = halt_dates(text)
     return {
         "leads": leads,
         "suspension_date": suspension_date(text),
+        "halt_before_open": halts["before_open"],
+        "halt_after_close": halts["after_close"],
+        "transfer_start": " ".join(new_exchange_starts(text)),
         "transfer_to": transfer_destination(text),
         "bankruptcy": bool(BANKRUPTCY.search(text)),
         "liquidation": bool(LIQUIDATION.search(text)),
@@ -878,7 +957,8 @@ def _filing_jobs(filings: pd.DataFrame, sids: set[str] | None, kinds: tuple[str,
         for row in chosen.itertuples(index=False):
             out.append({"security_id": sid, "cik": int(row.cik), "accession": row.accessionNumber,
                         "document": row.primaryDocument, "kind": row.kind, "role": "primary",
-                        "filing_date": row.filingDate, "form": row.form, "items": row.items})
+                        "filing_date": row.filingDate, "report_date": getattr(row, "reportDate", "") or "",
+                        "form": row.form, "items": row.items})
     return out
 
 
@@ -936,7 +1016,8 @@ def gather_evidence(scope: pd.DataFrame, filings: pd.DataFrame) -> tuple[pd.Data
     for row in scope.itertuples(index=False):
         group = by_sid.get(row.security_id, pd.DataFrame(columns=list(filings.columns)))
         docs = security_documents(group, row.security_id) if len(group) else []
-        out = {"security_id": row.security_id, "n_docs": len(docs), "transfer_to": "",
+        out = {"security_id": row.security_id, "n_docs": len(docs), "transfer_to": "", "transfer_start": "",
+               "halt_before_open": "", "halt_after_close": "",
                **{k: False for k in FLAG_KEYS},
                "closing_items": " ".join(sorted({i for items in group.loc[group["kind"].isin(["closing", "near"]),
                                                                           "items"] for i in _items(items)})),
@@ -964,6 +1045,16 @@ def gather_evidence(scope: pd.DataFrame, filings: pd.DataFrame) -> tuple[pd.Data
                     out[flag] = out[flag] or evidence[flag]
                 out["transfer_to"] = out["transfer_to"] or evidence["transfer_to"]
                 out["suspension_date"] = out.get("suspension_date") or evidence["suspension_date"]
+                # 'on the Closing Date' is dated by the 8-K's filing day (on or after the closing): a cap that
+                # never cuts a real session, the filler rule does the rest
+                halt = evidence.get("halt_before_open") or ""
+                halt = doc["filing_date"] if halt == "closing_date" else halt
+                if halt and doc["kind"] == "closing":
+                    out["halt_before_open"] = min(d for d in (out.get("halt_before_open"), halt) if d)
+                if evidence.get("halt_after_close") and doc["kind"] == "closing":
+                    out["halt_after_close"] = min(d for d in (out.get("halt_after_close"), evidence["halt_after_close"]) if d)
+                starts = set(str(out.get("transfer_start") or "").split()) | set(str(evidence.get("transfer_start") or "").split())
+                out["transfer_start"] = " ".join(sorted(d for d in starts if d))
         stage = "closing" if leads_by_stage["closing"] else "agreement"
         terms = best_terms(leads_by_stage[stage], ads=row.share_class == "ADS")
         if terms:
@@ -1043,6 +1134,19 @@ class NameIndex:
                 if match:
                     self.rows.append((norm_name(match.group(1)), row, match.group(2), match.group(3)))
         self.rows = [r for r in self.rows if r[0]]
+        self.by_id = {row["security_id"]: row for row in master.to_dict("records")}
+
+    def name_of(self, sid: str, day: str = "") -> str:
+        """The master's name of ``sid``: the former name it carried on ``day`` when there is one."""
+        row = self.by_id.get(sid) or {}
+        for part in str(row.get("former_names") or "").split("|"):
+            match = re.match(r"\s*(.*?)\s*\((\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})\)\s*$", part)
+            if day and match and match.group(2) <= day <= match.group(3):
+                return match.group(1)
+        return str(row.get("name") or "")
+
+    def ticker_of(self, sid: str) -> str:
+        return str((self.by_id.get(sid) or {}).get("first_ticker") or "")
 
     def find(self, phrase: str, day: str, hint: str = "", exclude_cik: str = "") -> tuple[str, str]:
         """(security_id, how) of the security named ``phrase`` and listed on ``day``; ('', reason) when none or several.
@@ -1084,9 +1188,10 @@ def load_existing(paths=EXISTING_FILES) -> pd.DataFrame:
     frames = []
     for path in paths:
         if Path(path).exists():
+            # the loader sorts its rows by (ticker, last_price_date) and keeps every column, the note too:
+            # the note must come from the same row, never be laid over the sorted frame in file order
             frame = load_observed_terminal_returns(path)
-            raw = pd.read_csv(path, dtype=str, keep_default_na=False)
-            frame["note"] = raw["note"].values if "note" in raw else ""
+            frame["note"] = frame["note"].fillna("").astype(str) if "note" in frame else ""
             frame["existing_file"] = str(path).replace(str(MAIN) + "/", "")
             frames.append(frame)
     if not frames:
@@ -1095,6 +1200,24 @@ def load_existing(paths=EXISTING_FILES) -> pd.DataFrame:
     out = pd.concat(frames, ignore_index=True)
     # later files win, as in terminal_map (dict.update order)
     return out.drop_duplicates(["ticker", "last_price_date"], keep="last").reset_index(drop=True)
+
+
+# Price levels in the existing files' notes ('1 BMY (56.41 close 2019-11-20)', '(76.24) ..., closes 2013-06-07'):
+# a vendor close is never copied into a committed column, the cash and share terms are.
+PRICE_LEVEL = re.compile(r"\s*\([^()]*\d+\.\d+[^()]*\)|,\s*(?:first\s+)?closes?\s+\d{4}-\d{2}-\d{2}")
+# an existing row whose value is only the last close (no acquirer price there), not a terminal value
+EXISTING_PLACEHOLDER = re.compile(r"history ends at the last close|no \w+ price available", re.I)
+
+
+def strip_levels(note: str) -> str:
+    return re.sub(r"\s{2,}", " ", PRICE_LEVEL.sub("", str(note or ""))).strip()
+
+
+def _prior_value(prior: dict | None) -> float | None:
+    value = (prior or {}).get("consideration_per_share")
+    if value in (None, "") or pd.isna(value):
+        return None
+    return float(value)
 
 
 def match_existing(existing: pd.DataFrame, scope: pd.DataFrame, intervals: pd.DataFrame) -> dict[str, dict]:
@@ -1121,6 +1244,52 @@ TIINGO_FINAL_EMPTY = {"wrong_entity", "no_data", "no_data_in_window", "refused"}
 YAHOO_ACCEPTED = {"ok", "partial", "review"}
 VENDOR_ORDER = ("tiingo_step8", "tiingo", "wiki", "yahoo_step7", "yahoo")  # preference on the same session
 SNAPSHOT_END_SLACK_DAYS = 45  # a snapshot-dated end can come before the last trade by up to a capture gap
+# A vendor filler row (plan rule R5): the close repeats the previous session's close on a volume below
+# this share of the median volume of the last FILLER_LOOKBACK real sessions (ATVI 2023-10-13: 1 share
+# against 7.3M). Such a row is not a session: not a last trade, not an acquirer close, not an OTC close.
+FILLER_VOLUME_SHARE = 0.05
+FILLER_LOOKBACK = 20
+FILLER_MIN_HISTORY = 5
+PRICE_BREAK = 0.5  # after a snapshot-dated end, a raw close this far from the previous one is a new market (OTC)
+_XNAS: dict[str, pd.DatetimeIndex] = {}
+
+
+def xnas_sessions() -> pd.DatetimeIndex:
+    """The XNAS sessions 2010-2026 (exchange_calendars, computed locally)."""
+    if "sessions" not in _XNAS:
+        import exchange_calendars as xcals
+
+        calendar = xcals.get_calendar("XNAS", start="2010-01-04", end="2026-12-31")
+        _XNAS["sessions"] = pd.DatetimeIndex(calendar.sessions).tz_localize(None).normalize()
+    return _XNAS["sessions"]
+
+
+def sessions_after(day, until) -> int:
+    """How many XNAS sessions lie in (day, until]: 1 when ``until`` is the next session."""
+    sessions = xnas_sessions()
+    return int(sessions.searchsorted(pd.Timestamp(until), side="right") - sessions.searchsorted(pd.Timestamp(day), side="right"))
+
+
+def previous_session(day) -> str:
+    """The last XNAS session strictly before ``day``."""
+    sessions = xnas_sessions()
+    return sessions[sessions.searchsorted(pd.Timestamp(day), side="left") - 1].strftime("%Y-%m-%d")
+
+
+def filler_flags(close: np.ndarray, volume: np.ndarray) -> np.ndarray:
+    """True for each row (dates in order) that repeats the previous close on no volume or on a volume
+    below FILLER_VOLUME_SHARE of the median of the last FILLER_LOOKBACK real sessions."""
+    flags = np.zeros(len(close), dtype=bool)
+    recent: list[float] = []
+    for i in range(len(close)):
+        v = 0.0 if not np.isfinite(volume[i]) else float(volume[i])
+        repeat = i > 0 and abs(close[i] - close[i - 1]) <= 1e-6 * max(1.0, abs(close[i - 1]))
+        if repeat and (v <= 0 or (len(recent) >= FILLER_MIN_HISTORY
+                                  and v < FILLER_VOLUME_SHARE * float(np.median(recent[-FILLER_LOOKBACK:])))):
+            flags[i] = True
+        elif v > 0:
+            recent.append(v)
+    return flags
 
 
 class PriceBook:
@@ -1154,6 +1323,7 @@ class PriceBook:
         self.yahoo_ok = set(yahoo_report.loc[yahoo_report["verdict"].isin(YAHOO_ACCEPTED), "security_id"])
         self.yahoo_dir = yahoo_dir
         self._cache: dict[str, pd.DataFrame] = {}
+        self._sessions: dict[str, pd.DataFrame] = {}
 
     def tiingo_rows(self, sid: str) -> list[dict]:
         return self.tiingo_status[self.tiingo_status["security_id"].eq(sid)].to_dict("records")
@@ -1184,10 +1354,35 @@ class PriceBook:
         self._cache[sid] = out
         return out
 
-    def close_on(self, sid: str, day: pd.Timestamp, after: bool = False) -> dict | None:
-        """The vendor raw close of ``sid`` on ``day`` (or on the first session after it when ``after``)."""
+    def sessions(self, sid: str) -> pd.DataFrame:
+        """One row per date of ``sid``: the preferred source's close, the largest volume any source
+        reports, and ``filler`` (a vendor filler row, see filler_flags)."""
+        if sid in self._sessions:
+            return self._sessions[sid]
         rows = self.rows(sid)
-        vendor = rows[rows["src"].isin(VENDOR_ORDER) & (rows["volume"].fillna(0) > 0)]
+        if rows.empty:
+            out = pd.DataFrame({"date": pd.Series(dtype="datetime64[ns]"), "close": pd.Series(dtype=float),
+                                "volume": pd.Series(dtype=float), "filler": pd.Series(dtype=bool)})
+        else:
+            order = {s: i for i, s in enumerate(VENDOR_ORDER)}
+            ranked = rows.assign(_order=rows["src"].map(order).fillna(len(order)),
+                                 volume=pd.to_numeric(rows["volume"], errors="coerce").fillna(0.0))
+            ranked = ranked.sort_values(["date", "_order"], kind="stable")
+            out = ranked.groupby("date", sort=True).agg(close=("close", "first"), volume=("volume", "max")).reset_index()
+            out["filler"] = filler_flags(out["close"].to_numpy(dtype=float), out["volume"].to_numpy(dtype=float))
+        self._sessions[sid] = out
+        return out
+
+    def filler_dates(self, sid: str) -> set:
+        sessions = self.sessions(sid)
+        return set(sessions.loc[sessions["filler"], "date"])
+
+    def close_on(self, sid: str, day: pd.Timestamp, after: bool = False) -> dict | None:
+        """The vendor raw close of ``sid`` on ``day`` (or on the first session after it when ``after``);
+        a vendor filler row is not a session."""
+        rows = self.rows(sid)
+        vendor = rows[rows["src"].isin(VENDOR_ORDER) & (rows["volume"].fillna(0) > 0)
+                      & ~rows["date"].isin(self.filler_dates(sid))]
         if after:
             later = vendor[vendor["date"] > day]
             if later.empty:
@@ -1204,9 +1399,15 @@ class PriceBook:
 
 
 WIKI_END = "2018-03-27"
-ACQUIRER_QUOTE_DAYS = 7  # the acquirer's close must come within a week after the target's last trade
+# The acquirer's close (or the next leg's) belongs to the XNAS session after the target's last trade.
+# A first close up to ACQUIRER_HOLD_SESSIONS sessions later still gives a value, held for review
+# (needs_review, the figure local only); a later one is not used.
+ACQUIRER_QUOTE_SESSIONS = 1
+ACQUIRER_HOLD_SESSIONS = 5
 REVIEW_RETURN = 0.25  # a merger value this far from the last close is held back for review
 ANCHOR_TOLERANCE_DAYS = 7  # the last trade of a merged company lies within a week of its Form 25 filing
+TRANSFER_START_DAYS = 30  # a stated first day on the new exchange lies this close to the transfer Form 25
+HALT_WINDOW_DAYS = 30  # a halt the closing 8-K states lies this close before the end
 
 
 def price_window(row, ev: dict | None = None) -> tuple[str, str]:
@@ -1228,6 +1429,49 @@ def price_window(row, ev: dict | None = None) -> tuple[str, str]:
     if closing:  # a reorganisation or rename: the (last) closing 8-K dates it; later rows are the successor's
         return max(closing), ""
     return _shift(row["end_date"], SNAPSHOT_END_SLACK_DAYS), ""
+
+
+def transfer_window(row, ev: dict | None = None) -> tuple[str, str, str]:
+    """(limit, new_exchange_start, basis) for a listing that moved: the last Nasdaq session is the
+    session before the first day on the new exchange that the Item 3.01 8-K or its press release
+    states (the first stated day after the transfer Form 25 filing, else the latest one before it),
+    else the transfer Form 25 filing date. Not the Form 25 effective date: trading has moved by then
+    (ORCL: Form 25 filed 2013-07-12, NYSE from 2013-07-15, effective 2013-07-22)."""
+    filed = row.get("transfer_filing_date") or row.get("f25_filing_date") or ""
+    reference = filed or row["end_date"]
+    stated = [d for d in str((ev or {}).get("transfer_start") or "").split()
+              if _shift(reference, -TRANSFER_START_DAYS) <= d <= _shift(reference, TRANSFER_START_DAYS)]
+    later = [d for d in stated if d > reference]
+    start = min(later) if later else (max(stated) if stated else "")
+    if start:
+        return previous_session(start), start, "session_before_stated_new_exchange_start"
+    if filed:
+        return filed, "", "transfer_form25_filing"
+    return row["end_date"], "", "end_date"
+
+
+def snapshot_cut(book: "PriceBook", sid: str, end_date: str, limit: str) -> tuple[str, str]:
+    """(limit, reason) for a snapshot-dated end: the window stops before the first run of two or more
+    vendor filler rows from SNAPSHOT_END_SLACK_DAYS before the end, or before a raw close more than
+    PRICE_BREAK from the previous one after the end (an OTC market), whichever comes first
+    (SBNY: Nasdaq trade to 2023-03-10, fillers at 70.00 to 2023-03-27, OTC 0.13 on 2023-03-28)."""
+    sessions = book.sessions(sid)
+    if sessions.empty:
+        return limit, ""
+    lo, hi, end = pd.Timestamp(_shift(end_date, -SNAPSHOT_END_SLACK_DAYS)), pd.Timestamp(limit), pd.Timestamp(end_date)
+    dates, closes, filler = sessions["date"].to_numpy(), sessions["close"].to_numpy(dtype=float), sessions["filler"].to_numpy()
+    for i in range(1, len(sessions)):
+        day = pd.Timestamp(dates[i])
+        if day <= lo:
+            continue
+        if day > hi:
+            break
+        before = pd.Timestamp(dates[i - 1]).strftime("%Y-%m-%d")
+        if filler[i] and not filler[i - 1] and i + 1 < len(sessions) and filler[i + 1]:
+            return before, "snapshot_end_cut_before_filler_run"
+        if day > end and closes[i - 1] > 0 and abs(closes[i] / closes[i - 1] - 1.0) > PRICE_BREAK:
+            return before, "snapshot_end_cut_before_price_break"
+    return limit, ""
 
 
 # Acquirers outside the Nasdaq master whose close the stock part needs: one Yahoo chart each
@@ -1278,22 +1522,27 @@ def chart_close_after(chart: pd.DataFrame, day: pd.Timestamp) -> dict | None:
 
 
 def last_trade(book: PriceBook, sid: str, limit: str, anchor: str = "") -> dict:
-    """The last session with volume > 0 on or before ``limit``, and the vendor close on it.
+    """The last session with volume > 0 on or before ``limit`` that is not a vendor filler row (a
+    repeated close on a sliver of the usual volume, plan rule R5), and the vendor close on it.
 
     status: ``ok`` (a vendor close on that session, and the session within a week of ``anchor``),
     ``vendor_short`` (no vendor close there: the stored file runs later, or every series stops
-    well before the anchor, e.g. at the WIKI end) or ``no_rows``.
+    well before the anchor, e.g. at the WIKI end) or ``no_rows``. ``filler_dropped`` counts the
+    filler sessions after the last trade and on or before ``limit``.
     """
     rows = book.rows(sid)
-    traded = rows[(rows["date"] <= pd.Timestamp(limit)) & (rows["volume"].fillna(0) > 0)]
+    fillers = book.filler_dates(sid)
+    inside = rows[(rows["date"] <= pd.Timestamp(limit)) & (rows["volume"].fillna(0) > 0)]
+    traded = inside[~inside["date"].isin(fillers)]
     if traded.empty:
-        return {"status": "no_rows", "last_date": "", "vendor_last_date": "", "stored_last_date": ""}
+        return {"status": "no_rows", "last_date": "", "vendor_last_date": "", "stored_last_date": "", "filler_dropped": 0}
     vendor = traded[traded["src"].isin(VENDOR_ORDER)]
     stored = traded[~traded["src"].isin(VENDOR_ORDER)]
     last = traded["date"].max()
     out = {"last_date": last.strftime("%Y-%m-%d"),
            "vendor_last_date": vendor["date"].max().strftime("%Y-%m-%d") if len(vendor) else "",
-           "stored_last_date": stored["date"].max().strftime("%Y-%m-%d") if len(stored) else ""}
+           "stored_last_date": stored["date"].max().strftime("%Y-%m-%d") if len(stored) else "",
+           "filler_dropped": int(inside.loc[inside["date"] > last, "date"].nunique())}
     close = book.close_on(sid, last)
     short = close is None or (anchor and last < pd.Timestamp(anchor) - pd.Timedelta(days=ANCHOR_TOLERANCE_DAYS))
     if not anchor and close is not None and close["src"] == "wiki" and out["last_date"] == WIKI_END \
@@ -1306,10 +1555,12 @@ def last_trade(book: PriceBook, sid: str, limit: str, anchor: str = "") -> dict:
 
 
 def otc_close(book: PriceBook, sid: str, after: str, within_days: int = 30) -> dict | None:
-    """The first vendor close after ``after`` (an OTC continuation of a removed listing)."""
+    """The first vendor close after ``after`` (an OTC continuation of a removed listing); filler rows
+    that repeat the last Nasdaq close are not OTC trades."""
     rows = book.rows(sid)
     later = rows[rows["src"].isin(VENDOR_ORDER) & (rows["date"] > pd.Timestamp(after))
-                 & (rows["date"] <= pd.Timestamp(after) + pd.Timedelta(days=within_days)) & (rows["volume"].fillna(0) > 0)]
+                 & (rows["date"] <= pd.Timestamp(after) + pd.Timedelta(days=within_days)) & (rows["volume"].fillna(0) > 0)
+                 & ~rows["date"].isin(book.filler_dates(sid))]
     if later.empty:
         return None
     first = later.sort_values("date").iloc[0]
@@ -1342,7 +1593,8 @@ OUTPUT_COLUMNS = [
     # plan section 1.1 additions
     "security_id", "delist_date", "terminal_type", "consideration_cash", "consideration_shares", "acquirer_security_id",
     # this step's facts
-    "status", "status_note", "event_subtype", "destination_exchange", "acquirer_name", "acquirer_match",
+    "status", "status_note", "event_subtype", "destination_exchange", "destination_start_date", "acquirer_name",
+    "acquirer_match",
     "cvr", "election", "consideration_value_basis", "price_source", "price_source_url", "acquirer_price_date",
     "end_date", "end_source", "form25_accession", "form25_basis", "best_rank", "in_candidates", "cik", "name",
     "terms_stage", "existing_file", "existing_terminal_return", "existing_consideration_per_share",
@@ -1381,7 +1633,9 @@ REVIEWED: dict[str, dict] = {
     "864683": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1639691",
                "note": "each Cyberonics share became one LivaNova ordinary share (the 0.0472 ratio is Sorin's)"},
     "1316631.B": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1570585.T-LBTYB",
-                  "note": "Virgin Media closing: each Liberty Global Series B share became one Liberty Global plc Class B share"},
+                  "limit": "2013-06-07",
+                  "note": "Virgin Media closing (2013-06-07): each Liberty Global Series B share became one Liberty Global plc "
+                          "Class B share; the snapshots stop listing LBTYB in 2012, the closing 8-K dates the end"},
     "1166691.T-CMCSK": {"type": "stock_merger", "sub": "reclassification", "shares": 1.0, "acq": "1166691.T-CMCSA",
                         "note": "each Class A Special share reclassified into one Class A share (2015-12-10; EX-99.1)"},
     "1437107.B": {"type": "stock_merger", "sub": "reclassification", "shares": 1.0, "acq": "1437107.A",
@@ -1393,18 +1647,18 @@ REVIEWED: dict[str, dict] = {
     "1734342.B": {"type": "stock_merger", "sub": "reclassification", "shares": 1.0, "acq": "1734342.A",
                   "note": "Class B converted into Class A one-for-one in the 2021-11-18 merger; last Class B trade 2021-11-17"},
     "1560385.T-LMCA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1560385.T-FWONA",
-                       "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
+                       "limit": "2017-01-23", "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
                        "note": "Liberty Media Group Series A tracking stock renamed Formula One Group (LMCA -> FWONA) after "
                                "the F1 closing, January 2017; the April 2016 recapitalisation is a distribution inside the series"},
     "1560385.T-LMCK": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1560385.T-FWONK",
-                       "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
+                       "limit": "2017-01-23", "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
                        "note": "Liberty Media Group Series C tracking stock renamed Formula One Group (LMCK -> FWONK), January 2017"},
     "1355096.T-LINTA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QVCA",
-                        "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
+                        "limit": "2014-10-06", "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
                         "note": "LINTA renamed QVC Group Series A (QVCA) at the open of 2014-10-07; the Liberty Ventures "
                                 "share distribution of October 2014 is a distribution inside the series"},
     "1355096.T-LINTB": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QVCB",
-                        "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
+                        "limit": "2014-10-06", "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
                         "note": "LINTB renamed QVC Group Series B (QVCB) at the open of 2014-10-07"},
     "1355096.T-QVCA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QRTEA",
                        "note": "QVC Group Series A renamed Qurate Retail Series A (QRTEA) in 2018 after the GCI Liberty split-off"},
@@ -1432,9 +1686,11 @@ REVIEWED: dict[str, dict] = {
     "1509470": {"type": "exchange_move", "sub": "rename_same_security", "dest": "Nasdaq",
                 "note": "SuRo Capital renamed Neostellar Capital and still listed on Nasdaq (NSLR); the listing did not end, "
                         "the master stops at the ticker change"},
-    "733269": {"type": "exchange_move", "sub": "rename_and_transfer", "dest": "NYSE",
+    "733269": {"type": "exchange_move", "sub": "rename_and_transfer", "dest": "NYSE", "limit": "2018-09-28",
+               "start": "2018-10-01",
                "note": "Acxiom sold its marketing solutions unit, renamed itself LiveRamp Holdings and moved to the NYSE "
-                       "(RAMP) on 2018-10-01; the shares were not exchanged"},
+                       "(RAMP) on 2018-10-01, so the last Nasdaq session is 2018-09-28 (its transfer Form 25 was filed "
+                       "on 2018-10-01, after the move); the shares were not exchanged"},
     "2007825": {"type": "exchange_move", "sub": "spac_merger_listing_moved", "dest": "NYSE",
                 "note": "Churchill Capital Corp X combined with Infleqtion and the same issuer's shares moved to the NYSE (INFQ); "
                         "the $10 is the trust redemption price for redeeming holders"},
@@ -1475,8 +1731,10 @@ REVIEWED: dict[str, dict] = {
                "acq_name": "AMC Entertainment (NYSE: AMC)",
                "note": "election: $33.06 cash or 1.0819 AMC share (prorated, mostly cash); the two were near equal at the "
                        "close, valued at the cash alternative"},
-    "1491778": {"type": "stock_merger", "sub": "election", "shares": 1.0, "acq": "1705110",
-                "note": "one ANGI Homeservices Class A share per share, or by election $8.50 cash (capped); valued at the stock"},
+    "1491778": {"type": "stock_merger", "sub": "election", "shares": 1.0, "acq": "1705110", "limit": "2017-09-29",
+                "note": "one ANGI Homeservices Class A share per share, or by election $8.50 cash (capped); valued at the stock; "
+                        "the combination closed 2017-09-29 (closing 8-K), the last Angie's List session; the ANGI rows from "
+                        "2017-10-02 are ANGI Homeservices under the same ticker"},
     "1470215": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1140536",
                 "note": "2.6490 Willis shares per Towers Watson share followed by Willis's 2.6490-for-1 consolidation: one "
                         "Willis Towers Watson share; the $4.87 special dividend was paid before the close"},
@@ -1545,9 +1803,15 @@ REVIEWED: dict[str, dict] = {
     "1270400": {"type": "mixed", "cash": 17.50, "shares": 0.2582, "acq": "1570585.T-LBTYA",
                 "extra": [(0.1928, "1570585.T-LBTYK")],
                 "note": "$17.50 cash + 0.2582 Liberty Global plc Class A + 0.1928 Class C share"},
-    "1373707": {"type": "cash_merger", "cash": 2.00,
+    "1373707": {"type": "cash_merger", "cash": 2.00, "url": _SEC + "1373707/000119312520201936/d93682d8k.htm",
                 "note": "La Jolla closing: $2.00 cash per share plus one CVR (valued at 0); the AcelRx agreement read "
                         "earlier was terminated"},
+    "1599901": {"type": "cash_merger", "cash": 72.00, "url": _SEC + "1599901/000119312526079570/d90931d8k.htm",
+                "hold": "Atrium Therapeutics (SpinCo, 2093101) shares were distributed on 2026-02-26, one per ten shares "
+                        "(record date 2026-02-12), the day before the closing: check whether the last vendor close "
+                        "carries the SpinCo entitlement; if it does, add 0.1 x the first Atrium close to the $72.00",
+                "note": "$72.00 cash per share (Novartis, closing 8-K Item 2.01); the Atrium SpinCo distribution of "
+                        "2026-02-26 (1 per 10, record 2026-02-12) preceded the merger"},
     "935494": {"type": "cash_merger", "cash": 60.00, "note": "$60.00 cash (Emerson); the 1-share line is Merger Sub's stock"},
     "1195933": {"type": "mixed", "sub": "election", "cash": 51.60, "shares": 1.2019, "acq": "", "acq_name": "Kemper (NYSE: KMPR)",
                 "note": "election among $51.60 + 1.2019 Kemper share (mixed), $129.00 cash or 2.0031 Kemper shares "
@@ -1618,6 +1882,12 @@ REVIEWED: dict[str, dict] = {
                         "2020-01-14 (the same security); the value is the first OTC close after the removal"},
     "2007825_placeholder": {},
     # ---- tender offers with a CVR (valued at 0) and plain cash the reader missed
+    "1138639": {"type": "mixed", "sub": "election", "cash": 4.66, "shares": 0.5355, "acq": "",
+                "acq_name": "Nokia ADS (NYSE: NOK)", "url": _SEC + "1138639/000119312525041368/d847449d8k.htm",
+                "hold": "the only value available is the existing file's $6.65, the cash alternative; the mixed option "
+                        "needs the Nokia ADS close",
+                "note": "election among $6.65 cash, 1.7896 Nokia ADS, or $4.66 cash + 0.5355 Nokia ADS (the mixed option), "
+                        "prorated so that at most 30% of the consideration is Nokia ADSs; valued at the mixed option"},
     "1293971": {"type": "cash_merger", "sub": "election", "cash": 5.00,
                 "note": "election: (i) $3.00 cash plus one CVR, or (ii) $5.00 cash; valued at the all-cash alternative"},
     "1597553": {"type": "cash_merger", "cash": 8.50, "note": "$8.50 cash plus one CVR (up to $3.50, valued at 0)"},
@@ -1646,9 +1916,12 @@ REVIEWED: dict[str, dict] = {
                         "2022-07-21 ($1.43), 2023-01-05 ($0.68), 2023-02-09 ($0.96), 2024-07-31 ($1.10), 2025-05-06 ($0.20); "
                         "undiscounted, later distributions possible; the $51.50 initial distribution preceded the delisting "
                         "(NAV $23.08 on 2019-09-30)"},
-    "1288784": {"type": "bankruptcy_otc", "sub": "bank_failure",
-                "note": "Signature Bank was closed by its regulator and put into FDIC receivership on 2023-03-12; it filed "
-                        "with the FDIC, not the SEC, so no SEC document; equity left to the D5 rule"},
+    "1288784": {"type": "bankruptcy_otc", "sub": "bank_failure", "limit": "2023-03-10",
+                "url": "https://www.fdic.gov/news/press-releases/2023/pr23018.html",
+                "note": "Signature Bank was closed by the New York State Department of Financial Services and put into FDIC "
+                        "receivership on Sunday 2023-03-12 (FDIC PR-18-2023); it filed with the FDIC, not the SEC. Last "
+                        "Nasdaq trade 2023-03-10 (the vendor rows 2023-03-13 to 03-27 repeat its close on 0 to 2,605 "
+                        "shares); the value is the first OTC close"},
     "1001233": {"type": "bankruptcy_otc", "sub": "removed_by_exchange",
                 "note": "Nasdaq delisting for the minimum bid price (8-K Item 8.01, 2026-04-29)"},
     "1785041": {"type": "liquidation", "sub": "spac_trust_redemption",
@@ -1656,6 +1929,109 @@ REVIEWED: dict[str, dict] = {
                         "(amount not stated in the documents read)"},
 }
 REVIEWED.pop("2007825_placeholder", None)
+
+# The document behind each reviewed entry that sets cash, shares or a value without its own ``url``:
+# found by searching the cached documents of the security for the reviewed figures (closing 8-Ks
+# first); for a one-for-one reorganisation or rename (no figure to search), the closing 8-K that
+# describes it. It replaces the document the automatic reader chose.
+REVIEWED_SOURCES: dict[str, str] = {
+    "885721": _SEC + "885721/000119312512144955/0001193125-12-144955-index.htm",  # closing
+    "1058057": _SEC + "1058057/000119312521122807/d156000d8k.htm",  # closing
+    "1261694": _SEC + "1261694/000119312516782591/d298517d8k.htm",  # closing
+    "353569": _SEC + "353569/000119312521365588/d270785d8k.htm",  # agreement (no closing 8-K in the window)
+    "864683": _SEC + "864683/000086468315000054/form8-k.htm",  # closing
+    "1316631.B": _SEC + "1316631/000119312513251856/d548311d8k.htm",  # closing
+    "1166691.T-CMCSK": _SEC + "1166691/000095010315009516/0000950103-15-009516-index.htm",  # closing
+    "1437107.B": _SEC + "1437107/000119312522103051/d328161d8k.htm",  # closing
+    "1437107.C": _SEC + "1437107/000119312522103051/d328161d8k.htm",  # closing
+    "1411488.B": _SEC + "1411488/000119312515197227/0001193125-15-197227-index.htm",  # closing
+    "1734342.B": _SEC + "1734342/000173434221000071/0001734342-21-000071-index.htm",  # closing
+    "1355096.T-QVCA": _SEC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",  # closing (EX-99.1: to be renamed Qurate)
+    "1355096.T-QVCB": _SEC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",  # closing (EX-99.1: to be renamed Qurate)
+    "1100441": _SEC + "1100441/000119312519069904/0001193125-19-069904-index.htm",  # closing
+    "1006269": _SEC + "1006269/000110465921141882/0001104659-21-141882-index.htm",  # closing
+    "1339947.B": _SEC + "1339947/000119312519306335/d833313d8k.htm",  # the reviewed figures appear here
+    "1339947.A": _SEC + "1339947/000119312519306335/d833313d8k.htm",  # the reviewed figures appear here
+    "813828.B": _SEC + "813828/000119312525175027/d52142d8k.htm",  # closing
+    "1308161.A": _SEC + "1308161/000095015719000308/form8k.htm",  # the reviewed figures appear here
+    "1308161.B": _SEC + "1308161/000095015719000308/form8k.htm",  # the reviewed figures appear here
+    "1054374": _SEC + "1054374/000119312516446902/d114920d8k.htm",  # the reviewed figures appear here
+    "936402": _SEC + "936402/000119312519004574/d673508d8k.htm",  # the reviewed figures appear here
+    "1351288": _SEC + "1351288/000119312521151938/d362568d8k.htm",  # the reviewed figures appear here
+    "1657312": _SEC + "1657312/000110465925097318/tm2528100d1_8k.htm",  # the reviewed figures appear here
+    "1411574": _SEC + "1411574/000119312517094780/d360877d8k.htm",  # the reviewed figures appear here
+    "1094739": _SEC + "1094739/000119312519253634/d761174d8k.htm",  # the reviewed figures appear here
+    "799088": _SEC + "799088/000119312516799826/d303422d8k.htm",  # the reviewed figures appear here
+    "1491778": _SEC + "1491778/000149177817000194/angi2017102-8k.htm",  # closing
+    "1470215": _SEC + "1470215/000119312516420526/d116348d8k.htm",  # closing
+    "817473": _SEC + "817473/000119312517001138/d314485d8k.htm",  # the reviewed figures appear here
+    "891288": _SEC + "891288/000119312514310400/d772821d8k.htm",  # the reviewed figures appear here
+    "1110647": _SEC + "1110647/000119312518346220/d672294d8k.htm",  # the reviewed figures appear here
+    "1644406": _SEC + "1644406/000119312523272309/d927425d8k.htm",  # the reviewed figures appear here
+    "1182129": _SEC + "1182129/000119312515025738/d863332d8k.htm",  # the reviewed figures appear here
+    "861361": _SEC + "861361/000094787117000307/ss38796_8k.htm",  # the reviewed figures appear here
+    "700733": _SEC + "700733/000119312516528653/d173081d8k.htm",  # the reviewed figures appear here
+    "743316": _SEC + "743316/000119312521257603/d203144d8k.htm",  # the reviewed figures appear here
+    "858339": _SEC + "858339/000119312520196345/d39509d8k.htm",  # the reviewed figures appear here
+    "1175609": _SEC + "1175609/000119312518213483/d812219d8k.htm",  # the reviewed figures appear here
+    "1611983.A": _SEC + "1611983/000114036126033932/ef20080711_8k.htm",  # the reviewed figures appear here
+    "1611983.C": _SEC + "1611983/000114036126033932/ef20080711_8k.htm",  # the reviewed figures appear here
+    "1424454": _SEC + "1424454/000119312516704222/d234513d8k.htm",  # closing
+    "1088825": _SEC + "1088825/000119312516704243/d242474d8k.htm",  # the reviewed figures appear here
+    "354908": _SEC + "354908/000119312521161540/d127190d8k.htm",  # the reviewed figures appear here
+    "929940": _SEC + "929940/000114036122019468/ny20004077x9_8k.htm",  # the reviewed figures appear here
+    "1516973": _SEC + "1516973/000119312518268756/d614233d8k.htm",  # the reviewed figures appear here
+    "1499875": _SEC + "1499875/000110465915003336/a15-2627_28k.htm",  # the reviewed figures appear here
+    "831547": _SEC + "831547/000119312523199589/d332583d8k.htm",  # the reviewed figures appear here
+    "1594012": _SEC + "1594012/000119312522098215/d346598d8k.htm",  # the reviewed figures appear here
+    "1560385.T-LSXMA": _SEC + "1560385/000110465924098251/tm2422514d16_8k.htm",  # the reviewed figures appear here
+    "1560385.T-LSXMB": _SEC + "1560385/000110465924098251/tm2422514d16_8k.htm",  # the reviewed figures appear here
+    "1560385.T-LSXMK": _SEC + "1560385/000110465924098251/tm2422514d16_8k.htm",  # the reviewed figures appear here
+    "1434729": _SEC + "1434729/000095010317012994/dp84687_ex9901.htm",  # the reviewed figures appear here
+    "1602065": _SEC + "1602065/000119312525183040/d65540d8k.htm",  # closing
+    "356213": _SEC + "356213/000119312516564276/d188315d8k.htm",  # the reviewed figures appear here
+    "1270400": _SEC + "1270400/000119312513256243/d552872d8k.htm",  # the reviewed figures appear here
+    "935494": _SEC + "935494/000114036123047693/ef20012268_8k.htm",  # the reviewed figures appear here
+    "1195933": _SEC + "1195933/000119312518211388/d711626d8k.htm",  # the reviewed figures appear here
+    "1675820": _SEC + "1675820/000119312520156714/d913146d8k.htm",  # the reviewed figures appear here
+    "800458": _SEC + "800458/000119312516449086/d102669d8k.htm",  # the reviewed figures appear here
+    "1537667": _SEC + "1537667/000110465918075359/a18-42113_48k.htm",  # the reviewed figures appear here
+    "1501364": _SEC + "1501364/000119312519281296/d827353d8k.htm",  # the reviewed figures appear here
+    "1511198": _SEC + "1511198/000119312518289519/d612451d8k.htm",  # the reviewed figures appear here
+    "1600125": _SEC + "1600125/000094337421000499/form8k_111221.htm",  # the reviewed figures appear here
+    "1324410": _SEC + "1324410/000132441019000002/gbnk-20190102x8k.htm",  # the reviewed figures appear here
+    "846901": _SEC + "846901/000119312524140117/d811981d8k.htm",  # the reviewed figures appear here
+    "1176316": _SEC + "1176316/000114420419004222/tv512079_8-k.htm",  # the reviewed figures appear here
+    "1748907": _SEC + "1748907/000119312524014239/d74405d8k.htm",  # the reviewed figures appear here
+    "1312928": _SEC + "1312928/000119312513228969/d540491d8k.htm",  # the reviewed figures appear here
+    "1617977": _SEC + "1617977/000119312520077250/d143057d8k.htm",  # the reviewed figures appear here
+    "1160958": _SEC + "1160958/000119312521123317/d147406d8k.htm",  # the reviewed figures appear here
+    "1334814": _SEC + "1334814/000119312515050780/d874732d8k.htm",  # closing
+    "1365101": _SEC + "1365101/000119312520059088/d873868d8k.htm",  # the reviewed figures appear here
+    "1575189": _SEC + "1575189/000110465920080741/tm2023781d3_8k.htm",  # the reviewed figures appear here
+    "1609951": _SEC + "1609951/000143774919006083/ncom20190329_8k.htm",  # the reviewed figures appear here
+    "1380846": _SEC + "1380846/000119312522165229/d332819d8k.htm",  # the reviewed figures appear here
+    "1130385": _SEC + "1130385/000114420414067433/v393901_8k.htm",  # the reviewed figures appear here
+    "1478484": _SEC + "1478484/000119312515335489/d78857d8k.htm",  # the reviewed figures appear here
+    "785787": _SEC + "785787/000119312517015318/d330949d8k.htm",  # the reviewed figures appear here
+    "1038205": _SEC + "1038205/000156459017012994/0001564590-17-012994-index.htm",  # closing
+    "912752": _SEC + "912752/000119312523158935/0001193125-23-158935-index.htm",  # closing
+    "1100962": _SEC + "1100962/000119312514077915/d683967d8k.htm",  # closing
+    "1080034": _SEC + "1080034/000110121514000309/form_8k.htm",  # the reviewed figures appear here
+    "1293971": _SEC + "1293971/000119312525132850/d39702d8k.htm",  # the reviewed figures appear here
+    "1597553": _SEC + "1597553/000119312525170187/d877271d8k.htm",  # the reviewed figures appear here
+    "1126234": _SEC + "1126234/000119312524276512/d909721d8k.htm",  # the reviewed figures appear here
+    "1423824": _SEC + "1423824/000119312519271319/d822414d8k.htm",  # the reviewed figures appear here
+    "1375151": _SEC + "1375151/000119312522067384/d272891d8k.htm",  # the reviewed figures appear here
+    "1505512": _SEC + "1505512/000110465925062408/tm2518614d30_8k.htm",  # the reviewed figures appear here
+    "1322505": _SEC + "1322505/000110465923027946/tm238312d2_8k.htm",  # the reviewed figures appear here
+    "1685071": _SEC + "1685071/000095015719001299/form8k.htm",  # the reviewed figures appear here
+    "1012140": _SEC + "1012140/000119312513387156/d604099d8k.htm",  # the reviewed figures appear here
+    "1768012": _SEC + "1768012/000110465922056127/tm2214542d1_8k.htm",  # the reviewed figures appear here
+    "1801777": _SEC + "1801777/000143774923035381/amti20231222_8k.htm",  # the reviewed figures appear here
+    "1669600.A": _SEC + "1669600/000114036119013508/nc10003451x1_8k.htm",  # the reviewed figures appear here
+    "1669600.B": _SEC + "1669600/000114036119013508/nc10003451x1_8k.htm",  # the reviewed figures appear here
+}
 
 
 def _fmt(value) -> str:
@@ -1735,7 +2111,7 @@ def classify(row: dict, ev: dict) -> dict:
 REVIEW_KEYS = {"type": "terminal_type", "sub": "event_subtype", "cash": "cash", "shares": "shares",
                "acq": "acquirer_security_id", "acq_name": "acquirer_phrase", "stock_value": "stock_value",
                "rule": "value_rule", "dest": "destination_exchange", "url": "source_url", "value": "fixed_value",
-               "extra": "extra", "limit": "limit"}
+               "extra": "extra", "limit": "limit", "hold": "hold", "start": "start"}
 
 
 def apply_review(row: dict, decided: dict) -> dict:
@@ -1744,12 +2120,14 @@ def apply_review(row: dict, decided: dict) -> dict:
     review = REVIEWED.get(row["security_id"])
     out = dict(decided)
     if not review:
-        if decided.get("either_or"):
-            out["value_rule"] = "election"
+        if decided.get("either_or"):  # cash OR stock: the committed terms are alternatives, not a sum
+            out["value_rule"], out["event_subtype"] = "election", "election"
         return out
     for key, target in REVIEW_KEYS.items():
         if key in review:
             out[target] = review[key]
+    if "url" not in review and row["security_id"] in REVIEWED_SOURCES:
+        out["source_url"] = REVIEWED_SOURCES[row["security_id"]]
     if review.get("type") in ("cash_merger", "liquidation") and "shares" not in review:
         out["shares"] = None
     if review.get("type") == "stock_merger" and "cash" not in review:
@@ -1794,22 +2172,46 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         if not out["source_url"]:  # no SEC document read: the listing evidence the end comes from
             out["source_url"] = row.get("listing_source_url") or ""
         notes = [decided["note"]] if decided["note"] else []
+        holds = [decided["hold"]] if decided.get("hold") else []  # reasons to hold a computed value for review
         prior = existing.get(sid)
+        stock_leg = kind in ("stock_merger", "mixed")
         if prior:
             out.update({"existing_file": prior["existing_file"],
                         "existing_terminal_return": _fmt(float(prior["terminal_return"])),
-                        "existing_consideration_per_share": _fmt(prior.get("consideration_per_share")),
+                        # an existing stock-leg value prices the acquirer at a vendor close: local only
+                        "existing_consideration_per_share": "" if stock_leg else _fmt(prior.get("consideration_per_share")),
                         "existing_source_url": prior["source_url"]})
         # ---- the last Nasdaq trade
         limit, anchor = price_window(row, ev)
+        limit_basis = f"{row['end_source']}_end"
         if decided.get("limit"):  # a reviewed last trading day (the closing the snapshots only bracket)
-            limit, anchor = decided["limit"], ""
+            limit, anchor, limit_basis = decided["limit"], "", "reviewed"
+            if kind == "exchange_move":
+                out["destination_start_date"] = decided.get("start") or ""
+        elif kind == "exchange_move" and decided["destination_exchange"] != "Nasdaq":
+            limit, start, limit_basis = transfer_window(row, ev)
+            anchor, out["destination_start_date"] = "", start
+        else:
+            if row["end_source"] == "snapshots" and not str(ev.get("closing_dates") or "").strip():
+                cut, reason = snapshot_cut(book, sid, row["end_date"], limit)
+                if reason:
+                    limit, limit_basis = cut, reason
+            # the closing 8-K's own statement of the halt ('prior to the open of trading on the Closing Date');
+            # one far before the window is a misreading and is ignored
+            halt = ev.get("halt_before_open") or ""
+            if kind not in ("bankruptcy_otc", "unknown") and halt \
+                    and _shift(limit, -HALT_WINDOW_DAYS) <= previous_session(halt) < limit:
+                limit, limit_basis = previous_session(halt), "session_before_halt_stated_in_closing_8k"
+            after_close = ev.get("halt_after_close") or ""
+            if kind not in ("bankruptcy_otc", "unknown") and after_close and _shift(limit, -HALT_WINDOW_DAYS) <= after_close < limit:
+                limit, limit_basis = after_close, "halt_after_close_stated_in_closing_8k"
         suspended = ev.get("suspension_date") or ""
-        if kind == "bankruptcy_otc" and suspended and suspended <= limit:
-            limit = _shift(suspended, -1)
+        if kind == "bankruptcy_otc" and suspended and suspended <= limit and limit_basis != "reviewed":
+            limit, limit_basis = _shift(suspended, -1), "day_before_stated_suspension"
         trade = last_trade(book, sid, limit, anchor)
-        level = {"security_id": sid, "limit": limit, "anchor": anchor, **{k: trade.get(k, "") for k in (
-            "status", "last_date", "vendor_last_date", "stored_last_date", "close", "src", "n_sources", "max_source_diff")}}
+        level = {"security_id": sid, "limit": limit, "limit_basis": limit_basis, "anchor": anchor,
+                 **{k: trade.get(k, "") for k in ("status", "last_date", "vendor_last_date", "stored_last_date", "close",
+                                                    "src", "n_sources", "max_source_diff", "filler_dropped")}}
         if trade["status"] == "ok":
             out["last_price_date"] = trade["last_date"]
             out["price_source"] = trade["src"]
@@ -1819,6 +2221,7 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         if price_status != "ok":
             notes.append(pending or f"no vendor raw close on the last session ({trade['status']}; vendor to "
                                     f"{trade.get('vendor_last_date') or '-'}, stored to {trade.get('stored_last_date') or '-'})")
+        last_day = pd.Timestamp(trade["last_date"]) if trade["status"] == "ok" else None
         # ---- value
         value, basis_note, status = None, "", ""
         if kind == "exchange_move":
@@ -1838,13 +2241,13 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         elif kind == "liquidation":
             status = "unknown"
             notes.append("liquidation amount per share not read")
-        elif kind in ("stock_merger", "mixed") and decided.get("stock_value") is not None and (
+        elif stock_leg and decided.get("stock_value") is not None and (
                 decided.get("shares") is None or not decided.get("acquirer_security_id")):
             value = (decided["cash"] or 0.0) + float(decided["stock_value"])
             basis_note = "sec_terms_fixed_value_stock_part"
             out["consideration_per_share"] = _fmt(value)
             notes.append(f"stock part fixed at ${decided['stock_value']:g} of acquirer stock (VWAP ratio not read)")
-        elif kind in ("stock_merger", "mixed"):
+        elif stock_leg:
             acquirer = decided.get("acquirer_security_id") or ""
             how = "reviewed" if acquirer else ""
             if not acquirer and decided["event_subtype"] == "reorganization" and row.get("successor_security_id"):
@@ -1854,26 +2257,37 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                                            hint=decided.get("acquirer_class") or decided["acquirer_phrase"],
                                            exclude_cik=row["cik"])
             out["acquirer_security_id"], out["acquirer_match"] = acquirer, how
-            same_series_only = not acquirer and decided["event_subtype"] in ("reorganization", "reclassification", "rename") \
-                and decided["shares"] == 1.0
+            one_share = decided["shares"] == 1.0 and decided["cash"] is None
+            same_series = one_share and decided["event_subtype"] in ("reorganization", "reclassification", "rename")
+            same_ticker = one_share and bool(acquirer) and names.ticker_of(acquirer) == out["ticker"]
             symbol = ACQUIRER_SYMBOLS.get(sid, "")
-            if (acquirer or same_series_only or symbol) and trade["status"] == "ok":
-                quote = book.close_on(acquirer, pd.Timestamp(trade["last_date"]), after=True) if acquirer else None
-                if quote is None and symbol:
+            if last_day is not None and (acquirer or same_series or same_ticker or symbol):
+                # every close that can stand for the acquirer on the next session; the fewest sessions after the
+                # last trade wins, and on a tie the target's own series (one source, one ticker) before the book
+                offers = []
+                if same_series or same_ticker:
+                    offers.append((0, "own series" + (" (same ticker)" if same_ticker and not same_series else ""),
+                                   book.close_on(sid, last_day, after=True)))
+                if acquirer:
+                    offers.append((1, "", book.close_on(acquirer, last_day, after=True)))
+                if symbol:
                     if symbol not in charts:
                         charts[symbol] = acquirer_chart(symbol)
-                    quote = chart_close_after(charts[symbol], pd.Timestamp(trade["last_date"]))
-                    if quote is not None:
-                        out["acquirer_match"] = (out["acquirer_match"] + f"; yahoo chart {symbol}").strip("; ")
-                same_series = decided["event_subtype"] in ("reorganization", "reclassification", "rename") \
-                    and decided["shares"] == 1.0
-                if same_series:  # one vendor series under one ticker: the next session may sit on either side
-                    own = book.close_on(sid, pd.Timestamp(trade["last_date"]), after=True)
-                    if own is not None and (quote is None or own["date"] < quote["date"]):
-                        quote = own
-                if quote is not None and (quote["date"] - pd.Timestamp(trade["last_date"])).days > ACQUIRER_QUOTE_DAYS:
-                    notes.append(f"acquirer's first vendor close after the last trade is {quote['date']:%Y-%m-%d}, too late")
-                    quote = None
+                    offers.append((2, f"yahoo chart {symbol}", chart_close_after(charts[symbol], last_day)))
+                offers = [(sessions_after(last_day, q["date"]), rank, label, q) for rank, label, q in offers if q is not None]
+                quote = None
+                if offers:
+                    gap, _, label, quote = min(offers, key=lambda o: (o[0], o[1]))
+                    level["acquirer_gap_sessions"] = gap
+                    if gap > ACQUIRER_HOLD_SESSIONS:
+                        notes.append(f"acquirer's first vendor close after the last trade is {quote['date']:%Y-%m-%d} "
+                                     f"({gap} sessions later), too late")
+                        quote = None
+                    else:
+                        if label:
+                            out["acquirer_match"] = (out["acquirer_match"] + f"; {label}").strip("; ")
+                        if gap > ACQUIRER_QUOTE_SESSIONS:
+                            holds.append(f"the acquirer's first vendor close is {gap} XNAS sessions after the last trade")
                 if quote is not None and decided.get("value_rule") == "election":
                     value = float(decided["shares"]) * quote["close"]
                     basis_note = "election: stock alternative at the acquirer_vendor_close (local only)"
@@ -1883,25 +2297,38 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                     value = (decided["cash"] or 0.0) + float(decided["shares"]) * quote["close"]
                     basis_note = "acquirer_vendor_close (local only)"
                     for extra_shares, extra_sid in decided.get("extra") or []:  # further securities in the package
-                        extra = book.close_on(extra_sid, pd.Timestamp(trade["last_date"]), after=True)
-                        if extra is None or (extra["date"] - pd.Timestamp(trade["last_date"])).days > ACQUIRER_QUOTE_DAYS:
+                        extra = book.close_on(extra_sid, last_day, after=True)
+                        extra_gap = sessions_after(last_day, extra["date"]) if extra is not None else None
+                        if extra is None or extra_gap > ACQUIRER_HOLD_SESSIONS:
                             notes.append(f"no vendor close for {extra_sid} after the last trade")
                             value = None
                             break
+                        if extra_gap > ACQUIRER_QUOTE_SESSIONS:
+                            holds.append(f"the {extra_sid} close is {extra_gap} XNAS sessions after the last trade")
                         value += float(extra_shares) * extra["close"]
                         level[f"extra_{extra_sid}_close"] = extra["close"]
                 if quote is not None:
                     out["acquirer_price_date"] = quote["date"].strftime("%Y-%m-%d")
                     level.update({"acquirer_close": quote["close"], "acquirer_src": quote["src"],
                                   "acquirer_date": out["acquirer_price_date"], "value": value})
+            if how in ("reviewed", "successor_link") and not (REVIEWED.get(sid) or {}).get("acq_name"):
+                # the master's name on the conversion day, not the phrase the reader caught ('GNOG RSUs')
+                out["acquirer_name"] = names.name_of(acquirer, out["acquirer_price_date"]
+                                                     or _shift(trade.get("last_date") or row["end_date"], 1))
             if value is None and decided.get("value_rule") == "election" and decided["cash"] is not None:
                 notes.append(f"holders elected ${decided['cash']:g} cash or {decided['shares']:g} shares (prorated); "
                              "the stock alternative needs the acquirer's price (the cash one is not used: they can differ)")
-            if value is None and prior and prior.get("consideration_per_share") not in (None, "") \
-                    and not pd.isna(prior.get("consideration_per_share")):
-                value, basis_note = float(prior["consideration_per_share"]), "existing_row_consideration"
-                out["consideration_per_share"] = _fmt(value)
-                notes.append(f"value from {prior['existing_file']}: {prior.get('note') or ''}".strip())
+            if value is None and _prior_value(prior) is not None:
+                if EXISTING_PLACEHOLDER.search(prior.get("note") or ""):
+                    notes.append(f"the {prior['existing_file']} row is a placeholder at the last close, not a value: "
+                                 f"{strip_levels(prior.get('note') or '')}")
+                else:
+                    # the existing file prices the stock leg at the acquirer close of the target's last day (its
+                    # convention, not this step's next session); the level stays local, the return is committed
+                    value, basis_note = _prior_value(prior), "existing_row_value_stock_leg (local only)"
+                    level["existing_value"] = value
+                    notes.append(f"value from {prior['existing_file']} (stock leg priced there at a vendor close): "
+                                 f"{strip_levels(prior.get('note') or '')}".strip().rstrip(":"))
             if value is None:
                 status = "needs_acquirer_price" if price_status == "ok" else price_status
                 notes.append(f"acquirer price not available ({how or 'acquirer not identified'})")
@@ -1911,9 +2338,9 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 if quote is not None:
                     value, basis_note = quote["close"], "otc_vendor_close (local only)"
                     level.update({"otc_close": quote["close"], "otc_date": quote["date"], "otc_src": quote["src"]})
-            if value is None and prior and prior.get("consideration_per_share") not in (None, "") \
-                    and not pd.isna(prior.get("consideration_per_share")):
-                value, basis_note = float(prior["consideration_per_share"]), "existing_row_consideration"
+                    notes.append(f"first OTC vendor close on {quote['date']} (the level is local only)")
+            if value is None and _prior_value(prior) is not None:
+                value, basis_note = _prior_value(prior), "existing_row_consideration"
                 out["consideration_per_share"] = _fmt(value)
                 out["source_url"] = prior["source_url"]
                 notes.append(f"no OTC vendor price; value from {prior['existing_file']} (sourced there: equity cancelled "
@@ -1922,16 +2349,18 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 status = "awaiting_d5"
                 notes.append("no OTC vendor price; the owner's D5 rule applies")
         out["consideration_value_basis"] = basis_note
-        if basis_note == "existing_row_consideration" and prior:
+        if basis_note.startswith("existing_row") and prior:
             out["verified_at"] = pd.Timestamp(prior["verified_at"]).strftime("%Y-%m-%d")
         if value is not None:
             if price_status == "ok":
                 ratio = value / trade["close"] - 1.0
                 level["terminal_value"], level["terminal_return_checked"] = value, ratio
                 if kind != "bankruptcy_otc" and not decided.get("reviewed_return") and abs(ratio) > REVIEW_RETURN:
+                    holds.append(f"value / last close - 1 is beyond +/-{REVIEW_RETURN:.0%}; terms or prices to be checked")
+                if holds:
                     status = "needs_review"  # a data check on this one security's value, not a statistic
-                    notes.append(f"value / last close - 1 is beyond +/-{REVIEW_RETURN:.0%}; terms or prices to be checked "
-                                 "(the figure is kept in CACHE/terminal/prices_used.csv)")
+                    notes.extend(holds)
+                    notes.append("the figure is kept in CACHE/terminal/prices_used.csv")
                 else:
                     out["terminal_return"] = _fmt(ratio)
                     status = "computed"
@@ -1939,6 +2368,8 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 status = price_status
         elif not status:
             status = price_status if price_status != "ok" else "unknown"
+        if decided.get("hold") and status != "needs_review":
+            notes.append("to check once priced: " + decided["hold"])
         if prior and out["terminal_return"]:
             out["existing_return_diff"] = _fmt(float(out["terminal_return"]) - float(prior["terminal_return"]))
         out["status"] = status
@@ -1997,7 +2428,7 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     frame, used = build_rows(scope, evidence, book, matched, NameIndex(master), read_csv_text(CANDIDATES), verified_at)
     common.atomic_write(OUTPUT, frame.to_csv(index=False).encode())
     common.atomic_write(OUT / "prices_used.csv", used.to_csv(index=False).encode())
-    summary = summarize(frame, existing, matched)
+    summary = summarize(frame, existing, matched, used)
     common.atomic_write(OUT / "terminal_summary.json", (json.dumps(summary, indent=1, default=str) + "\n").encode())
     log(f"wrote {OUTPUT}: {len(frame)} rows")
     log("by type: " + json.dumps(summary["rows_by_terminal_type"]))
@@ -2005,8 +2436,10 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def summarize(frame: pd.DataFrame, existing: pd.DataFrame, matched: dict) -> dict:
+def summarize(frame: pd.DataFrame, existing: pd.DataFrame, matched: dict, used: pd.DataFrame | None = None) -> dict:
     """Counts only (no return is averaged, ranked or otherwise aggregated)."""
+    used = pd.DataFrame(columns=["security_id", "limit_basis", "filler_dropped"]) if used is None else used
+    filler = pd.to_numeric(used.get("filler_dropped", pd.Series(dtype=float)), errors="coerce").fillna(0)
     rank = pd.to_numeric(frame["best_rank"], errors="coerce")
     unknown = frame[frame["terminal_type"].eq("unknown")].assign(_rank=rank).sort_values("_rank", na_position="last")
     diff = pd.to_numeric(frame["existing_return_diff"], errors="coerce").abs()
@@ -2034,6 +2467,10 @@ def summarize(frame: pd.DataFrame, existing: pd.DataFrame, matched: dict) -> dic
             frame.loc[frame["terminal_type"].isin(["cash_merger", "stock_merger", "mixed"])
                       & (pd.to_numeric(frame["terminal_return"], errors="coerce").abs() > 0.05), "security_id"]),
         "needs_review": sorted(frame.loc[frame["status"].eq("needs_review"), "security_id"]),
+        "rows_by_limit_basis": {k: int(v) for k, v in used["limit_basis"].value_counts().items()} if len(used) else {},
+        "last_session_stepped_back_over_filler_rows": sorted(used.loc[filler > 0, "security_id"]) if len(used) else [],
+        "exchange_moves_with_stated_new_exchange_start": int(
+            (frame["terminal_type"].eq("exchange_move") & frame["destination_start_date"].ne("")).sum()),
         "returns_aggregated": "none (counts only)",
     }
 

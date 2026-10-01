@@ -32,8 +32,20 @@ new shares per old on the ex-date, cash dividend D as paid on the ex-date):
 - ``stored``: the repo files (``cleaned_stocks_data/price``, Nasdaq's public endpoint; split- and to
   about 2023 dividend-adjusted). Only a vote on the day's return, never a level, and only where its
   return is comparable: not on the known unit breaks (2025-06-24, HON 2026-06-29), not on an
-  ex-date from 2023 on (price-only after that), not on a day its own close jumps by a split-sized
-  ratio that the vendors do not show (a ``unit_break`` in ``split_events.csv``).
+  ex-date from 2023 on (price-only after that), not on a vendor's split day where it shows that raw
+  jump, and not on a stored-only unit change. That last one is decided against the vendors' own
+  agreement, never against a default source: every vendor with a return agrees with every other,
+  the stored file agrees with none and is off by an ordinary split ratio within 1%, and the
+  vendors' own move is not split-sized (a ``unit_break`` in ``split_events.csv``). A stored return
+  that agrees with any vendor stays a vote (PTCT 2013-06-20..26: WIKI 10x too low, outvoted by
+  Yahoo and the stored file). When the only vendor's own move is split-sized and the stored file
+  does not show it, the day is a hidden split or a vendor error (``vendor_split_jump``, R2/R3;
+  CMCT 2025-01-06, BPTH 2018-02-09), not a stored unit change.
+- A split one vendor records as an ordinary ratio S > 1 and another, the same day, as cash worth
+  the new shares (D within 1% of (S - 1) x C_t or (1 - 1/S) x C_{t-1}; WIKI's PZZA 2013-12-30 and
+  HMSY 2011-08-17) is read as that split in both (S, no cash; ``cash_as_split:{source}``), so it is
+  neither a special dividend nor a distribution. Real distributions have no ordinary ratio anywhere
+  and keep the cash-versus-ratio typing (EBAY, ADP, THRX).
 
 Canonical record (``CACHE/prices/{security_id}.csv``): date, close_raw, volume_raw, split_factor,
 div_cash, tr, src_primary, n_sources, max_src_diff, flags.
@@ -48,9 +60,11 @@ div_cash, tr, src_primary, n_sources, max_src_diff, flags.
   (``majority_override`` when that is not the default one, ``disagree_resolved`` naming the
   minority); without one (two vendors that disagree) the default stays and the day is
   ``disagree_unresolved`` and queued. When the only dissent is the stored file against a single
-  vendor, the vendor stands: ``stored_glitch`` (the stored level comes back within two sessions: a
-  bad stored row, LANC 2020-2022), ``stored_shift`` (it moves 2% or more and stays: queued, an event
-  the vendor may lack), or ``stored_disagrees`` (a smaller lasting shift).
+  vendor, the vendor stands: ``stored_glitch`` (the stored/vendor level comes back within two
+  sessions: a bad row in one of them, LANC 2020-2022), ``stored_shift`` (it moves 2% or more and
+  stays: queued, an event the vendor may lack), or ``stored_disagrees`` (a smaller lasting shift).
+  Glitch and disagrees days more than 2% apart are queued too (R3, single vendor vs stored), since
+  the level ratio cannot say which row is bad; summary.json counts them by difference size.
 - ``n_sources`` = sources with a return that day (vendors plus a valid stored vote);
   ``max_src_diff`` = the largest absolute difference between one of them and ``tr``.
 - Other flags: ``level_diff`` (R7, vendor raw closes more than 1% apart), ``move_2x`` and ``move_40``
@@ -60,43 +74,57 @@ div_cash, tr, src_primary, n_sources, max_src_diff, flags.
   inside the listing), ``cross_source_return`` (the day's source lacks the prior session, so ``tr``
   uses the previous canonical close), ``splice:a>b`` and ``splice_weak`` (R8), ``split`` /
   ``reverse_split`` / ``distribution_factor``, ``special_div`` (D > 10% of the prior close),
-  ``volume_diff`` (vendor volumes 2x apart), ``stored_excluded``, ``yahoo_junction``,
-  ``wiki_div_gap``, ``tiingo_adj_identity``, ``tiingo_review`` (the fetcher's ``done_review``).
-- R5: rows after the last session with volume > 0 at the end of the series are cut (SGEN, SPLK,
-  EVBG filler) and counted.
+  ``volume_diff`` (vendor volumes 2x apart), ``stored_excluded``, ``vendor_split_jump``,
+  ``cash_as_split:{source}``, ``yahoo_junction``, ``wiki_div_gap``, ``tiingo_adj_identity``,
+  ``tiingo_review`` (the fetcher's ``done_review``), and on Yahoo-primary rows dated before an
+  events.csv event flagged ``volume_restore_unverified`` / ``volume_not_scaled_by_yahoo``,
+  ``yahoo_volume_unverified`` / ``yahoo_volume_not_scaled`` (that row's volume_raw may be off by
+  the event's ratio; counted in summary.json).
+- R5: rows after the last session with volume > 0 at the end of the series are cut (SGEN, EVBG
+  filler), then trailing rows that repeat the last real close with volume below 1% of the
+  50-row median before it (SPLK 2024-03-18..22: Tiingo volumes 0, 90, 47, ...); both are counted.
 
 Tables:
 - ``INPUTS/split_events.csv``: every S != 1 in any vendor source plus the stored files' unit breaks,
   matched across sources (same ex-date +-1 session, ratio within 0.1%), typed split /
   reverse_split / spinoff (plan 4.3's known cases) / distribution (odd ratios, or a ratio in one source
-  and cash in another) / unit_break (a split-sized jump in the stored file alone; 2025-06-24). The
-  ``nasdaq`` column is k = (1 + tr) / (1 + stored return) on the ex-date: about 1 where the stored
-  file is adjusted for the event (it moves with the total return), about S where it shows the raw
-  jump, and for a unit_break the size of the stored file's own unit change. ``agree`` is Y when at
-  least two sources confirm the ratio (a vendor with the same ratio, or the stored file at k = 1 or
-  k = S within 2%) and no vendor covering the date shows another one; ``tr_agree`` says whether the
-  sources' total returns agree within 0.5% that day (a distribution served as cash by one vendor
-  and as a ratio by another can agree on it). ``sec_url`` / ``verified_at`` stay blank for the
+  and cash in another that is not the split's value) / unit_break (the stored file's own unit change,
+  as above; 2025-06-24). ``nasdaq`` stays blank until a Nasdaq calendar source exists.
+  ``stored_implied_k`` is k = (1 + tr) / (1 + stored return) on the ex-date and ``stored_state``
+  reads it: ``adjusted`` (k within 2% of 1: the stored file moves with the total return),
+  ``raw`` (k within 2% of S: it shows the raw jump), ``ambiguous`` (S too close to 1 to tell),
+  ``other``, ``none`` (no stored row), or ``unit_change`` for a unit_break. ``agree`` is Y when at
+  least two independent sources confirm the ratio and no vendor covering the date shows another
+  one: a vendor with the same ratio, a vendor that serves it as cash worth the new shares
+  (``wiki(cash)``), or an adjusted stored file. A raw stored jump is not a confirmation: its k
+  equals the vendor's own S whatever S is, so it shows only the date and the raw prices.
+  ``tr_agree`` says whether the sources' total returns agree within 0.5% that day (a distribution
+  served as cash by one vendor and as a ratio by another can agree on it). ``sec_url`` / ``verified_at`` stay blank for the
   hand review, except where ``confirmed_price_adjustments.csv`` gives them (PRPL);
   ``sec_candidates`` lists nearby 8-Ks with Items 2.01/3.03/5.03 (then 8.01) from the cached SEC
   submissions files (no request is made).
-- ``INPUTS/special_distributions.csv``: cash above 10% of the prior raw close in any vendor, and
-  every odd ratio (distributions served as splits; ``pct_of_prior`` is then 1 - 1/ratio), with the
-  sources' total returns when they differ and the same ``sec_candidates``.
+- ``INPUTS/special_distributions.csv``: cash above 10% of the prior raw close in any vendor (not a
+  split served as cash), and every odd ratio (distributions served as splits; ``pct_of_prior`` is
+  then 1 - 1/ratio for a ratio above 1, blank below 1), with the sources' total returns when they
+  differ and the same ``sec_candidates``.
 - ``INPUTS/reviewed_moves.csv``: the draft queue for the hand review, in
   ``stocks_list_dir/nasdaq/reviewed_market_moves.csv`` format plus ``security_id`` and
   ``sources_agreeing`` (sources whose return is within 0.5% of ``tr`` that day, or that show the same
   flat run); ``classification`` is ``unreviewed`` (or the reviewed file's entry for the same ticker
   and date) and ``notes`` starts with the rule: [R1] move of 2x or 0.5x, [R1/R2] one that is also a
-  hidden-split candidate, [R1b] a 40% move no second source confirms, [R3] two vendors with no
-  majority or a lasting stored shift, [R4] a flat run no second source shows or zero volume, [R6]
+  hidden-split candidate, [R1b] a 40% move no second source confirms, [R1c] |tr| >= 10% on an
+  ex-date whose ratio no second source confirms (LGND 2022-11-02, 1.603 from Yahoo alone), [R2/R3]
+  the only vendor's split-sized move that the stored file does not show, [R3] two vendors with no
+  majority, a lasting stored shift, or a single vendor and the stored file more than 2% apart,
+  [R4] a flat run no second source shows or zero volume, [R6]
   listed sessions with no vendor row, [R7] a vendor level run 2%+ apart or 3+ sessions long. Only
   listed days that can matter are queued: 10 weeks before to 5 weeks after a week ranked <= 300 by
   step 6, or whose canonical dollar volume reaches step 6's rank-300 cut; every entry, with that
   scope marked, is in ``CACHE/reconcile/moves_all.csv``.
 - ``CACHE/reconcile/``: summary.json (coverage of ranks 1-300 by year with step 6's 5-session
-  staleness rule, flag counts by type and year, the plan-6 multi-source agreement count, known-case
-  checks), series_ends.csv (series that end before the delist date, or before the window end with
+  staleness rule, flag counts by type and year, the plan-6 multi-source agreement count with the
+  stored vote and, separately, among vendors only and for the V sample's Tiingo-Yahoo days within
+  1e-4, known-case checks), series_ends.csv (series that end before the delist date, or before the window end with
   none: the inputs for terminal values, with a likely cause), coverage_gaps.csv, no_series.csv,
   securities.csv, source_pairs.csv, moves_all.csv; ``sources/`` holds the source bundles and
   ``per_security/`` the state that makes a rerun redo only the securities whose inputs (or this
@@ -129,7 +157,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.1"
+CODE_VERSION = "2026-10-02.2"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
 CODE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 MAIN = common.MAIN_CHECKOUT
@@ -189,6 +217,16 @@ SPLICE_MIN = 20        # R8: overlapping sessions before a change of primary sou
 SPLICE_STAY = 20       # a change of primary source counts as a splice when it lasts this long
 STORED_EX_FROM = "2023-01-01"
 BREAK_DAYS = ("2025-06-24", "2026-06-29")  # stored-file unit breaks (plan 4.2: 2025-06-24, HON 2026-06-29)
+TOL_UNIT = 0.01        # the stored file alone off by an ordinary split ratio within 1%: a stored unit change
+TOL_CASH_SPLIT = 0.01  # a vendor's cash within 1% of the value of a split another vendor records
+STORED_QUEUE_DIFF = 0.02  # a single vendor and the stored file this far apart in r: queued (R3)
+RATIO_QUEUE_TR = 0.10  # |tr| this large on an ex-date whose ratio rests on one source: queued (R1c)
+FILLER_VOLUME_SHARE = 0.01  # R5: trailing repeats of the last close with volume below 1% of the median before
+YAHOO_LOADER_VERSION = "2"  # part of the yahoo_new bundle signature (2: volume flags from events.csv)
+# events.csv volume tokens -> the row flag on Yahoo rows dated before that ex-date
+YAHOO_VOLUME_TOKENS = {"volume_restore_unverified": "yahoo_volume_unverified",
+                       "volume_not_scaled_by_yahoo": "yahoo_volume_not_scaled"}
+V_SAMPLE_REASON = "V_verify_sample"  # candidate_fetch_list.csv reason of plan 6's 50-name V sample
 # Plan 4.3's known cases: (ticker, ex_date, kind, factor or None).
 KNOWN_CASES = [("EBAY", "2015-07-20", "spinoff_cash", None), ("CTXS", "2017-02-01", "spinoff_cash", None),
                ("LVNTA", "2014-08-28", "spinoff_cash", None), ("DISCK", "2014-08-07", "spinoff_cash", None),
@@ -204,7 +242,8 @@ KNOWN_DISAGREEMENTS = [("NFLX", "2013-10-22"), ("KLAC", "2015-01-23"), ("MNST", 
 PRICE_COLUMNS = ["date", "close_raw", "volume_raw", "split_factor", "div_cash", "tr", "src_primary",
                  "n_sources", "max_src_diff", "flags"]
 SPLIT_COLUMNS = ["security_id", "ticker", "ex_date", "split_factor", "event_type", "tiingo", "yahoo", "wiki",
-                 "nasdaq", "agree", "sec_url", "verified_at", "notes", "tr_agree", "sources_confirming", "sec_candidates"]
+                 "nasdaq", "agree", "sec_url", "verified_at", "notes", "tr_agree", "sources_confirming",
+                 "stored_implied_k", "stored_state", "sec_candidates"]
 SPECIAL_COLUMNS = ["security_id", "ex_date", "cash", "prior_close_raw", "pct_of_prior", "classification", "sec_url",
                    "ticker", "ratio", "sources", "notes", "sec_candidates"]
 MOVE_COLUMNS = ["ticker", "event_date", "classification", "source_url", "verified_at", "notes", "security_id",
@@ -553,8 +592,12 @@ def load_old_yahoo_rows(identity: dict, targets: set[str], have_new: set[str]) -
 
 def load_new_yahoo_rows(targets: set[str]) -> pd.DataFrame:
     """Step 7's restored files (one per security); junction rows and junction-flagged events are not
-    splits, odd ratios are distributions (``events.csv`` flags)."""
+    splits, odd ratios are distributions (``events.csv`` flags). An event whose volume restore WIKI
+    could not test (``volume_restore_unverified``) or that Yahoo served unscaled
+    (``volume_not_scaled_by_yahoo``) marks every row dated before its ex-date, since the restore
+    divides those rows' volume by the ratio (``yahoo_volume_unverified`` / ``yahoo_volume_not_scaled``)."""
     flags = defaultdict(set)
+    volume_events = defaultdict(list)  # security -> [(ex_date, row flag)]
     if YAHOO_EVENTS.exists():
         events = pd.read_csv(YAHOO_EVENTS, dtype=str, keep_default_na=False)
         for sid, day, kind, text in zip(events["security_id"], events["ex_date"], events["event_type"], events["flags"]):
@@ -562,6 +605,8 @@ def load_new_yahoo_rows(targets: set[str]) -> pd.DataFrame:
                 if token in ("odd_ratio", "trim_junction", "segment_junction", "not_applied_by_yahoo",
                              "volume_restore_unverified", "volume_not_scaled_by_yahoo"):
                     flags[(sid, day)].add(token)
+                if token in YAHOO_VOLUME_TOKENS:
+                    volume_events[sid].append((day, YAHOO_VOLUME_TOKENS[token]))
     out = []
     for sid in sorted(targets):
         path = YAHOO_DIR / f"{sid}.csv.gz"
@@ -581,6 +626,11 @@ def load_new_yahoo_rows(targets: set[str]) -> pd.DataFrame:
                 names.append("yahoo_not_applied")
             if names:
                 rowflag[k] = " ".join(names)
+        dates = data["date"].astype(str).values
+        for day, name in volume_events.get(sid, ()):
+            for k in np.flatnonzero(dates < day):
+                if name not in rowflag[k].split():
+                    rowflag[k] = f"{rowflag[k]} {name}".strip()
         rows = _rows(sid, data["date"], data["close_raw"], data["volume_raw"], data["split_factor"], data["div_cash"],
                      rowflag, f"yahoo/{path.name}")
         out.append(rows)
@@ -636,7 +686,7 @@ def load_sources(identity: dict, targets: set[str], windows: dict) -> tuple[dict
     stored_sig = file_signature(list(STORED_DIR.glob("*.csv")) + [pf.PRICE_FILE_OWNERS]) + base
     old_tiingo_sig = file_signature([p for d in OLD_TIINGO_DIRS for p in d.glob("*.json")]) + base
     yahoo_files = list(YAHOO_DIR.glob("*.csv.gz")) + [YAHOO_EVENTS]
-    new_yahoo_sig = file_signature(yahoo_files) + base
+    new_yahoo_sig = file_signature(yahoo_files) + base + YAHOO_LOADER_VERSION
     have_new = {p.name[:-len(".csv.gz")] for p in YAHOO_DIR.glob("*.csv.gz")}
     old_yahoo_sig = file_signature([p for d in OLD_YAHOO_DIRS for p in d.glob("*.json")]) + base + \
         hashlib.sha256(" ".join(sorted(have_new)).encode()).hexdigest()
@@ -667,17 +717,21 @@ SRC = list(SOURCES)  # wiki, tiingo, yahoo, stored (row order of the arrays belo
 W, T_, Y, ST = 0, 1, 2, 3
 
 
-def near_split_factor(factor: float) -> float | None:
-    """``factor`` as an ordinary split factor (n:1, 1:n up to 100, n:m up to 10) within 2.5%, when it
-    is split-sized (>= 1.4 or <= 1/1.4); None otherwise."""
+_SPLIT_CANDIDATES = [float(n) for n in range(2, 101)] + [1.0 / n for n in range(2, 101)] + \
+                    [n / m for m in range(2, 11) for n in range(1, 11) if n % m]
+
+
+def near_split_factor(factor: float, tolerance: float = 0.025) -> float | None:
+    """``factor`` as an ordinary split factor (n:1, 1:n up to 100, n:m up to 10) within ``tolerance``,
+    when it is split-sized (>= 1.4 or <= 1/1.4); None otherwise. With 2.5% nearly every factor beyond
+    1.4x qualifies (the n:m set is dense there), so it only says "split-sized"; 1% (``TOL_UNIT``)
+    is the test for a stored unit change."""
     if factor is None or not np.isfinite(factor) or factor <= 0:
         return None
     if 1 / SPLIT_LIKE < factor < SPLIT_LIKE:
         return None
-    candidates = [float(n) for n in range(2, 101)] + [1.0 / n for n in range(2, 101)] + \
-                 [n / m for m in range(2, 11) for n in range(1, 11) if n % m]
-    best = min(candidates, key=lambda c: abs(factor / c - 1))
-    return float(best) if abs(factor / best - 1) <= 0.025 else None
+    best = min(_SPLIT_CANDIDATES, key=lambda c: abs(factor / c - 1))
+    return float(best) if abs(factor / best - 1) <= tolerance else None
 
 
 def strict_split_factor(factor: float, tolerance: float = 0.01) -> float | None:
@@ -718,6 +772,98 @@ def stored_disagreements(C: np.ndarray, r: np.ndarray, valid: np.ndarray, choice
         else:
             out[k] = "stored_disagrees"
     return out
+
+
+def cash_encoded_splits(C: np.ndarray, S: np.ndarray, D: np.ndarray, has: np.ndarray,
+                        junction: np.ndarray) -> dict[tuple[int, int], tuple[float, float, int]]:
+    """(source j, day k) -> (ratio, cash, ratio source i): a share split (an ordinary ratio S > 1)
+    that vendor i records as S and vendor j, on the same day with S = 1, as cash worth the new
+    shares: D within 1% of (S - 1) x C_t (WIKI's PZZA 2013-12-30 and HMSY 2011-08-17 encoding, which
+    leaves the total return as it is) or of (1 - 1/S) x C_{t-1}. Real distributions (EBAY, ADP, THRX)
+    have no ordinary ratio in any source, so their cash-versus-ratio typing stays."""
+    out = {}
+    for i in range(3):
+        mask = has[i] & (S[i] > 1.0 + 1e-9)
+        if i == Y:
+            mask &= ~junction
+        for k in np.flatnonzero(mask):
+            ratio = float(S[i, k])
+            if not ordinary_ratio(ratio):
+                continue
+            for j in range(3):
+                if j == i or not has[j, k] or abs(S[j, k] - 1.0) > 1e-9 or not D[j, k] > 0 or (j == Y and junction[k]):
+                    continue
+                worth = [(ratio - 1.0) * C[j, k]]
+                if k and has[j, k - 1]:
+                    worth.append((1.0 - 1.0 / ratio) * C[j, k - 1])
+                if any(np.isfinite(v) and v > 0 and abs(D[j, k] / v - 1.0) <= TOL_CASH_SPLIT for v in worth):
+                    out[(j, k)] = (ratio, float(D[j, k]), i)
+    return out
+
+
+def stored_vote(r: np.ndarray, valid: np.ndarray, S: np.ndarray, has: np.ndarray, rank: np.ndarray,
+                junction: np.ndarray, C: np.ndarray) -> dict:
+    """Which stored returns are not comparable with the vendors' (decided against the vendors' own
+    agreement, not against a default source, so a vendor error is never booked as a stored unit
+    change; PTCT 2013-06-26, CMCT 2025-01-06):
+    - ``raw_jump``: a vendor records S != 1 that day and the stored file shows that raw jump
+      ((1 + r_vendor) / (1 + r_stored) within 2% of the vendor's S);
+    - ``unit``: every vendor with a return agrees with every other, the stored file agrees with none,
+      it is off by an ordinary split ratio within 1%, the vendors' own move is not split-sized, and
+      the stored/vendor level stays shifted over the next two sessions (more than 2% from where it
+      was the day before; a level that comes back is a bad row, CGC 2023-06-30): a stored-only unit
+      change (``unit_break`` in split_events.csv; CBIO 2025-06-02, 0.2099 -> 20.20).
+    Both tolerances widen by the vendor's own cent rounding, 0.005 / C_t + 0.005 / C_{t-1}, which
+    matters only below a few dollars (CBIO's Yahoo closes 0.21 -> 0.20).
+    A stored return that agrees with any vendor stays a vote. ``vendor_jump``: the only vendor's own
+    move is split-sized (1.4x or more either way) and the stored file, a valid vote, does not show
+    it (the gap between the two is split-sized too): a split that vendor lacks or a vendor error
+    (R2/R3), never a stored unit change."""
+    n = r.shape[1]
+    cols = np.arange(n)
+    vendor_valid = valid[:3]
+    n_vendor = vendor_valid.sum(axis=0)
+    ref = first_by_rank(valid, rank)
+    ref_r = np.where(ref >= 0, r[np.clip(ref, 0, 3), cols], np.nan)
+    ref_i = np.clip(ref, 0, 2)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ref_close = np.where(ref >= 0, C[ref_i, cols], np.nan)
+        ref_prev = np.where((ref >= 0) & (cols > 0), C[ref_i, np.maximum(cols - 1, 0)], np.nan)
+        allowance = np.nan_to_num(0.005 / ref_close + 0.005 / ref_prev, nan=0.0, posinf=0.0)
+    high = np.where(vendor_valid, r[:3], -np.inf).max(axis=0)
+    low = np.where(vendor_valid, r[:3], np.inf).min(axis=0)
+    vendors_agree = (n_vendor >= 1) & (high - low <= TOL_R)
+    with np.errstate(invalid="ignore"):
+        close_to = vendor_valid & valid[ST][None, :] & (np.abs(r[:3] - r[ST][None, :]) <= TOL_R)
+    stored_agrees = close_to.any(axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        implied = (1.0 + ref_r) / (1.0 + r[ST])
+    events = has[:3] & (np.abs(S[:3] - 1.0) > 1e-9)
+    events[Y] &= ~junction
+    raw_jump = np.zeros(n, dtype=bool)
+    for k in np.flatnonzero(events.any(axis=0) & valid[ST] & ~stored_agrees):
+        raw_jump[k] = any(ratio_match(implied[k], S[i, k], TOL_STORED_RATIO + allowance[k])
+                          for i in range(3) if events[i, k])
+    split_sized = np.array([near_split_factor(1.0 + v) is not None for v in ref_r])
+    candidate = valid[ST] & ~stored_agrees
+    unit = np.zeros(n, dtype=bool)
+    for k in np.flatnonzero(candidate & vendors_agree & ~split_sized & ~raw_jump):
+        if near_split_factor(implied[k], TOL_UNIT + allowance[k]) is None or k < 1:
+            continue
+        i = ref_i[k]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            level = lambda j: C[ST, j] / C[i, j] if 0 <= j < n and has[ST, j] and has[i, j] else np.nan
+            later = [level(j) / level(k - 1) - 1.0 for j in (k + 1, k + 2)]
+            back = [level(k) / level(j) - 1.0 for j in (k - 2, k - 3)]
+        stays = all(abs(v) > 0.02 for v in later if np.isfinite(v))  # (or the series ends)
+        returns = any(abs(v) <= 0.02 for v in back if np.isfinite(v))  # the day a bad stored row ends
+        unit[k] = stays and not returns
+    # the stored file does not show the jump: the gap between the two is itself split-sized (OPTT
+    # 2016-06-02, Yahoo -31.0% against stored -32.2%, is a market move both show)
+    gap_sized = np.array([near_split_factor(v) is not None for v in implied])
+    vendor_jump = candidate & (n_vendor == 1) & split_sized & gap_sized & ~raw_jump
+    return {"raw_jump": raw_jump, "unit": unit, "vendor_jump": vendor_jump, "implied_vote": implied,
+            "n_vendor": n_vendor, "stored_agrees": stored_agrees}
 
 
 def first_by_rank(mask: np.ndarray, rank: np.ndarray) -> np.ndarray:
@@ -802,6 +948,34 @@ def run_lengths(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(starts.tolist(), ends.tolist()))
 
 
+def tiny_volume_tail(close: np.ndarray, volume: np.ndarray, keep: np.ndarray) -> np.ndarray:
+    """R5's second cut: the kept rows at the end of the series that repeat the close of the last real
+    trade (the first row of the final run of equal closes) with a volume below ``FILLER_VOLUME_SHARE``
+    of the median positive volume over the 50 rows up to that trade. A row with more volume, or with
+    no volume figure, ends the cut (a missing volume is not filler)."""
+    rows = np.flatnonzero(keep)
+    if len(rows) < 2:
+        return rows[:0]
+    c, v = close[rows], volume[rows]
+    start = len(rows) - 1
+    while start > 0 and c[start - 1] == c[-1]:
+        start -= 1
+    if start == len(rows) - 1:
+        return rows[:0]
+    before = v[max(0, start - 49): start + 1]
+    before = before[np.isfinite(before) & (before > 0)]
+    if not len(before):
+        return rows[:0]
+    limit = FILLER_VOLUME_SHARE * float(np.median(before))
+    cut = len(rows)
+    for j in range(len(rows) - 1, start, -1):
+        if np.isfinite(v[j]) and v[j] < limit:
+            cut = j
+        else:
+            break
+    return rows[cut:]
+
+
 def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> dict:
     """The canonical series of one security and its events, queue entries and checks."""
     sessions = ctx["sessions"]
@@ -826,39 +1000,46 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     junction = np.array(["yahoo_junction" in f for f in RF[Y]])
     S[Y, junction] = 1.0
     D[Y, junction] = 0.0
+    # a split one vendor serves as cash worth the new shares is read as that split (S, and no cash)
+    cash_split = cash_encoded_splits(C, S, D, has, junction)
+    for (j, k), (ratio, _cash, _i) in cash_split.items():
+        S[j, k], D[j, k] = ratio, 0.0
     prev = np.c_[np.full((4, 1), np.nan), C[:, :-1]]
     r = total_return(C, S, D, prev)
     r[Y, junction] = np.nan
     r[ST] = C[ST] / prev[ST] - 1.0  # stored: adjusted close, a vote only
+    stored_r = r[ST].copy()  # its own return, also where it is no vote
     valid = np.isfinite(r)
     early = grid < pd.Timestamp(WIKI_DIV_GAP_FROM)
     rank = np.full((4, n), np.inf)
     for i, name in enumerate(SRC[:3]):
         rank[i] = np.where(early, PRECEDENCE_EARLY.index(name), PRECEDENCE_LATE.index(name))
+    cols = np.arange(n)
 
-    # pass 1: vendors only, for the stored vote's validity
-    vendor_valid = valid.copy()
-    vendor_valid[ST] = False
-    first = select_sources(r, vendor_valid, has, rank)
-    p1 = first["primary"]
-    tr1 = np.where(p1 >= 0, r[np.clip(p1, 0, 3), np.arange(n)], np.nan)
+    # the stored vote: dropped on the known breaks, on ex-dates from 2023 (price-only), on a raw jump
+    # of a vendor's split, and on a stored-only unit change; kept wherever it agrees with a vendor
+    vote = stored_vote(r, valid, S, has, rank, junction, C)
     vendor_event = (np.abs(S[:3] - 1.0) > 1e-9).any(axis=0) | (D[:3] > 0).any(axis=0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        implied = (1.0 + tr1) / (1.0 + r[ST])  # the split factor the stored file's jump amounts to
-    stored_unit = np.array([near_split_factor(k) is not None for k in implied])
     break_day = np.isin(grid.strftime("%Y-%m-%d"), BREAK_DAYS)
-    stored_excluded = valid[ST] & (break_day | stored_unit | (vendor_event & (grid >= pd.Timestamp(STORED_EX_FROM))))
+    stored_excluded = valid[ST] & (break_day | vote["raw_jump"] | vote["unit"] |
+                                   (vendor_event & (grid >= pd.Timestamp(STORED_EX_FROM))))
     valid[ST] &= ~stored_excluded
+    vendor_jump = vote["vendor_jump"] & valid[ST]
 
     choice = select_sources(r, valid, has, rank)
     primary = choice["primary"]
-    cols = np.arange(n)
     p = np.clip(primary, 0, 3)
     stored_kind = stored_disagreements(C, r, valid, choice, p)
     choice["unresolved"] = choice["unresolved"] & (stored_kind == "")
     Cp, Vp, Sp, Dp = C[p, cols], V[p, cols], S[p, cols], D[p, cols]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        implied = (1.0 + r[p, cols]) / (1.0 + stored_r)  # the factor the stored file's move is off by
+    # stored unit changes for split_events.csv: the vote's rule, and the known break days
+    stored_unit = vote["unit"] | (break_day & has[ST] & np.array([near_split_factor(v) is not None for v in implied]))
 
-    # R5: cut filler after the last session with volume > 0 (a missing volume is not filler)
+    # R5: cut filler after the last session with volume > 0 (a missing volume is not filler), then
+    # trailing repeats of the last real close with volume below 1% of the 50-row median before them
+    # (Tiingo's SPLK 2024-03-18..22: volumes 0, 90, 47, ...)
     keep = has_vendor & (primary >= 0)
     traded = np.flatnonzero(keep & ~(Vp == 0))
     filler_cut = 0
@@ -867,6 +1048,9 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         tail[: traded[-1] + 1] = False
         filler_cut = int(tail.sum())
         keep &= ~tail
+    filler_tiny = tiny_volume_tail(Cp, Vp, keep)
+    keep[filler_tiny] = False
+    filler_cut += len(filler_tiny)
     idx = np.flatnonzero(keep)
     prev_idx = np.r_[-1, idx[:-1]]
     gap = np.where(prev_idx >= 0, idx - prev_idx - 1, 0)
@@ -907,6 +1091,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     hidden = np.array([bool(no_split_any[k] and move_2x[k] and not stored_moves_too[k] and
                             strict_split_factor(1.0 / raw_ratio[k]) is not None)
                        if np.isfinite(raw_ratio[k]) else False for k in range(n)])
+    # also: the only vendor jumps 2x or more by an n:1, 1:n, 3:2 or 2:3 ratio (2.5%: its closes may be
+    # rounded to the cent) against a stored file that moves normally (CMCT 2025-01-06: Yahoo 0.17 ->
+    # 1.68, a 1:10 it lacks, while the stored file goes 4352.5 -> 4200)
+    for k in np.flatnonzero(vendor_jump & no_split_any & move_2x):
+        hidden[k] = strict_split_factor(implied[k], 0.025) is not None
     # R4
     flat = np.zeros(n, dtype=bool)
     if len(idx) >= FLAT_RUN:
@@ -969,6 +1158,13 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("special_div")
         if stored_excluded[k]:
             t.append("stored_excluded")
+        if vendor_jump[k]:
+            t.append("vendor_split_jump")  # R2/R3: the only vendor's move is split-sized, the stored file's is not
+        cash_names = [SRC[j] for j in range(3) if (j, k) in cash_split]
+        if cash_names:
+            t.append("cash_as_split:" + "+".join(cash_names))
+        if p[k] == Y:
+            t.extend(name for name in YAHOO_VOLUME_TOKENS.values() if name in RF[Y, k].split())
         if junction[k] and has[Y, k]:
             t.append("yahoo_junction")
         if p[k] == W and not early[k] and not has[1:3, k].any():
@@ -988,18 +1184,32 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
 
     ctx_local = {"grid": grid, "idx": idx, "C": C, "S": S, "D": D, "has": has, "r": r, "valid": valid, "tr": tr,
                  "Cp": Cp, "Sp": Sp, "Dp": Dp, "p": p, "implied": implied, "junction": junction, "listed": listed,
-                 "agreeing": agreeing, "RF": RF, "keep": keep}
+                 "agreeing": agreeing, "RF": RF, "keep": keep, "stored_unit": stored_unit, "stored_r": stored_r,
+                 "stored_excluded": stored_excluded, "cash_split": cash_split}
     result["events"] = split_events_of(sid, ctx_local, ticker_of)
     result["specials"] = specials_of(sid, ctx_local, ticker_of)
+    # R1c: an ex-date whose ratio no second source confirms, with |tr| >= 10% resting on it (LGND 2022-11-02)
+    day_of = {d: k for k, d in enumerate(grid.strftime("%Y-%m-%d"))}
+    single_ratio = {day_of[e["ex_date"]]: e for e in result["events"]
+                    if e["event_type"] != "unit_break" and e["in_canonical"]
+                    and len([s for s in e["sources_confirming"].split("+") if s]) < 2}
     result["moves"] = moves_of(sid, ctx_local, ticker_of, choice=choice, move_2x=move_2x, move_big=move_big,
                                hidden=hidden, flat=flat, zero_vol=zero_vol, level_off=level_off, gap=gap,
-                               stored_kind=stored_kind)
+                               stored_kind=stored_kind, vendor_jump=vendor_jump, single_ratio=single_ratio)
     result["pairs"] = pair_stats(sid, C, r, valid, has)
     counts = Counter(token.split(":")[0] for k in idx for token in tokens[k])
+    # plan 6's agreement without the stored vote: kept days with two or more vendor returns
+    n_vendor = valid[:3].sum(axis=0)
+    with np.errstate(invalid="ignore"):
+        vendor_gap = np.nan_to_num(np.where(valid[:3], np.abs(r[:3] - tr[None, :]), 0.0), nan=np.inf).max(axis=0)
+    multi_vendor = keep & (n_vendor >= 2)
     result["summary"].update({
         "rows": int(len(idx)), "first_date": canonical["date"].iloc[0], "last_date": canonical["date"].iloc[-1],
-        "filler_cut": filler_cut, "rows_by_primary": dict(Counter(canonical["src_primary"])),
+        "filler_cut": filler_cut, "filler_cut_tiny_volume": int(len(filler_tiny)),
+        "rows_by_primary": dict(Counter(canonical["src_primary"])),
         "rows_multi_source": int((canonical["n_sources"] >= 2).sum()),
+        "rows_multi_vendor": int(multi_vendor.sum()),
+        "rows_multi_vendor_agree": int((multi_vendor & (vendor_gap <= TOL_R)).sum()),
         "flag_counts": dict(counts), "last_volume_positive": bool(Vp[idx[-1]] > 0) if len(idx) else False,
         "tiingo_identity_rows": int(sum("tiingo_adj_identity" in f for f in RF[T_][has[T_]])),
         "listed_sessions_without_row": int((listed & ~keep & (cols >= idx[0]) & (cols <= idx[-1])).sum()),
@@ -1020,7 +1230,8 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
             mask &= ~x["junction"]
         found += [(k, i) for k in np.flatnonzero(mask)]
     implied = x["implied"]
-    stored_units = [k for k in range(n) if has[ST, k] and np.isfinite(implied[k]) and near_split_factor(implied[k])]
+    cash_split = x["cash_split"]
+    stored_units = [int(k) for k in np.flatnonzero(x["stored_unit"])]
     events = []
     clusters = []
     for k, i in sorted(found):
@@ -1036,10 +1247,18 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
         factor = x["Sp"][day] if canon_days else float(np.median([S[i, k] for k, i in cluster]))
         lo, hi = max(0, day - 1), min(n - 1, day + 1)
         values, notes, confirm, contra = {}, [], [], []
+        cash_instead = False
         for i, name in enumerate(SRC[:3]):
-            mine = [S[i, k] for k, j in cluster if j == i]
+            as_cash = [(k, cash_split[(i, k)]) for k, j in cluster if j == i and (i, k) in cash_split]
+            mine = [S[i, k] for k, j in cluster if j == i and (i, k) not in cash_split]
             covers = has[i, lo: hi + 1].any() and has[i, max(0, lo - 1): hi + 1].sum() >= 2
-            if mine:
+            if as_cash:
+                # its own record is cash worth the new shares at this ratio: the same event, read as the split
+                k, (ratio, cash, _src) = as_cash[0]
+                values[name] = 1.0
+                (confirm if ratio_match(ratio, factor) else contra).append(f"{name}(cash)")
+                notes.append(f"{name} serves it as cash {cash:.6g} ((S - 1) x close): read as the split")
+            elif mine:
                 values[name] = mine[0]
                 (confirm if ratio_match(mine[0], factor) else contra).append(name)
             elif covers:
@@ -1049,21 +1268,32 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
                             and D[i, k] > SPECIAL_PCT * C[i, k - 1]]
                 if big_cash:
                     k = big_cash[0]
+                    cash_instead = True
                     notes.append(f"{name} shows cash {D[i, k] / C[i, k - 1]:.1%} of prior close instead")
             else:
                 values[name] = ""
-        stored_k = ""
+        # the stored file confirms the ratio only when it is adjusted for it (it moves with the total
+        # return, k about 1); a raw jump shows only the date and the raw prices, since then k equals
+        # the vendor's own S whatever S is
+        stored_k, stored_state = "", "none"
         unit_days = [k for k in range(lo, hi + 1) if k in stored_units]
         used_units.update(unit_days)
         if has[ST, day] and np.isfinite(implied[day]):
             stored_k = round(float(implied[day]), 4)
-            if ratio_match(stored_k, 1.0, TOL_STORED_RATIO):
-                confirm.append("stored")  # the stored file moves with the total return: adjusted for S
+            adjusted = ratio_match(stored_k, 1.0, TOL_STORED_RATIO)
+            raw = ratio_match(stored_k, factor, TOL_STORED_RATIO)
+            if adjusted and not raw:
+                stored_state = "adjusted"
+                confirm.append("stored")
                 notes.append("stored adjusted for it")
-            elif ratio_match(stored_k, factor, TOL_STORED_RATIO):
-                confirm.append("stored")  # a raw jump of 1/S on the same day: the same date and ratio
-                notes.append("stored shows the raw jump (not adjusted)")
+            elif raw and not adjusted:
+                stored_state = "raw"
+                notes.append("stored raw jump: date and raw prices only")
+            elif raw and adjusted:
+                stored_state = "ambiguous"
+                notes.append("stored: the ratio is too close to 1 to tell adjusted from raw")
             else:
+                stored_state = "other"
                 notes.append("stored implies another factor")
         ticker = ticker_of(grid[day])
         yahoo_flags = " ".join(sorted({f for k, j in cluster if j == Y for f in x["RF"][Y, k].split()
@@ -1072,7 +1302,7 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
             notes.append(yahoo_flags)
         if (ticker, str(grid[day].date())) in KNOWN_SPINOFFS:
             kind = "spinoff"
-        elif not ordinary_ratio(factor) or "yahoo_odd_ratio" in yahoo_flags or any("cash" in t for t in notes):
+        elif not ordinary_ratio(factor) or "yahoo_odd_ratio" in yahoo_flags or cash_instead:
             kind = "distribution"
         else:
             kind = "split" if factor > 1 else "reverse_split"
@@ -1085,9 +1315,10 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
             notes.append("dates " + " ".join(str(grid[k].date()) for k in days))
         events.append({"security_id": sid, "ticker": ticker, "ex_date": str(grid[day].date()),
                        "split_factor": float(factor), "event_type": kind,
-                       "tiingo": values["tiingo"], "yahoo": values["yahoo"], "wiki": values["wiki"], "nasdaq": stored_k,
+                       "tiingo": values["tiingo"], "yahoo": values["yahoo"], "wiki": values["wiki"], "nasdaq": "",
                        "agree": "Y" if len(confirm) >= 2 and not contra else "N", "sec_url": "", "verified_at": "",
                        "notes": "; ".join(notes), "tr_agree": tr_agree, "sources_confirming": "+".join(confirm),
+                       "stored_implied_k": stored_k, "stored_state": stored_state,
                        "in_canonical": bool(canon_days), "contra": "+".join(contra), "listed": bool(x["listed"][day])})
     for k in stored_units:
         if k in used_units or not x["keep"][k]:
@@ -1103,12 +1334,13 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
                 values[name] = ""
         events.append({"security_id": sid, "ticker": ticker_of(grid[k]), "ex_date": str(grid[k].date()),
                        "split_factor": 1.0, "event_type": "unit_break", "tiingo": values["tiingo"],
-                       "yahoo": values["yahoo"], "wiki": values["wiki"], "nasdaq": round(float(implied[k]), 4),
+                       "yahoo": values["yahoo"], "wiki": values["wiki"], "nasdaq": "",
                        "agree": "Y" if len(confirm) >= 2 else "N", "sec_url": "", "verified_at": "",
                        "notes": "stored-only unit change; vendors show no split" +
                                 ("; known 2025-06-24 break" if str(grid[k].date()) == BREAK_DAYS[0] else ""),
-                       "tr_agree": "", "sources_confirming": "+".join(confirm), "in_canonical": False, "contra": "stored",
-                       "listed": bool(x["listed"][k])})
+                       "tr_agree": "", "sources_confirming": "+".join(confirm),
+                       "stored_implied_k": round(float(implied[k]), 4), "stored_state": "unit_change",
+                       "in_canonical": False, "contra": "stored", "listed": bool(x["listed"][k])})
     return events
 
 
@@ -1160,8 +1392,10 @@ def specials_of(sid: str, x: dict, ticker_of) -> list[dict]:
         spread = float(x["r"][both, day].max() - x["r"][both, day].min()) if both.sum() >= 2 else np.nan
         returns = ", ".join(f"{SRC[i]} {x['r'][i, day]:+.1%}" for i in range(4) if both[i])
         pct = cash_value / prior if np.isfinite(cash_value) and np.isfinite(prior) and prior > 0 else np.nan
-        if not np.isfinite(pct) and ratio:
+        ratio_pct = bool(not np.isfinite(pct) and ratio and ratio[0][3] > 1)
+        if ratio_pct:
             pct = 1.0 - 1.0 / ratio[0][3]  # the share of value a distribution served as a ratio takes away
+        # a ratio below 1 (HON 2026-06-29, 0.9535) is no share of value taken away: pct stays blank
         out.append({"security_id": sid, "ex_date": str(grid[day].date()),
                     "cash": round(float(cash_value), 6) if np.isfinite(cash_value) else "",
                     "prior_close_raw": round(float(prior), 6) if np.isfinite(prior) else "",
@@ -1169,7 +1403,8 @@ def specials_of(sid: str, x: dict, ticker_of) -> list[dict]:
                     "classification": kind, "sec_url": "", "ticker": ticker,
                     "ratio": round(float(ratio[0][3]), 6) if ratio else "", "sources": sources,
                     "notes": "; ".join(filter(None, [
-                        "pct is 1 - 1/ratio" if ratio and not cash else "",
+                        "pct is 1 - 1/ratio" if ratio_pct else
+                        ("ratio below 1: no pct" if ratio and not cash and ratio[0][3] < 1 else ""),
                         f"total returns differ: {returns}" if np.isfinite(spread) and spread > TOL_R else
                         ("sources agree on the total return" if np.isfinite(spread) else "one source only")])),
                     "listed": bool(x["listed"][day])})
@@ -1177,9 +1412,12 @@ def specials_of(sid: str, x: dict, ticker_of) -> list[dict]:
 
 
 def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden, flat, zero_vol, level_off, gap,
-             stored_kind) -> list[dict]:
-    """Draft queue entries (plan 4.4): R1, R1b, R2, R3, R4, R6, R7."""
+             stored_kind, vendor_jump=None, single_ratio=None) -> list[dict]:
+    """Draft queue entries (plan 4.4): R1, R1/R2, R1b, R1c, R2/R3, R3, R4, R6, R7."""
     grid, idx, agreeing, valid, has, C = x["grid"], x["idx"], x["agreeing"], x["valid"], x["has"], x["C"]
+    n = len(grid)
+    vendor_jump = np.zeros(n, dtype=bool) if vendor_jump is None else vendor_jump
+    single_ratio = single_ratio or {}
     out = []
 
     def entry(k, rule, note, agreeing_sources=None):
@@ -1191,27 +1429,58 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
 
     keep = x["keep"]
     tr = x["tr"]
+    stored_r = x.get("stored_r", x["r"][ST])
+    queued_jump = np.zeros(n, dtype=bool)
     for k in idx:
         n_agree = int(agreeing[:, k].sum())
+        stored_note = f"; the stored file moves {stored_r[k]:+.2%} (a split the vendor lacks, or a vendor error)" \
+            if vendor_jump[k] else ""
+        ratio_note = ""
+        if k in single_ratio and np.isfinite(tr[k]) and abs(tr[k]) >= RATIO_QUEUE_TR:
+            event = single_ratio[k]
+            ratio_note = (f"{event['event_type']} ratio {event['split_factor']:.6g} that only "
+                          f"{event['sources_confirming'] or 'no source'} records (stored {event['stored_state']})")
         if move_2x[k]:
             rule = "R1/R2" if hidden[k] else "R1"
             note = f"price ratio {1 + tr[k]:.2f}x with no split in any source" if hidden[k] else \
                 f"move of {1 + tr[k]:.2f}x"
             if hidden[k]:
-                note += f" (fits {near_split_factor(1 / (1 + tr[k])):.4g} split)"
-            note += f"; {n_agree} source(s) agree within 0.5%"
-            entry(k, rule, note)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    fit = near_split_factor(1 / (1 + tr[k])) or near_split_factor(1 / x["implied"][k])
+                note += f" (fits {fit:.4g} split)" if fit else ""
+            note += f"; {n_agree} source(s) agree within 0.5%" + stored_note
+            entry(k, rule, note + (f"; it rests on a {ratio_note}" if ratio_note else ""))
+            queued_jump[k] = bool(vendor_jump[k])
+        elif vendor_jump[k]:
+            entry(k, "R2/R3", f"the only vendor ({SRC[x['p'][k]]}) moves {tr[k]:+.2%}, split-sized{stored_note}")
+            queued_jump[k] = True
         elif move_big[k] and n_agree < 2:
-            entry(k, "R1b", f"move of {tr[k]:+.0%} confirmed by no second source")
+            entry(k, "R1b", f"move of {tr[k]:+.0%} confirmed by no second source" +
+                  (f"; it rests on a {ratio_note}" if ratio_note else ""))
+        elif ratio_note:  # R1c: the R1 entries above carry the same note
+            entry(k, "R1c", f"tr {tr[k]:+.2%} rests on a {ratio_note}; needs a document")
         if choice["unresolved"][k]:
             values = ", ".join(f"{SRC[i]} {x['r'][i, k]:+.2%}" for i in range(4) if valid[i, k])
             entry(k, "R3", f"sources disagree with no majority: {values}")
-        elif stored_kind[k] == "stored_shift":
+        elif stored_kind[k] == "stored_shift" and not queued_jump[k]:  # a vendor jump is queued above
             values = ", ".join(f"{SRC[i]} {x['r'][i, k]:+.2%}" for i in range(4) if valid[i, k])
             entry(k, "R3", f"stored file shifts against the only vendor and stays (an event the vendor may lack, "
                            f"or a stored adjustment): {values}")
     kept = np.zeros(len(grid), dtype=bool)
     kept[idx] = True
+    # R3, single vendor vs stored: a one-day (glitch) or small lasting (disagrees) gap above 2%. The
+    # vendor stands, but which row is bad is not known (HSIC 2019-02-08, SWBI 2020-08-25, CGC 2022-10-07)
+    with np.errstate(invalid="ignore"):
+        gap_r = np.abs(x["r"][x["p"], np.arange(n)] - stored_r)
+    weak = np.isin(stored_kind, ["stored_glitch", "stored_disagrees"]) & kept & ~queued_jump & \
+        (np.nan_to_num(gap_r, nan=0.0) > STORED_QUEUE_DIFF)
+    for s0, s1 in run_lengths(weak):
+        days = np.arange(s0, s1 + 1)
+        worst = days[int(np.nanargmax(gap_r[days]))]
+        entry(s0, "R3", f"single vendor vs stored on {len(days)} session(s) to {grid[s1].date()} "
+                        f"({', '.join(sorted(set(stored_kind[days])))}); largest on {grid[worst].date()}: "
+                        f"{SRC[x['p'][worst]]} {x['r'][x['p'][worst], worst]:+.2%}, stored {stored_r[worst]:+.2%}; "
+                        "the vendor stands until a document or the stored file's own OHLC says which row is bad")
     for s0, s1 in run_lengths(flat & kept):
         days = idx[(idx >= s0) & (idx <= s1)]
         confirmed = [SRC[i] for i in range(4) if i != x["p"][s0] and has[i, days].all()
@@ -1252,6 +1521,7 @@ def pair_stats(sid: str, C: np.ndarray, r: np.ndarray, valid: np.ndarray, has: n
             with np.errstate(divide="ignore", invalid="ignore"):
                 ratio = (C[i] / C[j])[level]
             out.append({"security_id": sid, "a": SRC[i], "b": SRC[j], "days_r": int(both.sum()),
+                        "days_r_1e4": int((dr <= 1e-4).sum()), "days_r_0p5pct": int((dr <= TOL_R).sum()),
                         "share_r_1e4": round(float((dr <= 1e-4).mean()), 4) if len(dr) else "",
                         "share_r_0p5pct": round(float((dr <= TOL_R).mean()), 4) if len(dr) else "",
                         "days_level": int(level.sum()),
@@ -1707,6 +1977,10 @@ def dv_cutoffs() -> pd.DataFrame:
     return pd.DataFrame({"cut50": cut50, "cut20": cut20}).sort_index()
 
 
+STORED_GAP_BINS = (-np.inf, 0.005, 0.01, 0.02, 0.05, 0.10, np.inf)
+STORED_GAP_LABELS = ("<=0.5%", "0.5-1%", "1-2%", "2-5%", "5-10%", ">10%")
+
+
 def scan_series(ids: list[str], cutoffs: pd.DataFrame) -> dict:
     """One pass over the canonical files: flag counts by type (and type and year), plan 6's check of
     days with two or more sources agreeing within 0.5%, and the weeks where a series' own raw dollar
@@ -1714,6 +1988,7 @@ def scan_series(ids: list[str], cutoffs: pd.DataFrame) -> dict:
     the review queue for names step 6 could not rank). Dollar volume only: no return is aggregated."""
     by_type, by_year = Counter(), defaultdict(Counter)
     multi = Counter()
+    stored_gaps = defaultdict(Counter)
     dv_weeks = {}
     week_index = cutoffs.index.values.astype("datetime64[D]")
     for sid in ids:
@@ -1729,6 +2004,11 @@ def scan_series(ids: list[str], cutoffs: pd.DataFrame) -> dict:
                     name = token.split(":")[0]
                     by_type[name] += 1
                     by_year[name][year] += 1
+        for kind in ("stored_glitch", "stored_disagrees"):
+            hit = frame["flags"].fillna("").str.contains(rf"(?:^|;){kind}(?:;|$)", regex=True)
+            if hit.any():
+                labels = pd.cut(frame.loc[hit, "max_src_diff"], STORED_GAP_BINS, labels=STORED_GAP_LABELS)
+                stored_gaps[kind].update(labels.astype(str).replace("nan", "n/a"))
         two = frame["n_sources"] >= 2
         multi["name_days_2plus_sources"] += int(two.sum())
         multi["name_days_2plus_agree_0p5pct"] += int((two & (frame["max_src_diff"] <= TOL_R)).sum())
@@ -1749,7 +2029,9 @@ def scan_series(ids: list[str], cutoffs: pd.DataFrame) -> dict:
     if multi.get("name_days_2plus_sources"):
         multi["share_agree"] = round(multi["name_days_2plus_agree_0p5pct"] / multi["name_days_2plus_sources"], 5)
     return {"by_type": dict(by_type.most_common()), "by_year": {k: dict(sorted(v.items())) for k, v in by_year.items()},
-            "multi": multi, "dv_weeks": dv_weeks}
+            "multi": multi, "dv_weeks": dv_weeks,
+            "stored_gaps": {kind: {label: int(counts.get(label, 0)) for label in list(STORED_GAP_LABELS) + ["n/a"]
+                                   if counts.get(label, 0)} for kind, counts in stored_gaps.items()}}
 
 
 def known_case_checks(states, split_table: pd.DataFrame, specials: pd.DataFrame, identity: dict) -> dict:
@@ -1873,6 +2155,8 @@ def summarize_tables(states, prep, ids, args) -> dict:
                                for s in states.values()])
     write_csv(OUT / "securities.csv", securities)
     by_type, by_year, multi = scan["by_type"], scan["by_year"], scan["multi"]
+    multi = {**multi, "note": "includes the stored file's vote as a source (the plan 6 count as first reported)"}
+    multi_vendor = vendor_agreement(states, pairs, targets)
     checks = known_case_checks(states, split_table, special_table, identity)
     sources_per_security = Counter(len([x for x in s["summary"].get("sources", "").split() if x != "stored"])
                                    for s in states.values())
@@ -1881,8 +2165,13 @@ def summarize_tables(states, prep, ids, args) -> dict:
         "rules": {"tol_r": TOL_R, "tol_level": TOL_LEVEL, "tol_ratio": TOL_RATIO, "move_2x": MOVE_2X,
                   "move_big": MOVE_BIG, "special_pct": SPECIAL_PCT, "flat_run": FLAT_RUN,
                   "precedence_to_2017_10_31": PRECEDENCE_EARLY, "precedence_from_2017_11_01": PRECEDENCE_LATE,
-                  "stored_vote_excluded": f"unit breaks {list(BREAK_DAYS)}, ex-dates from {STORED_EX_FROM}, "
-                                          "split-sized stored jumps"},
+                  "stored_vote_excluded": f"unit breaks {list(BREAK_DAYS)}, ex-dates from {STORED_EX_FROM}, the raw "
+                                          "jump of a vendor's split, and a stored-only unit change (every vendor "
+                                          f"agrees, the stored file agrees with none and is off by an ordinary "
+                                          f"split ratio within {TOL_UNIT:.0%}, the vendors' own move is not "
+                                          "split-sized); a stored return that agrees with any vendor stays a vote",
+                  "stored_queue_diff": STORED_QUEUE_DIFF, "ratio_queue_tr": RATIO_QUEUE_TR,
+                  "filler_volume_share": FILLER_VOLUME_SHARE, "tol_cash_split": TOL_CASH_SPLIT},
         "targets": {"securities": int(len(targets)), "candidates": int(targets["in_candidates"].sum()),
                     "rank300_any_week": int(targets["rank300"].sum()),
                     "with_series": int(sum(1 for s in states.values() if s["summary"].get("rows"))),
@@ -1894,11 +2183,15 @@ def summarize_tables(states, prep, ids, args) -> dict:
         "tiingo_waiting_rows": int(len(tiingo_waiting())),
         "coverage_ranked": cover,
         "flag_counts": by_type, "flag_counts_by_year": by_year, "multi_source_days": multi,
+        "multi_vendor_days": multi_vendor,
+        "single_vendor_vs_stored_by_difference": scan["stored_gaps"],
+        "yahoo_volume_flag_rows": {name: int(by_type.get(name, 0)) for name in YAHOO_VOLUME_TOKENS.values()},
         "split_events": split_facts, "special_distributions": special_facts, "review_queue": queue_facts,
         "series_ends": {"by_category": {k: int(v) for k, v in ends["category"].value_counts().items()},
                         "by_cause": {f"{c}|{k}": int(v) for (c, k), v in
                                      ends.groupby(["category", "likely_cause"]).size().items()}} if len(ends) else {},
         "filler_rows_cut": int(sum(s["summary"].get("filler_cut", 0) for s in states.values())),
+        "filler_rows_cut_tiny_volume": int(sum(s["summary"].get("filler_cut_tiny_volume", 0) for s in states.values())),
         "non_session_rows_dropped": dict(sum((Counter(s["summary"].get("dropped_non_session", {})) for s in states.values()),
                                              Counter())),
         "tiingo_identity_rows": int(sum(s["summary"].get("tiingo_identity_rows", 0) for s in states.values())),
@@ -1913,6 +2206,34 @@ def summarize_tables(states, prep, ids, args) -> dict:
         summary["panel"] = write_panel(ids, states)
     write_json(OUT / "summary.json", summary)
     return summary
+
+
+def vendor_agreement(states: dict[str, dict], pairs: pd.DataFrame, targets: pd.DataFrame) -> dict:
+    """Plan 6's two price checks without the stored vote: kept name-days with two or more vendor
+    returns that agree within 0.5% of ``tr``, and the V sample's Yahoo r against Tiingo r within
+    1e-4 (with all names' Tiingo-Yahoo days beside it). Counts of days only; no return is aggregated."""
+    days = sum(s["summary"].get("rows_multi_vendor", 0) for s in states.values())
+    agree = sum(s["summary"].get("rows_multi_vendor_agree", 0) for s in states.values())
+    out = {"vendor_only": {"name_days_2plus_vendors": int(days), "agree_0p5pct": int(agree),
+                           "share": round(agree / days, 5) if days else None}}
+    candidates = pd.read_csv(CANDIDATES, dtype=str, keep_default_na=False)
+    v_sample = set(candidates.loc[candidates["reason"] == V_SAMPLE_REASON, "security_id"])
+    pair_rows = pairs if len(pairs) else pd.DataFrame(columns=["security_id", "a", "b", "days_r", "days_r_1e4",
+                                                                  "days_r_0p5pct"])
+    by_pair = {}
+    for (a, b), part in pair_rows.groupby(["a", "b"]):
+        by_pair[f"{a}-{b}"] = {"days": int(part["days_r"].sum()), "within_1e4": int(part["days_r_1e4"].sum()),
+                               "within_0p5pct": int(part["days_r_0p5pct"].sum())}
+    out["pair_days"] = by_pair
+    ty = pair_rows[(pair_rows["a"] == "tiingo") & (pair_rows["b"] == "yahoo")]
+    for label, part in (("v_sample_tiingo_yahoo", ty[ty["security_id"].isin(v_sample)]), ("all_tiingo_yahoo", ty)):
+        n_days = int(part["days_r"].sum())
+        hit = int(part["days_r_1e4"].sum())
+        out[label] = {"securities": int(part.loc[part["days_r"] > 0, "security_id"].nunique()), "days": n_days,
+                      "within_1e4": hit, "share_1e4": round(hit / n_days, 5) if n_days else None,
+                      "within_0p5pct": int(part["days_r_0p5pct"].sum())}
+    out["v_sample_tiingo_yahoo"]["v_sample_names"] = len(v_sample)
+    return out
 
 
 def git_commit() -> str:

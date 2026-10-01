@@ -344,6 +344,12 @@ def test_reviewed_entries_are_well_formed():
             assert review["type"] in tr.TYPES, sid
         if review.get("type") in ("stock_merger", "mixed"):
             assert review.get("shares") is not None or review.get("stock_value") is not None, sid
+        if any(k in review for k in ("cash", "shares", "value")):  # changed terms cite the document they come from
+            url = review.get("url") or tr.REVIEWED_SOURCES.get(sid, "")
+            assert url.startswith("https://www.sec.gov/Archives/edgar/data/"), sid
+        if "limit" in review:
+            assert pd.Timestamp(review["limit"]).dayofweek < 5, sid
+    assert set(tr.REVIEWED_SOURCES) <= set(tr.REVIEWED)
 
 
 def test_reviewed_acquirers_exist_in_the_master():
@@ -382,3 +388,254 @@ def test_built_file_columns_and_values(built):
 
 def test_built_file_unknown_share_is_small(built):
     assert built["terminal_type"].eq("unknown").mean() <= 0.05
+
+
+# ------------------------------------------------------------------ round 4 regressions (named cases)
+
+def _days(start, n):
+    return [d.strftime("%Y-%m-%d") for d in pd.bdate_range(start, periods=n)]
+
+
+def _history(sid, start, n, close=50.0, volume=5_000_000, src="tiingo"):
+    return [(sid, d, close + 0.01 * i, volume, src) for i, d in enumerate(_days(start, n))]
+
+
+def test_filler_flags_mark_a_repeated_close_on_a_sliver_of_volume():
+    close = np.array([10.0, 10.1, 10.2, 10.3, 10.4, 10.5, 10.5, 10.5, 10.5])
+    volume = np.array([1e6] * 6 + [1.0, 0.0, 1e6])
+    flags = tr.filler_flags(close, volume)
+    assert list(flags) == [False] * 6 + [True, True, False]  # a real session at the same close is kept
+
+
+def test_atvi_filler_row_is_not_the_last_session_and_the_acquirer_close_follows_the_real_one():
+    # ATVI 2023-10-12 close 94.42 on 7.3M shares; 2023-10-13 close 94.42 on 1 share (Nasdaq halted it before the open)
+    rows = _history("1", "2023-09-01", 29, close=94.0, volume=7_000_000)
+    rows += [("1", "2023-10-12", 94.42, 7_323_451, "tiingo"), ("1", "2023-10-13", 94.42, 1, "tiingo")]
+    rows += [("50", "2023-10-12", 39.0, 1e6, "tiingo"), ("50", "2023-10-13", 40.0, 1e6, "tiingo"),
+             ("50", "2023-10-16", 41.0, 1e6, "tiingo")]
+    book = _book(rows)
+    trade = tr.last_trade(book, "1", "2023-10-16", "2023-10-16")
+    assert (trade["status"], trade["last_date"], trade["close"], trade["filler_dropped"]) == ("ok", "2023-10-12", 94.42, 1)
+    row = _row(delist_date="2023-10-23", end_date="2023-10-23", f25_filing_date="2023-10-16")
+    frame, used = _build([row], [_evidence(terms_shares=2.0, terms_acquirer_phrase="TargetCo Holdings",
+                                           closing_dates="2023-10-13")], book)
+    out = frame.loc["1"]
+    assert (out.last_price_date, out.acquirer_price_date) == ("2023-10-12", "2023-10-13")
+    assert float(out.terminal_return) == pytest.approx(2.0 * 40.0 / 94.42 - 1)
+
+
+def test_halt_stated_in_the_closing_8k_caps_the_last_session():
+    text = ("the Company requested that Nasdaq halt trading of the Shares on Nasdaq prior to the open of trading on the "
+            "Closing Date and file a Form 25.")
+    assert tr.halt_dates(text)["before_open"] == "closing_date"
+    text = ("requested that trading of the Common Stock on Nasdaq be suspended prior to the opening of trading on NASDAQ "
+            "on September 1, 2021, and that Nasdaq file a Form 25")
+    assert tr.halt_dates(text)["before_open"] == "2021-09-01"
+    text = "trading of the Common Stock was halted after the close of trading on June 12, 2023 and will be suspended"
+    assert tr.halt_dates(text)["after_close"] == "2023-06-12"
+    # the halt date caps the window even when the vendor row after it carries real-looking volume
+    rows = _history("1", "2021-07-01", 44) + [("1", "2021-09-01", 60.0, 2_000_000, "tiingo")]  # to 2021-08-31
+    book = _book(rows)
+    row = _row(delist_date="2021-09-13", end_date="2021-09-13", f25_filing_date="2021-09-02")
+    frame, used = _build([row], [_evidence(terms_cash=51.0, halt_before_open="2021-09-01")], book)
+    assert frame.loc["1", "last_price_date"] == "2021-08-31"
+    assert used.set_index("security_id").loc["1", "limit_basis"] == "session_before_halt_stated_in_closing_8k"
+
+
+def test_sbny_snapshot_end_cuts_before_the_filler_run_and_books_the_first_otc_close():
+    # Signature Bank: Nasdaq trade to 2023-03-10 at 70.00; fillers at 70.00 on 0 to 2,605 shares; OTC 0.13 on 03-28
+    rows = _history("7", "2023-01-02", 40, close=110.0, volume=1_500_000)
+    rows += [("7", "2023-03-10", 70.0, 21_708_250, "tiingo"), ("7", "2023-03-13", 70.0, 2_605, "tiingo")]
+    rows += [("7", d, 70.0, 0, "tiingo") for d in _days("2023-03-14", 8)]  # to 2023-03-23
+    rows += [("7", "2023-03-24", 70.0, 1, "tiingo"), ("7", "2023-03-27", 70.0, 0, "tiingo"),
+             ("7", "2023-03-28", 0.13, 83_639_747, "tiingo")]
+    book = _book(rows)
+    assert tr.snapshot_cut(book, "7", "2023-03-22", "2023-05-06") == ("2023-03-10", "snapshot_end_cut_before_filler_run")
+    row = _row(security_id="7", end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="",
+               end_date="2023-03-22")
+    frame, used = _build([row], [_evidence("7", closing_items="", closing_accessions="", closing_dates="", bankruptcy=True)],
+                         book)
+    out = frame.loc["7"]
+    assert (out.terminal_type, out.status, out.last_price_date) == ("bankruptcy_otc", "computed", "2023-03-10")
+    assert float(out.terminal_return) == pytest.approx(0.13 / 70.0 - 1)
+    assert out.consideration_per_share == ""  # the OTC level stays local
+    assert used.set_index("security_id").loc["7", "otc_date"] == "2023-03-28"
+
+
+def test_sbny_reviewed_entry_dates_the_last_trade_and_cites_the_fdic():
+    review = tr.REVIEWED["1288784"]
+    assert review["limit"] == "2023-03-10" and review["type"] == "bankruptcy_otc"
+    assert review["url"].startswith("https://www.fdic.gov/")
+
+
+def _angi_names():
+    return tr.NameIndex(_master([{"security_id": "1705110", "cik": "1705110", "first_ticker": "ANGI",
+                                  "name": "ANGI HOMESERVICES INC", "first_listed": "2017-10-08", "last_listed": "2026-07-01"}]))
+
+
+def test_angi_uses_its_last_day_and_the_same_ticker_next_close_not_a_late_acquirer_quote():
+    # Angie's List 2017-09-29 close 12.46; ANGI rows from 2017-10-02 are ANGI Homeservices under the same ticker;
+    # the acquirer's own first book row is 2017-10-09 (6 sessions later)
+    rows = _history("1491778", "2017-08-01", 30, close=12.0, volume=1_000_000, src="wiki")
+    rows += [("1491778", "2017-09-29", 12.46, 2_367_959, "wiki"), ("1491778", "2017-10-02", 12.76, 850_652, "wiki"),
+             ("1491778", "2017-10-03", 12.57, 763_699, "wiki"), ("1705110", "2017-10-09", 11.55, 181_927, "wiki")]
+    book = _book(rows)
+    row = _row(security_id="1491778", last_ticker="ANGI", first_ticker="ANGI", end_source="snapshots", delist_date="",
+               f25_delisting_basis="", f25_filing_date="", end_date="2017-09-30")
+    ev = _evidence("1491778", closing_dates="2017-10-02")
+    scope = pd.DataFrame([row])
+    frame, used = tr.build_rows(scope, pd.DataFrame([ev]), book, {}, _angi_names(),
+                                pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    out = frame.set_index("security_id").loc["1491778"]
+    assert (out.last_price_date, out.acquirer_price_date, out.status) == ("2017-09-29", "2017-10-02", "computed")
+    assert float(out.terminal_return) == pytest.approx(12.76 / 12.46 - 1)  # about +2.4%, not -9.5%
+    assert "same ticker" in out.acquirer_match
+    assert out.acquirer_name == "ANGI HOMESERVICES INC"
+
+
+def test_acquirer_close_two_sessions_late_is_held_for_review():
+    # BRCM-like: last trade on a Friday, the acquirer's first close on Tuesday
+    book = _book([("1", "2016-01-29", 50.0, 100, "wiki"), ("50", "2016-02-02", 40.0, 100, "wiki")])
+    frame, used = _build([_row(f25_filing_date="2016-02-01")],
+                         [_evidence(terms_shares=1.2, terms_acquirer_phrase="TargetCo Holdings")], book)
+    out = frame.loc["1"]
+    assert (out.status, out.terminal_return) == ("needs_review", "")
+    assert "2 XNAS sessions" in out.status_note
+    assert used.set_index("security_id").loc["1", "acquirer_gap_sessions"] == 2
+
+
+def test_acas_book_quote_years_late_falls_back_to_the_yahoo_chart(monkeypatch):
+    # ARCC's book rows start in 2022; the ARCC chart has 2017-01-04 close 16.97
+    book = _book([("817473", "2017-01-03", 17.99, 37_662_542, "wiki"), ("1287750", "2022-06-08", 20.0, 1e6, "tiingo")])
+    chart = pd.DataFrame({"date": pd.to_datetime(["2017-01-03", "2017-01-04"]), "close": [16.5, 16.97],
+                          "volume": [5e6, 6.8e6], "src": "yahoo_acquirer"})
+    monkeypatch.setattr(tr, "acquirer_chart", lambda symbol: chart if symbol == "ARCC" else chart.iloc[:0])
+    row = _row(security_id="817473", f25_filing_date="2017-01-04")
+    frame, used = _build([row], [_evidence("817473")], book)
+    out = frame.loc["817473"]
+    assert (out.status, out.acquirer_price_date) == ("computed", "2017-01-04")
+    assert float(out.terminal_return) == pytest.approx((10.13 + 0.483 * 16.97) / 17.99 - 1)
+    assert "yahoo chart ARCC" in out.acquirer_match
+
+
+def test_same_series_rename_prefers_its_own_next_close_on_a_tie():
+    # LMCA -> FWONA: WIKI LMCA 2017-01-24 vs the other vendor's FWONA close on the same day
+    book = _book([("1", "2017-01-23", 29.66, 480_352, "wiki"), ("1", "2017-01-24", 30.10, 359_080, "wiki"),
+                  ("50", "2017-01-24", 29.337, 369_668, "yahoo_step7")])
+    row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2017-01-20")
+    ev = _evidence(closing_dates="2017-01-23", terms_shares=1.0, terms_acquirer_phrase="TargetCo Holdings",
+                   reorganization=True)
+    frame, _ = _build([row], [ev], book)
+    out = frame.loc["1"]
+    assert out.event_subtype == "reorganization"
+    assert float(out.terminal_return) == pytest.approx(30.10 / 29.66 - 1)
+    assert tr.REVIEWED["1560385.T-LMCA"]["limit"] == tr.REVIEWED["1560385.T-LMCK"]["limit"] == "2017-01-23"
+
+
+def test_orcl_exchange_move_ends_on_the_last_nasdaq_session():
+    text = ("Subject to the approval by the NYSE of Oracle's listing application, Oracle expects that its common stock "
+            "will begin trading on the NYSE on July 15, 2013.")
+    assert tr.new_exchange_starts(text) == ["2013-07-15"]
+    assert tr.new_exchange_starts("On February 17, 2026, the Common Stock will begin trading on The New York Stock "
+                                  "Exchange under the new trading symbol") == ["2026-02-17"]
+    assert tr.new_exchange_starts("Class A common stock is expected to begin trading on the Nasdaq under the ticker "
+                                  "symbol \"PR\" on September 2, 2022") == []  # a new ticker on Nasdaq, not a move
+    rows = [("1", d, 30.0 + 0.1 * i, 1e7, "wiki") for i, d in enumerate(_days("2013-07-08", 11))]  # to 2013-07-22
+    book = _book(rows)
+    row = _row(end_source="transfer", delist_date="", transfer_date="2013-07-22", end_date="2013-07-22",
+               f25_delisting_basis="", f25_filing_date="", transfer_filing_date="2013-07-12", transfer_basis="issuer_withdrawal",
+               transfer_form25_doc_url="https://www.sec.gov/t25.htm")
+    frame, used = _build([row], [_evidence(transfer_to="NYSE", transfer_start="2013-07-15")], book)
+    out = frame.loc["1"]
+    assert (out.terminal_type, out.status, out.last_price_date, out.destination_start_date) == \
+        ("exchange_move", "no_terminal_return", "2013-07-12", "2013-07-15")
+    # without a stated start: the transfer Form 25 filing date
+    frame, _ = _build([row], [_evidence(transfer_to="NYSE")], book)
+    assert frame.loc["1", "last_price_date"] == "2013-07-12" and frame.loc["1", "destination_start_date"] == ""
+
+
+def test_load_existing_keeps_each_note_on_its_own_row(tmp_path):
+    path = tmp_path / "terminal_returns.csv"
+    pd.DataFrame({"ticker": ["XLNX", "ESRX", "KRFT"],
+                  "last_price_date": ["2022-02-11", "2018-12-20", "2015-07-02"],
+                  "terminal_return": ["0.01", "0.02", "0.03"], "consideration_per_share": ["196.9", "92.5", "89.46"],
+                  "source_url": ["u1", "u2", "u3"], "verified_at": ["2026-01-01"] * 3,
+                  "note": ["1.7234 AMD (114.27 close 2022-02-14)", "$48.75 cash + 0.2434 CI (179.80 close 2018-12-20)",
+                           "1 KHC share (72.96, first close 2015-07-06) + $16.50 special dividend"]}).to_csv(path, index=False)
+    loaded = tr.load_existing([path]).set_index("ticker")
+    assert loaded.loc["ESRX", "note"].startswith("$48.75 cash + 0.2434 CI")
+    assert loaded.loc["XLNX", "note"].startswith("1.7234 AMD")
+    assert loaded.loc["KRFT", "note"].startswith("1 KHC share")
+    assert tr.strip_levels(loaded.loc["ESRX", "note"]) == "$48.75 cash + 0.2434 CI"
+    assert tr.strip_levels(loaded.loc["KRFT", "note"]) == "1 KHC share + $16.50 special dividend"
+    assert tr.strip_levels("$17.50 cash + 0.2582 LBTYA (76.24) + 0.1928 LBTYK (71.51), closes 2013-06-07") == \
+        "$17.50 cash + 0.2582 LBTYA + 0.1928 LBTYK"
+
+
+def test_existing_stock_leg_value_commits_the_return_but_no_level():
+    book = _book([("1", "2019-11-20", 100.0, 1e6, "wiki")])
+    prior = {"existing_file": "holdout supplement", "terminal_return": 0.06, "consideration_per_share": 106.41,
+             "source_url": "https://www.sec.gov/celg.htm", "verified_at": "2026-01-01",
+             "note": "$50 cash + 1 BMY (56.41 close 2019-11-20) + 1 CVR valued at 0"}
+    names = tr.NameIndex(_master([]))
+    frame, used = tr.build_rows(pd.DataFrame([_row(f25_filing_date="2019-11-21")]),
+                                pd.DataFrame([_evidence(terms_cash=50.0, terms_shares=1.0, terms_acquirer_phrase="Bristol")]),
+                                book, {"1": prior}, names, pd.DataFrame(columns=["security_id", "planned_source", "status"]),
+                                "2026-10-02")
+    out = frame.set_index("security_id").loc["1"]
+    assert out.status == "computed" and float(out.terminal_return) == pytest.approx(106.41 / 100.0 - 1)
+    assert out.consideration_per_share == "" and out.existing_consideration_per_share == ""
+    assert "56.41" not in out.status_note and "$50 cash + 1 BMY" in out.status_note
+    assert used.set_index("security_id").loc["1", "existing_value"] == 106.41
+
+
+def test_existing_placeholder_at_the_last_close_is_not_a_value():
+    book = _book([("1", "2013-09-30", 22.93, 1e6, "wiki")])
+    prior = {"existing_file": "repo", "terminal_return": 0.0, "consideration_per_share": 22.93, "source_url": "u",
+             "verified_at": "2026-01-01", "note": "0.160 Actavis plc share; no Actavis price available, history ends at the last close"}
+    frame, _ = tr.build_rows(pd.DataFrame([_row(f25_filing_date="2013-10-01")]),
+                             pd.DataFrame([_evidence(terms_shares=0.16, terms_acquirer_phrase="Actavis")]),
+                             book, {"1": prior}, tr.NameIndex(_master([])),
+                             pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    out = frame.set_index("security_id").loc["1"]
+    assert (out.status, out.terminal_return, out.consideration_per_share) == ("needs_acquirer_price", "", "")
+
+
+def test_unreviewed_cash_or_stock_election_is_marked_as_an_election():
+    book = _book([("1", "2019-04-19", 20.0, 100, "wiki")])
+    frame, _ = _build([_row()], [_evidence(terms_cash=22.0, terms_shares=1.3284, terms_either_or="True",
+                                           terms_acquirer_phrase="Brookline")], book)
+    assert frame.loc["1", "event_subtype"] == "election"
+
+
+def test_reviewed_hold_keeps_a_computed_value_for_review():
+    review = tr.REVIEWED["1599901"]
+    assert review["cash"] == 72.0 and "Atrium" in review["hold"]
+    book = _book([("1599901", "2026-02-26", 71.9, 1e6, "tiingo_step8")])
+    frame, _ = _build([_row(security_id="1599901", f25_filing_date="2026-02-27")], [_evidence("1599901")], book)
+    out = frame.loc["1599901"]
+    assert (out.status, out.terminal_return) == ("needs_review", "")
+    assert "Atrium" in out.status_note
+
+
+def test_ttph_cites_the_la_jolla_closing_8k():
+    assert tr.REVIEWED["1373707"]["url"].endswith("1373707/000119312520201936/d93682d8k.htm")
+
+
+def test_built_file_named_cases(built):
+    rows = built.set_index("security_id")
+    expect = {"1288784": ("bankruptcy_otc", "2023-03-10"), "718877": ("cash_merger", "2023-10-12"),
+              "1341439": ("exchange_move", "2013-07-12"), "1491778": ("stock_merger", "2017-09-29")}
+    for sid, (kind, last) in expect.items():
+        if sid in rows.index:
+            assert (rows.loc[sid, "terminal_type"], rows.loc[sid, "last_price_date"]) == (kind, last), sid
+    if "1288784" in rows.index:
+        assert rows.loc["1288784", "status"] == "computed"
+    if "817473" in rows.index:
+        assert rows.loc["817473", "status"] == "computed" and rows.loc["817473", "acquirer_price_date"] == "2017-01-04"
+    # the copied notes are the row's own deal (ESRX's is the Cigna deal), with no vendor levels
+    if "1532063" in rows.index and rows.loc["1532063", "existing_file"]:
+        assert "$42.00" not in rows.loc["1532063", "status_note"]
+    noted = built[built["consideration_value_basis"].str.startswith("existing_row_value_stock_leg")]
+    assert noted["consideration_per_share"].eq("").all()
+    assert not noted["status_note"].str.contains(r"\d+\.\d+ close \d{4}-\d{2}-\d{2}").any()
