@@ -13,42 +13,83 @@ One request per 2 seconds; the first 429 (or 401/403) stops the run, and a re-ru
 what is missing (raw bodies are cached under ``CACHE/raw/yahoo/{SYMBOL}__{fetched_utc}.json.gz``,
 404s as ``.404`` markers).
 
+Only bodies of daily bars are used: Yahoo can answer with other bars (CRNX's range=max request
+came back as 1h bars), so a body whose ``meta.dataGranularity`` is not ``1d`` (or, without that
+field, with two bars on one New York date) is skipped.
+
 Conversion to the canonical record (plan 4.2). Yahoo's ``close``, ``volume`` and dividend
 ``amount`` are split-adjusted to the fetch day, so with F_t = product of the split ratios
-(numerator/denominator) whose ex-date is after t:
-    close_raw = close x F_t,  volume_raw = volume / F_t,  div_cash = amount x F_t,
+(numerator/denominator) whose ex-date is after t, and V_t the same product over the events
+whose volume Yahoo scaled (below):
+    close_raw = close x F_t,  volume_raw = volume / V_t,  div_cash = amount x F_t,
 and ``split_factor`` S is the ratio on its ex-date (new shares per old). ``adjclose`` is kept as
 served but not used (it is multiplicative; plan 4.2). A whole-number split that Yahoo lists but
 has not yet applied to ``close`` (the served close moves by about 1/ratio on the ex-date; OPTT
-1:30 on 2026-09-14) is left out of F and marked ``applied_by_yahoo = N``. Distributions that
-Yahoo serves as odd split ratios (HSIC 1275:1000, LGND 1603:1000) restore raw levels correctly
-but are not share splits: they are flagged ``odd_ratio`` for step 9.
+1:30 on 2026-09-14) is left out of F and V and marked ``applied_by_yahoo = N``.
+
+Odd ratios (not n:1, 1:n or n:m with n, m <= 10) are distributions or stock dividends that Yahoo
+serves as splits (PENN 4.423 in 2013, HSIC 1275:1000, LGND 1603:1000). Each one is treated as
+follows, and events.csv says which way per event:
+- close and dividends: restored with the ratio (F); this matches WIKI raw closes and dividends;
+- volume: for the 2013-2014 distributions WIKI can test (PENN, LBTYA, SLM, INVA, ENSG, WBD,
+  ADP) Yahoo scaled close but served raw volume; CBSH's stock dividends and every tested event
+  from 2015-07 on have both scaled. So the restored volume over the 60 sessions before the
+  ex-date is compared with the security's WIKI raw volume (20+ common days): a median ratio
+  near 1/ratio means Yahoo left volume as served, and the event is left out of V
+  (``volume_restored = N``, flag
+  ``volume_not_scaled_by_yahoo``); near 1 it stays in V (``Y``). Without WIKI in those 60
+  sessions the event stays in V and is flagged ``volume_restore_unverified`` (named in the
+  entity report's reasons, without changing the verdict: every WIKI-tested event from 2015-07
+  on was scaled), unless its ratio is below 0.8, which only a reverse split gives (volume is
+  scaled like a share split's). ``volume_evidence`` holds n days and the two median ratios;
+- ``split_factor`` keeps the ratio, but it is not a share split: flag ``odd_ratio``, and step 9
+  needs an SEC document before using it.
+
+Rows of the Yahoo symbol that another security claims are cut (plan 4.4 R9): the other
+securities fetched with the same symbol, the master's predecessors and successor, the other
+classes of the security's multi-class group, and other holders of the ticker in step 6's
+listing spans. On a side where such a claimant exists, rows outside the security's own listing
+span and need are dropped (GOOGL before Alphabet's span is Google Inc; LMCK's FWONK rows after
+2017-01 are 1560385.T-FWONK's). A side with no claimant keeps every row (a move from or to
+another exchange). The first row after such a cut, like the first row of a later segment, is a
+junction: events on it are flagged (``trim_junction`` / ``segment_junction``) and named in the
+verdict reasons, because their S and D come from the history before it. A series with no row in
+its need gets the verdict ``no_rows`` and goes to rejected/.
 
 Entity check, per (security, symbol), against the security master and the files we hold:
 - Yahoo ``firstTradeDate`` against the need and the first listing; first and last rows;
 - the Yahoo name against the master name, former names and the snapshot names;
 - raw close against the Wayback company lists' LastSale (2011-2019, 2% / 5% band as in step 6);
 - raw close against the security's WIKI file (2011-06..2018-03-27);
-- raw close x raw volume against the stored repo file's close x volume (the stored files keep
-  raw dollar volume; median ratio near 1 for the same company);
+- raw close x raw volume against the stored repo file's close x volume (median ratio near 1 for
+  the same company). The stored files are older Yahoo downloads: their volume is Yahoo's served
+  volume, so this tests the entity, not the volume restore (PENN's 2013 rows agree at 1.0000
+  with both sides wrong by 4.423);
 - instrument type, currency.
 Level ratios are split into runs: a few steady runs off 1.0 are an adjustment Yahoo made without
-listing it (IART's 2015 SeaSpine spin-off, CBSH's stock dividends), sent to review; unsteady runs
-are another share class or company (wrong_entity). A reused ticker that fails is re-checked on
-the security's own listing span only (plan 4.4 R9). SYMBOL_OVERRIDES and SEGMENTS record the
-routing corrections found by these checks (each documented where it is defined).
+listing it (IART's 2015 SeaSpine spin-off, CBSH's stock dividends), sent to review, and so is a
+steady run more than 1% off LastSale even inside the 2% agreement band (FWONK and LMCK at
+0.9833); unsteady runs are another share class or company (wrong_entity). A reused ticker that
+fails is re-checked on the security's own listing span only (plan 4.4 R9). SYMBOL_OVERRIDES and
+SEGMENTS record the routing corrections found by these checks (each documented where it is
+defined).
 
 Outputs (local only; vendor values never go to INPUTS):
   CACHE/yahoo/{security_id}.csv.gz  date, close_raw, volume_raw, split_factor, div_cash,
-                                     close_yahoo, volume_yahoo, adjclose_yahoo, split_cum_after
-                                     symbol, junction (Y on the first row of a later segment)
-                                     (verdict ok / partial / review; wrong_entity series go to
+                                     close_yahoo, volume_yahoo, adjclose_yahoo, split_cum_after (F),
+                                     volume_cum_after (V), symbol, junction (Y on the first row of
+                                     a later segment or after a cut of claimed rows); factors are
+                                     written to 10 significant digits, volumes as integers
+                                     (verdict ok / partial / review; other series go to
                                      CACHE/yahoo/rejected/ for review only)
   CACHE/yahoo/weekly_coverage_after_yahoo.csv  per week: dv50 ranks 1-300 with vendor raw before / after
-  CACHE/yahoo/events.csv            split and dividend events (as served and restored), flags
+  CACHE/yahoo/events.csv            split and dividend events (as served and restored), how the
+                                     close and volume restore treats each, flags
   CACHE/yahoo/fetch_status.csv      per symbol: status, http, raw file, rows
   CACHE/yahoo/entity_report.csv     per (security, symbol): checks and verdict
   CACHE/yahoo/summary.json          counts and coverage
+  CACHE/yahoo/not_requested/        series of securities the candidate list no longer asks for
+                                     (moved there by the build, not deleted)
 
 Usage::
 
@@ -56,6 +97,7 @@ Usage::
     PYTHONPATH=. python scripts/reversal_data_yahoo.py             # build from the cache only
     PYTHONPATH=. python scripts/reversal_data_yahoo.py --fetch --limit 5
     PYTHONPATH=. python scripts/reversal_data_yahoo.py --retry CRNX,APGE   # ask truncated answers again
+    PYTHONPATH=. python scripts/reversal_data_yahoo.py --retry CRNX --period1 2018-07-18   # daily bars over the need
 """
 from __future__ import annotations
 
@@ -191,27 +233,45 @@ def cached_raw(symbol: str, raw_dir: Path = RAW_DIR) -> tuple[Path | None, str]:
     return None, ""
 
 
+def bar_granularity(payload: dict) -> str:
+    """The bar size of a v8 body: ``meta.dataGranularity`` ('1d', '1h', ...; every cached body has
+    it). Without that field, 'intraday' when two bars other than the last (which can be the live
+    one, stamped later) fall on the same New York date, else '1d'."""
+    result = ((payload.get("chart") or {}).get("result") or [None])[0] or {}
+    granularity = (result.get("meta") or {}).get("dataGranularity")
+    if granularity:
+        return str(granularity)
+    stamps = (result.get("timestamp") or [])[:-1]
+    if stamps and _ny_dates(stamps).duplicated().any():
+        return "intraday"
+    return "1d"
+
+
 def best_raw(symbol: str, raw_dir: Path = RAW_DIR) -> Path | None:
-    """Of several cached bodies (a retry of a truncated answer), the one with the most daily
-    rows; the newest on a tie."""
+    """Of several cached bodies (a retry of a truncated answer), a body of daily bars before any
+    other (CRNX's range=max body has more stamps, but they are hourly bars), then the one with the
+    most rows; the newest on a tie."""
     bodies = sorted(raw_dir.glob(f"{symbol}__*.json.gz"))
     if len(bodies) <= 1:
         return bodies[0] if bodies else None
-    counts = []
-    for path in bodies:
-        result = ((read_raw(path).get("chart") or {}).get("result") or [None])[0] or {}
-        counts.append(len(result.get("timestamp") or []))
-    return max(zip(counts, range(len(bodies)), bodies))[2]
+    scored = []
+    for k, path in enumerate(bodies):
+        payload = read_raw(path)
+        result = ((payload.get("chart") or {}).get("result") or [None])[0] or {}
+        scored.append((bar_granularity(payload) == "1d", len(result.get("timestamp") or []), k, path))
+    return max(scored)[3]
 
 
-def fetch_symbols(symbols: list[str], *, period2: str | None = None, limit: int | None = None,
-                  raw_dir: Path = RAW_DIR, getter=common.cached_get, retry: bool = False) -> dict:
+def fetch_symbols(symbols: list[str], *, period1: str = PERIOD1, period2: str | None = None,
+                  limit: int | None = None, raw_dir: Path = RAW_DIR, getter=common.cached_get,
+                  retry: bool = False) -> dict:
     """Fetch every symbol without a cached body or 404 marker, one request per 2 seconds.
 
     Stops at the first 401/403/429 and leaves the rest for the next run. Network or server
     errors (after cached_get's retries) are recorded and retried on the next run. With
     ``retry``, the symbols are asked again from the query2 host even when cached (for answers
-    that came back truncated); the build keeps whichever body has more rows.
+    that came back truncated), daily bars from ``period1`` (a need start, say) to the fetch day;
+    the build keeps whichever daily body has more rows.
     Returns {symbol: {status, http_status, message}} for the symbols asked in this run.
     """
     period2 = period2 or (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
@@ -224,7 +284,7 @@ def fetch_symbols(symbols: list[str], *, period2: str | None = None, limit: int 
     for k, symbol in enumerate(todo, 1):
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = raw_dir / f"{symbol}__{stamp}.json.gz"
-        url = chart_url(symbol, PERIOD1, period2)
+        url = chart_url(symbol, period1, period2)
         if retry:
             url = url.replace("//query1.", "//query2.", 1)
         try:
@@ -262,22 +322,34 @@ def split_cum_after(dates: pd.DatetimeIndex, splits: pd.DataFrame) -> np.ndarray
     return factor
 
 
-def parse_chart(payload: dict, not_applied: set | None = None) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
-    """(meta, daily frame, events) from one v8 chart body; empty frames when there is no result.
+PARSED_EVENT_COLUMNS = ["ex_date", "event_type", "numerator", "denominator", "ratio", "amount_yahoo", "div_cash_raw",
+                        "split_cum_after", "on_session", "applied_by_yahoo", "volume_restored", "volume_evidence"]
 
-    Daily columns: date, close_raw, volume_raw, split_factor, div_cash, close_yahoo,
-    volume_yahoo, adjclose_yahoo, split_cum_after. Events: ex_date, event_type
-    (split / reverse_split / dividend), numerator, denominator, ratio, amount_yahoo,
-    div_cash_raw, split_cum_after, on_session.
+
+def parse_chart(payload: dict, not_applied: set | None = None, volume_as_served: set | None = None,
+                volume_evidence: dict | None = None) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
+    """(meta, daily frame, events) from one v8 chart body; empty frames when there is no result
+    or the bars are not daily (``meta['error']`` says why).
+
+    ``not_applied``: ex-dates of listed splits Yahoo has not applied (left out of F and V).
+    ``volume_as_served``: ex-dates of odd-ratio events whose volume Yahoo did not scale (left out
+    of V only; see ``volume_scaling``), with ``volume_evidence`` {ex_date: text} for the table.
+
+    Daily columns: DAILY_COLUMNS. Events: ex_date, event_type (split / reverse_split / dividend),
+    numerator, denominator, ratio, amount_yahoo, div_cash_raw, split_cum_after, on_session,
+    applied_by_yahoo, volume_restored (Y: volume divided by the ratio before the ex-date; N: left as
+    served), volume_evidence (share_split, not_applied, reverse_split, none, or wiki:n:chosen:other).
     """
     chart = payload.get("chart") or {}
     result = (chart.get("result") or [None])[0]
-    empty_events = pd.DataFrame(columns=["ex_date", "event_type", "numerator", "denominator", "ratio",
-                                         "amount_yahoo", "div_cash_raw", "split_cum_after", "on_session",
-                                         "applied_by_yahoo"])
+    empty_events = pd.DataFrame(columns=PARSED_EVENT_COLUMNS)
     if not result:
         return {"error": json.dumps(chart.get("error"))[:200]}, pd.DataFrame(columns=DAILY_COLUMNS), empty_events
     meta = result.get("meta") or {}
+    granularity = bar_granularity(payload)
+    if granularity != "1d":
+        return ({**meta, "error": f"not daily bars ({granularity})"}, pd.DataFrame(columns=DAILY_COLUMNS),
+                empty_events)
     stamps = result.get("timestamp") or []
     events = result.get("events") or {}
     splits = pd.DataFrame([
@@ -312,7 +384,6 @@ def parse_chart(payload: dict, not_applied: set | None = None) -> tuple[dict, pd
     factor = split_cum_after(dates, applied)
     daily["split_cum_after"] = factor
     daily["close_raw"] = daily["close_yahoo"] * factor
-    daily["volume_raw"] = (daily["volume_yahoo"] / factor).round()
     daily["split_factor"] = 1.0
     daily["div_cash"] = 0.0
     rows = []
@@ -339,7 +410,35 @@ def parse_chart(payload: dict, not_applied: set | None = None) -> tuple[dict, pd
                      "on_session": "Y" if position < len(daily) and dates[position] == event.ex_date else "N",
                      "applied_by_yahoo": ""})
     table = pd.DataFrame(rows, columns=empty_events.columns) if rows else empty_events
-    return meta, daily[DAILY_COLUMNS], table.sort_values(["ex_date", "event_type"]).reset_index(drop=True)
+    daily, table = restore_volume(daily, table.sort_values(["ex_date", "event_type"]).reset_index(drop=True),
+                                  volume_as_served, volume_evidence)
+    return meta, daily, table
+
+
+def restore_volume(daily: pd.DataFrame, events: pd.DataFrame, as_served: set | None = None,
+                   evidence: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """V (``volume_cum_after``) and ``volume_raw = volume_yahoo / V`` for a parsed series, and the
+    events' volume_restored / volume_evidence columns. V holds every split applied to close except
+    the ex-dates in ``as_served``: odd-ratio events whose volume Yahoo did not scale (found by
+    ``volume_scaling``; ``evidence`` {ex_date: text} from it). Returns new frames."""
+    as_served = set(as_served or ())
+    daily, events = daily.copy(), events.copy()
+    in_v = events[(events["event_type"] != "dividend") & (events["applied_by_yahoo"] == "Y")
+                  & ~events["ex_date"].isin(as_served)]
+    factor = split_cum_after(pd.DatetimeIndex(daily["date"]), in_v)
+    daily["volume_cum_after"] = factor
+    daily["volume_raw"] = (daily["volume_yahoo"] / factor).round()
+    restored, text = [], []
+    for event in events.itertuples(index=False):
+        if event.event_type == "dividend":
+            restored.append(""), text.append("")
+        elif event.applied_by_yahoo != "Y":
+            restored.append("N"), text.append("not_applied")
+        else:
+            restored.append("N" if event.ex_date in as_served else "Y")
+            text.append("share_split" if ordinary_ratio(event.ratio) else (evidence or {}).get(event.ex_date, "none"))
+    events["volume_restored"], events["volume_evidence"] = restored, text
+    return daily[DAILY_COLUMNS], events
 
 
 def split_applied(ex_date, numerator: float, denominator: float, dates: pd.DatetimeIndex,
@@ -382,8 +481,57 @@ def unsessioned_splits_not_applied(daily: pd.DataFrame, events: pd.DataFrame, st
     return out
 
 
+VOLUME_TEST_SESSIONS = 60  # Yahoo sessions before an odd-ratio ex-date compared with WIKI volume
+VOLUME_TEST_MIN_DAYS = 20
+VOLUME_TEST_CLEAR = 0.02   # the chosen median ratio within 2% of 1, else volume_check_unclear
+REVERSE_SPLIT_BELOW = 0.8  # an odd ratio below this is a reverse split (1:150, 2:25), not a distribution
+
+
+def volume_scaling(daily: pd.DataFrame, events: pd.DataFrame, wiki: pd.DataFrame) -> tuple[set, dict]:
+    """Whether Yahoo scaled its served volume for each applied odd-ratio event (a distribution or a
+    stock dividend served as a split). Yahoo scales ``close`` for all of them, but for the 2013-2014
+    ones it left ``volume`` raw (PENN 2013-11-04 4.423: the restore divided raw volume by 4.423).
+
+    Per event, latest first (so later choices are already in V): over the WIKI days among the
+    60 Yahoo sessions before the ex-date (20+ needed), the median of restored volume / WIKI raw
+    volume with the event in V (q) and without it (q x ratio). The one nearer 1 (in log) wins.
+    Without WIKI there the event stays in V: evidence 'none' (flagged volume_restore_unverified), or
+    'reverse_split' for a ratio below 0.8, which only a reverse split gives.
+    Returns (ex-dates to leave out of V, {ex_date: 'wiki:n:chosen:other', 'none' or 'reverse_split'})."""
+    as_served, evidence = set(), {}
+    if daily.empty or events.empty:
+        return as_served, evidence
+    splits = events[(events["event_type"] != "dividend") & (events["applied_by_yahoo"] == "Y")]
+    odd = splits[np.array([not ordinary_ratio(r) for r in splits["ratio"]], dtype=bool)]
+    if odd.empty:
+        return as_served, evidence
+    wiki = wiki[pd.to_numeric(wiki["volume"], errors="coerce") > 0] if len(wiki) else wiki
+    dates = pd.DatetimeIndex(daily["date"])
+    for event in odd.sort_values("ex_date", ascending=False).itertuples(index=False):
+        position = dates.searchsorted(event.ex_date)
+        before = daily.iloc[max(0, position - VOLUME_TEST_SESSIONS):position][["date", "volume_yahoo"]]
+        joined = before.merge(wiki[["date", "volume"]], on="date") if len(wiki) else before.iloc[0:0]
+        joined = joined[joined["volume_yahoo"] > 0]
+        if len(joined) < VOLUME_TEST_MIN_DAYS:
+            # A ratio below 0.8 needs a reverse split (a distribution or stock dividend gives a ratio
+            # above 1): its volume is scaled like any share split's.
+            evidence[event.ex_date] = "reverse_split" if event.ratio < REVERSE_SPLIT_BELOW else "none"
+            continue
+        kept = splits[~splits["ex_date"].isin(as_served)]
+        restored = joined["volume_yahoo"].values / split_cum_after(pd.DatetimeIndex(joined["date"]), kept)
+        with_event = float(np.median(restored / joined["volume"].values.astype(float)))
+        without = with_event * event.ratio
+        if abs(np.log(without)) < abs(np.log(with_event)):
+            as_served.add(event.ex_date)
+            chosen, other = without, with_event
+        else:
+            chosen, other = with_event, without
+        evidence[event.ex_date] = f"wiki:{len(joined)}:{chosen:.4f}:{other:.4f}"
+    return as_served, evidence
+
+
 DAILY_COLUMNS = ["date", "close_raw", "volume_raw", "split_factor", "div_cash", "close_yahoo", "volume_yahoo",
-                 "adjclose_yahoo", "split_cum_after"]
+                 "adjclose_yahoo", "split_cum_after", "volume_cum_after"]
 
 
 def read_raw(path: Path) -> dict:
@@ -445,16 +593,25 @@ def yahoo_first_trade(meta: dict) -> str:
 
 
 LASTSALE_BAND = {"confirmed": 0.02}  # otherwise 5%: the as-of session of the list is unverified
+LEVEL_OFFSET_REPORT = 0.01  # a steady LastSale run further than this from 1.0 is reported, even inside the band
 WIKI_BAND = 0.01
 DV_RATIO_BAND = (0.67, 1.5)
+
+
+def _runs_text(runs: list[dict]) -> str:
+    return " ".join(f"{r['start']:%Y-%m-%d}..{r['end']:%Y-%m-%d}@{r['level']:.4f}" for r in runs)
 
 
 def lastsale_check(daily: pd.DataFrame, quotes: pd.DataFrame) -> dict:
     """Raw close on a company list's as-of session against its LastSale (step 6's rule: 2%, or 5%
     where the as-of session is unverified; 2+ comparisons with fewer than half agreeing fail), and
-    the runs of a steady level ratio (see ``level_segments``; 2% tolerance for list quotes)."""
+    the runs of a steady level ratio (see ``level_segments``; 2% tolerance for list quotes).
+    ``lastsale_off_runs``: runs of 3+ more than 2% off (what the entity rule weighs);
+    ``lastsale_offset_runs``: steady runs of 3+ (80% within 2% of their level) more than 1% off,
+    which may sit inside the agreement band (FWONK and LMCK at 0.9833) and are reported."""
     empty = {"lastsale_n": 0, "lastsale_agree": 0, "lastsale_fail": False, "lastsale_median_ratio": np.nan,
-             "lastsale_runs": 0, "lastsale_piecewise_stable": False, "lastsale_off_share": 0.0, "lastsale_off_runs": ""}
+             "lastsale_runs": 0, "lastsale_piecewise_stable": False, "lastsale_off_share": 0.0, "lastsale_off_runs": "",
+             "lastsale_offset_runs": ""}
     if daily.empty or quotes.empty:
         return empty
     quotes = quotes.assign(date=pd.to_datetime(quotes["as_of_session"]))
@@ -467,11 +624,12 @@ def lastsale_check(daily: pd.DataFrame, quotes: pd.DataFrame) -> dict:
     runs = level_segments(joined["date"], ratio, jump=0.01, min_run=3, tolerance=0.02)
     stable = len(runs) <= 4 and sum(r["stable"] * r["n"] for r in runs) / len(joined) >= 0.8
     off = [r for r in runs if r["n"] >= 3 and abs(r["level"] - 1) > 0.02]
+    steady = [r for r in runs if r["n"] >= 3 and r["stable"] >= 0.8 and abs(r["level"] - 1) > LEVEL_OFFSET_REPORT]
     return {"lastsale_n": int(len(joined)), "lastsale_agree": agree,
             "lastsale_fail": bool(len(joined) >= 2 and agree < 0.5 * len(joined)),
             "lastsale_median_ratio": round(float(ratio.median()), 4), "lastsale_runs": len(runs),
             "lastsale_piecewise_stable": bool(stable), "lastsale_off_share": round(sum(r["n"] for r in off) / len(joined), 4),
-            "lastsale_off_runs": " ".join(f"{r['start']:%Y-%m-%d}..{r['end']:%Y-%m-%d}@{r['level']:.4f}" for r in off)}
+            "lastsale_off_runs": _runs_text(off), "lastsale_offset_runs": _runs_text(steady)}
 
 
 def level_segments(dates: pd.Series, ratio: pd.Series, jump: float = 0.004, min_run: int = 5,
@@ -516,12 +674,17 @@ def wiki_check(daily: pd.DataFrame, wiki: pd.DataFrame) -> dict:
             "wiki_fail": bool(len(joined) >= 20 and share < 0.5), "wiki_median_ratio": round(float(ratio.median()), 4),
             "wiki_runs": len(runs), "wiki_piecewise_stable": bool(stable),
             "wiki_off_share": round(sum(r["n"] for r in off) / len(joined), 4),
-            "wiki_off_runs": " ".join(f"{r['start']:%Y-%m-%d}..{r['end']:%Y-%m-%d}@{r['level']:.4f}" for r in off)}
+            "wiki_off_runs": _runs_text(off)}
 
 
 def stored_dv_check(daily: pd.DataFrame, stored: pd.DataFrame) -> dict:
-    """Raw close x raw volume against the stored file's close x volume (which keeps the raw dollar
-    volume) on common days: the median ratio and the share of days inside [0.67, 1.5]."""
+    """Raw close x raw volume against the stored file's close x volume on common days: the median
+    ratio and the share of days inside [0.67, 1.5].
+
+    Not an independent check of the volume restore: the stored files are older Yahoo downloads
+    (split-adjusted close, volume as Yahoo served it), so their dollar volume is raw only where
+    Yahoo scaled close and volume alike. Before PENN's 2013 distribution both sides were 4.423 too
+    low and agreed at 1.0000. It tells another company (another dollar volume) from the same one."""
     if daily.empty or stored.empty:
         return {"stored_n": 0, "stored_dv_median": np.nan, "stored_dv_share": np.nan, "stored_dv_off": False}
     joined = daily[["date", "close_raw", "volume_raw"]].merge(stored[["date", "close", "volume"]], on="date")
@@ -599,6 +762,56 @@ class References:
         cut = (pd.Timestamp(last_seen) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         return max(start, cut), end, f"ticker {ticker} held by {holder['security_id']} until {last_seen}"
 
+    def _master_value(self, sid: str, column: str) -> str:
+        if sid not in self.master.index or column not in self.master.columns:
+            return ""
+        return str(self.master.at[sid, column] or "")
+
+    def claimants(self, sid: str, symbol: str, same_symbol=()) -> list[tuple[str, str, str, str]]:
+        """(how, security_id, first day, last day) of the listing spans of the securities that can
+        own rows of Yahoo ``symbol`` besides ``sid``: the other securities fetched with the same
+        symbol, the master's predecessors (successor_security_id = sid) and successor, the other
+        classes of sid's multi-class group (all their spans), and other holders of the ticker
+        (their spans on it)."""
+        linked = {y: "same_symbol" for y in same_symbol if y != sid}
+        if "successor_security_id" in self.master.columns:
+            for y in self.master.index[self.master["successor_security_id"] == sid]:
+                linked.setdefault(y, "predecessor")
+        successor = self._master_value(sid, "successor_security_id")
+        if successor and successor != sid:
+            linked.setdefault(successor, "successor")
+        group = self._master_value(sid, "multi_class_group")
+        if group:
+            for y in self.master.index[self.master["multi_class_group"] == group]:
+                if y != sid:
+                    linked.setdefault(y, "sibling")
+        spans = self.spans
+        out = [(how, y, s.list_start, s.list_end) for y, how in linked.items()
+               for s in spans[spans["security_id"] == y].itertuples(index=False)]
+        out += [("ticker", s.security_id, s.list_start, s.list_end)
+                for s in spans[(spans["ticker"] == symbol) & (spans["security_id"] != sid)].itertuples(index=False)]
+        return out
+
+    def claimed_cut(self, sid: str, symbol: str, need_start: str, need_end: str, same_symbol=()) -> dict:
+        """Where to cut the rows of Yahoo ``symbol`` for ``sid`` because another security claims
+        them (plan 4.4 R9): on a side where a claimant's span reaches beyond sid's own listing
+        span, rows outside [min(span start, need start), max(span end, need end)] are dropped.
+        A side with no claimant is kept whole. Returns {'first': day or '', 'last': day or '',
+        'before': claimant ids, 'after': claimant ids}; no span for sid means no cut."""
+        out = {"first": "", "last": "", "before": "", "after": ""}
+        own = self.spans[self.spans["security_id"] == sid]
+        if own.empty:
+            return out
+        own_start, own_end = own["list_start"].min(), own["list_end"].max()
+        claims = self.claimants(sid, symbol, same_symbol)
+        before = sorted({f"{how}:{y}" for how, y, first, _ in claims if first < own_start})
+        after = sorted({f"{how}:{y}" for how, y, _, last in claims if last > own_end})
+        if before:
+            out["first"], out["before"] = min(own_start, need_start), " ".join(before)
+        if after:
+            out["last"], out["after"] = max(own_end, need_end), " ".join(after)
+        return out
+
     def names(self, sid: str) -> list[str]:
         if sid not in self.master.index:
             return []
@@ -645,8 +858,10 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
     the name matches and the miss is one steady ratio, which is a split restore problem); or the
     name matches none of the security's names and Yahoo's first trade comes after the security
     was already listed (a newer company on the ticker) or the dollar volume is off.
+    no_rows: no row at all, or none inside the need.
     partial: the same company, but the rows do not reach the start or end of the need (a need
-    that starts at most 30 days before Yahoo's first trade of an IPO counts as covered).
+    that starts at most 30 days before Yahoo's first trade of an IPO counts as covered), or need
+    sessions are missing between the first and last row.
     review: a steady level offset, a name mismatch or a dollar-volume mismatch.
     """
     sid = request["security_id"]
@@ -670,8 +885,9 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
     out["rows"] = int(len(daily))
     need = sessions[(sessions >= pd.Timestamp(need_start)) & (sessions <= pd.Timestamp(need_end))]
     have = set(daily["date"]) if len(daily) else set()
+    need_rows = int(sum(d in have for d in need))
     out["need_sessions"] = int(len(need))
-    out["need_coverage"] = round(sum(d in have for d in need) / len(need), 4) if len(need) else np.nan
+    out["need_coverage"] = round(need_rows / len(need), 4) if len(need) else np.nan
     late_vs_listing = bool(first_trade and first_listed > SNAPSHOT_FLOOR
                            and _days(first_trade, first_listed) > FIRST_TRADE_SLACK_DAYS) or bool(
         first_trade and first_listed and first_listed <= SNAPSHOT_FLOOR and first_trade > "2011-02-01")
@@ -694,10 +910,12 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
     wiki_bad = out["wiki_fail"] or (out["wiki_n"] >= 20 and not out["wiki_piecewise_stable"]
                                     and out["wiki_off_share"] >= 0.1)
     ls_strong = out["lastsale_n"] >= 10 and out["lastsale_agree"] >= 0.9 * out["lastsale_n"]
+    # Steady runs 1-2% off sit inside the agreement band but are still an unlisted adjustment.
+    ls_report = sorted(set((out["lastsale_off_runs"].split() if ls_offset else []) + out["lastsale_offset_runs"].split()))
     if ls_bad and not (ls_offset and name_ok):
         reasons.append(f"lastsale_level:{out['lastsale_agree']}/{out['lastsale_n']}")
-    elif ls_offset:
-        offsets.append(f"level_offset_lastsale:{out['lastsale_off_runs']}")
+    elif ls_report:
+        offsets.append(f"level_offset_lastsale:{' '.join(ls_report)}")
     if wiki_bad and not (wiki_offset and name_ok):
         if ls_strong and out["wiki_n"] < 120:
             # A short WIKI file against a long run of agreeing list prices: WIKI is the doubtful one.
@@ -709,10 +927,15 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
     if not name_ok and (late_vs_listing or out["stored_dv_off"]):
         reasons.append("name_and_" + ("first_trade" if late_vs_listing else "dollar_volume"))
     level_agrees = out["lastsale_agree"] > 0 or (out["wiki_n"] >= 20 and not out["wiki_fail"])
+    out["missing_inside"] = 0
     if reasons:
         verdict = "wrong_entity"
     elif len(daily) == 0:
         verdict, reasons = "no_rows", ["no rows in the window"]
+    elif len(need) and need_rows == 0:
+        # Rows, but none in the need (another security's history under the symbol): not coverage.
+        verdict, reasons = "no_rows", [f"no rows in the need {need_start}..{need_end}: {out['rows']} rows "
+                                       f"{out['first_row']}..{out['last_row']}"]
     else:
         first_gap = not len(need) or _days(out["first_row"], need[0].strftime("%Y-%m-%d")) > COVER_SLACK_DAYS
         last_gap = len(need) and _days(need[-1].strftime("%Y-%m-%d"), out["last_row"]) > COVER_SLACK_DAYS
@@ -723,7 +946,9 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
             # row from its first trade on.
             first_gap = False
             notes.append(f"need_starts_before_first_trade:{int((need < pd.Timestamp(first_trade)).sum())}")
-        if first_gap or last_gap:
+        inside = need[(need >= pd.Timestamp(out["first_row"])) & (need <= pd.Timestamp(out["last_row"]))]
+        out["missing_inside"] = int(sum(d not in have for d in inside))
+        if first_gap or last_gap or out["missing_inside"]:
             verdict = "partial"
             if first_gap:
                 missed = int((need < pd.Timestamp(out["first_row"])).sum())
@@ -732,6 +957,8 @@ def check_entity(request: dict, meta: dict, daily: pd.DataFrame, refs: Reference
             if last_gap:
                 missed = int((need > pd.Timestamp(out["last_row"])).sum())
                 reasons.append(f"ends {out['last_row']}: {missed} need sessions after")
+            if out["missing_inside"]:
+                reasons.append(f"missing_inside:{out['missing_inside']} need sessions between the first and last row")
         else:
             verdict = "ok"
         reasons += notes
@@ -767,7 +994,8 @@ def ordinary_ratio(value: float, tolerance: float = 0.001) -> bool:
 
 
 def event_flags(events: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
-    """Adds prior_close_raw, pct_of_prior and flags (odd_ratio, split_after_2023,
+    """Adds prior_close_raw, pct_of_prior and flags (odd_ratio, not_applied_by_yahoo,
+    volume_not_scaled_by_yahoo, volume_restore_unverified, volume_check_unclear, split_after_2023,
     special_dividend_gt10pct, not_on_session) to an events table."""
     events = events.copy()
     closes = daily.set_index("date")["close_raw"] if len(daily) else pd.Series(dtype=float)
@@ -782,6 +1010,14 @@ def event_flags(events: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
                 row.append("odd_ratio")
             if getattr(event, "applied_by_yahoo", "Y") == "N":
                 row.append("not_applied_by_yahoo")
+            evidence = str(getattr(event, "volume_evidence", "") or "")
+            if evidence == "none":
+                row.append("volume_restore_unverified")
+            elif evidence.startswith("wiki:"):
+                if getattr(event, "volume_restored", "Y") == "N":
+                    row.append("volume_not_scaled_by_yahoo")
+                if abs(np.log(float(evidence.split(":")[2]))) > VOLUME_TEST_CLEAR:
+                    row.append("volume_check_unclear")
             if event.ex_date >= pd.Timestamp("2024-01-01"):
                 row.append("split_after_2023")
         elif value > 0 and event.div_cash_raw > 0.10 * value:
@@ -797,8 +1033,18 @@ def event_flags(events: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
 
 
 EVENT_COLUMNS = ["security_id", "symbol", "verdict", "ex_date", "event_type", "numerator", "denominator", "ratio",
-                 "amount_yahoo", "div_cash_raw", "split_cum_after", "applied_by_yahoo", "prior_close_raw",
-                 "pct_of_prior", "on_session", "in_window", "flags"]
+                 "amount_yahoo", "div_cash_raw", "split_cum_after", "applied_by_yahoo", "volume_restored",
+                 "volume_evidence", "prior_close_raw", "pct_of_prior", "on_session", "in_window", "flags"]
+FLOAT_FORMAT = "%.10g"  # 10 significant digits: a factor of 5e-7 (KUST) no longer prints as 0.000000
+
+
+def series_csv(frame: pd.DataFrame) -> bytes:
+    """A security's series as CSV bytes: volumes as integers, other numbers to 10 significant digits
+    (so close_raw = close_yahoo x split_cum_after can be checked from the file)."""
+    out = frame.copy()
+    for column in ("volume_raw", "volume_yahoo"):
+        out[column] = pd.to_numeric(out[column], errors="coerce").round().astype("Int64")
+    return out.to_csv(index=False, float_format=FLOAT_FORMAT).encode("utf-8")
 STATUS_COLUMNS = ["symbol", "status", "http_status", "raw_file", "fetched_utc", "rows_returned", "message"]
 
 
@@ -836,6 +1082,7 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         status_rows.append(info)
     status = pd.DataFrame(status_rows, columns=STATUS_COLUMNS)
     report_rows, event_frames, yahoo_weeks, accepted, rejected = [], [], {}, {}, {}
+    same_symbol = requests.groupby("symbol")["security_id"].apply(set).to_dict()
     for k, request in enumerate(requests.to_dict("records"), 1):
         symbol, sid = request["symbol"], request["security_id"]
         base = {**request}
@@ -847,6 +1094,9 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         late = unsessioned_splits_not_applied(daily, events, refs.stored(sid))
         if late:
             meta, daily, events = parse_chart(read_raw(best_raw(symbol, raw_dir)), not_applied=late)
+        # Odd-ratio events whose volume Yahoo did not scale, judged against this security's WIKI volume.
+        as_served, evidence = volume_scaling(daily, events, refs.wiki(sid))
+        daily, events = restore_volume(daily, events, as_served, evidence)
         window = daily[(daily["date"] >= pd.Timestamp(WINDOW_START)) & (daily["date"] <= pd.Timestamp(WINDOW_END))]
         if request.get("segment_start"):
             window = window[window["date"] >= pd.Timestamp(request["segment_start"])]
@@ -855,6 +1105,22 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         if request.get("successor_routed") == "Y":
             # The successor's ticker carries the predecessor's history: keep the predecessor's need only.
             window = window[window["date"] <= pd.Timestamp(request["needed_end"])]
+        # Plan 4.4 R9: rows another security claims (a predecessor, successor, sibling class, another
+        # security fetched with this symbol, another holder of the ticker) are cut on that side.
+        cut = refs.claimed_cut(sid, symbol, request["needed_start"], request["needed_end"],
+                               same_symbol.get(symbol, ()))
+        cut_notes, cut_before = [], False
+        if cut["first"]:
+            dropped = int((window["date"] < pd.Timestamp(cut["first"])).sum())
+            if dropped:
+                cut_before = True
+                window = window[window["date"] >= pd.Timestamp(cut["first"])]
+                cut_notes.append(f"claimed_rows_cut:{dropped} before {cut['first']} ({cut['before']})")
+        if cut["last"]:
+            dropped = int((window["date"] > pd.Timestamp(cut["last"])).sum())
+            if dropped:
+                window = window[window["date"] <= pd.Timestamp(cut["last"])]
+                cut_notes.append(f"claimed_rows_cut:{dropped} after {cut['last']} ({cut['after']})")
         checks = check_entity(request, meta, window, refs, sessions, fetch_day)
         segmented = bool(request.get("segment_start") or request.get("segment_end"))
         own = refs.own_ticker_window(sid, symbol) if checks["verdict"] == "wrong_entity" and not segmented else None
@@ -870,28 +1136,55 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         if checks.get("wiki_n", 0) >= 20 and not checks.get("wiki_fail") and not checks.get("wiki_off_runs"):
             verified = min(pd.Timestamp(WIKI_END), window["date"].max())
         checks["split_flags"] = " ".join(split_restore_flags(daily, events, verified))
-        if checks["split_flags"] and checks["verdict"] in ("ok", "review"):
-            checks["verdict"] = "review"
-            checks["verdict_reasons"] = "; ".join(filter(None, [checks["verdict_reasons"], checks["split_flags"]]))
+        notes, review = list(cut_notes), []
+        if checks["split_flags"]:
+            review.append(checks["split_flags"])
         skipped = events[events["applied_by_yahoo"] == "N"]
         if len(skipped):
-            note = "split_not_applied_by_yahoo:" + ",".join(
-                f"{e.ex_date:%Y-%m-%d}:{e.numerator:g}:{e.denominator:g}" for e in skipped.itertuples(index=False))
-            checks["verdict_reasons"] = "; ".join(filter(None, [checks["verdict_reasons"], note]))
-        report_rows.append({**base, **checks})
+            notes.append("split_not_applied_by_yahoo:" + ",".join(
+                f"{e.ex_date:%Y-%m-%d}:{e.numerator:g}:{e.denominator:g}" for e in skipped.itertuples(index=False)))
+        # Events of this security only: inside its segment, and not on rows cut as another's.
+        flagged = event_flags(events, daily)
+        start = max(filter(None, [request.get("segment_start", ""), cut["first"]]), default="")
+        end = min(filter(None, [request.get("segment_end", ""), cut["last"]]), default="")
+        if start:
+            flagged = flagged[flagged["ex_date"] >= pd.Timestamp(start)]
+        if end:
+            flagged = flagged[flagged["ex_date"] <= pd.Timestamp(end)]
+        flagged["in_window"] = np.where(flagged["ex_date"] <= pd.Timestamp(WINDOW_END), "Y", "N")
+        junction = ("segment_junction" if request.get("segment_start") else "trim_junction" if cut_before else "")
+        if junction and len(window):
+            # The first row after another symbol's or security's rows: S and D there come from the
+            # history before it, and the move into it is a corporate action (steps 9 and 11), not a return.
+            on_junction = flagged["ex_date"] <= window["date"].iloc[0]
+            flagged.loc[on_junction, "flags"] = [" ".join(filter(None, [f, junction]))
+                                                 for f in flagged.loc[on_junction, "flags"]]
+            for e in flagged[on_junction].itertuples(index=False):
+                value = f"{e.ratio:.6g}" if e.event_type != "dividend" else f"{e.div_cash_raw:.6g}"
+                review.append(f"{junction}_event:{e.ex_date:%Y-%m-%d}:{e.event_type}:{value}")
+        # Odd-ratio events after the first row set the volume of the rows before them.
+        affecting = flagged[(flagged["event_type"] != "dividend")
+                            & (flagged["ex_date"] > (window["date"].iloc[0] if len(window) else pd.Timestamp.max))]
+        unverified = affecting[affecting["flags"].astype(str).str.contains("volume_restore_unverified")]
+        if len(unverified):
+            # Reported, but not a verdict change: every WIKI-tested event from 2015-07 on was scaled.
+            notes.append("volume_restore_unverified:" + ",".join(
+                f"{e.ex_date:%Y-%m-%d}:{e.ratio:.6g}" for e in unverified.itertuples(index=False)))
+        as_served_rows = affecting[affecting["flags"].astype(str).str.contains("volume_not_scaled_by_yahoo")]
+        if len(as_served_rows):
+            notes.append("volume_not_scaled_by_yahoo:" + ",".join(
+                f"{e.ex_date:%Y-%m-%d}:{e.ratio:.6g}" for e in as_served_rows.itertuples(index=False)))
+        if checks["verdict"] not in ACCEPTED:
+            review = []
+        elif review and checks["verdict"] == "ok":
+            checks["verdict"] = "review"
+        checks["verdict_reasons"] = "; ".join(filter(None, [checks["verdict_reasons"], *review, *notes]))
+        report_rows.append({**base, **checks, "claimed_cut_first": cut["first"], "claimed_cut_last": cut["last"]})
         if checks["verdict"] in ACCEPTED and len(window):
             yahoo_weeks.setdefault(sid, set()).update(window["date"].dt.to_period("W-SUN"))
-        flagged = event_flags(events, daily)
-        if request.get("segment_start"):
-            flagged = flagged[flagged["ex_date"] >= pd.Timestamp(request["segment_start"])]
-        if request.get("segment_end"):
-            flagged = flagged[flagged["ex_date"] <= pd.Timestamp(request["segment_end"])]
-        flagged["in_window"] = np.where(flagged["ex_date"] <= pd.Timestamp(WINDOW_END), "Y", "N")
         event_frames.append(flagged.assign(security_id=sid, symbol=symbol, verdict=checks["verdict"]))
         frame = window.assign(date=window["date"].dt.strftime("%Y-%m-%d"), symbol=symbol, junction="")
-        if request.get("segment_start") and len(frame):
-            # The first row of a later segment: S and D there belong to the other symbol's history, and
-            # the move from the previous segment is a corporate action (steps 9 and 11), not a return.
+        if junction and len(frame):
             frame.iloc[0, frame.columns.get_loc("junction")] = "Y"
         (accepted if checks["verdict"] in ACCEPTED else rejected).setdefault(sid, []).append(frame)
         if k % 100 == 0:
@@ -905,21 +1198,32 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
                 target.unlink(missing_ok=True)
                 continue
             joined = pd.concat(frames, ignore_index=True).sort_values("date")
-            common.atomic_write(target, gzip.compress(joined.to_csv(index=False, float_format="%.6f").encode("utf-8"),
-                                                      mtime=0))
+            common.atomic_write(target, gzip.compress(series_csv(joined), mtime=0))
+    # Series of securities the candidate list no longer asks for are moved aside (not_requested/),
+    # so that every file next to the reports belongs to this build.
+    wanted, moved = set(requests["security_id"]), []
+    for folder, aside in ((out_dir, out_dir / "not_requested"), (out_dir / "rejected", out_dir / "not_requested" / "rejected")):
+        for path in sorted(folder.glob("*.csv.gz")) if folder.exists() else []:
+            if path.name[:-len(".csv.gz")] not in wanted:
+                aside.mkdir(parents=True, exist_ok=True)
+                path.replace(aside / path.name)
+                moved.append(path.name[:-len(".csv.gz")])
+    if moved:
+        log(f"build: {len(moved)} series of securities no longer requested moved to not_requested/: {' '.join(moved)}")
     report = pd.DataFrame(report_rows)
     events = pd.concat(event_frames, ignore_index=True) if event_frames else pd.DataFrame(columns=EVENT_COLUMNS)
     events["ex_date"] = pd.to_datetime(events["ex_date"]).dt.strftime("%Y-%m-%d")
     events = events.reindex(columns=EVENT_COLUMNS)
     common.atomic_write(out_dir / "fetch_status.csv", status.to_csv(index=False).encode("utf-8"))
     common.atomic_write(out_dir / "entity_report.csv", report.to_csv(index=False).encode("utf-8"))
-    common.atomic_write(out_dir / "events.csv", events.to_csv(index=False, float_format="%.8g").encode("utf-8"))
+    common.atomic_write(out_dir / "events.csv", events.to_csv(index=False, float_format=FLOAT_FORMAT).encode("utf-8"))
     weekly = weekly_coverage(yahoo_weeks, metrics_path)
     if not weekly.empty:
         common.atomic_write(out_dir / "weekly_coverage_after_yahoo.csv",
                             weekly.assign(week_end=weekly["week_end"].dt.strftime("%Y-%m-%d"))
                             .to_csv(index=False).encode("utf-8"))
     summary = summarize(requests, status, report, events)
+    summary["moved_to_not_requested"] = moved
     summary["top300_vendor_coverage_by_year"] = coverage_by_year(weekly)
     common.atomic_write(out_dir / "summary.json", (json.dumps(summary, indent=2, default=str) + "\n").encode("utf-8"))
     log(f"build: {summary['verdicts']}; fetch {summary['fetch_status']}")
@@ -955,6 +1259,8 @@ def coverage_by_year(weekly: pd.DataFrame) -> dict:
 def summarize(requests: pd.DataFrame, status: pd.DataFrame, report: pd.DataFrame, events: pd.DataFrame) -> dict:
     flags = events["flags"].fillna("").astype(str)
     flagged = flags[flags != ""]
+    reasons = report.get("verdict_reasons", pd.Series(dtype=str)).fillna("").astype(str)
+    cuts = reasons.str.findall(r"claimed_rows_cut:(\d+)").map(lambda found: sum(int(x) for x in found))
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "pairs": int(len(requests)), "symbols": int(requests["symbol"].nunique()),
@@ -966,8 +1272,26 @@ def summarize(requests: pd.DataFrame, status: pd.DataFrame, report: pd.DataFrame
         "events": {"splits": int((events["event_type"] != "dividend").sum()),
                    "dividends": int((events["event_type"] == "dividend").sum()),
                    "flag_counts": flagged.str.split().explode().value_counts().to_dict() if len(flagged) else {}},
+        "odd_ratio_volume_restore": odd_ratio_volume_summary(events),
+        "claimed_rows_cut": {"series": int(cuts.astype(bool).sum()), "rows": int(cuts.sum())},
+        "stored_dv_check_note": "the stored files hold Yahoo's served volume, so stored_dv tests the entity, "
+                                "not the volume restore",
         "requests_logged": common.quota_used(SOURCE),
     }
+
+
+def odd_ratio_volume_summary(events: pd.DataFrame) -> dict:
+    """Odd-ratio events of the accepted series in the window, by how their volume is restored."""
+    flags = events["flags"].fillna("").astype(str)
+    odd = events[flags.str.contains("odd_ratio") & events["verdict"].isin(ACCEPTED) & (events["in_window"] == "Y")]
+    odd_flags = flags[odd.index]
+    return {"events": int(len(odd)),
+            "volume_restored_wiki_checked": int((odd["volume_evidence"].astype(str).str.startswith("wiki:")
+                                                 & (odd["volume_restored"] == "Y")).sum()),
+            "volume_as_served_wiki_checked": int(odd_flags.str.contains("volume_not_scaled_by_yahoo").sum()),
+            "volume_restored_unverified": int(odd_flags.str.contains("volume_restore_unverified").sum()),
+            "volume_check_unclear": int(odd_flags.str.contains("volume_check_unclear").sum()),
+            "not_applied_by_yahoo": int(odd_flags.str.contains("not_applied_by_yahoo").sum())}
 
 
 # ------------------------------------------------------------------ main
@@ -979,6 +1303,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="fetch at most this many symbols")
     parser.add_argument("--symbols", default="", help="comma-separated subset of symbols")
     parser.add_argument("--retry", default="", help="comma-separated symbols to ask again (query2 host)")
+    parser.add_argument("--period1", default=PERIOD1, help="first day asked (default 2011-06-01; a need start "
+                                                           "for --retry of a truncated answer)")
     args = parser.parse_args(argv)
     candidates = pd.read_csv(CANDIDATES, dtype=str, keep_default_na=False)
     requests = request_rows(candidates)
@@ -990,9 +1316,9 @@ def main(argv: list[str] | None = None) -> int:
     outcome = {}
     if args.retry:
         again = sorted({x.strip().upper() for x in args.retry.split(",") if x.strip()} & set(requests["symbol"]))
-        outcome.update(fetch_symbols(again, retry=True))
+        outcome.update(fetch_symbols(again, retry=True, period1=args.period1))
     if args.fetch or args.fetch_only:
-        outcome.update(fetch_symbols(symbols, limit=args.limit))
+        outcome.update(fetch_symbols(symbols, limit=args.limit, period1=args.period1))
         stopped = [s for s, o in outcome.items() if o["status"] == "stopped"]
         if stopped:
             log(f"stopped by HTTP {outcome[stopped[0]]['http_status']} at {stopped[0]}; re-run to resume")

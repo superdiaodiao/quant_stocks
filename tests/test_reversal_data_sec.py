@@ -216,6 +216,134 @@ def test_parse_submissions_and_foreign_flag():
     assert sm.foreign_filer_flag(with_page) == "N"
 
 
+# ------------------------------------------------------------------ foreign-filer regime (round-2 review)
+
+def _block(*filings):
+    """A submissions block from (form, filing date) pairs, with made-up accession numbers."""
+    return {"form": [f for f, _ in filings], "filingDate": [d for _, d in filings],
+            "accessionNumber": [f"acc-{f}-{d}" for f, d in filings]}
+
+
+def _payload(recent, pages=()):
+    return {"cik": "1", "name": "X", "filings": {"recent": _block(*recent), "files": list(pages)}}
+
+
+ATLASSIAN_RECENT = [("10-Q", "2024-11-01"), ("10-K", "2025-08-15"), ("10-Q", "2026-05-01"), ("8-K", "2026-05-01")]
+ATLASSIAN_PAGE = _block(("6-K", "2016-02-04"), ("20-F", "2016-08-18"), ("6-K", "2016-10-27"), ("20-F", "2021-08-13"),
+                        ("6-K/A", "2018-11-06"), ("20-F", "2022-08-19"), ("6-K", "2022-08-24"), ("10-Q", "2022-11-04"),
+                        ("10-K", "2023-08-18"), ("10-Q", "2024-04-26"))
+ATLASSIAN_FILES = [{"name": "CIK0001650372-submissions-001.json", "filingFrom": "2015-08-21", "filingTo": "2024-09-23"}]
+
+
+def test_the_flag_reads_every_older_page_atlassian_is_mixed(monkeypatch):
+    # Atlassian 1650372: recent block from 2024-09 (10-K/10-Q only); 20-F/6-K until 2022-08 on page 001.
+    payload = _payload(ATLASSIAN_RECENT, ATLASSIAN_FILES)
+    calls = []
+    monkeypatch.setattr(sm, "load_submission_page",
+                        lambda name, offline=False: calls.append(name) or ATLASSIAN_PAGE)
+    facts = sm.regime_facts(payload, offline=True)
+    assert calls == ["CIK0001650372-submissions-001.json"] and facts["pages_unread"] == []
+    assert facts["flag"] == "MIXED" and facts["spans"] == [("2011-06-01", "2022-11-03")]
+    assert (facts["domestic_first"], facts["foreign_first"], facts["foreign_last"]) == ("2022-11-04", "2016-02-04", "2022-08-24")
+    by_form = {(r["form"], r["filing_date"]): r for r in facts["timeline"]}
+    assert by_form[("20-F", "2016-08-18")]["regime_in_force"] == "F"
+    assert by_form[("6-K/A", "2018-11-06")]["sets_regime"] == ""
+    assert by_form[("10-Q", "2022-11-04")]["regime_in_force"] == "D"
+    # The recent block alone (the old rule) said N: the page is what makes it MIXED.
+    assert sm.foreign_filer_flag(sm.parse_submissions(payload)) == "N"
+    # Uncached offline: the flag rests on the recent block and names the page it could not read.
+    monkeypatch.setattr(sm, "load_submission_page", lambda name, offline=False: None)
+    missing = sm.regime_facts(payload, offline=True)
+    assert missing["flag"] == "N" and missing["pages_unread"] == ["CIK0001650372-submissions-001.json"]
+
+
+def test_full_profile_keeps_the_listing_profile_recent_only(monkeypatch):
+    payload = _payload(ATLASSIAN_RECENT, ATLASSIAN_FILES)
+    monkeypatch.setattr(sm, "load_submissions", lambda cik, offline=False: payload)
+    monkeypatch.setattr(sm, "load_submission_page", lambda name, offline=False: ATLASSIAN_PAGE)
+    profile = sm.full_profile(1650372, offline=True)
+    assert sm.foreign_filer_flag(profile) == "MIXED"
+    assert profile["periodic_dates"] == sm.parse_submissions(payload)["periodic_dates"]  # resolution unchanged
+    assert "older_pages_fetched" not in profile and profile.get("pages_read") is None
+    assert profile["regime"]["pages_read"] == ["CIK0001650372-submissions-001.json"]
+
+
+def test_bollinger_20f_and_6k_before_its_first_10k_is_mixed():
+    # Bollinger Innovations 1499961 (page 001): 6-K 2010-10, 20-F 2011-06-29, 6-K 2012-01-13, 10-K 2012-03-30.
+    page = _block(("6-K", "2010-10-22"), ("20-F", "2011-06-29"), ("6-K", "2012-01-13"), ("10-K", "2012-03-30"),
+                  ("10-Q", "2012-05-15"))
+    payload = _payload([("10-K", "2014-04-15"), ("10-Q", "2016-05-16")],
+                       [{"name": "p1.json", "filingFrom": "2010-09-03", "filingTo": "2014-04-14"}])
+    facts = sm.regime_facts(payload, {"p1.json": page}, offline=True)
+    assert facts["flag"] == "MIXED" and facts["spans"] == [("2011-06-01", "2012-03-29")]
+
+
+def test_a_6k_only_foreign_period_counts_teva():
+    # TEVA 818686, recent block alone: 6-Ks from 2017-09-19, first 10-K 2018-02-12, no 20-F in sight.
+    timeline = sm.regime_timeline(sm.regime_filings(_payload(
+        [("6-K", "2017-09-19"), ("6-K", "2017-12-27"), ("10-K", "2018-02-12"), ("10-Q", "2018-05-03")])))
+    assert sm.regime_flag(timeline) == ("MIXED", [("2011-06-01", "2018-02-11")])
+    # The weeks before the first 10-K are foreign (the old 20-F/40-F-only rule called them domestic).
+    history = pd.DataFrame([{"cik": 818686, **r} for r in timeline])
+    assert sm.regime_on(history, 818686, ["2017-01-06", "2017-10-06", "2018-02-09", "2018-02-12", "2018-03-02"]) == \
+        ["F", "F", "F", "D", "D"]
+    assert sm.regime_on(history, 1, ["2017-10-06"]) == [""]
+
+
+def test_a_6k_beside_10qs_is_no_switch_but_one_before_a_20f_is():
+    # Corvus Gold 1507964 filed 10-K/10-Q with two stray 6-Ks (2017): N, not MIXED.
+    corvus = sm.regime_timeline(sm.regime_filings(_payload(
+        [("10-Q", "2017-01-12"), ("6-K", "2017-02-24"), ("10-Q", "2017-04-12"), ("10-K", "2017-06-30"),
+         ("6-K", "2017-07-10"), ("10-Q", "2017-10-12")])))
+    assert sm.regime_flag(corvus) == ("N", [])
+    assert [r["sets_regime"] for r in corvus if r["form"] == "6-K"] == ["", ""]
+    # UTStarcom 1030471: a 10-Q in 2011-05 (before the window), 6-Ks from 2011-08-09, its first 20-F in
+    # 2012-04: the switch is at the first 6-K, and the window opens domestic.
+    ut = sm.regime_timeline(sm.regime_filings(_payload(
+        [("10-Q", "2011-05-09"), ("10-K/A", "2011-05-20"), ("6-K", "2011-08-09"), ("6-K", "2012-03-13"),
+         ("20-F", "2012-04-27"), ("20-F", "2013-04-26")])))
+    assert sm.regime_flag(ut) == ("MIXED", [("2011-08-09", "2026-08-31")])
+    # A 6-K filed after the last domestic report with nothing after it (a company that became foreign).
+    tail = sm.regime_timeline(sm.regime_filings(_payload([("10-K", "2019-03-01"), ("6-K", "2019-04-17")])))
+    assert sm.regime_flag(tail) == ("MIXED", [("2019-04-17", "2026-08-31")])
+
+
+def test_amendments_and_late_switches_do_not_change_the_regime():
+    # A 20-F/A after the switch to 10-K amends an old year (1936258, 2024-10-28): no switch back.
+    late_amend = sm.regime_timeline(sm.regime_filings(_payload(
+        [("20-F", "2023-04-01"), ("10-K", "2024-03-01"), ("20-F/A", "2024-10-28"), ("10-Q", "2025-05-01")])))
+    assert sm.regime_flag(late_amend) == ("MIXED", [("2011-06-01", "2024-02-29")])
+    # Novell 758004: only a 10-K/A in the window; the regime is the one its 2011-03 10-Q set.
+    novell = sm.regime_timeline(sm.regime_filings(_payload([("10-Q", "2011-03-14"), ("10-K/A", "2011-08-23")])))
+    assert sm.regime_flag(novell) == ("N", [])
+    # Amendments alone set the regime when nothing else does.
+    only = sm.regime_timeline(sm.regime_filings(_payload([("20-F/A", "2013-05-01")])))
+    assert sm.regime_flag(only) == ("Y", [("2011-06-01", "2026-08-31")])
+    # A switch filed after the window's end changes none of its weeks; nothing in the window is UNKNOWN.
+    after = sm.regime_timeline(sm.regime_filings(_payload([("10-K", "2026-03-01"), ("20-F", "2026-09-15")])))
+    assert sm.regime_flag(after) == ("N", [])
+    # Nova Minerals 1852551: 6-Ks until 2026-06, its first 10-K on 2026-09-30: foreign over the whole window.
+    nova = sm.regime_timeline(sm.regime_filings(_payload([("6-K", "2026-06-05"), ("10-K", "2026-09-30")])))
+    assert sm.regime_flag(nova) == ("Y", [("2011-06-01", "2026-08-31")])
+    # A new registrant whose first report comes after the window's end has that report's regime.
+    first_late = sm.regime_timeline(sm.regime_filings(_payload([("10-Q", "2026-09-04")])))
+    assert sm.regime_flag(first_late) == ("N", [])
+    before = sm.regime_timeline(sm.regime_filings(_payload([("10-K", "2010-03-01"), ("8-K", "2012-01-01")])))
+    assert sm.regime_flag(before) == ("UNKNOWN", [])
+    # A 6-K on a report's day: the report sets that day's regime.
+    same_day = sm.regime_timeline(sm.regime_filings(_payload(
+        [("20-F", "2014-03-31"), ("6-K", "2015-04-15"), ("10-K", "2015-04-15"), ("10-Q", "2015-05-20")])))
+    assert sm.regime_flag(same_day) == ("MIXED", [("2011-06-01", "2015-04-14")])
+
+
+def test_history_rows_hold_only_mixed_ciks_of_the_master():
+    mixed = {"regime": sm.regime_facts(_payload([("20-F", "2016-08-18"), ("10-Q", "2022-11-04")]), offline=True)}
+    domestic = {"regime": sm.regime_facts(_payload([("10-K", "2016-08-18")]), offline=True)}
+    rows = sm.history_rows({1: mixed, 2: domestic, 3: mixed}, ciks={1, 2})
+    assert list(rows.columns) == sm.HISTORY_COLUMNS
+    assert rows["cik"].tolist() == [1, 1] and rows["regime_in_force"].tolist() == ["F", "D"]
+
+
 @pytest.mark.parametrize("raw,norm", [
     ("Achillion Pharmaceuticals, Inc. - Common Stock", "achillion pharmaceuticals"),
     ("ACHILLION PHARMACEUTICALS INC", "achillion pharmaceuticals"),
@@ -1689,3 +1817,31 @@ def test_a_delist_date_long_after_the_last_listing_is_flagged_for_review():
     assert master.loc["1691507", "delist_date"] == "2026-08-27"
     assert "review: delist date 2064 days after the last Nasdaq listing 2021-01-01" in master.loc["1691507", "identity_notes"]
     assert "review" not in master.loc["1599901", "identity_notes"]
+
+
+@pytest.mark.skipif(not (sm.MASTER.exists() and sm.PERIODIC_HISTORY.exists()), reason="step 4 outputs not built")
+def test_built_foreign_flags_and_periodic_form_history():
+    master = pd.read_csv(sm.MASTER, dtype=str, keep_default_na=False)
+    flags = master.drop_duplicates("cik").set_index("cik")["foreign_filer"]
+    history = pd.read_csv(sm.PERIODIC_HISTORY, dtype=str, keep_default_na=False)
+    assert list(history.columns) == sm.HISTORY_COLUMNS
+    # Round-2 review: Atlassian and Bollinger switched from 20-F/6-K to 10-K/10-Q; TEVA had 6-Ks before its first 10-K.
+    assert flags["1650372"] == "MIXED" and flags["1499961"] == "MIXED" and flags["818686"] == "MIXED"
+    team = history[history["cik"] == "1650372"]
+    assert sorted(team.loc[team["form"] == "20-F", "filing_date"].str[:4]) == ["2016", "2017", "2018", "2019", "2020", "2021", "2022"]
+    assert (team.loc[team["form"] == "20-F", "regime_in_force"] == "F").all()
+    assert sm.regime_on(history, 1650372, ["2019-06-07", "2022-11-04", "2025-01-03"]) == ["F", "D", "D"]
+    assert sm.regime_on(history, 818686, ["2017-10-06", "2018-02-16"]) == ["F", "D"]
+    by_sid = master.set_index("security_id")
+    assert by_sid.loc["1650372", "foreign_spans"] == "2011-06-01..2022-11-03"
+    # The table holds exactly the MIXED CIKs, each with both regimes in force inside the window.
+    mixed = set(flags[flags == "MIXED"].index)
+    assert set(history["cik"]) == mixed
+    for cik, rows in history.groupby("cik"):
+        inside = rows[(rows["filing_date"] >= sm.FILINGS_SINCE) & (rows["filing_date"] <= sm.FLAG_UNTIL)]
+        before = rows[rows["filing_date"] < sm.FILINGS_SINCE]
+        start = (before if len(before) else inside)["regime_in_force"].iloc[-1 if len(before) else 0]
+        assert {start, *inside["regime_in_force"]} == {"D", "F"}, cik
+    # Every MIXED or Y security names its foreign spans; N and UNKNOWN name none.
+    assert (master.loc[master["foreign_filer"].isin(["MIXED", "Y"]), "foreign_spans"] != "").all()
+    assert (master.loc[master["foreign_filer"].isin(["N", "UNKNOWN"]), "foreign_spans"] == "").all()

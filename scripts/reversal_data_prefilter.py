@@ -26,29 +26,49 @@ Inputs (all local, read only):
     WIKI, ``confirmed_price_adjustments.csv``); a stored close without such a
     restore is an estimate (``price_flag`` E), never a vendor level.
 
-Rules (plan section 3.2; foreign filers are excluded as the owner decided, MIXED
-filers only while their latest periodic report is a 20-F/40-F/6-K):
+Universe: Nasdaq common stock that is not a foreign filer that week (the owner excludes foreign
+filers; a MIXED filer only in the weeks whose latest periodic report before that week is foreign,
+from step 4's ``periodic_form_history.csv``: TEVA to 2018-02-11, Atlassian to 2022-11-03) and not an
+unmerged SPAC shell (current SIC 6770 that never turned operating, no merger while listed:
+``spac_shells``; plan 3.1's name pattern misses Sentinel Energy Services, Bridgetown Holdings ...).
+
+Rules (plan section 3.2):
 - A1: 2012-01..2018-03, dv rank <= 300 in any week, from WIKI raw, and the listed
-  interval is not covered by a vendor raw series;
+  interval is not covered by a vendor raw series (a 2016 week priced only by a stored file
+  meets it at rank 330: stored dollar volume runs about 12% low that year);
 - A2: 2011-11..2019-06, Wayback company-list market cap rank <= 400 on any capture;
 - A3 (proxy fallback, reported separately): a Form 25 delisting 2012-01..2018-03 with
   float >= $1B, not covered and not caught by A1/A2 (mostly the 2012-2014-03
   delistings that WIKI lacks);
 - B-A / B-B / B-C: Form 25 delistings 2018-04..2024-06, maximum checked public float
   in the 3 years before (>= $1B / $500M-$1B / $300M-$500M, tier C a seeded sample
-  of 20, the rest conditional on the sample);
+  of 20 names some request can price, the rest conditional on the sample);
 - C: a series that starts more than 60 days after the first snapshot appearance,
   where A1/A2/B-A hold for the missing window;
-- V: a stratified 50-name verification sample of active names (Tiingo next to Yahoo);
+- S: names delisted after 2024-06 whose only series is a stored file and which rank <= 300,
+  and (S_float) Form 25 delistings after 2024-06 with a tier-A/B float and no price at all in
+  their uncovered weeks (Cerevel, Encore Wire); month 1, after C and before the samples;
+- V: a stratified 50-name verification sample of active names (Tiingo next to Yahoo), each
+  category keeping 8 slots (special dividends included), under the Yahoo ticker;
 - Y: active names ranked <= 300 in any week whose listed interval no vendor raw series
-  covers (plan step 7, Yahoo);
-- S: names delisted after 2024-06 whose only series is a stored file and which rank
-  <= 300 (no plan tier covers them; month 2, reported separately).
+  covers (plan step 7, Yahoo).
 
 Routing (plan section 3.2): 2011-06..2018-03-27 -> WIKI when it has the security
 and the entity check passes; delisted names after that -> Tiingo only when one
-``supported_tickers`` row covers the needed interval (tickers the security ever used
-are tried, newest first); active names -> Yahoo; nothing -> ``unfillable.csv``.
+``supported_tickers`` row covers the needed interval and is the row the API serves for its
+ticker (the one that ends latest: trial 2026-10-01 CA, CZR, GPOR; probes 2026-10-02 FRG). The
+tickers tried: the security's own (newest first), a reviewed alias (TFCFA/TFCF for 21st Century
+Fox, MSGN, ZG for old Zillow), own + Q (Tiingo keeps a bankrupt company's whole Nasdaq history under
+its OTC ticker: CLVSQ, ENDPQ, AKRXQ), the CIK's current SEC tickers, own + one letter + Q (SDCCQ).
+A row labelled ETF counts when it starts and ends with the security (PAND). A covering row that
+the API does not serve is ``hidden``; a row of another company (starting after the security had
+used the ticker, inside the need: ACET; or served while a hidden row is the security's own:
+COHR, VIVO) is ``newer_company``; both go to ``unfillable.csv`` without a request. Ambiguous
+matches carry ``tiingo_flags`` (several rows, SEC holder another CIK, late start, shared ticker,
+alias, non-stock row) and the fetcher confirms their entity. Active names -> Yahoo; nothing ->
+``unfillable.csv``. ``fetch_order`` numbers the Tiingo tickers in the order the fetcher asks.
+The fetcher's verdicts on answers it holds (``CACHE/tiingo/fetch_status.csv``) feed back: a ticker
+whose answer was another company is passed over for that security.
 
 Data hygiene applied on the way (each counted in prefilter_summary.json):
 - WIKI rows are cut to the security's listing spans and a WIKI file whose raw close
@@ -57,11 +77,13 @@ Data hygiene applied on the way (each counted in prefilter_summary.json):
   ticker map gave to an earlier holder of the ticker move to the owner when it was listed
   then (ContextLogic's LOGC over LogicBio), and stay with the predecessor otherwise;
 - weeks after the last trade (before the Form 25 takes effect) are not "uncovered";
-- XBRL floats with x1000 unit errors are dropped ($3,000 a share, 50x the CIK's other facts);
+- XBRL floats with x1000 unit errors are dropped ($3,000 a share, 50x the CIK's other facts,
+  and from $10B more than 3x shares x the security's close: Mister Car Wash $604B, DIRTT $17.1B);
 - a security whose successor (step-4 link) holds its history in the successor's stored file
   goes to Yahoo under the successor's ticker; Tiingo is asked only for tickers the security
-  still held during the need, and a short partial row starting inside the need counts as a
-  newer company (wrong_entity).
+  still held during the need;
+- a needed window that would run into a foreign-filer span at the end of the listing (CBPO)
+  stops 4 weeks after the last universe week.
 
 Outputs:
   INPUTS/candidate_fetch_list.csv, INPUTS/unfillable.csv   (ids, dates, ranks, SEC floats; no price levels)
@@ -76,6 +98,7 @@ Usage::
 
     PYTHONPATH=. python scripts/reversal_data_prefilter.py            # build (downloads the Tiingo list once)
     PYTHONPATH=. python scripts/reversal_data_prefilter.py --offline  # fail instead of downloading
+    PYTHONPATH=. python scripts/reversal_data_prefilter.py --offline --tiingo-already-used N  # budget from N
 """
 from __future__ import annotations
 
@@ -118,6 +141,7 @@ WINDOW_START, WINDOW_END = "2011-06-01", "2026-08-31"
 FIRST_WEEK, LAST_WEEK = "2012-01-06", "2026-07-17"
 WIKI_END = "2018-03-27"
 FETCH_RANK = 300
+STORED_2016_RANK = 330  # A1's cut for 2016 weeks priced only by a stored file (see security_facts)
 MCAP_RANK = 400
 MIN_PRICE = 10.0
 DV_WINDOWS = {20: 10, 50: 25}  # sessions -> minimum observations for a median
@@ -225,32 +249,19 @@ def non_common_interval(name: str, share_class: str) -> bool:
 
 # ------------------------------------------------------------------ foreign filers
 
-# The switch between foreign and domestic shows in the annual and quarterly reports; a 6-K
-# beside 10-Qs is not a switch (it only marks a CIK foreign when it files no report at all).
-FOREIGN_BASE = {"20-F", "40-F", "20FR12B", "40FR12B"}
-DOMESTIC_BASE = {"10-K", "10-K405", "10-KSB", "10-KT", "10-Q", "10-QSB", "10-QT"}
-
-
-def periodic_timeline(payload: dict, pages: list[dict] = ()) -> list[tuple[str, str]]:
-    """(filing date, 'F' or 'D') for every annual or quarterly report in a submissions JSON, oldest first."""
-    from scripts.reversal_data_security_master import _filing_columns
-
-    filings = _filing_columns((payload.get("filings") or {}).get("recent") or {})
-    for page in pages:
-        filings.extend(_filing_columns(page))
-    out = []
-    for form, day in filings:
-        base = form[:-2] if form.endswith("/A") else form
-        if base in FOREIGN_BASE:
-            out.append((day, "F"))
-        elif base in DOMESTIC_BASE:
-            out.append((day, "D"))
-    return sorted(set(out))
+# The owner excludes foreign filers; a MIXED filer only in the weeks whose latest periodic report
+# before that week is foreign (20-F/40-F, or 6-Ks with no 10-K/10-Q around them). Step 4 settles the
+# regime from every submissions page and writes it per filing to periodic_form_history.csv
+# (regime_in_force from each filing date; before a CIK's first filing, that filing's regime): TEVA
+# is foreign to 2018-02-11 and Atlassian to 2022-11-03, which the recent submissions block alone
+# did not show.
+PERIODIC_HISTORY = INPUTS / "periodic_form_history.csv"
+ALWAYS = [("1900-01-01", "2100-01-01")]
 
 
 def foreign_spans_from_timeline(timeline: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Date spans [start, end] in which the latest periodic report is foreign (before the first
-    report, the first report's kind applies)."""
+    """Spans [start, end] in which the regime in force is 'F', from (filing date, regime in force from
+    that date) pairs, oldest first; before the first filing the first filing's regime applies."""
     if not timeline:
         return []
     spans, current, since = [], timeline[0][1], "1900-01-01"
@@ -264,29 +275,120 @@ def foreign_spans_from_timeline(timeline: list[tuple[str, str]]) -> list[tuple[s
     return spans
 
 
-def foreign_spans(master: pd.DataFrame, offline: bool = True) -> dict[str, list[tuple[str, str]]]:
-    """security_id -> spans when it is a foreign filer. Y: always; MIXED: from its submissions
-    timeline (a 6-K beside 10-Qs counts as foreign only when it is the latest periodic form);
-    N and UNKNOWN: never (UNKNOWN filed no periodic report since 2011-06)."""
-    from scripts.reversal_data_security_master import load_submissions
+def parse_spans(text: str) -> list[tuple[str, str]]:
+    """'a..b c..d' (security_master.foreign_spans) as [(a, b), (c, d)]."""
+    return [tuple(part.split("..", 1)) for part in str(text or "").split() if ".." in part]
 
+
+def clip_spans(spans: list[tuple[str, str]], low: str = WINDOW_START, high: str = WINDOW_END) -> list[tuple[str, str]]:
+    return [(max(a, low), min(b, high)) for a, b in spans if b >= low and a <= high]
+
+
+def history_timelines(history: pd.DataFrame) -> dict[int, list[tuple[str, str]]]:
+    """cik -> [(filing date, regime in force from it)], one entry per filing day, oldest first."""
     out = {}
-    timelines = {}
+    frame = history.assign(cik=history["cik"].astype(int)).sort_values(["cik", "filing_date"], kind="stable")
+    for cik, group in frame.groupby("cik"):
+        last = group.drop_duplicates("filing_date", keep="last")
+        out[int(cik)] = list(zip(last["filing_date"].astype(str), last["regime_in_force"].astype(str)))
+    return out
+
+
+def foreign_spans(master: pd.DataFrame, history_path: Path = PERIODIC_HISTORY) -> tuple[dict, dict]:
+    """(security_id -> spans when it is a foreign filer, facts). Y: always. MIXED: from
+    periodic_form_history.csv; a MIXED CIK missing there falls back to security_master.foreign_spans,
+    and with neither it is foreign throughout (counted). N and UNKNOWN: never. The facts also list
+    MIXED CIKs whose history spans, clipped to the data window, differ from security_master's."""
+    history = read_csv_text(history_path) if Path(history_path).exists() else pd.DataFrame(
+        columns=["cik", "filing_date", "regime_in_force"])
+    timelines = history_timelines(history) if len(history) else {}
+    out, facts = {}, {"mixed_from_history": 0, "mixed_from_master_spans": 0, "mixed_foreign_throughout": 0,
+                      "history_ciks": len(timelines), "history_vs_master_spans_differ": []}
     for row in master.itertuples(index=False):
         if row.foreign_filer == "Y":
-            out[row.security_id] = [("1900-01-01", "2100-01-01")]
+            out[row.security_id] = ALWAYS
         elif row.foreign_filer == "MIXED":
             cik = int(row.cik)
-            if cik not in timelines:
-                payload = load_submissions(cik, offline=offline)
-                timelines[cik] = periodic_timeline(payload) if payload else []
-            spans = foreign_spans_from_timeline(timelines[cik])
-            out[row.security_id] = spans if timelines[cik] else [("1900-01-01", "2100-01-01")]
-    return out
+            master_spans = parse_spans(row.foreign_spans)
+            if cik in timelines:
+                spans = foreign_spans_from_timeline(timelines[cik])
+                facts["mixed_from_history"] += 1
+                if clip_spans(spans) != clip_spans(master_spans):
+                    facts["history_vs_master_spans_differ"].append(row.security_id)
+            elif master_spans:
+                spans = master_spans
+                facts["mixed_from_master_spans"] += 1
+            else:
+                spans = ALWAYS
+                facts["mixed_foreign_throughout"] += 1
+            out[row.security_id] = spans
+    return out, facts
 
 
 def is_foreign_on(spans: list[tuple[str, str]] | None, day: str) -> bool:
     return bool(spans) and any(a <= day <= b for a, b in spans)
+
+
+# ------------------------------------------------------------------ SPAC shells
+
+# Plan 3.1 removes SPACs by name, and the listed names miss many (Sentinel Energy Services,
+# Bridgetown Holdings, Gores Holdings VII, Trinity Merger Corp.). An unmerged blank-check shell is
+# found from SEC facts instead: current SIC 6770 that never turned into an operating SIC, and no
+# rename to an operating name while it was listed (a merged SPAC takes the target's name: Inspirato,
+# JetPay, IEA). Its Form 25 float is the trust balance, so it is no tier-B name either.
+SIC_HISTORY = INPUTS / "sic_history.csv"
+SPAC_NAME = re.compile(
+    r"\bAcquisitions?\b.*\b(?:Corp|Corporation|Co|Company|Ltd|Limited|Inc|Holdings?|Group)\b|"
+    r"\bMerger\s+(?:Corp|Corporation)\b|\bBlank Check\b|\bSPAC\b|"
+    r"\b(?:Holdings?|Corp\.?|Corporation|Co\.?|Inc\.?|Capital|Investment|Growth|Partners|Tech|Technology|Opportunity|"
+    r"Opportunities|Innovation|Ventures)\s*,?\s+(?:I|II|III|IV|V|VI|VII|VIII|IX|X|[2-9]|One|Two|Three|Four|Five)\b",
+    re.IGNORECASE)
+UNIT_SUFFIX = re.compile(r"(?:W|WS|U|R)$")
+
+
+def former_name_spans(text: str) -> list[tuple[str, str, str]]:
+    """security_master.former_names 'NAME (a..b) | ...' as [(name, a, b)]."""
+    out = []
+    for part in str(text or "").split(" | "):
+        found = re.match(r"(.*)\s+\((\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})\)$", part.strip())
+        if found:
+            out.append(found.groups())
+    return out
+
+
+def spac_shells(master: pd.DataFrame, intervals: pd.DataFrame, sic_path: Path = SIC_HISTORY) -> dict[str, str]:
+    """security_id -> why it is an unmerged SPAC shell for its whole Nasdaq life.
+
+    Every shell has current SIC 6770 and did not merge while listed: a merger shows as a rename to a
+    name that is not SPAC-like together with a new Nasdaq ticker (UBPS -> JetPay's JTPY, TVAC ->
+    Inspirato's ISPO); a rename that keeps the ticker is a SPAC renaming itself or a shell handing
+    over to a foreign target (Gazelle Opportunities I -> SVF Investment Corp., DD3 Acquisition Corp.
+    II -> Codere Online U.S. Corp.). Then either (a) the security is delisted, sic_history shows no
+    operating SIC after 6770, and it kept one Nasdaq ticker (units and warrants aside), or (b) the
+    master name or a listed name looks like a SPAC (Acquisition Corp, Merger Corp, Holdings IV ...).
+    A merger sub's name ("Grizzly Merger Sub 1") never counts alone: the SIC must be 6770 too.
+    """
+    sic = read_csv_text(sic_path) if Path(sic_path).exists() else pd.DataFrame(
+        columns=["cik", "operating_sic_after_6770"])
+    operating = set(sic.loc[sic["operating_sic_after_6770"] != "", "cik"])
+    listed_names = intervals.groupby("security_id")["name_in_source"].apply(lambda s: " | ".join(sorted(set(s))))
+    tickers = intervals.groupby("security_id")["ticker"].apply(
+        lambda s: {t[:-1] if len(t) == 5 and UNIT_SUFFIX.search(t) else t for t in s})
+    out = {}
+    for row in master[master["sic"] == "6770"].itertuples(index=False):
+        sid = row.security_id
+        last = row.last_listed or "2100-01-01"
+        single = len(tickers.get(sid, set())) <= 1
+        renamed = [n for n, _, end in former_name_spans(row.former_names) if end < last]
+        if renamed and not SPAC_NAME.search(row.name) and not single:
+            continue  # merged while listed: an operating company from then on
+        named = SPAC_NAME.search(row.name) or SPAC_NAME.search(str(listed_names.get(sid, "")))
+        delisted = bool(row.delist_date) or (row.last_listed and row.last_listed < WINDOW_END)
+        if delisted and row.cik not in operating and single:
+            out[sid] = "sic_6770_never_operating_one_ticker"
+        elif named:
+            out[sid] = "sic_6770_spac_name"
+    return out
 
 
 # ------------------------------------------------------------------ ticker -> security by date
@@ -686,16 +788,18 @@ SRC_CODES = {"wiki": 0, "tiingo": 1, "yahoo": 2, "stored": 3}
 SRC_NAMES = {v: k for k, v in SRC_CODES.items()}
 
 
-def listed_weeks(spans: pd.DataFrame, master: pd.DataFrame, foreign: dict, weeks: pd.DatetimeIndex) -> pd.DataFrame:
+def listed_weeks(spans: pd.DataFrame, master: pd.DataFrame, foreign: dict, weeks: pd.DatetimeIndex,
+                 shells: set | dict = frozenset()) -> pd.DataFrame:
     """One row per (security, week end) it is listed on: the ticker of the covering interval,
-    whether that interval's name is non-common, and whether the security is a foreign filer then."""
+    whether that interval's name is non-common (or the security is an unmerged SPAC shell), and
+    whether the security is a foreign filer then."""
     values = weeks.values.astype("datetime64[D]")
     rows = []
     for row in spans.sort_values("list_start").itertuples(index=False):
         low = np.searchsorted(values, np.datetime64(row.list_start), "left")
         high = np.searchsorted(values, np.datetime64(row.list_end), "right")
         if high > low:
-            bad = non_common_interval(row.name, row.share_class)
+            bad = row.security_id in shells or non_common_interval(row.name, row.share_class)
             for k in range(low, high):
                 rows.append((row.security_id, k, row.ticker, bad))
     frame = pd.DataFrame(rows, columns=["security_id", "week_index", "ticker", "non_common"])
@@ -762,8 +866,8 @@ def rank_within_weeks(frame: pd.DataFrame, value: str, eligible: pd.Series) -> p
 
 
 def weekly_table(stage: dict, master: pd.DataFrame, foreign: dict, sessions: pd.DatetimeIndex,
-                 weeks: pd.DatetimeIndex) -> pd.DataFrame:
-    weekly = listed_weeks(stage["spans"], master, foreign, weeks)
+                 weeks: pd.DatetimeIndex, shells: set | dict = frozenset()) -> pd.DataFrame:
+    weekly = listed_weeks(stage["spans"], master, foreign, weeks, shells)
     log(f"listed security-weeks: {len(weekly)}")
     panels = wide_panels(stage["best"], sessions)
     metrics = series_metrics(panels, weeks)
@@ -834,48 +938,152 @@ def load_supported_tickers(offline: bool = False) -> pd.DataFrame:
 
 
 def tiingo_index(supported: pd.DataFrame) -> dict[str, list[dict]]:
-    """ticker -> rows (exchange, start, end) of US-dollar stocks."""
-    stocks = supported[(supported["assetType"].str.lower() == "stock") & (supported["priceCurrency"].isin(["USD", ""]))]
+    """ticker -> every US-dollar row of Tiingo's list, any asset type (Tiingo labels some stocks ETF:
+    INFO 2014-06-19..2022-02-28 is IHS Markit, PAND is Pandion), each marked ``served`` when the API
+    answers the ticker with that row (``served_row``)."""
+    usd = supported[supported["priceCurrency"].isin(["USD", ""])]
     index = defaultdict(list)
-    for row in stocks.itertuples(index=False):
-        index[row.ticker].append({"exchange": row.exchange, "start": row.startDate[:10], "end": row.endDate[:10]})
+    for row in usd.itertuples(index=False):
+        index[row.ticker].append({"ticker": row.ticker, "exchange": row.exchange, "asset_type": row.assetType,
+                                  "start": row.startDate[:10], "end": row.endDate[:10], "served": False})
+    for rows in index.values():
+        top = served_row(rows)
+        if top is not None:
+            top["served"] = True
     return index
+
+
+def served_row(rows: list[dict]) -> dict | None:
+    """The row the API answers a ticker with: the one that ends latest (then starts latest). The
+    trial of 2026-10-01 showed it for all three tickers with two rows: CA came back as the 2023 ETF,
+    CZR as Eldorado's row (2014-09-22..) though old Caesars' row overlaps it, GPOR as the 2021
+    Gulfport although the old row ends the day before. Every other row of the ticker is hidden."""
+    dated = [r for r in rows if r["start"] and r["end"]]
+    return max(dated, key=lambda r: (r["end"], r["start"])) if dated else None
 
 
 def _days(a: str, b: str) -> int:
     return (pd.Timestamp(b) - pd.Timestamp(a)).days
 
 
-def tiingo_range_match(tickers: list[str], need_start: str, need_end: str, index: dict[str, list[dict]]) -> dict:
-    """Plan 3.2: a single supported_tickers row whose start and end cover the needed interval.
+# Candidate-ticker kinds, in order of preference when two rows match equally well.
+TICKER_KINDS = ["own", "reviewed_alias", "q_suffix", "sec_current", "q_prefix"]
+# A row that starts this long after the security began using the ticker (or, for a ticker it never
+# listed under, after its first listing) is late: a truncated history or another company. When such
+# a row covers the need only through the start slack, it is another company that began then (ACET:
+# resTORbio/Adicet's row starts 2018-01-26; Aceto used ACET for decades and needs 2018-01-21 on).
+LATE_ROW_DAYS = 30
+TIINGO_CUT = "2016-01-04"  # Tiingo starts some histories here (plan 8.9): a truncation, not a newer company
+ORIGIN_DAYS = 60  # a pattern or non-stock row must start this close to a post-2011 listing
+PRE_WINDOW_LISTING = "2011-01-31"  # first snapshot floor: listed before the window, origin unknown
 
-    Tickers are tried in the order given (the security's own tickers, newest first). Result
-    ``match``: Y (a row covers it), partial (the best row covers part of it), wrong_entity
-    (the ticker has rows, none overlapping the need: a reused ticker held by another company),
-    no_row. ``reused`` is set when the ticker also has a row starting after the need ends
-    (the request may return the newer company; check the entity after the fetch).
+
+def row_origin_ok(row: dict, security: dict | None) -> bool:
+    """A row of a pattern alias or a non-stock row starts near the security's own beginning."""
+    if not security or not security.get("first_listed"):
+        return False
+    first = str(security["first_listed"])[:10]
+    return first <= PRE_WINDOW_LISTING or abs(_days(first, row["start"])) <= ORIGIN_DAYS
+
+
+def row_end_ok(row: dict, security: dict | None) -> bool:
+    """A non-stock row ends when the security's listing ends (or later after an exchange move; an
+    active security's row runs to the list date)."""
+    if not security:
+        return False
+    if security.get("active"):
+        return row["end"] >= _shift(WINDOW_END, -30)
+    last = str(security.get("last_listed") or "")[:10]
+    if not last:
+        return False
+    if security.get("transfer_date"):
+        return row["end"] >= _shift(last, -30)
+    return abs(_days(last, row["end"])) <= 30
+
+
+ENDS_WITH_DAYS = 30  # a row ends with the security when it ends this close to its last listed day
+OUTLIVES_DAYS = 60  # a served row that runs this long past it belongs to a company still trading
+
+
+def tiingo_range_match(tickers: list, need_start: str, need_end: str, index: dict[str, list[dict]],
+                       security: dict | None = None) -> dict:
+    """Plan 3.2: a single supported_tickers row whose start and end cover the needed interval, and
+    which the API serves for its ticker.
+
+    ``tickers``: candidate tickers in order, each a ticker or (ticker, kind) with kind one of
+    TICKER_KINDS. ``security``: first_listed, last_listed, active, transfer_date, ticker_starts.
+    Result ``match``: Y (a served row covers it), partial (the best served row covers part of it),
+    hidden (a row covers it but the API serves another row of that ticker), newer_company (the row
+    is another company: see below), wrong_entity (the ticker has rows, none overlapping the need),
+    no_row. Non-stock rows count only when they start and end with the security (INFO, PAND); a
+    q_prefix row (SDC -> SDCCQ) only when it starts with it.
+
+    A row is another company (newer_company) when it starts more than LATE_ROW_DAYS after the
+    security began using the ticker and inside the need, covering it only through the start slack
+    (ACET) or less than half of it; or when it is the served row and a hidden row of the same ticker
+    covering the need is the security's own (VIVO: Meridian's row starts in 1992 and the served one
+    in 2016, after Meridian had used VIVO for decades; COHR: old Coherent's row ends at its 2022 close,
+    the served one, II-VI's, runs on).
     """
-    best = {"match": "no_row", "ticker": tickers[0] if tickers else "", "row_start": "", "row_end": "",
-            "coverage": 0.0, "reused": False, "exchange": ""}
+    best = {"match": "no_row", "ticker": "", "row_start": "", "row_end": "", "coverage": 0.0, "reused": False,
+            "exchange": "", "asset_type": "", "kind": "", "hidden_by": None, "starts_late": False}
+    order = {"Y": 6, "partial": 5, "hidden": 4, "newer_company": 3, "wrong_entity": 2, "no_row": 0}
     need_days = max(_days(need_start, need_end), 1)
-    for ticker in tickers:
+    security = security or {}
+    first_listed = str(security.get("first_listed") or "")[:10]
+    last_listed = str(security.get("last_listed") or "")[:10]
+    delisted = bool(last_listed) and not security.get("active") and not security.get("transfer_date")
+    held_from = security.get("ticker_starts") or {}
+    best_key = (-1,)
+    for item in tickers:
+        ticker, kind = (item, "own") if isinstance(item, str) else item
+        if not best["ticker"]:
+            best["ticker"] = ticker
         rows = [r for r in index.get(ticker, []) if r["start"] and r["end"]]
         if not rows:
             continue
-        reused = any(r["start"] > need_end for r in rows)
+        served = served_row(rows)
+        others = [r for r in rows if r is not served and r["end"] >= need_start]
+        base = ticker[:-1] if kind == "q_suffix" else ticker
+        reference = "" if kind == "reviewed_alias" else str(held_from.get(base) or first_listed)[:10]
+        found = []
         for r in rows:
+            stock = (r.get("asset_type") or "Stock").lower() == "stock"
+            if not stock and not (row_origin_ok(r, security) and row_end_ok(r, security)):
+                continue
+            if kind == "q_prefix" and not row_origin_ok(r, security):
+                continue
             covers = (_days(r["start"], need_start) >= -TIINGO_START_SLACK_DAYS
                       and _days(need_end, r["end"]) >= -TIINGO_END_SLACK_DAYS)
             overlap = max(0, _days(max(r["start"], need_start), min(r["end"], need_end)))
             coverage = 1.0 if covers else min(1.0, overlap / need_days)
-            candidate = {"match": "Y" if covers else ("partial" if overlap > 0 else "wrong_entity"),
-                         "ticker": ticker, "row_start": r["start"], "row_end": r["end"],
-                         "coverage": round(coverage, 4), "reused": reused, "exchange": r["exchange"]}
-            order = {"Y": 3, "partial": 2, "wrong_entity": 1, "no_row": 0}
-            if (order[candidate["match"]], candidate["coverage"]) > (order[best["match"]], best["coverage"]):
-                best = candidate
-        if best["match"] == "Y":
-            break
+            match = "Y" if covers else ("partial" if overlap > 0 else "wrong_entity")
+            late = bool(reference) and _days(reference, r["start"]) > LATE_ROW_DAYS and r["start"] != TIINGO_CUT
+            inside = _days(need_start, r["start"]) >= -TIINGO_START_SLACK_DAYS
+            if late and inside and (match == "Y" or (match == "partial" and coverage < MIN_PARTIAL_COVERAGE)):
+                match = "newer_company"
+            if match in ("Y", "partial") and r is not served:
+                match = "hidden"
+            found.append({"match": match, "ticker": ticker, "row_start": r["start"], "row_end": r["end"],
+                          "coverage": round(coverage, 4), "reused": bool(others) or r is not served,
+                          "exchange": r["exchange"], "asset_type": r.get("asset_type", ""), "kind": kind,
+                          "hidden_by": served if r is not served else None, "starts_late": late,
+                          "outlives": delisted and _days(last_listed, r["end"]) > OUTLIVES_DAYS})
+        on_served = [c for c in found if c["hidden_by"] is None and c["match"] in ("Y", "partial")]
+        own_hidden = [c for c in found if c["match"] == "hidden" and (
+            (not c["starts_late"] and any(s["starts_late"] for s in on_served))
+            or (delisted and abs(_days(last_listed, c["row_end"])) <= ENDS_WITH_DAYS
+                and any(s["outlives"] for s in on_served)))]
+        if own_hidden:
+            for c in on_served:
+                c["match"] = "newer_company"
+        for c in found:
+            # A partial row worth no symbol ranks below a hidden or newer-company row, which explains more.
+            rank = order[c["match"]] if c["match"] != "partial" or useful_partial(c, need_start) else 2.5
+            key = (rank, c["coverage"], -TICKER_KINDS.index(kind) if kind in TICKER_KINDS else -9,
+                   c["exchange"] == "NASDAQ")
+            if key > best_key:
+                best, best_key = c, key
     return best
 
 
@@ -891,11 +1099,12 @@ def interval_flags(spans: pd.DataFrame) -> dict[tuple[str, str], bool]:
             zip(spans["security_id"], spans["ticker"], spans["name"], spans["share_class"])}
 
 
-def mcap_ranks(lists: pd.DataFrame, spans: pd.DataFrame, foreign: dict) -> pd.DataFrame:
-    """Company-list market-cap rank per capture date among universe names (non-foreign then, common)."""
+def mcap_ranks(lists: pd.DataFrame, spans: pd.DataFrame, foreign: dict, shells: set | dict = frozenset()) -> pd.DataFrame:
+    """Company-list market-cap rank per capture date among universe names (non-foreign then, common,
+    not a SPAC shell)."""
     flags = interval_flags(spans)
     frame = lists[lists["market_cap"] > 0].copy()
-    frame["universe"] = [not flags.get((s, t), False) and not is_foreign_on(foreign.get(s), d)
+    frame["universe"] = [s not in shells and not flags.get((s, t), False) and not is_foreign_on(foreign.get(s), d)
                          for s, t, d in zip(frame["security_id"], frame["ticker"], frame["snapshot_date"])]
     frame = frame[frame["universe"]]
     frame["mcap_rank"] = frame.groupby("snapshot_date")["market_cap"].rank(ascending=False, method="first")
@@ -939,7 +1148,54 @@ def float_facts(offline: bool = True) -> pd.DataFrame:
 
     reference = joined.groupby("cik", group_keys=False)["val"].apply(others_lower_median)
     bad |= (joined["val"] >= 1e9) & (joined["val"] > FLOAT_JUMP_RATIO * reference.reindex(joined.index))
-    return joined[~bad].sort_values(["cik", "end"])[["cik", "end", "val"]].reset_index(drop=True)
+    return joined[~bad].sort_values(["cik", "end"])[["cik", "end", "val", "shares"]].reset_index(drop=True)
+
+
+# A float of $10B or more must also fit the price: at most 10x shares outstanding x the security's
+# median vendor raw close within 90 days of the fact (10x leaves room for one class's shares count
+# only). Without a vendor close, a stored close is split-adjusted (NVIDIA's 2021 close is a 40th of
+# the raw one), so it must be 50x off: unit errors are 100-1000x (Mister Car Wash $604B, DIRTT $17.1B,
+# Vericity $18.4B, Great Elm $41B passed the per-share test).
+PRICE_CHECK_FLOAT, PRICE_CHECK_DAYS = 1e10, 90
+PRICE_CHECK_RATIO, PRICE_CHECK_RATIO_STORED = 10.0, 50.0
+NO_CLOSE_MAX_PER_SHARE = 1000.0  # with no close near the fact: Mister Car Wash's $880B is $2,894 a share
+
+
+def float_price_check(floats: pd.DataFrame, weekly: pd.DataFrame, master: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """``floats`` without the facts of $10B or more that exceed the ratio above (closes from the weekly
+    table), or, with no close near the fact, give more than $1,000 a share; a fact with no shares
+    count is kept."""
+    cik_of = dict(zip(master["security_id"], master["cik"].astype(int)))
+    # Only CIKs with a Nasdaq security matter (AutoZone's or NVR's real $1,000+ shares are NYSE's).
+    big = floats[(floats["val"] >= PRICE_CHECK_FLOAT) & floats["cik"].astype(int).isin(set(cik_of.values()))]
+    if big.empty:
+        return floats, []
+    columns = ["security_id", "week_end", "close"] + (["vendor_close"] if "vendor_close" in weekly else [])
+    closes = weekly[columns].dropna(subset=["close"])
+    closes = closes.assign(cik=closes["security_id"].map(cik_of))
+    by_cik = {c: g for c, g in closes.groupby("cik")}
+    dropped, facts = [], []
+    for k, fact in big.iterrows():
+        if pd.isna(fact.get("shares")) or not fact["shares"] > 0:
+            continue
+        own = by_cik.get(int(fact["cik"]))
+        near = (own[(own["week_end"] - pd.Timestamp(fact["end"])).abs() <= pd.Timedelta(days=PRICE_CHECK_DAYS)]
+                if own is not None else closes.iloc[0:0])
+        vendor = near["vendor_close"].dropna() if "vendor_close" in near else pd.Series(dtype=float)
+        close, limit = ((float(vendor.median()), PRICE_CHECK_RATIO) if len(vendor)
+                        else (float(near["close"].median()) if len(near) else np.nan, PRICE_CHECK_RATIO_STORED))
+        if not close > 0:
+            if fact["val"] / fact["shares"] > NO_CLOSE_MAX_PER_SHARE:
+                dropped.append(k)
+                facts.append({"cik": int(fact["cik"]), "end": str(fact["end"])[:10], "float_usd": float(fact["val"]),
+                              "per_share": round(float(fact["val"] / fact["shares"]), 1), "close": "none"})
+            continue
+        ratio = fact["val"] / (fact["shares"] * close)
+        if ratio > limit:
+            dropped.append(k)
+            facts.append({"cik": int(fact["cik"]), "end": str(fact["end"])[:10], "float_usd": float(fact["val"]),
+                          "ratio": round(float(ratio), 1), "close": "vendor" if len(vendor) else "stored"})
+    return floats.drop(index=dropped).reset_index(drop=True), facts
 
 
 def attach_proxies(weekly: pd.DataFrame, master: pd.DataFrame, ranks: pd.DataFrame, floats: pd.DataFrame) -> pd.DataFrame:
@@ -1016,6 +1272,11 @@ def security_facts(weekly: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFra
     })
     a1 = universe["week_end"].between(*A1_WINDOW)
     facts["best_rank_a1"] = rank[a1].groupby(universe.loc[a1, "security_id"]).min()
+    # Stored-file dollar volume runs low in 2016 (median 0.876 of WIKI's, 0.936 of Yahoo/Tiingo's;
+    # about 1.000 in every other year), so a stored-only week of 2016 meets A1 at rank 330.
+    stored_2016 = (universe["week_end"].dt.year == 2016) & (universe["src"] == "stored") & ~universe["vendor_ok"]
+    effective = rank.where(~stored_2016, rank * FETCH_RANK / STORED_2016_RANK)
+    facts["best_rank_a1_effective"] = effective[a1].groupby(universe.loc[a1, "security_id"]).min()
     facts["uncovered_weeks"] = facts["uncovered_weeks"].fillna(0).astype(int)
     by_security = spans.sort_values("list_start").groupby("security_id")
     facts = facts.join(pd.DataFrame({
@@ -1026,6 +1287,9 @@ def security_facts(weekly: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFra
     last_held = spans.groupby(["security_id", "ticker"])["list_end"].max().reset_index()
     facts["ticker_last_held"] = last_held.groupby("security_id").apply(
         lambda g: " ".join(f"{t}:{e}" for t, e in zip(g["ticker"], g["list_end"])), include_groups=False)
+    first_held = spans.groupby(["security_id", "ticker"])["list_start"].min().reset_index()
+    facts["ticker_first_held"] = first_held.groupby("security_id").apply(
+        lambda g: " ".join(f"{t}:{e}" for t, e in zip(g["ticker"], g["list_start"])), include_groups=False)
     for column in ("uncovered_weeks", "universe_weeks", "uncovered_unpriced_weeks"):
         facts[column] = facts[column].fillna(0).astype(int)
     first_price = best.groupby("security_id")["date"].min()
@@ -1070,13 +1334,18 @@ def security_facts(weekly: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFra
 def needed_window(row) -> tuple[str, str]:
     """[start, end] of the dates a fetch must cover: from 75 days before the first uncovered week
     (not before the listing or 2011-06-01) to the last uncovered week, or to the end of the
-    listing when the gap runs to it (plus 4 weeks after an exchange move, to 2026-08-31 at most)."""
+    listing when the gap runs to it (plus 4 weeks after an exchange move, to 2026-08-31 at most).
+    When the listing ends in a foreign-filer span (``ends_foreign``: CBPO turned foreign in 2018
+    and was listed to 2021), the listed weeks after the last universe week are foreign, so the
+    window ends 4 weeks after that week (a position held through the exit is still priced)."""
     start = max(WINDOW_START, str(row.first_listed)[:10],
                 (row.first_uncovered - pd.Timedelta(days=WARMUP_DAYS)).strftime("%Y-%m-%d"))
     if (row.last_universe_week - row.last_uncovered).days <= 7:
         end = str(row.last_listed)[:10]
         if isinstance(row.transfer_date, str) and row.transfer_date:
             end = (pd.Timestamp(end) + pd.Timedelta(days=HOLD_DAYS)).strftime("%Y-%m-%d")
+        if bool(getattr(row, "ends_foreign", False)):
+            end = min(end, (row.last_universe_week + pd.Timedelta(days=HOLD_DAYS)).strftime("%Y-%m-%d"))
     else:
         end = row.last_uncovered.strftime("%Y-%m-%d")
     return start, min(end, WINDOW_END)
@@ -1167,18 +1436,23 @@ def stored_break_names(day: str = BREAK_DATE, directory: Path = STORED_DIR) -> l
 
 # ------------------------------------------------------------------ stage 5: rules
 
+# Fetch priority (plan 7 fallback 2: B-A, A, B-B, C), then the names delisted after 2024-06 that rank
+# in the top 300 or carry a tier-A/B float with no price at all (S: PARA, LOGC, NKLA, LAZR, XELA rank
+# 8-46; the plan's tiers stop at 2024-06), then the tier-C sample and the V sample.
 REASON_PRIORITY = ["B_A_float_ge_1B", "A1_wiki_dv_rank300", "A2_mcap_rank400", "A3_float_ge_1B_2012_2018",
-                   "B_B_float_500M_1B", "C_late_start", "B_C_sample_300M_500M", "V_verify_sample",
-                   "Y_active_rank300", "S_stored_only_delisted_rank300", "B_C_rest_300M_500M"]
-MONTH_2_REASONS = {"S_stored_only_delisted_rank300", "B_C_rest_300M_500M"}
+                   "B_B_float_500M_1B", "C_late_start", "S_stored_only_delisted_rank300",
+                   "S_float_delisted_after_2024_06", "B_C_sample_300M_500M", "V_verify_sample",
+                   "Y_active_rank300", "B_C_rest_300M_500M"]
+MONTH_2_REASONS = {"B_C_rest_300M_500M"}
+S_FLOAT_TIERS = {"B_A", "B_B"}
 
 
 def seeded_sample(ids: list[str], n: int, seed: int = SEED) -> list[str]:
+    """The first ``n`` of ``seeded_order(ids, seed)``, sorted."""
     ids = sorted(ids)
     if len(ids) <= n:
         return ids
-    rng = np.random.default_rng(seed)
-    return sorted(rng.choice(ids, size=n, replace=False).tolist())
+    return sorted(seeded_order(ids, seed)[:n])
 
 
 def float_usable(value: float, flag: str, per_share=None) -> bool:
@@ -1219,8 +1493,9 @@ def rule_hits(facts: pd.DataFrame, ranks: pd.DataFrame, floats: pd.DataFrame) ->
         if row.uncovered_weeks <= 0:
             continue
         delist = row.delist_date or ""
-        if pd.notna(row.best_rank_a1) and row.best_rank_a1 <= FETCH_RANK:
-            hits[sid]["A1_wiki_dv_rank300"] = ("dv_rank_min_2012_2018", int(row.best_rank_a1))
+        if pd.notna(row.best_rank_a1_effective) and row.best_rank_a1_effective <= FETCH_RANK:
+            metric = "dv_rank_min_2012_2018" if row.best_rank_a1 <= FETCH_RANK else "dv_rank_min_2012_2018_stored_2016_cut_330"
+            hits[sid]["A1_wiki_dv_rank300"] = (metric, int(row.best_rank_a1))
         if sid in best_mcap.index and best_mcap[sid] <= MCAP_RANK:
             hits[sid]["A2_mcap_rank400"] = ("mcap_rank_min_2011_11_2019_06", int(best_mcap[sid]))
         tier = float_tier(row.public_float_usd, row.float_check_flag, row.implied_float_per_share)
@@ -1252,6 +1527,13 @@ def rule_hits(facts: pd.DataFrame, ranks: pd.DataFrame, floats: pd.DataFrame) ->
                 and pd.notna(row.best_rank_uncovered)
                 and row.best_rank_uncovered <= FETCH_RANK):
             hits[sid]["S_stored_only_delisted_rank300"] = ("dv_rank_min_uncovered_weeks", int(row.best_rank_uncovered))
+        # The float tiers A and B for delistings after the plan's B window, when the uncovered weeks
+        # have no rank or almost no price (no stored file to rank: Cerevel, Encore Wire, National
+        # Western, 323 of their 327 uncovered weeks unpriced).
+        unranked = pd.isna(row.best_rank_uncovered) or row.uncovered_unpriced_weeks >= 0.9 * row.uncovered_weeks
+        if (not row.active and not row.via_successor and delist and S_AFTER < delist <= WINDOW_END
+                and tier in S_FLOAT_TIERS and unranked and "S_stored_only_delisted_rank300" not in hits[sid]):
+            hits[sid]["S_float_delisted_after_2024_06"] = ("form25_max_float_3y_usd", float(row.public_float_usd))
     tier_c = sorted(s for s, h in hits.items() if "B_C_tier" in h)
     # The sample tests tier C on its own, so it is drawn from tier-C names that no higher rule
     # (A, B-A, B-B, C) already fetches; the others are fetched for that rule anyway.
@@ -1264,15 +1546,23 @@ def rule_hits(facts: pd.DataFrame, ranks: pd.DataFrame, floats: pd.DataFrame) ->
     return {s: h for s, h in hits.items() if h}
 
 
+# Slots each V category keeps before any category takes more (the cap of 50 used to fill before
+# special dividends were reached).
+V_RESERVE = {"stored_break_2025_06_24": 8, "split_after_2023": 8, "special_dividend": 8, "odd_split": 8}
+
+
 def verification_sample(facts: pd.DataFrame, weekly: pd.DataFrame, events: pd.DataFrame,
-                        breaks: list[str]) -> dict[str, str]:
-    """security -> V category for 50 active names: the plan's named break names, the stored files'
-    2025-06-24 break names, splits after 2023, odd split factors, special dividends above 10%
-    (each by best dv rank), then a seeded draw from active names ranked <= 300 in the last year,
-    in three rank buckets."""
+                        breaks: list[str], usable=None) -> dict[str, str]:
+    """security -> V category for 50 active names: the plan's named break names and named events, then up to
+    V_RESERVE names of each category (the stored files' 2025-06-24 break names, splits after 2023,
+    special dividends above 10%, odd split factors; each by best dv rank), then the categories in
+    turn until 50, then a seeded draw from active names ranked <= 300 in the last year, in three rank
+    buckets. ``usable(sid)``: whether Tiingo serves a row for the name (others are skipped)."""
     # Active names that are in the universe (non-foreign common stock) in the last year.
     recent_start = pd.Timestamp(LAST_WEEK) - pd.DateOffset(years=1)
     active = facts[facts["active"] & (facts["last_universe_week"] >= recent_start)]
+    if usable is not None:
+        active = active[[bool(usable(sid)) for sid in active.index]]
     by_ticker = {}
     for sid, row in active.iterrows():
         # Its own Nasdaq tickers and the one Yahoo would be asked for (not every SEC ticker of the
@@ -1282,16 +1572,33 @@ def verification_sample(facts: pd.DataFrame, weekly: pd.DataFrame, events: pd.Da
     order = active["best_rank"].fillna(1e9)
     chosen: dict[str, str] = {}
 
-    def add(sids, category):
-        for sid in sorted(set(sids), key=lambda s: order.get(s, 1e9)):
-            if len(chosen) >= V_SAMPLE:
-                return
-            chosen.setdefault(sid, category)
+    def ranked(sids):
+        return [s for s in sorted(set(sids), key=lambda s: (order.get(s, 1e9), s)) if s not in chosen]
 
-    add([by_ticker[t] for t in V_NAMED if t in by_ticker], "named_break_2025_06_24")
-    add([by_ticker[t] for t in breaks if t in by_ticker], "stored_break_2025_06_24")
-    for kind in ("split_after_2023", "odd_split", "special_dividend"):
-        add([by_ticker[t] for t in events.loc[events["kind"] == kind, "ticker"] if t in by_ticker], kind)
+    for sid in ranked(by_ticker[t] for t in V_NAMED if t in by_ticker):
+        if len(chosen) < V_SAMPLE:
+            chosen[sid] = "named_break_2025_06_24"
+    # The events plan 4.3 names to reproduce (PRPL 1:25 on 2026-07-20, SIRI, MNST ...) are always in.
+    for ticker, (_, kind) in V_KNOWN_EVENTS.items():
+        sid = by_ticker.get(ticker)
+        if sid and sid not in chosen and len(chosen) < V_SAMPLE:
+            chosen[sid] = kind
+    pools = {"stored_break_2025_06_24": [by_ticker[t] for t in breaks if t in by_ticker]}
+    for kind in ("split_after_2023", "special_dividend", "odd_split"):
+        pools[kind] = [by_ticker[t] for t in events.loc[events["kind"] == kind, "ticker"] if t in by_ticker]
+    for kind, reserve in V_RESERVE.items():
+        for sid in ranked(pools[kind])[:reserve]:
+            if len(chosen) < V_SAMPLE:
+                chosen[sid] = kind
+    while len(chosen) < V_SAMPLE:
+        added = False
+        for kind in V_RESERVE:
+            rest = ranked(pools[kind])
+            if rest and len(chosen) < V_SAMPLE:
+                chosen[rest[0]] = kind
+                added = True
+        if not added:
+            break
     if len(chosen) < V_SAMPLE:
         recent = weekly[(weekly["week_end"] >= recent_start) & weekly["universe"]
                         & weekly["security_id"].isin(active.index) & ~weekly["security_id"].isin(list(chosen))]
@@ -1312,7 +1619,7 @@ CANDIDATE_COLUMNS = ["security_id", "ticker_for_source", "needed_start", "needed
                      # extras
                      "reasons_all", "priority", "cik", "name", "active", "delist_date", "uncovered_weeks",
                      "best_rank", "tiingo_row_start", "tiingo_row_end", "tiingo_coverage", "tiingo_reused_ticker",
-                     "v_category", "note"]
+                     "v_category", "note", "tiingo_flags", "fetch_order"]
 UNFILLABLE_COLUMNS = ["security_id", "ticker", "needed_start", "needed_end", "sources_tried", "est_weeks_in_top250",
                       "proxy", "proxy_value", "reason", "cik", "name", "delist_date", "status"]
 
@@ -1327,15 +1634,52 @@ def yahoo_ticker(row) -> str:
 WARRANT_LIKE = re.compile(r"^[A-Z]{4}(W|WS|U|R)$|[-.](W|WS|U|R|WT)$")
 
 
-def tiingo_tickers(row, need_start: str = "") -> list[str]:
-    """The security's own Nasdaq tickers (newest first) that it still held on or after
-    ``need_start`` (a vendor keeps a history under the later ticker, never under one the company
-    gave up before: 21st Century Fox's old NWSA is News Corp's from 2013), then the CIK's
-    current SEC tickers (warrants, units and rights dropped)."""
+# Reviewed aliases (round 2): Tiingo keeps these histories under a ticker no listing interval of the
+# security names. 21st Century Fox renamed its classes TFCFA/TFCF on 2019-03-12/13, when Fox Corp
+# took FOXA/FOX (rows 1996-03-11 and 1987-12-30 to 2019-03-20, the Disney close); MSG Networks moved
+# to NYSE as MSGN in 2015 (row 2010-01-25..2021-07-09); old Zillow Inc's Z (2011-2015) continues
+# under Zillow Group's class A ZG (row from 2011-07-20, Zillow's IPO).
+TIINGO_ALIASES = {"1308161.A": "TFCFA", "1308161.B": "TFCF", "1469372": "MSGN", "1334814": "ZG"}
+
+
+def q_suffix_map(index: dict) -> dict[str, list[str]]:
+    """base ticker -> Tiingo tickers of the form base + one letter + 'Q' (SDC -> SDCCQ, WIN -> WINMQ,
+    FTD -> FTDCQ): the OTC tickers of bankrupt companies that do not just append Q."""
+    out = defaultdict(list)
+    for ticker in index:
+        if len(ticker) >= 4 and ticker.endswith("Q") and ticker[-2].isalpha():
+            out[ticker[:-2]].append(ticker)
+    return out
+
+
+def tiingo_tickers(row, need_start: str = "", sid: str = "", qmap: dict | None = None) -> list[tuple[str, str]]:
+    """(ticker, kind) to try, in order: the security's own Nasdaq tickers (newest first) that it
+    still held on or after ``need_start`` (a vendor keeps a history under the later ticker, never
+    under one the company gave up before: 21st Century Fox's old NWSA is News Corp's from 2013);
+    a reviewed alias; each own ticker plus Q (Tiingo keeps a bankrupt company's whole Nasdaq history
+    under its OTC ticker: SIVBQ, BBBYQ, CLVSQ, ENDPQ); the CIK's current SEC tickers (warrants, units
+    and rights dropped); own ticker + one letter + Q (``qmap``)."""
     held = dict(pair.rsplit(":", 1) for pair in str(row.ticker_last_held).split() if ":" in pair)
     own = [t for t in str(row.tickers).split() if not need_start or held.get(t, "9999") >= need_start]
-    extra = [t for t in str(row.tickers_sec_current).split() if t not in own and not WARRANT_LIKE.search(t)]
-    return own + extra
+    out = [(t, "own") for t in own]
+    if sid in TIINGO_ALIASES:
+        out.append((TIINGO_ALIASES[sid], "reviewed_alias"))
+    out += [(t + "Q", "q_suffix") for t in own if not t.endswith("Q")]
+    seen = {t for t, _ in out}
+    out += [(t, "sec_current") for t in str(row.tickers_sec_current).split()
+            if t not in seen and not WARRANT_LIKE.search(t)]
+    seen = {t for t, _ in out}
+    for t in own:
+        out += [(q, "q_prefix") for q in sorted((qmap or {}).get(t, [])) if q not in seen]
+    return out
+
+
+def security_info(row) -> dict:
+    """What tiingo_range_match needs to know about a security (a security_facts row)."""
+    starts = dict(pair.rsplit(":", 1) for pair in str(getattr(row, "ticker_first_held", "")).split() if ":" in pair)
+    return {"first_listed": str(row.first_listed)[:10], "last_listed": str(row.last_listed)[:10],
+            "active": bool(row.active), "transfer_date": row.transfer_date if isinstance(row.transfer_date, str) else "",
+            "ticker_starts": starts}
 
 
 def wiki_alternative(sid: str, row, start: str, end: str, lists: pd.DataFrame) -> str:
@@ -1379,16 +1723,119 @@ def useful_partial(match: dict, need_start: str) -> bool:
     return starts_in_time and match["coverage"] >= LOW_PARTIAL_COVERAGE
 
 
-def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd.DataFrame) -> pd.DataFrame:
+# Flags on a Tiingo match that make the fetcher confirm the entity after the answer (the served
+# date range must be the matched row's, and a dollar-volume or LastSale reference must agree).
+AMBIGUOUS_FLAGS = ("multi_row", "sec_holder", "starts_late", "shared", "alias:q_prefix", "alias:sec_current",
+                   "non_stock_row", "outlives_listing")
+FETCH_STATUS = common.CACHE / "tiingo" / "fetch_status.csv"
+FETCHED_OK = {"done", "done_review", "partial"}
+
+
+def fetched_outcomes(path: Path = FETCH_STATUS) -> dict[tuple[str, str], dict]:
+    """(security_id, ticker) -> the Tiingo fetcher's verdict on an answer it holds (status, entity
+    check, notes); requests that were never answered (precheck, deferred, error) are left out."""
+    if not Path(path).exists():
+        return {}
+    status = read_csv_text(path)
+    status = status[status["http_status"].isin(["200", "404"]) & (status["entity_check"] != "precheck")]
+    return {(r.security_id, r.ticker_for_source.upper()): {"status": r.status, "entity_check": r.entity_check,
+                                                          "notes": r.entity_notes, "first": r.first_date,
+                                                          "last": r.last_date}
+            for r in status.itertuples(index=False)}
+
+
+def sec_ticker_holders(master: pd.DataFrame) -> dict[str, set[str]]:
+    """ticker -> CIKs SEC currently lists for it."""
+    out = defaultdict(set)
+    for cik, tickers in zip(master["cik"], master["tickers_sec_current"]):
+        for ticker in str(tickers).split():
+            out[ticker.upper()].add(str(cik))
+    return out
+
+
+def match_flags(match: dict, index: dict, cik: str, need_start: str, holders: dict[str, set[str]]) -> list[str]:
+    """Why a match may serve another company (see AMBIGUOUS_FLAGS); ``shared`` is added later."""
+    flags = []
+    ticker = match["ticker"]
+    if match.get("kind") and match["kind"] != "own":
+        flags.append(f"alias:{match['kind']}")
+    if (match.get("asset_type") or "Stock").lower() != "stock":
+        flags.append(f"non_stock_row:{match['asset_type']}")
+    rows = [r for r in index.get(ticker, []) if r["start"] and r["end"]]
+    if any(r["end"] >= need_start and (r["start"], r["end"]) != (match["row_start"], match["row_end"]) for r in rows):
+        flags.append("multi_row")
+    if match.get("starts_late"):
+        flags.append("starts_late")
+    if match.get("outlives") and match.get("kind") in ("own", "sec_current"):
+        flags.append("outlives_listing")
+    others = holders.get(ticker, set()) - {str(cik)}
+    if others and str(cik) not in holders.get(ticker, set()):
+        flags.append("sec_holder:" + "/".join(sorted(others)))
+    return flags
+
+
+def match_note(match: dict) -> str:
+    """Plain words for an unusable match."""
+    if match["match"] == "hidden" and match.get("hidden_by"):
+        later = match["hidden_by"]
+        return (f"Tiingo row {match['row_start']}..{match['row_end']} of {match['ticker']} covers the need, but the "
+                f"API serves the {match['ticker']} row {later['start']}..{later['end']} ({later['asset_type']}, "
+                f"{later['exchange'] or 'no exchange'}): another company")
+    if match["match"] == "newer_company":
+        return (f"Tiingo's {match['ticker']} row {match['row_start']}..{match['row_end']} is another company: it starts "
+                f"long after the security began using the ticker, or another row of the ticker is the security's own")
+    if match["match"] == "partial":
+        return (f"Tiingo row {match['row_start']}..{match['row_end']} covers only {match['coverage']:.0%} of the need")
+    if match["match"] == "fetched_wrong_entity":
+        return f"fetched {match['ticker']}: another company ({match.get('fetched_notes', '')})"
+    return ""
+
+
+def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd.DataFrame,
+          holders: dict[str, set[str]] | None = None, fetched: dict | None = None) -> pd.DataFrame:
+    holders, fetched = holders or {}, fetched or {}
+    qmap = q_suffix_map(index)
     rows = []
     for sid in sorted(set(hits) | set(vsample)):
         row = facts.loc[sid]
+        info = security_info(row)
         reasons = sorted(hits.get(sid, {}), key=REASON_PRIORITY.index)
         base = {"security_id": sid, "cik": row.cik, "name": row["name"], "active": "Y" if row.active else ("successor" if row.via_successor else "N"),
                 "delist_date": row.delist_date or "", "uncovered_weeks": int(row.uncovered_weeks),
                 "best_rank": "" if pd.isna(row.best_rank) else int(row.best_rank), "v_category": vsample.get(sid, ""),
                 "tiingo_range_match": "", "tiingo_row_start": "", "tiingo_row_end": "", "tiingo_coverage": "",
-                "tiingo_reused_ticker": "", "note": ""}
+                "tiingo_reused_ticker": "", "tiingo_flags": "", "note": ""}
+
+        def tiingo_fields(match: dict, start: str) -> dict:
+            flags = match_flags(match, index, row.cik, start, holders) if match["row_start"] else []
+            seen = fetched.get((sid, match["ticker"].upper()))
+            if seen:
+                flags.append(f"fetched:{seen['status']}")
+            return {"tiingo_range_match": match["match"], "tiingo_row_start": match["row_start"],
+                    "tiingo_row_end": match["row_end"], "tiingo_coverage": match["coverage"],
+                    "tiingo_flags": " ".join(flags), "ticker_for_source": match["ticker"]}
+
+        def best_match(candidates: list, start: str, end: str) -> dict:
+            """The range match, with the fetcher's verdicts on answers it holds: a ticker whose answer failed
+            the entity check for this security is passed over (and reported, ``fetched_wrong_entity``,
+            when nothing else serves the need); a hidden or newer-company row whose answer passed it counts."""
+            wrong = {t for t, _ in candidates if fetched.get((sid, t.upper()), {}).get("status") == "wrong_entity"}
+            match = tiingo_range_match([c for c in candidates if c[0] not in wrong], start, end, index, info)
+            if not useful_partial(match, start):
+                for ticker, kind in candidates:
+                    seen = fetched.get((sid, ticker.upper()))
+                    if seen and seen["status"] in FETCHED_OK:
+                        alone = tiingo_range_match([(ticker, kind)], start, end, index, info)
+                        alone["match"] = "Y" if seen["status"] != "partial" else "partial"
+                        return alone
+                if wrong:
+                    first = [c for c in candidates if c[0] in wrong][0]
+                    failed = tiingo_range_match([first], start, end, index, info)
+                    seen = fetched[(sid, first[0].upper())]
+                    failed.update(match="fetched_wrong_entity", fetched_notes=seen["notes"])
+                    return failed
+            return match
+
         if reasons:
             primary = reasons[0]
             metric = hits[sid][primary]
@@ -1405,75 +1852,163 @@ def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd
                            fetch_month=MONTH_1)
             elif row.via_successor:
                 heir = facts.loc[row.via_successor]
+                note = f"history under successor {row.via_successor} (step-4 link)"
+                if heir.foreign_filer in ("Y", "MIXED"):
+                    note += (f"; the successor is a foreign filer ({heir.foreign_filer}): use the series only for "
+                             f"this security's own window {start}..{end}")
                 out.update(planned_source="yahoo", ticker_for_source=yahoo_ticker(heir), status="pending",
-                           fetch_month=MONTH_1, note=f"history under successor {row.via_successor} (step-4 link)")
+                           fetch_month=MONTH_1, note=note)
             elif alternative and end <= WIKI_END:
                 out.update(planned_source="wiki", ticker_for_source=alternative, status="cached", fetch_month="",
                            note="WIKI file under a current SEC ticker of the CIK; LastSale level check passed")
             else:
-                match = tiingo_range_match(tiingo_tickers(row, start), start, end, index)
-                out.update(tiingo_range_match=match["match"], tiingo_row_start=match["row_start"],
-                           tiingo_row_end=match["row_end"], tiingo_coverage=match["coverage"],
-                           tiingo_reused_ticker="Y" if match["reused"] else "", ticker_for_source=match["ticker"])
+                match = best_match(tiingo_tickers(row, start, sid, qmap), start, end)
+                out.update(tiingo_fields(match, start))
                 if useful_partial(match, start):
                     status = ("conditional_tier_c" if primary == "B_C_rest_300M_500M"
                               else "pending_month2" if month == MONTH_2 else "pending")
                     out.update(planned_source="tiingo", status=status, fetch_month=month)
-                    if match["reused"]:
-                        out["note"] = "ticker also has a newer Tiingo row: check the entity after the fetch"
                 else:
-                    newer = match["match"] == "wrong_entity" or (
+                    newer = match["match"] in ("wrong_entity", "hidden", "newer_company", "fetched_wrong_entity") or (
                         match["match"] == "partial" and _days(match["row_start"], start) < -TIINGO_START_SLACK_DAYS)
-                    out.update(planned_source="unfillable", fetch_month="", status="wrong_entity" if newer else "no_data")
-                    if match["match"] == "partial":
-                        out["note"] = (f"Tiingo row {match['row_start']}..{match['row_end']} covers only "
-                                       f"{match['coverage']:.0%} of the need")
+                    out.update(planned_source="unfillable", fetch_month="", status="wrong_entity" if newer else "no_data",
+                               note=match_note(match))
             rows.append(out)
         if sid in vsample:
             start = max(WINDOW_START, str(row.first_listed)[:10])
             ticker = yahoo_ticker(row)
-            match = tiingo_range_match([ticker] + [t for t in tiingo_tickers(row, start) if t != ticker], start,
-                                       WINDOW_END, index)
+            # The Yahoo ticker whenever Tiingo serves a row for it (PRPL, not the SPAC's GPAC; OXLC, not
+            # the notes' OXLCN), else the best of the security's other tickers.
+            match = tiingo_range_match([(ticker, "own")], start, WINDOW_END, index, info)
+            if match["match"] not in ("Y", "partial"):
+                match = best_match([(ticker, "own")] + [c for c in tiingo_tickers(row, start, sid, qmap) if c[0] != ticker],
+                                   start, WINDOW_END)
+            usable = match["match"] in ("Y", "partial")
             rows.append({**base, "needed_start": start, "needed_end": WINDOW_END, "reason": "V_verify_sample",
                          "reasons_all": " ".join(["V_verify_sample"] + reasons), "priority": REASON_PRIORITY.index("V_verify_sample") + 1,
-                         "prefilter_metric": "v_category", "prefilter_value": vsample[sid], "planned_source": "tiingo",
-                         "ticker_for_source": match["ticker"] or ticker, "status": "pending", "fetch_month": MONTH_1,
-                         "tiingo_range_match": match["match"], "tiingo_row_start": match["row_start"],
-                         "tiingo_row_end": match["row_end"], "tiingo_coverage": match["coverage"],
-                         "tiingo_reused_ticker": "Y" if match["reused"] else "",
-                         "note": "verification: Tiingo next to the Yahoo series"})
-    frame = pd.DataFrame(rows)
-    return frame.reindex(columns=CANDIDATE_COLUMNS)
+                         "prefilter_metric": "v_category", "prefilter_value": vsample[sid],
+                         "planned_source": "tiingo" if usable else "unfillable",
+                         "status": "pending" if usable else "wrong_entity", "fetch_month": MONTH_1 if usable else "",
+                         **tiingo_fields(match, start), "ticker_for_source": match["ticker"] or ticker,
+                         "note": "verification: Tiingo next to the Yahoo series" if usable else match_note(match)})
+    frame = pd.DataFrame(rows).reindex(columns=CANDIDATE_COLUMNS)
+    return mark_shared(frame)
 
 
-def apply_budget(candidates: pd.DataFrame, used: int, reserve: int = 50,
-                 monthly: int = TIINGO_MONTHLY_SYMBOLS) -> tuple[pd.DataFrame, dict]:
-    """Month-1 Tiingo symbols in priority order (plan 7 fallback 2: B-A, A, B-B, C, then the samples)
-    up to the monthly cap less what the ledger shows used and a retry reserve; the rest is
-    ``deferred_quota`` to month 2."""
+def seeded_order(ids: list[str], seed: int = SEED) -> list[str]:
+    """``ids`` in a seeded random order (the first n are ``seeded_sample(ids, n)``'s draw)."""
+    ids = sorted(ids)
+    rng = np.random.default_rng(seed)
+    return rng.choice(ids, size=len(ids), replace=False).tolist() if ids else []
+
+
+def refill_tier_c_sample(frame: pd.DataFrame, n: int = TIER_C_SAMPLE) -> tuple[pd.DataFrame, dict]:
+    """The tier-C sample as the first ``n`` names, in the seeded order of the whole tier-C pool (rows
+    whose primary reason is the sample or the rest), that some planned request can price: a sampled
+    name no free source has cannot show whether tier C reaches rank 300 (round 1: 5 of 20). The
+    others become ``B_C_rest`` (conditional on the sample, or unfillable as before)."""
+    frame = frame.copy()
+    reasons = ("B_C_sample_300M_500M", "B_C_rest_300M_500M")
+    pool = frame[frame["reason"].isin(reasons)]
+    fetchable = set(pool.loc[pool["planned_source"].isin(["tiingo", "wiki"]), "security_id"])
+    chosen = [sid for sid in seeded_order(list(pool["security_id"])) if sid in fetchable][:n]
+    swapped = 0
+    for k in pool.index:
+        sid, was = frame.at[k, "security_id"], frame.at[k, "reason"]
+        now = reasons[0] if sid in chosen else reasons[1]
+        if now == was:
+            continue
+        swapped += 1
+        frame.at[k, "reason"] = now
+        frame.at[k, "priority"] = REASON_PRIORITY.index(now) + 1
+        frame.at[k, "reasons_all"] = " ".join(now if r in reasons else r for r in str(frame.at[k, "reasons_all"]).split())
+        if frame.at[k, "planned_source"] == "tiingo":
+            status, month = ("pending", MONTH_1) if now == reasons[0] else ("conditional_tier_c", MONTH_2)
+            frame.at[k, "status"], frame.at[k, "fetch_month"] = status, month
+    unfetchable = sorted(set(pool["security_id"]) - fetchable)
+    return frame, {"pool": int(pool["security_id"].nunique()), "sample": len(chosen), "rows_swapped": swapped,
+                   "pool_unfetchable": len(unfetchable), "seed": SEED}
+
+
+def mark_shared(frame: pd.DataFrame) -> pd.DataFrame:
+    """Flag a Tiingo ticker that serves two or more securities (old and new Caesars on CZR, four
+    Qurate tracking stocks on QVCAQ), and set ``tiingo_reused_ticker`` and the note for every
+    ambiguous match: the fetcher then confirms the entity of each row after the answer."""
+    frame = frame.copy()
+    tiingo = frame["planned_source"] == "tiingo"
+    users = frame[tiingo].groupby("ticker_for_source")["security_id"].agg(lambda s: sorted(set(s)))
+    for k in frame.index[tiingo]:
+        mine = users.get(frame.at[k, "ticker_for_source"], [])
+        flags = str(frame.at[k, "tiingo_flags"] or "").split()
+        if len(mine) > 1:
+            flags.append("shared:" + "/".join(s for s in mine if s != frame.at[k, "security_id"]))
+        frame.at[k, "tiingo_flags"] = " ".join(flags)
+        ambiguous = [f for f in flags if f.startswith(AMBIGUOUS_FLAGS)]
+        frame.at[k, "tiingo_reused_ticker"] = "Y" if ambiguous else ""
+        if ambiguous:
+            text = "ambiguous Tiingo ticker (" + ", ".join(f.split(":")[0] for f in ambiguous) + "): the fetcher confirms the entity"
+            note = str(frame.at[k, "note"] or "")
+            frame.at[k, "note"] = f"{note}; {text}" if note else text
+    return frame
+
+
+V_CATEGORY_ORDER = ["named_break_2025_06_24", "stored_break_2025_06_24", "split_after_2023", "special_dividend",
+                    "odd_split"]
+
+
+def assign_fetch_order(candidates: pd.DataFrame) -> pd.DataFrame:
+    """``fetch_order``: one number per Tiingo ticker, the order the fetcher asks them in (month 1 before
+    month 2; then reason priority; V by category; then the most liquid name). Rows sharing a ticker
+    take its earliest place."""
+    frame = candidates.copy()
+    tiingo = frame[frame["planned_source"] == "tiingo"].copy()
+    category = tiingo["v_category"].map({c: k for k, c in enumerate(V_CATEGORY_ORDER)}).fillna(len(V_CATEGORY_ORDER))
+    tiingo = tiingo.assign(_month=(tiingo["fetch_month"] != MONTH_1).astype(int), _category=category,
+                           _rank=pd.to_numeric(tiingo["best_rank"], errors="coerce").fillna(1e9))
+    tiingo = tiingo.sort_values(["_month", "priority", "_category", "_rank", "security_id"], kind="stable")
+    order: dict[str, int] = {}
+    for ticker in tiingo["ticker_for_source"]:
+        order.setdefault(ticker, len(order) + 1)
+    frame["fetch_order"] = ""
+    frame.loc[tiingo.index, "fetch_order"] = tiingo["ticker_for_source"].map(order).astype(int).astype(str)
+    return frame
+
+
+TIINGO_MONTH_STOP = 480  # unique symbols a month the fetcher stops at (the free tier allows 500)
+
+
+def apply_budget(candidates: pd.DataFrame, used: int, already_used: int | None = None,
+                 stop: int = TIINGO_MONTH_STOP, ledger_symbols: set[str] = frozenset()) -> tuple[pd.DataFrame, dict]:
+    """Month-1 Tiingo symbols in ``fetch_order`` up to the fetcher's stop, less the unique symbols the
+    quota ledger shows this month (``used``; a ticker among them, ``ledger_symbols``, costs nothing
+    more) and those the owner reads off the account page that the ledger does not hold
+    (``already_used``; None when not given, then counted as 0 and said so). New symbols past that
+    are ``deferred_quota`` to month 2."""
     frame = candidates.copy()
     month1 = frame[(frame["planned_source"] == "tiingo") & (frame["fetch_month"] == MONTH_1)]
-    order = month1.sort_values(["priority", "security_id"])
-    room = monthly - used - reserve
-    seen, deferred = [], []
-    for k, row in order.iterrows():
-        if row.ticker_for_source in seen:
+    order = month1.assign(_order=pd.to_numeric(month1["fetch_order"], errors="coerce")).sort_values("_order")
+    room = stop - used - (already_used or 0)
+    keep, new = [], 0
+    for ticker in order["ticker_for_source"]:
+        if ticker in keep:
             continue
-        if len(seen) < room:
-            seen.append(row.ticker_for_source)
-        else:
-            deferred.append(k)
-    keep = set(seen)
+        if str(ticker).upper() in ledger_symbols:
+            keep.append(ticker)
+        elif new < room:
+            keep.append(ticker)
+            new += 1
     for k, row in order.iterrows():
-        if row.ticker_for_source not in keep:
+        if row.ticker_for_source not in set(keep):
             frame.loc[k, ["status", "fetch_month"]] = ["deferred_quota", MONTH_2]
     month2 = frame[(frame["planned_source"] == "tiingo") & (frame["fetch_month"] == MONTH_2)]
-    return frame, {"month1_symbols": len(keep), "month1_room": room, "ledger_used_this_month": used,
-                   "reserve": reserve, "deferred_quota_symbols": int(frame.loc[frame["status"] == "deferred_quota",
-                                                                                "ticker_for_source"].nunique()),
+    return frame, {"month1_symbols": len(keep), "month1_new_symbols": new, "month1_room": room, "month_stop": stop,
+                   "ledger_used_this_month": used,
+                   "already_used_outside_ledger": already_used if already_used is not None else "not given (counted as 0)",
+                   "deferred_quota_symbols": int(frame.loc[frame["status"] == "deferred_quota", "ticker_for_source"].nunique()),
                    "month2_symbols": int(month2["ticker_for_source"].nunique()),
                    "month2_symbols_unconditional": int(month2.loc[month2["status"] != "conditional_tier_c",
-                                                                  "ticker_for_source"].nunique())}
+                                                                  "ticker_for_source"].nunique()),
+                   "month_kind": "unverified: calendar month or rolling 30 days (read the account page before the run)"}
 
 
 # ------------------------------------------------------------------ stage 7: unfillable and coverage
@@ -1486,7 +2021,8 @@ def unfillable_rows(candidates: pd.DataFrame, facts: pd.DataFrame, weekly: pd.Da
     for row in candidates[candidates["reason"] != "V_verify_sample"].itertuples(index=False):
         wiki = "wiki(ends 2018-03-27)" if row.needed_start >= "2018-01-01" else "wiki(no usable file)"
         if row.planned_source == "unfillable":
-            tried = f"{wiki}; tiingo_supported({row.tiingo_range_match or 'no_row'}); yahoo(delisted)"
+            tried = (f"{wiki}; tiingo_supported({row.tiingo_range_match or 'no_row'} {row.ticker_for_source}; own, +Q, "
+                     f"alias and SEC tickers tried); yahoo(delisted)")
             gaps.append((row, row.needed_start, row.needed_end, tried))
         elif row.planned_source == "tiingo" and row.tiingo_range_match == "partial":
             tried = f"{wiki}; tiingo_supported(partial {row.tiingo_row_start}..{row.tiingo_row_end})"
@@ -1608,45 +2144,110 @@ def summarise(candidates: pd.DataFrame, unfillable: pd.DataFrame, budget: dict, 
     }
 
 
+def shell_facts(shells: dict, master: pd.DataFrame, form25: pd.DataFrame, before: pd.DataFrame | None) -> dict:
+    """What leaving out the SPAC shells removed: their Form 25 float tiers in the B window, and the
+    rows of the previous candidate list (if one was there) that were shells."""
+    info = master.set_index("security_id")
+    floats = form25.set_index("accession")[["public_float_usd", "float_check_flag", "implied_float_per_share"]]
+    tiers = Counter()
+    for sid in shells:
+        row = info.loc[sid]
+        if row.delist_date and B_WINDOW[0] <= row.delist_date <= B_WINDOW[1] and row.delist_form25_accession in floats.index:
+            fact = floats.loc[row.delist_form25_accession]
+            tier = float_tier(pd.to_numeric(fact["public_float_usd"], errors="coerce"), fact["float_check_flag"],
+                              fact["implied_float_per_share"])
+            if tier:
+                tiers[tier] += 1
+    out = {"securities": len(shells), "by_rule": dict(Counter(shells.values())), "b_window_float_tiers": dict(tiers)}
+    if before is not None and len(before):
+        gone = before[before["security_id"].isin(list(shells))]
+        out["previous_candidate_rows_removed"] = {f"{r}|{s}": int(n) for (r, s), n in
+                                                  gone.groupby(["reason", "planned_source"]).size().items()}
+    return out
+
+
+def ledger_symbols(month: str) -> set[str]:
+    """Tiingo symbols the quota ledger shows asked in ``month``."""
+    if not common.QUOTA_LEDGER.exists():
+        return set()
+    rows = [line.split(",") for line in common.QUOTA_LEDGER.read_text(encoding="utf-8").splitlines()[1:]]
+    return {r[3].upper() for r in rows if len(r) >= 5 and r[1] == "tiingo" and r[2] == month}
+
+
+def tiingo_queue(candidates: pd.DataFrame) -> dict:
+    """The Tiingo symbols by month, status and reason (each ticker counted at its first place)."""
+    tiingo = candidates[candidates["planned_source"] == "tiingo"].copy()
+    tiingo["_order"] = pd.to_numeric(tiingo["fetch_order"], errors="coerce")
+    first = tiingo.sort_values("_order").drop_duplicates("ticker_for_source")
+    return {"symbols": int(len(first)),
+            "by_month_status_reason": {f"{m}|{s}|{r}": int(n) for (m, s, r), n in
+                                       first.groupby(["fetch_month", "status", "reason"]).size().items()},
+            "ambiguous_symbols": int((first["tiingo_reused_ticker"] == "Y").sum()),
+            "match_kinds": dict(Counter(f.split(":")[1] for f in " ".join(first["tiingo_flags"]).split()
+                                        if f.startswith("alias:")))}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="never download (the Tiingo list must be cached)")
     parser.add_argument("--rebuild-daily", action="store_true", help="re-read every price file")
+    parser.add_argument("--tiingo-already-used", type=int, default=None,
+                        help="unique Tiingo symbols used this month that the quota ledger does not show (the account "
+                             "page's count minus the ledger's); without it the budget counts them as 0 and says so")
     args = parser.parse_args(argv)
     started = time.time()
     master, intervals = load_master(), load_intervals()
     form25 = read_csv_text(FORM25)
+    before = read_csv_text(CANDIDATES) if CANDIDATES.exists() else None
     if args.rebuild_daily or not (OUT / "daily_series.pkl").exists():
         log("stage 1: daily series from every price source")
         save_daily(build_daily(master, intervals))
     stage = load_daily()
     log(f"stage 1 loaded: {len(stage['best'])} security-days")
-    foreign = foreign_spans(master, offline=True)
+    foreign, foreign_facts = foreign_spans(master)
+    log(f"foreign filers: {foreign_facts['mixed_from_history']} MIXED from periodic_form_history.csv, "
+        f"{len(foreign_facts['history_vs_master_spans_differ'])} differ from security_master.foreign_spans")
+    shells = spac_shells(master, intervals)
+    log(f"SPAC shells left out of the universe: {len(shells)}")
     sessions = xnas_sessions()
     weeks = week_ends(sessions)
     log(f"stage 2: weekly metrics, {len(weeks)} weeks {weeks[0].date()}..{weeks[-1].date()}")
-    weekly = weekly_table(stage, master, foreign, sessions, weeks)
+    weekly = weekly_table(stage, master, foreign, sessions, weeks, shells)
     weekly = mark_trading_bounds(weekly, stage["spans"], stage["best"])
     log("stage 3: proxies")
-    ranks = mcap_ranks(stage["lists"], stage["spans"], foreign)
+    ranks = mcap_ranks(stage["lists"], stage["spans"], foreign, shells)
     floats = float_facts(offline=True)
+    floats, floats_dropped = float_price_check(floats, weekly, master)
+    log(f"floats of $10B+ dropped by the price check: {len(floats_dropped)}")
     weekly = attach_proxies(weekly, master, ranks, floats)
     cutoffs = proxy_cutoffs(weekly)
     above = proxy_above(weekly, cutoffs)
     weekly.to_pickle(OUT / "weekly_metrics.pkl")
     log("stage 4: security facts and rules")
     facts = security_facts(weekly, stage["spans"], master, stage["best"], form25)
+    facts["ends_foreign"] = [is_foreign_on(foreign.get(s), str(d)[:10]) for s, d in zip(facts.index, facts["last_listed"])]
     hits = rule_hits(facts, ranks, floats)
     log(f"rule hits: {len(hits)} securities")
+    supported = load_supported_tickers(offline=args.offline)
+    index = tiingo_index(supported)
     events = event_flags()
     breaks = stored_break_names()
     log(f"V inputs: {len(events)} event flags, {len(breaks)} stored 2025-06-24 break files")
-    vsample = verification_sample(facts, weekly, events, breaks)
+
+    def v_usable(sid: str) -> bool:
+        row = facts.loc[sid]
+        start = max(WINDOW_START, str(row.first_listed)[:10])
+        match = tiingo_range_match([(yahoo_ticker(row), "own")], start, WINDOW_END, index, security_info(row))
+        return match["match"] in ("Y", "partial") and match["coverage"] >= MIN_PARTIAL_COVERAGE
+
+    vsample = verification_sample(facts, weekly, events, breaks, v_usable)
     log("stage 5: routing")
-    supported = load_supported_tickers(offline=args.offline)
-    candidates = route(facts, hits, vsample, tiingo_index(supported), stage["lists"])
+    candidates = route(facts, hits, vsample, index, stage["lists"], sec_ticker_holders(master), fetched_outcomes())
+    candidates, sample_facts = refill_tier_c_sample(candidates)
+    log(f"tier-C sample: {sample_facts}")
+    candidates = assign_fetch_order(candidates)
     used = common.quota_used("tiingo", MONTH_1, unique_symbols=True)
-    candidates, budget = apply_budget(candidates, used)
+    candidates, budget = apply_budget(candidates, used, args.tiingo_already_used, ledger_symbols=ledger_symbols(MONTH_1))
     candidates = candidates.sort_values(["priority", "security_id", "planned_source"]).reset_index(drop=True)
     unfillable = unfillable_rows(candidates, facts, weekly, above, ranks)
     coverage = weekly_coverage(weekly, above, candidates)
@@ -1660,6 +2261,10 @@ def main(argv: list[str] | None = None) -> int:
              "event_flags": dict(Counter(events["kind"])),
              "supported_tickers": {"file": supported_tickers_path().name, "sha256": common.sha256_file(supported_tickers_path()),
                                    "rows": int(len(supported))},
+             "foreign_filers": {k: (v if not isinstance(v, list) else v[:50]) for k, v in foreign_facts.items()},
+             "spac_shells": shell_facts(shells, master, form25, before),
+             "floats_dropped_by_price_check": floats_dropped,
+             "tiingo_queue": tiingo_queue(candidates), "tier_c_sample": sample_facts,
              "uncovered_universe_securities": int((facts["uncovered_weeks"] > 0).sum()),
              "uncovered_not_candidates": int(((facts["uncovered_weeks"] > 0) & ~facts.index.isin(list(hits))).sum()),
              "seed": SEED, "runtime_s": round(time.time() - started, 1)}

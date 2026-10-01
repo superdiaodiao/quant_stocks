@@ -119,24 +119,27 @@ def test_header_wins_and_the_json_is_read_by_the_month_rule_without_one():
     assert er.resolve_acceptance("2016-04-26T16:31:09.000Z", "", "et_labelled_z") == ("2016-04-26 16:31:09", "json_et_rule")
 
 
-def test_label_rule_is_the_majority_label_by_agent_year_and_by_month():
+def test_label_rule_is_the_majority_label_by_company_then_agent_year_then_month():
     agent, own = "0001157523-14-000001", "0000002488-14-000001"
-    rows = [{"json_label": "utc", "filing_date": "2014-02-03", "accession": own},
-            {"json_label": "utc", "filing_date": "2014-02-10", "accession": own},
-            {"json_label": "et_labelled_z", "filing_date": "2014-02-11", "accession": agent},
-            {"json_label": "other", "filing_date": "2014-02-12", "accession": agent}]
+    rows = [{"json_label": "utc", "filing_date": "2014-02-03", "accession": own, "cik": 2488},
+            {"json_label": "utc", "filing_date": "2014-02-10", "accession": own, "cik": 2488},
+            {"json_label": "et_labelled_z", "filing_date": "2014-02-11", "accession": agent, "cik": 7},
+            {"json_label": "other", "filing_date": "2014-02-12", "accession": agent, "cik": 7}]
     rules = er.label_rules(rows)
-    assert rules == {"0000002488|2014": "utc", "0001157523|2014": "et_labelled_z", "2014-02": "utc"}
-    # a row without a header is read by its agent's rule first, then by the month's
+    assert rules == {"cik|2488": "utc", "cik|7": "et_labelled_z", "0000002488|2014": "utc",
+                     "0001157523|2014": "et_labelled_z", "2014-02": "utc"}
+    # a row without a header is read by its company's rule, then its agent's, then the month's
     calendar = er.XnasCloses("2014-01-02", "2014-12-31")
-    pending = [{"json_label": "no_header", "filing_date": "2014-02-20", "accession": "0001157523-14-000009",
+    pending = [{"json_label": "no_header", "filing_date": "2014-02-20", "accession": "0001157523-14-000009", "cik": 2488,
+                "acceptance_json_raw": "2014-02-20T21:30:00.000Z", "acceptance_header_et": ""},
+               {"json_label": "no_header", "filing_date": "2014-02-20", "accession": "0001157523-14-000010", "cik": 99,
                 "acceptance_json_raw": "2014-02-20T07:30:00.000Z", "acceptance_header_et": ""},
-               {"json_label": "no_header", "filing_date": "2014-02-20", "accession": "0009999999-14-000009",
+               {"json_label": "no_header", "filing_date": "2014-02-20", "accession": "0009999999-14-000009", "cik": 98,
                 "acceptance_json_raw": "2014-02-20T21:30:00.000Z", "acceptance_header_et": ""}]
     frame = er.finish_rows(pending, calendar, rules)
-    assert frame["acceptance_et"].tolist() == ["2014-02-20 07:30:00", "2014-02-20 16:30:00"]
-    assert frame["tz_resolution"].tolist() == ["json_et_rule", "json_utc"]
-    assert frame["d0_session"].tolist() == ["2014-02-20", "2014-02-21"]
+    assert frame["acceptance_et"].tolist() == ["2014-02-20 16:30:00", "2014-02-20 07:30:00", "2014-02-20 16:30:00"]
+    assert frame["tz_resolution"].tolist() == ["json_utc", "json_et_rule", "json_utc"]
+    assert frame["d0_session"].tolist() == ["2014-02-21", "2014-02-20", "2014-02-21"]
 
 
 # ------------------------------------------------------------------ events, quarters, fallback
@@ -175,13 +178,100 @@ def test_quarter_grid_extends_past_the_last_known_period_end():
     assert er.assign_quarter("2016-12-30", ends) == ("", "none")  # too far from any known end
 
 
-def test_first_in_fiscal_quarter_marks_the_earliest_event_of_each_company_quarter():
-    events = pd.DataFrame({
-        "cik": [1, 1, 1, 2],
-        "fiscal_quarter_end": ["2012-09-30", "2012-09-30", "2012-12-31", "2012-09-30"],
-        "acceptance_sort": ["2012-10-25 16:05:00", "2012-10-11 08:00:00", "2013-01-24 16:01:00", "2012-10-30 07:00:00"],
-        "accession": ["x2", "x1", "x3", "y1"]})
-    assert er.mark_first_in_quarter(events).tolist() == ["N", "Y", "Y", "Y"]
+@pytest.mark.parametrize("dates, report, expected", [
+    (["2012-10-18"], "2012-11-01", (0, "single")),
+    # AMD 2012-Q3: a preannouncement a week before the results release
+    (["2012-10-11", "2012-10-18"], "2012-11-01", (1, "last_run_by_report")),
+    # Casey's: the release, then a second 8-K the next day (a run: its first is the release)
+    (["2019-06-10", "2019-06-11"], "2019-06-28", (0, "last_run_by_report")),
+    # a later event after the report is not the release; one a day after the report may be
+    (["2019-03-11", "2019-03-12", "2019-04-20"], "2019-03-11", (0, "last_run_by_report")),
+    (["2019-01-02", "2019-01-18", "2019-01-30"], "2019-02-19", (2, "last_run_by_report")),
+    (["2019-05-01", "2019-05-20"], "2019-04-30", (0, "last_run_by_report")),      # a day after: allowed
+    (["2019-05-01", "2019-05-20"], "2019-04-29", (0, "first_all_after_report")),
+    (["2019-05-01", "2019-05-20"], "", (0, "first_no_report")),
+])
+def test_results_release_is_the_first_of_the_last_run_by_the_report(dates, report, expected):
+    assert er.classify_quarter(dates, report) == expected
+
+
+def _events(rows):
+    return pd.DataFrame(rows, columns=["cik", "accession", "form", "filing_date", "acceptance_sort",
+                                       "fiscal_quarter_end", "periodic_report_filing_date", "amends_how"])
+
+
+def test_event_kinds_keep_every_row_and_give_one_release_per_quarter():
+    events = _events([
+        (1, "a2", "8-K", "2012-10-18", "2012-10-18 16:26:56", "2012-09-29", "2012-11-01", ""),
+        (1, "a1", "8-K", "2012-10-11", "2012-10-11 16:50:58", "2012-09-29", "2012-11-01", ""),
+        (1, "a3", "8-K/A", "2012-10-19", "2012-10-19 09:00:00", "2012-09-29", "2012-11-01", "report_date"),
+        (1, "a4", "8-K", "2012-11-20", "2012-11-20 09:00:00", "2012-09-29", "2012-11-01", ""),
+        (1, "b1", "8-K", "2013-01-22", "2013-01-22 16:46:05", "2012-12-29", "2013-02-20", ""),
+        (2, "c1", "8-K", "2014-05-07", "2014-05-07 08:00:00", "", "", ""),
+        (2, "c2", "8-K/A", "2014-06-07", "2014-06-07 08:00:00", "2014-03-31", "2014-05-09", "none"),
+    ])
+    kinds = er.classify_events(events)
+    assert len(kinds) == len(events) and kinds.index.equals(events.index)
+    assert kinds["event_kind"].tolist() == ["results_release", "preannouncement", "amendment", "other",
+                                            "results_release", "other", "results_release"]
+    assert kinds["event_kind_basis"].tolist()[:2] == ["last_run_by_report", "last_run_by_report"]
+    assert kinds.loc[[4, 5, 6], "event_kind_basis"].tolist() == ["single", "no_fiscal_quarter", "single"]
+    assert kinds.loc[[1, 0, 2, 3], "n_item202_in_fiscal_quarter"].tolist() == ["4"] * 4
+    # days to the next Item 2.02 filing of the same quarter, in acceptance order (a1, a2, a3, a4)
+    assert kinds.loc[[1, 0, 2, 3], "days_to_next_item202_in_quarter"].tolist() == ["7", "1", "32", ""]
+
+
+def test_amendments_link_by_period_of_report_else_the_nearest_item202_8k():
+    table = _table([
+        ("o1", "2016-04-26", "2016-04-26", "8-K", "2.02,9.01"),
+        ("o2", "2016-04-28", "2016-04-28", "8-K", "5.07"),
+        ("x1", "2016-04-27", "2016-04-26", "8-K/A", "2.02,9.01"),     # same period of report as o1
+        ("x2", "2016-04-29", "2016-04-29", "8-K/A", "2.02"),          # no same-period 8-K: o1, 3 days back
+        ("x3", "2016-06-30", "2016-06-30", "8-K/A", "2.02"),          # nothing within 7 days
+        ("o3", "2016-07-01", "2016-07-01", "8-K", "2.01,9.01"),
+        ("x4", "2016-07-15", "2016-07-01", "8-K/A", "2.02,9.01"),     # adds 2.02 to an acquisition 8-K
+    ])
+    events = er.item202_filings(table)
+    links = er.link_amendments(events, table).set_index(events["accessionNumber"])
+    assert links.loc["o1"].tolist() == ["", ""]
+    assert links.loc["x1"].tolist() == ["o1", "report_date"]
+    assert links.loc["x2"].tolist() == ["o1", "nearest_item202"]
+    assert links.loc["x3"].tolist() == ["", "none"]
+    assert links.loc["x4"].tolist() == ["o3", "report_date_non202"]
+
+
+def test_an_unlinked_8ka_is_never_chosen_over_an_original_8k():
+    events = _events([
+        (1, "r1", "8-K", "2016-05-02", "2016-05-02 16:05:00", "2016-03-31", "2016-05-06", ""),
+        (1, "x1", "8-K/A", "2016-05-05", "2016-05-05 09:00:00", "2016-03-31", "2016-05-06", "report_date_non202"),
+    ])
+    assert er.classify_events(events)["event_kind"].tolist() == ["results_release", "other"]
+    # alone in its quarter it is the release
+    alone = er.classify_events(events.iloc[[1]])
+    assert alone["event_kind"].tolist() == ["results_release"]
+
+
+def test_an_8ka_far_from_its_8k_links_within_the_fiscal_quarter():
+    table = _table([("o1", "2023-10-25", "2023-10-25", "8-K", "2.01,2.02,9.01"),
+                    ("x1", "2023-11-15", "2023-11-15", "8-K/A", "2.02,9.01")])
+    events = er.item202_filings(table).assign(fiscal_quarter_end="2023-09-30")
+    links = er.link_amendments(events, table)
+    assert links["amends_accession"].tolist() == ["", "o1"]
+    assert links["amends_how"].tolist() == ["", "same_quarter_item202"]
+
+
+def test_prior_quarter_report_pending_flags_a_late_filers_release():
+    ends = ["2017-12-31", "2018-03-31", "2018-06-30"]
+    reports = pd.DataFrame({"fiscal_quarter_end": ends, "periodic_report_filing_date": ["2018-04-02", "2018-05-10",
+                                                                                      "2018-08-09"]})
+    events = pd.DataFrame({"filingDate": ["2018-04-02", "2018-05-01", "2018-07-30"],
+                           "fiscal_quarter_end": ["2018-03-31", "2018-03-31", "2018-06-30"],
+                           "fiscal_quarter_how": ["report_date"] * 3})
+    # the 2018-04-02 release came with the late 10-K for 2017-12-31, a quarter without an event
+    assert er.prior_quarter_pending(events, ends, reports) == ["Y", "N", "N"]
+    covered = pd.concat([events, pd.DataFrame({"filingDate": ["2018-02-01"], "fiscal_quarter_end": ["2017-12-31"],
+                                               "fiscal_quarter_how": ["report_date"]})], ignore_index=True)
+    assert er.prior_quarter_pending(covered, ends, reports) == ["N", "N", "N", "N"]
 
 
 def test_fallback_is_the_first_original_periodic_filing_of_a_quarter_without_an_event():
@@ -198,6 +288,30 @@ def test_fallback_is_the_first_original_periodic_filing_of_a_quarter_without_an_
     assert fallback["accessionNumber"].tolist() == ["q1", "k1"]
     # an 8.01 8-K after the period end and before the 10-K is flagged; one on the period end is not
     assert fallback["other_8k_between"].tolist() == ["", "2013-02-05:8.01,9.01"]
+    assert fallback["days_after_period_end"].tolist() == [38, 60]
+    assert fallback["past_due"].tolist() == [False, False]
+
+
+def test_fallback_flags_late_reports_shared_days_and_item202_between():
+    table = _table([
+        ("q1", "2014-09-12", "2013-03-31", "10-Q", ""),            # 530 days late, filed with q2
+        ("q2", "2014-09-12", "2013-06-30", "10-Q", ""),
+        ("q3", "2014-11-24", "2014-09-30", "10-Q", ""),            # 55 days: past the 53-day limit
+        ("k1", "2015-04-17", "2014-12-31", "10-K", ""),            # 107 days: inside the 108-day limit
+        ("q4", "2015-07-01", "2015-03-31", "10-Q", ""),
+        ("e1", "2015-04-20", "2015-04-20", "8-K", "2.02,9.01"),    # between 2015-03-31 and q4, assigned later
+    ])
+    fallback = er.fallback_filings(table, set())
+    assert fallback["accessionNumber"].tolist() == ["q1", "q2", "q3", "k1", "q4"]
+    assert fallback["past_due"].tolist() == [True, True, True, False, True]
+    assert fallback["item202_between"].tolist() == ["", "", "", "", "2015-04-20:e1"]
+    rows = fallback.rename(columns={"accessionNumber": "accession", "filingDate": "filing_date"})
+    rows = rows.assign(cik=5, d0_session=["2014-09-15", "2014-09-15", "2014-11-25", "2015-04-20", "2015-07-02"])
+    marked = er.mark_fallback(rows)
+    assert marked["catch_up_reason"].tolist() == ["past_due;shared_d0", "past_due;shared_d0", "past_due", "", "past_due"]
+    assert marked["catch_up_filing"].tolist() == ["Y", "Y", "Y", "N", "Y"]
+    assert marked["usable_as_announcement"].tolist() == ["N", "N", "N", "Y", "N"]
+    assert set(marked["event_kind"]) == {"periodic_report"}
 
 
 def test_period_ends_include_amended_reports():
@@ -234,11 +348,77 @@ def test_scope_is_top300_or_candidates_and_drops_foreign_filers():
     master = pd.DataFrame({"security_id": ["10", "20", "30", "40", "50"], "cik": ["10", "20", "30", "40", "50"],
                            "name": list("ABCDE"), "foreign_filer": ["N", "N", "MIXED", "Y", "N"]})
     scope = er.build_scope(weekly, candidates, master).set_index("cik")
-    assert scope.index.tolist() == [10, 20, 30, 40, 50]
+    # CIK 40 (Y) is foreign in every week, so its top-300 week does not bring it in
+    assert scope.index.tolist() == [10, 20, 30, 50]
     assert scope.loc[10, "top300_weeks"] == 2 and scope.loc[10, "in_candidates"] == "N"
     assert scope.loc[20, "in_top300"] == "N" and scope.loc[20, "in_candidates"] == "Y"
-    assert scope.loc[30, "excluded_foreign"] == "N" and scope.loc[40, "excluded_foreign"] == "Y"
+    assert scope.loc[30, "excluded_foreign"] == "N"
     assert scope.loc[50, "listed_first_week"] == ""
+    # named by a candidate row it is listed, and excluded
+    named = er.build_scope(weekly, pd.concat([candidates, pd.DataFrame({"security_id": ["40"], "cik": ["40"]})]), master)
+    named = named.set_index("cik")
+    assert named.loc[40, ["excluded_foreign", "in_top300", "top300_weeks_foreign"]].tolist() == ["Y", "N", 1]
+
+
+def _history(rows):
+    frame = pd.DataFrame(rows, columns=["cik", "filing_date", "form", "regime_in_force"])
+    return frame.assign(accession="", form_regime=frame["regime_in_force"], sets_regime=frame["regime_in_force"])
+
+
+def test_foreign_regime_comes_from_the_flag_and_the_mixed_history():
+    flags = pd.Series({1: "N", 2: "Y", 3: "MIXED", 4: "MIXED"})
+    # CIK 3 files 20-Fs until its first 10-Q on 2022-11-04 (Atlassian's pattern); CIK 4 is not in the table
+    history = _history([("3", "2021-08-19", "20-F", "F"), ("3", "2022-08-19", "20-F", "F"),
+                        ("3", "2022-11-04", "10-Q", "D")])
+    ciks = [1, 2, 3, 3, 3, 3, 4]
+    days = ["2020-01-03", "2020-01-03", "2020-01-03", "2022-11-03", "2022-11-04", "2023-06-02", "2020-01-03"]
+    assert er.regime_foreign(flags, history, ciks, days).tolist() == [False, True, True, True, False, False, False]
+    # without the table a MIXED CIK counts as domestic (and Y stays foreign)
+    assert er.regime_foreign(flags, None, ciks, days).tolist() == [False, True] + [False] * 5
+    weeks = pd.to_datetime(pd.Series(days))
+    assert er.regime_foreign(flags, history, ciks, weeks).tolist()[2:6] == [True, True, False, False]
+
+
+def test_scope_counts_only_domestic_top300_weeks_of_a_mixed_filer():
+    weekly = pd.DataFrame({
+        "security_id": ["3", "3", "3", "6", "6"], "cik": pd.array([3, 3, 3, 6, 6], dtype="Int64"),
+        "week_end": pd.to_datetime(["2022-10-28", "2022-11-04", "2022-11-11", "2020-01-03", "2022-11-11"]),
+        "universe": [True] * 5, "dv50_rank": [10.0, 11.0, 12.0, 50.0, 400.0], "dv20_rank": [float("nan")] * 5})
+    candidates = pd.DataFrame({"security_id": [], "cik": []})
+    master = pd.DataFrame({"security_id": ["3", "6"], "cik": ["3", "6"], "name": ["T", "G"],
+                           "foreign_filer": ["MIXED", "MIXED"]})
+    history = _history([("3", "2022-08-19", "20-F", "F"), ("3", "2022-11-04", "10-Q", "D"),
+                        ("6", "2019-03-01", "20-F", "F"), ("6", "2022-05-01", "10-Q", "D")])
+    scope = er.build_scope(weekly, candidates, master, history).set_index("cik")
+    assert scope.loc[3, ["top300_weeks", "top300_weeks_foreign", "top300_first_week", "listed_first_week"]].tolist() == [
+        2, 1, "2022-11-04", "2022-11-04"]
+    # CIK 6's only top-300 week is foreign: out of scope, and reported as such
+    assert 6 not in scope.index
+    assert er.foreign_only_top300(weekly, scope.reset_index()) == [6]
+    # without the history table every week counts
+    assert er.build_scope(weekly, candidates, master).set_index("cik").loc[3, "top300_weeks"] == 3
+
+
+def test_header_cache_scan_reads_the_cache_not_the_log(tmp_path, monkeypatch):
+    import gzip as gz
+    monkeypatch.setattr(er, "HEADER_DIR", tmp_path)
+    good = "0000000001-16-000001"
+    path = er.header_path(1, good)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(gz.compress(f"<SEC-HEADER>{good}.hdr.sgml : 20160426\n<ACCEPTANCE-DATETIME>20160426163109\n"
+                                 f"<ACCESSION-NUMBER>{good}\n</SEC-HEADER>\n".encode()))
+    blank = "0000000001-16-000002"
+    er.header_path(1, blank, "hdr_sgml").write_bytes(gz.compress(
+        f"<SEC-HEADER>{blank}.hdr.sgml : 20181001\n<ACCEPTANCE-DATETIME>\n</SEC-HEADER>\n".encode()))
+    er.header_path(1, "0000000001-16-000003").write_bytes(b"not gzip")
+    er.header_path(1, "0000000001-16-000004").write_bytes(gz.compress(
+        b"<SEC-HEADER>0000000009-16-000009.hdr.sgml : 20160426\n<ACCESSION-NUMBER>0000000009-16-000009\n"))
+    jobs = [(1, f"0000000001-16-00000{i}", "2016-04-26", "item202") for i in range(1, 6)]
+    scan = er.header_cache_scan(jobs)
+    assert scan["by_status"] == {"ok": 1, "ok_no_acceptance_time": 1, "unreadable_gzip": 1,
+                                 "accession_mismatch": 1, "missing": 1}
+    assert not scan["complete"]
+    assert scan["problems"]["missing"] == ["1/0000000001-16-000005"]
 
 
 def test_older_filings_ask_for_the_sgml_header_first():
@@ -292,11 +472,11 @@ def test_quarter_coverage_counts_events_by_d0_calendar_quarter():
     present = pd.DataFrame({"cik": [7, 7], "quarter": ["2012Q1", "2012Q2"], "listed_weeks": [13, 13],
                             "top_weeks": [13, 0], "quarter_weeks": [13, 13]})
     events = pd.DataFrame({"cik": [7, 7], "d0_session": ["2012-01-26", "2012-03-30"],
-                           "first_in_fiscal_quarter": ["Y", "N"]})
-    fallback = pd.DataFrame({"cik": [7], "d0_session": ["2012-05-08"]})
+                           "event_kind": ["results_release", "other"]})
+    fallback = pd.DataFrame({"cik": [7], "d0_session": ["2012-05-08"], "usable_as_announcement": ["N"]})
     q = er.quarter_coverage(present, events, fallback).set_index("quarter")
-    assert q.loc["2012Q1", ["n_item202", "n_item202_first", "n_fallback"]].tolist() == [2, 1, 0]
-    assert q.loc["2012Q2", "n_fallback"] == 1
+    assert q.loc["2012Q1", ["n_item202", "n_results_release", "n_fallback"]].tolist() == [2, 1, 0]
+    assert q.loc["2012Q2", ["n_fallback", "n_fallback_usable"]].tolist() == [1, 0]
     summary = er.coverage_summary(q.reset_index())
     assert summary["company_quarters"] == 1 and summary["share_any"] == 1.0  # Q2 is not a top-300 quarter
 
@@ -305,7 +485,8 @@ def test_quarter_coverage_counts_events_by_d0_calendar_quarter():
 def test_company_year_counts_quarterly_events_and_flags_full_years():
     q = pd.DataFrame({"cik": [7, 7, 7, 7, 8], "quarter": ["2012Q1", "2012Q2", "2012Q3", "2012Q4", "2012Q1"],
                       "listed_weeks": [13, 13, 13, 13, 5], "top_weeks": [1, 0, 0, 0, 5], "quarter_weeks": [13] * 5,
-                      "n_item202": [1, 1, 2, 1, 0], "n_item202_first": [1, 1, 1, 1, 0], "n_fallback": [0, 0, 0, 0, 1]})
+                      "n_item202": [1, 1, 2, 1, 0], "n_results_release": [1, 1, 1, 1, 0], "n_fallback": [0, 0, 0, 0, 1],
+                      "n_fallback_usable": [0, 0, 0, 0, 1]})
     years = er.company_year_table(q).set_index("cik")
     assert years.loc[7, "n_quarterly_events"] == 4 and years.loc[7, "full_year"] == "Y"
     assert years.loc[8, "n_quarterly_events"] == 1 and years.loc[8, "full_year"] == "N"
@@ -323,12 +504,11 @@ def _built(path):
 
 def test_built_events_are_item202_8ks_with_header_times_and_xnas_d0():
     events = _built(er.EVENTS_OUT)
-    assert list(events.columns[:12]) == er.EVENT_COLUMNS[:12]
+    assert list(events.columns) == er.EVENT_COLUMNS
     assert set(events["form"]) <= er.EVENT_FORMS
     assert events["items"].map(er.has_item).all()
     assert (events["filing_date"] >= er.EVENTS_FROM).all()
     assert not events.duplicated(["cik", "accession"]).any()
-    assert set(events["first_in_fiscal_quarter"]) <= {"Y", "N"}
     assert set(events["tz_resolution"]) <= {"header", "json_utc", "json_et_rule"}
     assert (events["tz_resolution"] == "header").mean() >= 0.99
     sessions = set(er.XnasCloses().sessions.strftime("%Y-%m-%d"))
@@ -340,16 +520,70 @@ def test_built_events_are_item202_8ks_with_header_times_and_xnas_d0():
     assert dated.loc[same_day, "acceptance_timing"].isin(["pre_open", "intraday"]).all()
 
 
+def test_built_events_keep_every_item202_8k_with_one_release_per_quarter():
+    events = _built(er.EVENTS_OUT)
+    assert set(events["event_kind"]) <= er.EVENT_KINDS and (events["event_kind"] != "").all()
+    assigned = events[events["fiscal_quarter_end"] != ""]
+    releases = assigned[assigned["event_kind"] == "results_release"].groupby(["cik", "fiscal_quarter_end"]).size()
+    assert (releases == 1).all()
+    members = assigned[assigned["event_kind"] != "amendment"].groupby(["cik", "fiscal_quarter_end"]).size()
+    assert set(members.index) == set(releases.index)
+    assert (events.loc[events["fiscal_quarter_end"] == "", "event_kind"] == "other").all()
+    # n_item202_in_fiscal_quarter counts the rows of the quarter
+    sizes = assigned.groupby(["cik", "fiscal_quarter_end"])["accession"].transform("size").astype(str)
+    assert (assigned["n_item202_in_fiscal_quarter"] == sizes).all()
+    # a preannouncement comes before its quarter's release, an 'other' event after it
+    release_at = assigned[assigned["event_kind"] == "results_release"].set_index(["cik", "fiscal_quarter_end"])["acceptance_et"]
+    for kind, before in (("preannouncement", True), ("other", False)):
+        rows = assigned[assigned["event_kind"] == kind]
+        at = pd.Series([release_at[k] for k in zip(rows["cik"], rows["fiscal_quarter_end"])], index=rows.index)
+        assert ((rows["acceptance_et"] <= at) if before else (rows["acceptance_et"] >= at)).all()
+    # amendments: only 8-K/As, linked to an earlier 8-K
+    amend = events[events["event_kind"] == "amendment"]
+    assert set(amend["form"]) == {"8-K/A"} and set(amend["amends_how"]) <= set(er.AMEND_LINKS)
+    assert (events.loc[events["form"] == "8-K", ["amends_accession", "amends_how"]] == "").all().all()
+    assert (amend["amends_accession"] != "").all()
+
+
 def test_built_scope_has_no_foreign_filer_and_fallback_rows_are_periodic():
     events, fallback = _built(er.EVENTS_OUT), _built(er.FALLBACK_OUT)
     master = pd.read_csv(er.MASTER, dtype=str, keep_default_na=False)
     foreign = set(master.loc[master["foreign_filer"] == "Y", "cik"])
     assert not (set(events["cik"]) | set(fallback["cik"])) & foreign
-    assert set(fallback["form"]) <= er.PERIODIC_FORMS
+    assert list(fallback.columns) == er.FALLBACK_COLUMNS
+    assert set(fallback["form"]) <= er.PERIODIC_FORMS and set(fallback["event_kind"]) == {"periodic_report"}
     assert not fallback.duplicated(["cik", "report_date"]).any()
-    # a fallback quarter never also has an Item 2.02 event assigned to it
-    quarters = set(zip(events["cik"], events["fiscal_quarter_end"]))
+    # a fallback quarter has no non-amendment Item 2.02 event assigned to it
+    quarters = set(zip(events.loc[events["event_kind"] != "amendment", "cik"],
+                       events.loc[events["event_kind"] != "amendment", "fiscal_quarter_end"]))
     assert not any((c, q) in quarters for c, q in zip(fallback["cik"], fallback["report_date"]))
+    # catch-up and Item 2.02-between rows are never usable as announcement dates
+    days = fallback["days_after_period_end"].astype(int)
+    limit = fallback["form"].map(er.CATCH_UP_DAYS)
+    assert ((days > limit) == fallback["catch_up_reason"].str.contains("past_due")).all()
+    shared = fallback.duplicated(["cik", "d0_session"], keep=False)
+    assert (shared == fallback["catch_up_reason"].str.contains("shared_d0")).all()
+    usable = (fallback["catch_up_filing"] == "N") & (fallback["item202_between"] == "")
+    assert (usable == (fallback["usable_as_announcement"] == "Y")).all()
+
+
+def test_built_rows_of_mixed_filers_carry_the_regime_on_d0():
+    events = _built(er.EVENTS_OUT)
+    if not er.PERIODIC_HISTORY.exists():
+        pytest.skip("periodic_form_history.csv not built")
+    history = er.load_history()
+    mixed = events[events["foreign_filer"].str.contains("MIXED")]
+    assert set(mixed["cik"].astype(int)) <= set(history["cik"].astype(int))
+    assert (events.loc[~events["foreign_filer"].str.contains("MIXED"), "foreign_regime_on_d0"] == "N").all()
+    flags = pd.Series(dict(zip(mixed["cik"].astype(int), mixed["foreign_filer"])), dtype=object)
+    expected = er.regime_foreign(flags, history, mixed["cik"].astype(int), mixed["d0_session"])
+    assert ((mixed["foreign_regime_on_d0"] == "Y") == expected).all()
+    # Atlassian: 20-F filer until its first 10-Q on 2022-11-04; no week before that counts (whether
+    # the prefilter already left those weeks out of its ranks or this step drops them)
+    scope = pd.read_csv(er.OUT / "scope.csv", dtype=str, keep_default_na=False).set_index("cik")
+    if "1650372" in scope.index:
+        assert scope.loc["1650372", "top300_first_week"] >= "2022-11-04"
+        assert scope.loc["1650372", "listed_first_week"] >= "2022-11-04"
 
 
 def test_built_sic_history_has_four_digit_codes_from_headers():

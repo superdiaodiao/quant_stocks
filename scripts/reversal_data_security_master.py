@@ -69,6 +69,17 @@ that begins after two full-list snapshots without it (``listed_past_delisting``;
 ``delist_date_violations`` checks the rule against the raw rows and the build summary
 reports ``still_listed_with_delist_date``).
 
+The foreign-filer flag (owner: foreign filers are excluded; for a MIXED CIK only the weeks whose
+latest periodic report is foreign) reads the recent block and every older submissions page with
+filings since 2011-06 (``regime_facts``; the listing resolution still reads older pages only when
+the recent block has no periodic report). A 10-K/10-Q sets the domestic regime, a 20-F/40-F the
+foreign one, and a 6-K the foreign one too except beside 10-Qs (``regime_timeline``); the flag says
+which regimes are in force over 2011-06-01..2026-08-31 and ``foreign_spans`` when the foreign one is.
+``periodic_form_history.csv`` (INPUTS) lists every 10-K/10-Q/20-F/40-F/6-K family filing of each
+MIXED CIK with ``regime_in_force`` from its filing date; ``regime_on`` reads it for given days.
+``older_pages_not_fetched`` names the pages with filings since 2011-06 that the build could not
+read (not cached on an --offline run).
+
 Run order (each step reads the other's output; both are cache-first, and a rerun
 from cache takes a few minutes)::
 
@@ -124,6 +135,8 @@ MASTER = common.INPUTS / "security_master.csv"
 INTERVALS = common.INPUTS / "ticker_intervals.csv"
 WORK = SEC_RAW / "derived"
 FILINGS_SINCE = "2011-06-01"
+FLAG_UNTIL = "2026-08-31"  # the data window's end: a switch filed later changes none of its weeks
+PERIODIC_HISTORY = common.INPUTS / "periodic_form_history.csv"
 MULTI_CLASS_MIN_DATES = 3
 # SEC answers in about a second, so a few threads share SEC_LIMITER to reach its 7 requests a second.
 WORKERS = 6
@@ -143,7 +156,8 @@ MASTER_COLUMNS = ["security_id", "cik", "first_ticker", "name", "share_class", "
                   "tickers_observed", "tickers_sec_current", "exchanges_sec_current", "former_names", "sic",
                   "sic_description", "state_of_incorporation", "entity_type", "filer_category",
                   "domestic_periodic_first", "domestic_periodic_last", "foreign_forms_first", "foreign_forms_last",
-                  "filings_coverage_start", "older_pages_not_fetched", "in_form25", "form25_classes", "found_via",
+                  "foreign_spans", "filings_coverage_start", "older_pages_not_fetched", "in_form25", "form25_classes",
+                  "found_via",
                   "successor_security_id", "successor_date", "successor_form25_accession",
                   "transfer_date", "transfer_form25_accession"]
 INTERVAL_COLUMNS = ["security_id", "ticker", "start", "end", "exchange", "source", "source_url",
@@ -236,13 +250,18 @@ def parse_submissions(payload: dict, pages: list[dict] | tuple = ()) -> dict:
 
 
 def foreign_filer_flag(profile: dict) -> str:
-    """Y: only 20-F/40-F/6-K since 2011-06; N: only 10-K/10-Q; MIXED: both (a switch); UNKNOWN: neither."""
+    """The flag from every page (``profile['regime']``, see ``regime_facts``) when the profile has it.
+    Otherwise, from the blocks parsed alone: Y only 20-F/40-F/6-K since 2011-06; N only 10-K/10-Q;
+    MIXED both; UNKNOWN neither."""
+    if profile.get("regime"):
+        return profile["regime"]["flag"]
     domestic, foreign = profile["n_domestic"] > 0, profile["n_foreign"] > 0
     return {(True, False): "N", (False, True): "Y", (True, True): "MIXED"}.get((domestic, foreign), "UNKNOWN")
 
 
 def needs_older_pages(profile: dict) -> bool:
-    """Older pages are fetched only when the recent block cannot set the foreign-filer flag."""
+    """Older pages enter the listing-resolution profile only when its recent block holds no
+    periodic report (the foreign-filer flag reads every page anyway: ``regime_facts``)."""
     return profile["n_domestic"] == 0 and profile["n_foreign"] == 0 and bool(profile["older_pages_unfetched_since"])
 
 
@@ -251,16 +270,190 @@ def full_profile(cik: int, *, offline: bool = False) -> dict | None:
     if not payload:
         return None
     profile = parse_submissions(payload)
+    loaded: dict[str, dict] = {}
     if needs_older_pages(profile):
         pages = []
         for name in profile["older_pages_unfetched_since"]:
             page = load_submission_page(name, offline=offline)
             if page is not None:
                 pages.append({**page, "_page_name": name})
+                loaded[name] = page
         profile = parse_submissions(payload, pages)
         profile["older_pages_fetched"] = len(pages)
         profile["pages_read"] = [p["_page_name"] for p in pages]
+    profile["regime"] = regime_facts(payload, loaded, offline=offline)
     return profile
+
+
+# ------------------------------------------------------------------ foreign-filer regime, from every page
+#
+# The owner excludes foreign filers, and for a CIK that switched (MIXED) only the weeks whose latest
+# periodic report is foreign. The listing-resolution profile above reads older pages only when the
+# recent block has no periodic report, which hid every switch older than the recent block (Atlassian
+# filed 20-F/6-K until 2022-08 on its page 001; its recent block starts in 2024-09). So the flag
+# reads the recent block plus every older page with filings since FILINGS_SINCE, and
+# ``periodic_form_history.csv`` keeps each MIXED CIK's reports with the regime in force after each.
+
+REGIME_DOMESTIC = DOMESTIC_FORMS
+REGIME_FOREIGN = {"20-F", "40-F", "20FR12B", "40FR12B"}
+REGIME_FORMS = REGIME_DOMESTIC | REGIME_FOREIGN | {"6-K"}
+HISTORY_COLUMNS = ["cik", "filing_date", "form", "accession", "form_regime", "sets_regime", "regime_in_force"]
+
+
+def _base_form(form: str) -> str:
+    return form[:-2] if form.endswith("/A") else form
+
+
+def regime_page_names(payload: dict) -> list[str]:
+    """Every older submissions page that holds filings on or after FILINGS_SINCE."""
+    files = (payload.get("filings") or {}).get("files") or []
+    return [f["name"] for f in files if (f.get("filingTo") or "") >= FILINGS_SINCE and f.get("name")]
+
+
+def regime_filings(payload: dict, pages: list[dict] | tuple = ()) -> list[tuple[str, str, str]]:
+    """(filing date, form, accession) of each 10-K/10-Q/20-F/40-F/6-K family filing, amendments too,
+    in the recent block and ``pages``: once per accession, oldest first."""
+    seen, out = set(), []
+    for block in [(payload.get("filings") or {}).get("recent") or {}, *pages]:
+        forms, dates = block.get("form") or [], block.get("filingDate") or []
+        accessions = list(block.get("accessionNumber") or []) + [""] * len(forms)
+        for form, day, accession in zip(forms, dates, accessions):
+            form = str(form or "")
+            if _base_form(form) not in REGIME_FORMS or not day:
+                continue
+            if accession:
+                if accession in seen:
+                    continue
+                seen.add(accession)
+            out.append((str(day)[:10], form, str(accession)))
+    return sorted(out)
+
+
+def regime_timeline(filings: list[tuple[str, str, str]]) -> list[dict]:
+    """Each filing (oldest first) with the regime it sets and the regime in force after its day.
+
+    D is set by an original 10-K/10-Q family report, F by an original 20-F/40-F (or a 20FR12B/40FR12B
+    registration). An original 6-K sets F too, since a foreign period may show only 6-Ks (TEVA's recent
+    block: 6-Ks from 2017-09-19, then its first 10-K on 2018-02-12; a new foreign registrant before its
+    first 20-F), except where the latest report filed before it and the next report after it are both
+    domestic (a 6-K beside 10-Qs: Corvus Gold 2017, Triller 2024). Amendments set nothing (a 20-F/A
+    filed after the switch to 10-K amends an old year), unless no original sets anything; then each
+    filing sets its base form's regime. ``regime_in_force`` comes from the latest setting filing on
+    or before the row's day (on one day a report outranks a 6-K, and F outranks D); rows before the
+    first setting filing take that filing's regime.
+    """
+    rows = [{"filing_date": day, "form": form, "accession": accession,
+             "form_regime": "D" if _base_form(form) in REGIME_DOMESTIC else "F"}
+            for day, form, accession in sorted(filings)]
+    reports = [(r["filing_date"], r["form_regime"]) for r in rows
+               if not r["form"].endswith("/A") and _base_form(r["form"]) != "6-K"]
+    report_days = [day for day, _ in reports]
+    for r in rows:
+        if r["form"].endswith("/A"):
+            r["sets_regime"] = ""
+        elif r["form"] != "6-K":
+            r["sets_regime"] = r["form_regime"]
+        else:
+            before = bisect.bisect_left(report_days, r["filing_date"])
+            after = bisect.bisect_right(report_days, r["filing_date"])
+            beside_domestic = (before > 0 and reports[before - 1][1] == "D"
+                               and after < len(reports) and reports[after][1] == "D")
+            r["sets_regime"] = "" if beside_domestic else "F"
+    if rows and not any(r["sets_regime"] for r in rows):
+        for r in rows:
+            r["sets_regime"] = r["form_regime"]
+    by_day: dict[str, tuple] = {}
+    for r in rows:
+        if r["sets_regime"]:
+            rank = (_base_form(r["form"]) != "6-K", r["sets_regime"] == "F")
+            if r["filing_date"] not in by_day or rank > by_day[r["filing_date"]][0]:
+                by_day[r["filing_date"]] = (rank, r["sets_regime"])
+    current = by_day[min(by_day)][1] if by_day else ""
+    for r in rows:
+        current = by_day.get(r["filing_date"], (None, current))[1]
+        r["regime_in_force"] = current
+    return rows
+
+
+def regime_flag(timeline: list[dict], since: str = FILINGS_SINCE,
+                until: str = FLAG_UNTIL) -> tuple[str, list[tuple[str, str]]]:
+    """(flag, foreign spans) over the window [since, until]. Y: foreign throughout; N: domestic
+    throughout; MIXED: both; UNKNOWN: no filing of these forms since ``since``. The regime on ``since``
+    is the one in force after the latest filing before it (with none, the earliest filing's, so a
+    company whose first report comes after ``until`` has that report's regime). Spans are
+    [first day, last day] in which the regime in force is foreign, clipped to the window."""
+    later = [r for r in timeline if r["filing_date"] >= since]
+    if not later:
+        return "UNKNOWN", []
+    earlier = [r for r in timeline if r["filing_date"] < since]
+    inside = [r for r in later if r["filing_date"] <= until]
+    regime = (earlier[-1] if earlier else later[0])["regime_in_force"]
+    regimes, spans = {regime}, []
+    start = since if regime == "F" else None
+    for r in inside:
+        regime = r["regime_in_force"]
+        regimes.add(regime)
+        if regime == "F" and start is None:
+            start = r["filing_date"]
+        elif regime == "D" and start is not None:
+            spans.append((start, _shift(r["filing_date"], -1)))
+            start = None
+    if start is not None:
+        spans.append((start, until))
+    flag = {frozenset({"D"}): "N", frozenset({"F"}): "Y"}.get(frozenset(regimes), "MIXED")
+    return flag, spans
+
+
+def regime_facts(payload: dict, pages: dict[str, dict] | None = None, *, offline: bool = False) -> dict:
+    """The foreign-filer flag and its evidence from the recent block and every older page with
+    filings since FILINGS_SINCE (``pages`` already loaded are reused; the rest come from the cache, or
+    from SEC unless ``offline``). ``pages_unread`` names those that could not be read (uncached
+    offline): the flag rests on fewer filings there."""
+    pages = dict(pages or {})
+    read, unread = [], []
+    for name in regime_page_names(payload):
+        page = pages.get(name)
+        if page is None:
+            page = load_submission_page(name, offline=offline)
+        if page is None:
+            unread.append(name)
+        else:
+            pages[name] = page
+            read.append(name)
+    filings = regime_filings(payload, [pages[name] for name in read])
+    timeline = regime_timeline(filings)
+    flag, spans = regime_flag(timeline)
+    window = [(day, _base_form(form)) for day, form, _ in filings if day >= FILINGS_SINCE]
+    domestic = [day for day, base in window if base in DOMESTIC_FORMS]
+    foreign = [day for day, base in window if base in FOREIGN_FORMS]
+    return {"flag": flag, "spans": spans, "pages_read": read, "pages_unread": unread,
+            "domestic_first": min(domestic, default=""), "domestic_last": max(domestic, default=""),
+            "foreign_first": min(foreign, default=""), "foreign_last": max(foreign, default=""),
+            # the per-filing table is kept only where later steps need it (MIXED: foreign weeks only)
+            "timeline": timeline if flag == "MIXED" else []}
+
+
+def history_rows(profiles: dict[int, dict], ciks: set[int] | None = None) -> pd.DataFrame:
+    """``periodic_form_history.csv``: every 10-K/10-Q/20-F/40-F/6-K family filing of each MIXED CIK
+    (of ``ciks`` when given), with the regime it sets and the regime in force from its filing date."""
+    rows = []
+    for cik in sorted(profiles):
+        regime = profiles[cik].get("regime") or {}
+        if regime.get("flag") != "MIXED" or (ciks is not None and cik not in ciks):
+            continue
+        rows.extend({"cik": cik, **{k: r[k] for k in HISTORY_COLUMNS[1:]}} for r in regime["timeline"])
+    return pd.DataFrame(rows, columns=HISTORY_COLUMNS)
+
+
+def regime_on(history: pd.DataFrame, cik: int, days: list[str]) -> list[str]:
+    """'D' or 'F' in force on each of ``days`` for a CIK of ``periodic_form_history.csv``: the
+    regime_in_force of its latest filing on or before the day (its first filing's before that);
+    '' for a CIK not in the table (not MIXED: use its security-master flag)."""
+    own = history[history["cik"].astype(int) == int(cik)].sort_values("filing_date", kind="stable")
+    if own.empty:
+        return [""] * len(days)
+    dates, regimes = own["filing_date"].astype(str).tolist(), own["regime_in_force"].tolist()
+    return [regimes[max(bisect.bisect_right(dates, str(day)) - 1, 0)] for day in days]
 
 
 # ------------------------------------------------------------------ names and classes
@@ -1491,7 +1684,7 @@ def fetch_profiles(ciks: set[int], *, offline: bool = False) -> tuple[dict[int, 
     return profiles, [cik for cik, profile in zip(ordered, found) if profile is None]
 
 
-def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.DataFrame, pd.DataFrame]:
     form25 = read_form25(FORM25)
     exits = terminal_exits(form25)
     cuts = form25_cuts(form25)
@@ -1750,6 +1943,7 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "master_rows": len(master), "master_ciks": int(master["cik"].nunique()),
         "interval_rows": len(all_intervals), "interval_rows_by_source": dict(Counter(all_intervals["source"])),
         "older_pages_fetched_for": sum(1 for p in profiles.values() if p.get("older_pages_fetched")),
+        "foreign_filer_regime": regime_stats(profiles, master),
         "wayback_hook_rows": int(snapshots["source"].str.startswith("wayback").sum()),
         "truncated_name_pairs": len(truncated_pairs),
         "terminal_form25_exits_used": len(exits),
@@ -1789,7 +1983,9 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     common.atomic_write(WORK / "security_master_build_summary.json",
                         (json.dumps({k: v for k, v in stats.items()}, indent=2, default=str) + "\n").encode())
     write_files_read(profiles, form25)
-    return master, all_intervals, stats, evidence
+    history = history_rows(profiles, {int(c) for c in master["cik"]})
+    stats["periodic_form_history"] = {"rows": len(history), "ciks": int(history["cik"].nunique())}
+    return master, all_intervals, stats, evidence, history
 
 
 FORM25_TEXT_COLUMNS = ["subject_tickers_sec", "class_of_security", "classification", "classification_evidence",
@@ -1997,6 +2193,25 @@ def class_letter(share_class: str) -> str:
     return ""
 
 
+def regime_stats(profiles: dict[int, dict], master: pd.DataFrame) -> dict:
+    """Flag counts over the master's CIKs, against the flag the recent block alone gave (the rule
+    before every page was read), and the pages the flag could not read."""
+    ciks = {int(c) for c in master["cik"]}
+    have = [c for c in sorted(ciks) if c in profiles and profiles[c].get("regime")]
+    recent_only = {c: {(True, False): "N", (False, True): "Y", (True, True): "MIXED"}.get(
+        (profiles[c]["n_domestic"] > 0, profiles[c]["n_foreign"] > 0), "UNKNOWN") for c in have}
+    flag = {c: profiles[c]["regime"]["flag"] for c in have}
+    unread = {c: profiles[c]["regime"]["pages_unread"] for c in have if profiles[c]["regime"]["pages_unread"]}
+    return {"ciks": len(have), "flags": dict(Counter(flag.values())),
+            "flags_recent_block_rule": dict(Counter(recent_only.values())),
+            "changes_from_recent_block_rule": dict(Counter(f"{recent_only[c]}->{flag[c]}" for c in have
+                                                           if flag[c] != recent_only[c])),
+            "changed_ciks": {str(c): f"{recent_only[c]}->{flag[c]}" for c in have if flag[c] != recent_only[c]},
+            "pages_read": sum(len(profiles[c]["regime"]["pages_read"]) for c in have),
+            "pages_unread": sum(len(v) for v in unread.values()),
+            "ciks_with_pages_unread_by_flag": dict(Counter(flag[c] for c in unread))}
+
+
 def write_files_read(profiles: dict[int, dict], form25: pd.DataFrame | None) -> dict:
     """The raw/sec files this builder read (for the manifest, which should hash only these), and how
     many cached submissions files no builder reads any more (left over from earlier iterations)."""
@@ -2004,6 +2219,7 @@ def write_files_read(profiles: dict[int, dict], form25: pd.DataFrame | None) -> 
     for cik, profile in profiles.items():
         read.add(str(submissions_path(cik)))
         read |= {str(SEC_RAW / "submissions" / f"{name}.gz") for name in profile.get("pages_read", [])}
+        read |= {str(SEC_RAW / "submissions" / f"{name}.gz") for name in (profile.get("regime") or {}).get("pages_read", [])}
     tickers = sorted((SEC_RAW / "ticker_maps").glob("company_tickers_exchange_*.json.gz"))
     read |= {str(tickers[-1])} if tickers else set()
     read.add(str(SEC_RAW / "cik-lookup-data.txt.gz"))
@@ -2074,6 +2290,11 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
     rows = []
     for sid, (cik, share_class) in sorted(keys.items(), key=lambda kv: (kv[1][0], kv[0])):
         profile = profiles.get(cik)
+        regime = (profile.get("regime") or {"domestic_first": profile["domestic_first"],
+                                            "domestic_last": profile["domestic_last"],
+                                            "foreign_first": profile["foreign_first"],
+                                            "foreign_last": profile["foreign_last"],
+                                            "pages_unread": profile["older_pages_unfetched_since"]}) if profile else {}
         own = by_sid.get(sid, pd.DataFrame(columns=all_intervals.columns))
         listed = own[own["source"] != "sec_company_tickers_exchange"] if not own.empty else own
         f25 = f25_by_cik.get(cik)
@@ -2185,12 +2406,13 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             "sic": profile["sic"] if profile else "", "sic_description": profile["sic_description"] if profile else "",
             "state_of_incorporation": profile["state_of_incorporation"] if profile else "",
             "entity_type": profile["entity_type"] if profile else "", "filer_category": profile["category"] if profile else "",
-            "domestic_periodic_first": profile["domestic_first"] if profile else "",
-            "domestic_periodic_last": profile["domestic_last"] if profile else "",
-            "foreign_forms_first": profile["foreign_first"] if profile else "",
-            "foreign_forms_last": profile["foreign_last"] if profile else "",
+            "domestic_periodic_first": regime.get("domestic_first", ""),
+            "domestic_periodic_last": regime.get("domestic_last", ""),
+            "foreign_forms_first": regime.get("foreign_first", ""),
+            "foreign_forms_last": regime.get("foreign_last", ""),
+            "foreign_spans": " ".join(f"{a}..{b}" for a, b in regime.get("spans", [])),
             "filings_coverage_start": profile["coverage_start"] if profile else "",
-            "older_pages_not_fetched": " ".join(profile["older_pages_unfetched_since"]) if profile else "",
+            "older_pages_not_fetched": " ".join(regime.get("pages_unread", [])),
             "in_form25": "Y" if f25 is not None else "N",
             "form25_classes": " | ".join(sorted(set(f"{c}:{k}" for c, k in zip(f25["classification"], f25["class_kind"]))))
             if f25 is not None else "",
@@ -2208,8 +2430,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
     args = parser.parse_args(argv)
-    master, intervals, stats, evidence = build(offline=args.offline)
+    master, intervals, stats, evidence, history = build(offline=args.offline)
     common.atomic_write(MASTER, master.to_csv(index=False).encode("utf-8"))
+    common.atomic_write(PERIODIC_HISTORY, history.to_csv(index=False).encode("utf-8"))
     evidence = evidence.reindex(columns=INTERVAL_COLUMNS).sort_values(["ticker", "start", "source"], na_position="first")
     common.atomic_write(WORK / "ticker_intervals_evidence.csv.gz",
                         gzip.compress(evidence.to_csv(index=False).encode("utf-8"), mtime=0))

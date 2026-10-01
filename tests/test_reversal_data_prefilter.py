@@ -59,10 +59,74 @@ def test_mixed_filer_is_foreign_only_while_its_latest_report_is_foreign():
     assert back == [("2018-03-01", "2100-01-01")]
 
 
-def test_periodic_timeline_ignores_6k_beside_quarterly_reports():
-    payload = {"filings": {"recent": {"form": ["10-Q", "6-K", "10-K", "20-F/A"],
-                                      "filingDate": ["2020-05-01", "2020-06-01", "2021-02-01", "2015-03-01"]}}}
-    assert pf.periodic_timeline(payload) == [("2015-03-01", "F"), ("2020-05-01", "D"), ("2021-02-01", "D")]
+def test_mixed_filer_spans_come_from_the_periodic_form_history(tmp_path):
+    # TEVA: 20-Fs, then 6-Ks only, then its first 10-K on 2018-02-12 (the recent block alone missed
+    # the foreign years); a second CIK switches back and forth.
+    history = pd.DataFrame([
+        ("818686", "2011-02-15", "20-F", "F"), ("818686", "2017-09-19", "6-K", "F"),
+        ("818686", "2018-02-12", "10-K", "D"), ("818686", "2018-05-01", "10-Q", "D"),
+        ("2", "2012-03-01", "10-K", "D"), ("2", "2015-04-01", "20-F", "F"), ("2", "2015-04-01", "6-K", "F"),
+        ("2", "2019-03-01", "10-K", "D")], columns=["cik", "filing_date", "form", "regime_in_force"])
+    history.to_csv(tmp_path / "h.csv", index=False)
+    master = pd.DataFrame({"security_id": ["818686", "2", "3", "4", "5"], "cik": ["818686", "2", "3", "4", "5"],
+                           "foreign_filer": ["MIXED", "MIXED", "Y", "N", "MIXED"],
+                           "foreign_spans": ["2011-06-01..2018-02-11", "", "", "", "2014-01-01..2015-12-31"]})
+    spans, facts = pf.foreign_spans(master, tmp_path / "h.csv")
+    assert spans["818686"] == [("1900-01-01", "2018-02-11")]
+    assert pf.is_foreign_on(spans["818686"], "2012-01-06") and not pf.is_foreign_on(spans["818686"], "2018-02-16")
+    assert spans["2"] == [("2015-04-01", "2019-02-28")]
+    assert spans["3"] == pf.ALWAYS and "4" not in spans
+    assert spans["5"] == [("2014-01-01", "2015-12-31")]  # not in the history: security_master's spans
+    assert facts["mixed_from_history"] == 2 and facts["mixed_from_master_spans"] == 1
+    assert facts["history_vs_master_spans_differ"] == ["2"]
+
+
+def test_needed_window_stops_four_weeks_after_the_last_domestic_week():
+    row = pd.Series({"first_listed": "2010-12-31", "first_uncovered": pd.Timestamp("2018-03-30"),
+                     "last_uncovered": pd.Timestamp("2018-02-23"), "last_universe_week": pd.Timestamp("2018-02-23"),
+                     "last_listed": "2021-04-26", "transfer_date": "", "ends_foreign": True})
+    assert pf.needed_window(row)[1] == "2018-03-23"
+    row["ends_foreign"] = False
+    assert pf.needed_window(row)[1] == "2021-04-26"
+
+
+# ------------------------------------------------------------------ SPAC shells
+
+def test_unmerged_spac_shells_are_found_from_sic_names_and_tickers(tmp_path):
+    master = pd.DataFrame([
+        # an unmerged shell with an operating-sounding name: SIC 6770, one ticker, delisted
+        ("1", "Sentinel Energy Services Inc.", "6770", "", "2019-11-17", "2019-11-06"),
+        # a merged SPAC: renamed while listed and a new ticker (JetPay)
+        ("2", "JetPay Corp", "6770", "Universal Business Payment Solutions Acquisition Corp (2010-12-22..2013-08-02)",
+         "2018-12-16", "2018-11-21"),
+        # a SPAC renaming itself keeps its ticker: still a shell
+        ("3", "SVF Investment Corp.", "6770", "Gazelle Opportunities I (Cayman) Corp (2020-11-16..2020-11-16)",
+         "2023-02-05", "2023-01-23"),
+        # an active SPAC by name; an active de-SPAC with a stale SIC and a plain name stays common
+        ("4", "Cantor Equity Partners II, Inc.", "6770", "", "", "2026-08-31"),
+        ("5", "Innventure, Inc.", "6770", "Learn SPAC HoldCo, Inc. (2024-01-26..2024-10-02)", "", "2026-08-31"),
+        # a merger sub's name with an operating SIC is no SPAC
+        ("6", "GRIZZLY MERGER SUB 1, LLC", "4841", "", "2020-12-20", "2020-12-20"),
+        # SIC 6770 but an operating SIC appeared later in sic_history, two tickers
+        ("7", "Some Operating Co", "6770", "", "2022-01-01", "2021-12-01"),
+    ], columns=["security_id", "name", "sic", "former_names", "delist_date", "last_listed"])
+    master["cik"] = master["security_id"]
+    intervals = pd.DataFrame([("1", "STNL", "Sentinel Energy Services Inc. - Class A Ordinary Shares"),
+                              ("2", "UBPS", "Universal Business Payment Solutions"), ("2", "JTPY", "JetPay Corp"),
+                              ("3", "SVFA", "SVF Investment Corp - Class A"), ("4", "CEPT", "Cantor Equity Partners II"),
+                              ("5", "INV", "Innventure, Inc. - Common Stock"), ("6", "GLIBA", "GCI Liberty"),
+                              ("7", "OLDX", "Old"), ("7", "NEWX", "New")], columns=["security_id", "ticker", "name_in_source"])
+    sic = pd.DataFrame({"cik": ["7"], "operating_sic_after_6770": ["3711"]})
+    sic.to_csv(tmp_path / "sic.csv", index=False)
+    shells = pf.spac_shells(master, intervals, tmp_path / "sic.csv")
+    assert set(shells) == {"1", "3", "4"}
+    assert shells["1"] == "sic_6770_never_operating_one_ticker" and shells["4"] == "sic_6770_spac_name"
+    spans = pd.DataFrame({"security_id": ["1", "5"], "ticker": ["STNL", "INV"], "list_start": ["2018-01-02"] * 2,
+                          "list_end": ["2018-12-31"] * 2, "name": ["Sentinel Energy Services Inc.", "Innventure"],
+                          "share_class": ["A", "COMMON"]})
+    weekly = pf.listed_weeks(spans, master, {}, pf.week_ends(pf.xnas_sessions("2018-01-01", "2018-12-31"),
+                                                              "2018-01-01", "2018-12-31"), shells)
+    assert weekly.groupby("security_id")["non_common"].all().to_dict() == {"1": True, "5": False}
 
 
 # ------------------------------------------------------------------ ticker map
@@ -151,11 +215,108 @@ def test_tiingo_range_match_full_partial_wrong_entity_and_missing():
     assert pf.tiingo_range_match(["NOPE"], "2012-01-01", "2015-01-01", INDEX)["match"] == "no_row"
 
 
-def test_tiingo_range_match_tries_renamed_tickers_and_flags_reuse():
+def test_tiingo_range_match_tries_renamed_tickers_and_a_hidden_row_is_not_a_match():
     match = pf.tiingo_range_match(["REUSE", "OLDCO"], "2012-01-01", "2019-05-01", INDEX)
     assert match["match"] == "Y" and match["ticker"] == "OLDCO"
-    reused = pf.tiingo_range_match(["BOTH"], "2011-06-01", "2014-02-20", INDEX)
-    assert reused["match"] == "Y" and reused["reused"]
+    # The API answers BOTH with its later row, so the row that covers the need is hidden.
+    hidden = pf.tiingo_range_match(["BOTH"], "2011-06-01", "2014-02-20", INDEX)
+    assert hidden["match"] == "hidden" and hidden["hidden_by"]["start"] == "2023-01-03"
+    assert not pf.useful_partial(hidden, "2011-06-01")
+
+
+def supported(rows):
+    frame = pd.DataFrame(rows, columns=["ticker", "exchange", "assetType", "priceCurrency", "startDate", "endDate"])
+    return pf.tiingo_index(frame)
+
+
+def security(first="2010-12-31", last="2020-05-31", active=False, starts=None, transfer=""):
+    return {"first_listed": first, "last_listed": last, "active": active, "transfer_date": transfer,
+            "ticker_starts": starts or {}}
+
+
+def test_the_served_row_is_the_one_that_ends_latest():
+    index = supported([("CA", "NASDAQ", "ETF", "USD", "2023-12-14", "2026-09-30"),
+                       ("CA", "NASDAQ", "Stock", "USD", "1984-09-07", "2018-11-06"),
+                       ("CZR", "NASDAQ", "Stock", "USD", "2012-02-08", "2020-07-20"),
+                       ("CZR", "NASDAQ", "Stock", "USD", "2014-09-22", "2026-09-30")])
+    assert pf.served_row(index["CA"])["asset_type"] == "ETF"
+    assert pf.served_row(index["CZR"])["start"] == "2014-09-22"
+    assert [r["served"] for r in index["CZR"]] == [False, True]
+
+
+def test_q_suffix_alias_and_sec_tickers_are_tried_for_a_bankrupt_or_renamed_company():
+    index = supported([("CLVS", "NASDAQ", "Stock", "USD", "2023-01-03", "2023-01-03"),
+                       ("CLVSQ", "PINK", "Stock", "USD", "2011-11-16", "2023-07-25"),
+                       ("SDCCQ", "PINK", "Stock", "USD", "2019-09-12", "2026-09-30"),
+                       ("TFCFA", "NASDAQ", "Stock", "USD", "1996-03-11", "2019-03-20")])
+    row = pd.Series({"tickers": "CLVS", "ticker_last_held": "CLVS:2023-01-08", "tickers_sec_current": ""})
+    candidates = pf.tiingo_tickers(row, "2018-01-21", "x", pf.q_suffix_map(index))
+    assert candidates == [("CLVS", "own"), ("CLVSQ", "q_suffix")]
+    match = pf.tiingo_range_match(candidates, "2018-01-21", "2023-01-08", index, security(first="2011-11-16"))
+    assert match["match"] == "Y" and match["ticker"] == "CLVSQ" and match["kind"] == "q_suffix"
+    # own ticker + one letter + Q, only when the row starts with the security (SmileDirectClub)
+    row = pd.Series({"tickers": "SDC", "ticker_last_held": "SDC:2023-10-26", "tickers_sec_current": ""})
+    candidates = pf.tiingo_tickers(row, "2019-09-13", "x", pf.q_suffix_map(index))
+    assert ("SDCCQ", "q_prefix") in candidates
+    assert pf.tiingo_range_match(candidates, "2019-09-13", "2023-10-26", index, security(first="2019-09-13"))["ticker"] == "SDCCQ"
+    assert pf.tiingo_range_match(candidates, "2019-09-13", "2023-10-26", index,
+                                 security(first="2016-01-04"))["match"] != "Y"
+    # the reviewed alias: 21st Century Fox's class A history is under TFCFA
+    row = pd.Series({"tickers": "FOXA", "ticker_last_held": "FOXA:2019-05-05", "tickers_sec_current": ""})
+    candidates = pf.tiingo_tickers(row, "2018-01-21", "1308161.A")
+    assert ("TFCFA", "reviewed_alias") in candidates
+    match = pf.tiingo_range_match(candidates, "2018-01-21", "2019-03-25", index, security())
+    assert match["match"] == "Y" and match["ticker"] == "TFCFA"
+
+
+def test_a_late_row_inside_the_need_or_a_hidden_own_row_marks_another_company():
+    index = supported([("ACET", "NASDAQ", "Stock", "USD", "2018-01-26", "2026-09-30"),
+                       ("ACETQ", "NASDAQ", "Stock", "USD", "1990-03-26", "2019-10-01"),
+                       # VIVO: Meridian's own row and a later company's served row
+                       ("VIVO", "NASDAQ", "Stock", "USD", "1992-02-26", "2026-03-27"),
+                       ("VIVO", "NASDAQ", "Stock", "USD", "2016-12-29", "2026-09-30"),
+                       # COHR: old Coherent's row ends at its close, the served row runs on
+                       ("COHR", "NYSE", "Stock", "USD", "1990-03-26", "2026-09-30"),
+                       ("COHR", "NASDAQ", "Stock", "USD", "1990-03-26", "2022-07-01"),
+                       # a history Tiingo starts on 2016-01-04 is the same company
+                       ("CUT", "NASDAQ", "Stock", "USD", "2016-01-04", "2018-06-01")])
+    aceto = security(starts={"ACET": "2010-12-31"})
+    assert pf.tiingo_range_match([("ACET", "own")], "2018-01-21", "2019-05-05", index, aceto)["match"] == "newer_company"
+    match = pf.tiingo_range_match([("ACET", "own"), ("ACETQ", "q_suffix")], "2018-01-21", "2019-05-05", index, aceto)
+    assert match["ticker"] == "ACETQ" and match["match"] == "Y"
+    vivo = pf.tiingo_range_match(["VIVO"], "2018-01-21", "2023-02-07", index,
+                                 security(last="2023-02-07", starts={"VIVO": "2010-12-31"}))
+    assert vivo["match"] == "hidden" and vivo["row_start"] == "1992-02-26"
+    cohr = pf.tiingo_range_match(["COHR"], "2018-01-21", "2022-07-11", index, security(last="2022-07-11"))
+    assert cohr["match"] == "hidden" and cohr["row_end"] == "2022-07-01"
+    cut = pf.tiingo_range_match(["CUT"], "2016-06-01", "2018-06-01", index, security(last="2018-06-01"))
+    assert cut["match"] == "Y" and not cut["starts_late"]
+
+
+def test_non_stock_rows_count_only_when_they_start_and_end_with_the_security():
+    index = supported([("PAND", "NASDAQ", "ETF", "USD", "2020-07-17", "2021-04-01"),
+                       ("NVLS", "NASDAQ", "ETF", "USD", "2006-12-28", "2017-07-24")])
+    pandion = pf.tiingo_range_match(["PAND"], "2020-07-29", "2021-04-04", index,
+                                    security(first="2020-07-29", last="2021-04-04"))
+    assert pandion["match"] == "Y" and pandion["asset_type"] == "ETF"
+    novellus = pf.tiingo_range_match(["NVLS"], "2011-10-23", "2012-06-14", index, security(last="2012-06-14"))
+    assert novellus["match"] == "no_row"
+
+
+def test_flags_mark_ambiguous_matches_and_shared_tickers():
+    index = supported([("RDUS", "NASDAQ", "Stock", "USD", "2014-06-06", "2026-09-30"),
+                       ("RDUS", "NASDAQ", "Stock", "USD", "1993-11-16", "2025-07-10")])
+    match = pf.tiingo_range_match(["RDUS"], "2014-07-07", "2022-08-25", index,
+                                  security(first="2014-06-06", last="2022-08-25"))
+    flags = pf.match_flags(match, index, "1428522", "2014-07-07", {"RDUS": {"912603"}})
+    assert match["match"] == "Y" and "multi_row" in flags and "sec_holder:912603" in flags
+    assert "outlives_listing" in flags
+    frame = pd.DataFrame({"security_id": ["a", "b", "c"], "planned_source": ["tiingo", "tiingo", "tiingo"],
+                          "ticker_for_source": ["TIVO", "TIVO", "XYZ"], "tiingo_flags": ["", "", ""], "note": ["", "", ""],
+                          "tiingo_reused_ticker": ["", "", ""]})
+    marked = pf.mark_shared(frame).set_index("security_id")
+    assert marked.loc["a", "tiingo_flags"] == "shared:b" and marked.loc["a", "tiingo_reused_ticker"] == "Y"
+    assert marked.loc["c", "tiingo_reused_ticker"] == "" and "confirms the entity" in marked.loc["b", "note"]
 
 
 # ------------------------------------------------------------------ windows and budget
@@ -178,13 +339,50 @@ def test_late_start_window():
     assert pf.late_start(row) is None
 
 
-def test_budget_defers_lowest_priority_symbols():
+def test_budget_follows_fetch_order_from_the_owners_already_used_count():
     frame = pd.DataFrame({"planned_source": ["tiingo"] * 4 + ["yahoo"], "fetch_month": [pf.MONTH_1] * 5,
                           "priority": [1, 2, 3, 3, 9], "security_id": ["a", "b", "c", "d", "e"],
-                          "ticker_for_source": ["A", "B", "C", "A", "E"], "status": ["pending"] * 5})
-    out, budget = pf.apply_budget(frame, used=0, reserve=0, monthly=2)
+                          "ticker_for_source": ["A", "B", "C", "A", "E"], "status": ["pending"] * 5,
+                          "fetch_order": ["1", "2", "3", "1", ""]})
+    out, budget = pf.apply_budget(frame, used=1, already_used=1, stop=4)
     assert out["status"].tolist() == ["pending", "pending", "deferred_quota", "pending", "pending"]
     assert budget["month1_symbols"] == 2 and budget["deferred_quota_symbols"] == 1
+    assert budget["already_used_outside_ledger"] == 1 and budget["month1_room"] == 2
+    _, unknown = pf.apply_budget(frame, used=0)
+    assert "not given" in unknown["already_used_outside_ledger"]
+
+
+def test_fetch_order_puts_month_one_by_priority_then_rank_and_shares_a_ticker():
+    frame = pd.DataFrame({"planned_source": ["tiingo"] * 5, "security_id": ["v", "s", "a", "b", "z"],
+                          "fetch_month": [pf.MONTH_1] * 4 + [pf.MONTH_2],
+                          "priority": [10, 7, 1, 1, 12], "best_rank": ["5", "8", "200", "50", "1"],
+                          "ticker_for_source": ["VV", "SS", "AA", "BB", "SS"], "v_category": ["odd_split", "", "", "", ""]})
+    out = pf.assign_fetch_order(frame).set_index("security_id")["fetch_order"].to_dict()
+    assert out == {"b": "1", "a": "2", "s": "3", "v": "4", "z": "3"}
+
+
+def test_tier_c_sample_is_refilled_with_fetchable_names():
+    ids = [f"s{k:02d}" for k in range(30)]
+    order = pf.seeded_order(ids)
+    frame = pd.DataFrame({"security_id": ids, "reason": ["B_C_rest_300M_500M"] * 30, "priority": [12] * 30,
+                          "reasons_all": ["B_C_rest_300M_500M"] * 30, "planned_source": ["tiingo"] * 30,
+                          "status": ["conditional_tier_c"] * 30, "fetch_month": [pf.MONTH_2] * 30})
+    frame.loc[frame["security_id"] == order[0], "planned_source"] = "unfillable"
+    out, facts = pf.refill_tier_c_sample(frame, n=5)
+    sample = out[out["reason"] == "B_C_sample_300M_500M"]
+    assert list(sample["security_id"]) == sorted(order[1:6])
+    assert set(sample["status"]) == {"pending"} and set(sample["fetch_month"]) == {pf.MONTH_1}
+    assert facts["sample"] == 5 and facts["pool_unfetchable"] == 1
+
+
+def test_float_price_check_drops_unit_errors_of_10b_or_more():
+    floats = pd.DataFrame({"cik": [1, 2, 3], "end": pd.to_datetime(["2021-06-30"] * 3),
+                           "val": [6.04e11, 1.5e10, 1.2e10], "shares": [3.0e8, 1.0e9, float("nan")]})
+    weekly = pd.DataFrame({"security_id": ["a", "b", "c"], "week_end": pd.to_datetime(["2021-07-02"] * 3),
+                           "close": [15.0, 20.0, 1.0]})
+    master = pd.DataFrame({"security_id": ["a", "b", "c"], "cik": ["1", "2", "3"]})
+    kept, dropped = pf.float_price_check(floats, weekly, master)
+    assert list(kept["cik"]) == [2, 3] and dropped[0]["cik"] == 1
 
 
 # ------------------------------------------------------------------ built outputs
@@ -211,7 +409,26 @@ def test_built_candidate_list_follows_the_plan():
     assert (candidates["reason"] == "B_C_sample_300M_500M").sum() == pf.TIER_C_SAMPLE
     assert (candidates["reason"] == "V_verify_sample").sum() == pf.V_SAMPLE
     month1 = tiingo[tiingo["fetch_month"] == pf.MONTH_1]["ticker_for_source"].nunique()
-    assert month1 <= pf.TIINGO_MONTHLY_SYMBOLS
+    assert month1 <= pf.TIINGO_MONTH_STOP
+    # One fetch_order per Tiingo ticker; S names are month 1, ahead of the samples.
+    order = tiingo.assign(n=tiingo["fetch_order"].astype(int))
+    assert order.groupby("ticker_for_source")["n"].nunique().eq(1).all()
+    s_rows = order[order["reason"].str.startswith("S_") & (order["status"] == "pending")]
+    samples = order["reason"].isin(["V_verify_sample", "B_C_sample_300M_500M"])
+    # (a sample ticker that a higher rule also needs, ZG for old Zillow, keeps that rule's place)
+    later = order[samples & ~order["ticker_for_source"].isin(order.loc[~samples, "ticker_for_source"])]
+    assert len(s_rows) and s_rows["n"].max() < later["n"].min()
+    # Every planned Tiingo row is the row the API serves for its ticker.
+    index = pf.tiingo_index(pf.load_supported_tickers(offline=True))
+    for row in tiingo.itertuples(index=False):
+        served = pf.served_row(index[row.ticker_for_source])
+        assert (served["start"], served["end"]) == (row.tiingo_row_start, row.tiingo_row_end), row.ticker_for_source
+    # TEVA (foreign to 2018-02) and Atlassian (to 2022-11) are not ranked in their foreign years;
+    # unmerged SPAC shells are no candidates.
+    assert not ((candidates["security_id"] == "818686") & candidates["reason"].str.startswith("A")).any()
+    assert not ((candidates["security_id"] == "1650372") & (candidates["reason"] == "A1_wiki_dv_rank300")).any()
+    shells = pf.spac_shells(master.reset_index(), pf.load_intervals())
+    assert not candidates["security_id"].isin(list(shells)).any()
     # Committed files carry ranks and SEC floats only, never vendor price levels.
     for column in ("close", "dv50", "dv20", "market_cap", "last_sale"):
         assert column not in candidates.columns

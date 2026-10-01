@@ -1169,8 +1169,8 @@ def build(offline: bool = False) -> pd.DataFrame:
     rows["effective_date"] = [(date.fromisoformat(d) + timedelta(days=EFFECTIVE_LAG_DAYS)).isoformat() for d in rows["filing_date"]]
     rows["doc_url"] = [doc_url(c, a, d) for c, a, d in zip(rows["subject_cik"], rows["accession"], rows["document"])]
 
-    from scripts.reversal_data_security_master import (RAW_ROWS, foreign_filer_flag, load_submissions,
-                                                       parse_submissions, read_raw_rows)
+    from scripts.reversal_data_security_master import (RAW_ROWS, load_submissions, parse_submissions,
+                                                       read_raw_rows, regime_facts)
     # The security master's raw snapshot rows, from before it dropped any row for a Form 25: the
     # exit decisions below never rest on rows removed because of them.
     raw_rows = read_raw_rows(RAW_ROWS)
@@ -1211,7 +1211,10 @@ def build(offline: bool = False) -> pd.DataFrame:
     for i, row in rows.iterrows():
         if row["class_kind"] == "receipt":
             payload = payload_of(row["subject_cik"])
-            flag = foreign_filer_flag(parse_submissions(payload)) if payload else "UNKNOWN"
+            # the security master's flag, from every page with filings since 2011-06 (cached by it)
+            regime = regime_facts(payload, offline=True) if payload else {"flag": "UNKNOWN", "pages_read": []}
+            FILES_READ.update(str(SEC_RAW / "submissions" / f"{name}.gz") for name in regime["pages_read"])
+            flag = regime["flag"]
             rows.at[i, "class_kind"] = resolve_receipt("receipt", flag, row["subject_tickers_sec"])
     common_rows = rows["class_kind"].isin(["common", "ads"])
     for row in rows.itertuples():

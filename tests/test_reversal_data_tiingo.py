@@ -13,7 +13,8 @@ from scripts import reversal_data_tiingo as tiingo
 
 SECRET = "TESTKEY0123456789"
 CANDIDATE_COLUMNS = ["security_id", "ticker_for_source", "needed_start", "needed_end", "reason", "planned_source",
-                     "status", "fetch_month", "best_rank", "tiingo_row_end"]
+                     "status", "fetch_month", "best_rank", "tiingo_row_end", "tiingo_row_start", "tiingo_flags",
+                     "tiingo_range_match", "fetch_order"]
 
 
 def candidate_rows(rows):
@@ -72,7 +73,20 @@ def test_tier_order_then_liquidity(tmp_path):
     candidates = tiingo.load_candidates(path)
     assert "YYY" not in set(candidates["ticker_for_source"])
     rows = tiingo.select_rows(candidates, tiingo.load_status(tmp_path / "none.csv"))
-    assert tiingo.ticker_order(rows) == ["BA1", "BA2", "AA1", "AA2", "BB1", "CCC", "VVV", "SMP"]
+    # Without the prefilter's fetch_order: its reason priority (the tier-C sample before V), then rank.
+    assert tiingo.ticker_order(rows) == ["BA1", "BA2", "AA1", "AA2", "BB1", "CCC", "SMP", "VVV"]
+
+
+def test_the_prefilters_fetch_order_wins(tmp_path):
+    path = write_candidates(tmp_path / "c.csv", [
+        ("1", "VVV", "2014-01-01", "2026-08-31", "V_verify_sample", "tiingo", "pending", "2026-10", "5", "", "", "",
+         "Y", "1"),
+        ("2", "BA1", "2019-01-01", "2020-01-01", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "40", "", "", "",
+         "Y", "2"),
+        ("3", "SSS", "2024-07-01", "2025-08-01", "S_stored_only_delisted_rank300", "tiingo", "pending", "2026-10", "8",
+         "", "", "", "Y", "3")])
+    rows = tiingo.select_rows(tiingo.load_candidates(path), tiingo.load_status(tmp_path / "none.csv"))
+    assert tiingo.ticker_order(rows) == ["VVV", "BA1", "SSS"]
 
 
 def test_a_ticker_shared_by_rows_is_asked_once_at_its_best_place(tmp_path):
@@ -285,7 +299,8 @@ def sandbox(tmp_path, monkeypatch):
 
 
 def run(sandbox, *extra):
-    return tiingo.main(["--candidates", str(sandbox["candidates"]), "--spacing", "0", *extra])
+    already = [] if "--already-used" in extra or "--dry-run" in extra or "--offline" in extra else ["--already-used", "0"]
+    return tiingo.main(["--candidates", str(sandbox["candidates"]), "--spacing", "0", *already, *extra])
 
 
 def test_trial_limit_fetches_the_top_tickers_once_and_writes_only_the_status_file(sandbox, capsys):
@@ -424,9 +439,83 @@ def test_a_row_hidden_by_a_later_tiingo_row_is_not_asked(sandbox):
     assert "ETF" in status.loc["1", "entity_notes"]
     assert status.loc["2", "entity_check"] != "precheck" and status.loc["4", "status"] == "done_review"
     assert json.loads(tiingo.SUMMARY.read_text())["tickers_not_asked_hidden_by_later_row"] == ["OLD"]
-    tiingo.write_status(tiingo.load_status().iloc[0:0])
+    # After the full run, without clearing the status file: the precheck row can be asked on purpose.
+    assert run(sandbox, "--tickers", "old") == 0 and len(sandbox["urls"]) == 2  # final: not asked
+    etf = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2023-12-14", "2026-08-31")]
+    sandbox["answers"]["OLD"] = json.dumps(tiingo_rows(etf)).encode()
     assert run(sandbox, "--fetch-shadowed", "--tickers", "old,new") == 0
-    assert [u.split("/daily/")[1].split("/")[0] for u in sandbox["urls"]][2:] == ["old"]  # SHR and NEW are cached
+    assert [u.split("/daily/")[1].split("/")[0] for u in sandbox["urls"]][2:] == ["old"]  # NEW is final
+    status = tiingo.load_status().set_index("security_id")
+    # the answer is the ETF row, not the matched one: wrong_entity on the served range, no price file
+    assert status.loc["1", "status"] == "wrong_entity" and status.loc["1", "served_row"] == "2023-12-14..2026-09-30"
+    assert "another company" in status.loc["1", "entity_notes"] and not (tiingo.PRICES_DIR / "OLD.csv.gz").exists()
+    assert status.loc["4", "prices_path"].endswith("NEW.csv.gz")
+
+
+def test_live_runs_need_the_owners_already_used_count(sandbox):
+    with pytest.raises(SystemExit):
+        tiingo.main(["--candidates", str(sandbox["candidates"]), "--spacing", "0"])
+    with pytest.raises(SystemExit):
+        run(sandbox, "--fetch-shadowed")  # --fetch-shadowed names its tickers
+    assert sandbox["urls"] == []
+
+
+def test_a_403_refuses_one_ticker_and_two_in_a_row_stop_the_run(sandbox):
+    sandbox["answers"] = {"AAA": 403, "BBB": sandbox["good"], "CCC": sandbox["good"]}
+    assert run(sandbox) == 0
+    status = tiingo.load_status().set_index("ticker_for_source")["status"]
+    assert status["AAA"] == "refused" and status["BBB"] == "done_review"
+    assert run(sandbox) == 0 and len(sandbox["urls"]) == 3  # refused is final: not asked again
+    sandbox["candidates"] = write_candidates(sandbox["tmp"] / "two.csv", [
+        ("1", "XXX", "2018-01-21", "2019-12-31", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "10"),
+        ("2", "YYY", "2018-01-21", "2019-12-31", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "20"),
+        ("3", "ZZZ", "2018-01-21", "2019-12-31", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "30")])
+    sandbox["answers"] = {"XXX": 403, "YYY": 403, "ZZZ": sandbox["good"]}
+    assert run(sandbox) == 1
+    assert "refusals" in json.loads(tiingo.SUMMARY.read_text())["stop"] and len(sandbox["urls"]) == 5
+
+
+def test_an_interrupted_run_writes_its_summary_and_releases_the_lock(sandbox, monkeypatch):
+    sandbox["answers"] = {"AAA": sandbox["good"], "BBB": sandbox["good"]}
+    real = tiingo.fetch_one
+
+    def stop_on_bbb(ticker, *args, **kwargs):
+        if ticker == "BBB":
+            raise KeyboardInterrupt
+        return real(ticker, *args, **kwargs)
+
+    monkeypatch.setattr(tiingo, "fetch_one", stop_on_bbb)
+    with pytest.raises(KeyboardInterrupt):
+        run(sandbox)
+    summary = json.loads(tiingo.SUMMARY.read_text())
+    assert summary["stop"].startswith("interrupted") and summary["tickers_processed"] == ["AAA"]
+    assert not tiingo.LOCK.exists()
+
+
+def test_no_rows_in_the_window_is_wrong_entity_only_when_another_row_answered():
+    days = SESSIONS[(SESSIONS >= "2018-02-01") & (SESSIONS <= "2018-06-29")]
+    check = tiingo.entity_check(frame_for(days), "2019-01-01", "2019-06-01", SESSIONS)
+    assert tiingo.row_status(check) == "no_data_in_window"
+    rows = [{"start": "2010-01-04", "end": "2019-12-31", "served": False, "asset_type": "Stock", "exchange": "NASDAQ"},
+            {"start": "2018-02-01", "end": "2018-06-29", "served": True, "asset_type": "Stock", "exchange": "NYSE"}]
+    row = pd.Series({"tiingo_row_start": "2010-01-04", "tiingo_row_end": "2019-12-31", "tiingo_flags": ""})
+    verified = tiingo.verify_served(check, row, frame_for(days), rows)
+    assert tiingo.row_status(verified) == "wrong_entity" and verified["served_row"] == "2018-02-01..2018-06-29"
+    ok = tiingo.entity_check(frame_for(days), "2018-02-01", "2018-06-29", SESSIONS)
+    flagged = pd.Series({"tiingo_row_start": "2018-02-01", "tiingo_row_end": "2018-06-29", "tiingo_flags": "shared:x"})
+    out = tiingo.verify_served(ok, flagged, frame_for(days), rows)
+    assert out["entity_check"] == "review" and "no reference confirms" in out["entity_notes"]
+
+
+def test_field_summary_counts_duplicates_off_session_rows_and_both_tolerances():
+    days = [d.strftime("%Y-%m-%d") for d in SESSIONS[:10]]
+    prices = tiingo_rows(days)
+    prices.append(dict(prices[-1]))  # a duplicate date
+    prices.append({**prices[0], "date": "2018-01-06T00:00:00.000Z"})  # a Saturday
+    prices[5]["adjClose"] *= 1 + 5e-8
+    summary = tiingo.field_summary(prices, tiingo.to_frame(prices), SESSIONS)
+    assert summary["dup_dates"] == 1 and summary["non_session_rows"] == 1
+    assert summary["adj_identity_bad_rows"] >= 1 and summary["adj_identity_bad_rows_1e6"] == 0
 
 
 def test_spacing_spreads_requests_and_counts_seeded_stamps():

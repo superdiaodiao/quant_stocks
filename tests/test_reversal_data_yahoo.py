@@ -1,5 +1,6 @@
 """Tests for plan step 7, the Yahoo v8 chart fetch and parse (scripts/reversal_data_yahoo.py). No network."""
 import gzip
+import io
 import json
 from datetime import datetime, timezone
 from urllib.error import HTTPError
@@ -110,7 +111,9 @@ def test_event_flags_mark_odd_ratios_late_splits_and_special_dividends():
                        splits=[("2019-02-08", 1275, 1000)], dividends=[("2024-05-02", 4.0)])
     _, daily, events = yh.parse_chart(payload)
     flagged = yh.event_flags(events, daily).set_index("event_type")
-    assert flagged.loc["split", "flags"] == "odd_ratio"
+    # No WIKI volume to tell whether Yahoo scaled volume for this distribution: restored, flagged.
+    assert flagged.loc["split", "flags"] == "odd_ratio volume_restore_unverified"
+    assert flagged.loc["split", "volume_restored"] == "Y" and flagged.loc["split", "volume_evidence"] == "none"
     assert flagged.loc["split", "prior_close_raw"] == pytest.approx(79.69)
     assert flagged.loc["dividend", "flags"] == "special_dividend_gt10pct"
     assert flagged.loc["dividend", "pct_of_prior"] == pytest.approx(4 / 30)
@@ -510,9 +513,13 @@ def test_segment_junction_is_marked():
                  metrics_path=Path(tmp) / "absent.pkl")
         series = pd.read_csv(out / "9.csv.gz", keep_default_na=False)
         assert list(series.loc[series["junction"] == "Y", "date"]) == ["2020-07-01"]
-        events = pd.read_csv(out / "events.csv")
-        # OLDT's split on 2020-07-01 is outside its segment; NEWT's is kept.
-        assert list(events["symbol"]) == ["NEWT"]
+        events = pd.read_csv(out / "events.csv", keep_default_na=False)
+        # OLDT's split on 2020-07-01 is outside its segment; NEWT's is kept, flagged as a junction event
+        # (its S comes from NEWT's history before the segment) and named in the verdict reasons.
+        assert list(events["symbol"]) == ["NEWT"] and events.loc[0, "flags"] == "segment_junction"
+        report = pd.read_csv(out / "entity_report.csv", keep_default_na=False).set_index("symbol")
+        assert "segment_junction_event:2020-07-01:split:3" in report.loc["NEWT", "verdict_reasons"]
+        assert report.loc["NEWT", "verdict"] == "review" and report.loc["OLDT", "verdict"] == "ok"
 
 
 def test_a_split_after_the_last_row_is_judged_against_the_stored_file():
@@ -536,3 +543,203 @@ def test_dividends_are_restored_with_every_listed_split_even_one_not_applied_to_
     _, daily, events = yh.parse_chart(payload, not_applied={pd.Timestamp("2026-09-14")})
     assert daily["close_raw"].iloc[0] == pytest.approx(10.0)
     assert events.loc[events["event_type"] == "dividend", "div_cash_raw"].iloc[0] == pytest.approx(0.1)
+
+
+# ------------------------------------------------------------------ round-2 fixes
+
+def _wiki(days, volumes):
+    return pd.DataFrame({"date": pd.to_datetime(days), "close": 10.0, "volume": volumes})
+
+
+def test_a_distribution_whose_volume_yahoo_left_raw_keeps_the_served_volume():
+    # PENN 2013-11-04 (4.423): Yahoo scaled close by the ratio but served the raw volume before it.
+    days = list(pd.bdate_range("2013-08-01", "2013-12-31").strftime("%Y-%m-%d"))
+    ex = "2013-11-04"
+    closes = [58.0 / 4.423 if d < ex else 13.75 for d in days]
+    volumes = [2_400_000] * len(days)
+    payload = _payload(days, closes, volumes, splits=[(ex, 4423, 1000)])
+    _, daily, events = yh.parse_chart(payload)
+    assert daily.loc[0, "volume_raw"] == pytest.approx(2_400_000 / 4.423, abs=1)  # the old restore
+    position = days.index(ex)
+    wiki = _wiki(days[position - 60:position], [2_400_000] * 60)  # WIKI raw volume before the event
+    as_served, evidence = yh.volume_scaling(daily, events, wiki)
+    assert as_served == {pd.Timestamp(ex)} and evidence[pd.Timestamp(ex)] == "wiki:60:1.0000:0.2261"
+    _, daily, events = yh.parse_chart(payload, volume_as_served=as_served, volume_evidence=evidence)
+    assert daily.loc[0, "volume_raw"] == 2_400_000 and daily.loc[0, "volume_cum_after"] == 1.0
+    assert daily.loc[0, "close_raw"] == pytest.approx(58.0) and daily.loc[0, "split_cum_after"] == pytest.approx(4.423)
+    flagged = yh.event_flags(events, daily)
+    assert flagged.loc[0, "volume_restored"] == "N"
+    assert flagged.loc[0, "flags"] == "odd_ratio volume_not_scaled_by_yahoo"
+
+
+def test_a_distribution_whose_volume_yahoo_scaled_stays_in_the_volume_restore():
+    # EBAY 2015-07-20 (2.376): the served volume before the event is the raw volume x 2.376.
+    days = list(pd.bdate_range("2015-04-01", "2015-09-30").strftime("%Y-%m-%d"))
+    ex = "2015-07-20"
+    payload = _payload(days, [30.0] * len(days), [1_000_000 * 2.376 if d < ex else 1_000_000 for d in days],
+                       splits=[(ex, 2376, 1000)])
+    _, daily, events = yh.parse_chart(payload)
+    position = days.index(ex)
+    wiki = _wiki(days[position - 60:position], [1_000_000] * 60)
+    as_served, evidence = yh.volume_scaling(daily, events, wiki)
+    assert as_served == set() and evidence[pd.Timestamp(ex)] == "wiki:60:1.0000:2.3760"
+    _, daily, events = yh.parse_chart(payload, volume_as_served=as_served, volume_evidence=evidence)
+    assert daily.loc[0, "volume_raw"] == 1_000_000
+    flagged = yh.event_flags(events, daily)
+    assert flagged.loc[0, "flags"] == "odd_ratio" and flagged.loc[0, "volume_restored"] == "Y"
+
+
+def test_volume_checks_go_latest_first_and_need_wiki_inside_the_60_sessions_before():
+    # Two distributions: Yahoo left volume raw for the 2014 one and scaled it for the 2016 one.
+    days = list(pd.bdate_range("2013-10-01", "2016-12-30").strftime("%Y-%m-%d"))
+    early, late = "2014-03-04", "2016-06-21"
+    served = [1000 * (1.146 if d < late else 1.0) for d in days]  # 2014's ratio not applied to volume
+    payload = _payload(days, [20.0] * len(days), served, splits=[(early, 1957, 1000), (late, 1146, 1000)])
+    _, daily, events = yh.parse_chart(payload)
+    wiki = _wiki([d for d in days if d < "2016-12-01"], 1000)
+    as_served, evidence = yh.volume_scaling(daily, events, wiki)
+    assert as_served == {pd.Timestamp(early)}
+    assert evidence[pd.Timestamp(late)].startswith("wiki:60:1.0000") and evidence[pd.Timestamp(early)].startswith("wiki:60:1.0000")
+    _, restored, _ = yh.parse_chart(payload, volume_as_served=as_served)
+    assert set(restored["volume_raw"]) == {1000}
+    # WIKI only long before the event is no evidence: unverified; a reverse split 1:150 is a share split.
+    old_wiki = _wiki(days[:40], 1000)
+    payload = _payload(days, [20.0] * len(days), served, splits=[(late, 1146, 1000), ("2016-11-01", 1, 150)])
+    _, daily, events = yh.parse_chart(payload)
+    as_served, evidence = yh.volume_scaling(daily, events, old_wiki)
+    assert as_served == set() and evidence == {pd.Timestamp(late): "none", pd.Timestamp("2016-11-01"): "reverse_split"}
+    _, daily, events = yh.parse_chart(payload, volume_evidence=evidence)
+    flags = yh.event_flags(events, daily).set_index("ex_date")["flags"]
+    assert flags[pd.Timestamp(late)] == "odd_ratio volume_restore_unverified" and flags[pd.Timestamp("2016-11-01")] == "odd_ratio"
+
+
+def test_an_hourly_body_is_never_used_as_daily_bars(tmp_path):
+    days = ["2026-07-17", "2026-08-24", "2026-08-25"]
+    daily_body = _payload(days, [83.86, 84.78, 84.86], [5_373_700, 908_511, 1_241_642], meta={"dataGranularity": "1d"})
+    hourly = _payload(days * 3, [83.83] * 9, [657_669] * 9, meta={"dataGranularity": "1h"})
+    result = hourly["chart"]["result"][0]
+    result["timestamp"] = sorted(_stamp(d, h) for d in days for h in (13, 14, 15))
+    (tmp_path / "CRNX__20261001T125158Z.json.gz").write_bytes(gzip.compress(json.dumps(daily_body).encode()))
+    (tmp_path / "CRNX__20261001T132051Z.json.gz").write_bytes(gzip.compress(json.dumps(hourly).encode()))
+    assert yh.bar_granularity(hourly) == "1h" and yh.bar_granularity(daily_body) == "1d"
+    assert yh.best_raw("CRNX", tmp_path).name == "CRNX__20261001T125158Z.json.gz"  # fewer stamps, but daily
+    meta, daily, events = yh.parse_chart(hourly)
+    assert daily.empty and events.empty and meta["error"] == "not daily bars (1h)"
+    # Without dataGranularity, two bars on one New York date are not daily bars.
+    del result["meta"]["dataGranularity"]
+    assert yh.bar_granularity(hourly) == "intraday"
+    _, daily, _ = yh.parse_chart(daily_body)
+    assert list(daily["volume_raw"]) == [5_373_700, 908_511, 1_241_642]
+
+
+def test_retry_can_ask_from_the_need_start(tmp_path):
+    urls = []
+
+    def getter(url, path, **kwargs):
+        urls.append(url)
+        return _FakeGetter({})(url, path, **kwargs)
+
+    yh.fetch_symbols(["CRNX"], period1="2018-07-18", period2="2026-10-03", raw_dir=tmp_path, getter=getter, retry=True)
+    assert len(urls) == 1 and "period1=1531872000" in urls[0] and "interval=1d" in urls[0]
+    assert urls[0].startswith("https://query2.finance.yahoo.com/")
+
+
+def test_claimed_rows_are_cut_on_the_side_of_the_claimant_only():
+    master = [{**MASTER_ROW, "security_id": "new", "multi_class_group": ""},
+              {**MASTER_ROW, "security_id": "old", "successor_security_id": "new", "multi_class_group": ""},
+              {**MASTER_ROW, "security_id": "classA", "multi_class_group": "G"},
+              {**MASTER_ROW, "security_id": "classC", "multi_class_group": "G"}]
+    spans = pd.DataFrame([
+        {"security_id": "old", "ticker": "GOOG", "list_start": "2010-12-31", "list_end": "2015-10-08", "obs_end": ""},
+        {"security_id": "new", "ticker": "GOOGL", "list_start": "2015-10-09", "list_end": "2026-08-31", "obs_end": ""},
+        {"security_id": "classA", "ticker": "LMCA", "list_start": "2013-01-10", "list_end": "2017-01-25", "obs_end": ""},
+        {"security_id": "classC", "ticker": "LMCK", "list_start": "2014-08-13", "list_end": "2017-01-25", "obs_end": ""},
+        {"security_id": "later", "ticker": "LMCK", "list_start": "2019-01-02", "list_end": "2026-08-31", "obs_end": ""},
+        {"security_id": "solo", "ticker": "SOLO", "list_start": "2020-06-01", "list_end": "2026-08-31", "obs_end": ""},
+    ])
+    refs = _Refs(master)
+    refs.spans = spans
+    # A predecessor: rows before the successor's span go; no claimant after it, so nothing is cut there.
+    assert refs.claimed_cut("new", "GOOGL", "2018-01-21", "2026-08-31") == {
+        "first": "2015-10-09", "last": "", "before": "predecessor:old", "after": ""}
+    # A sibling class issued earlier, and a later holder of the ticker; the need is never cut.
+    cut = refs.claimed_cut("classC", "LMCK", "2014-07-08", "2017-01-25", same_symbol={"classC", "later"})
+    assert (cut["first"], cut["last"]) == ("2014-07-08", "2017-01-25")
+    assert cut["before"] == "sibling:classA" and cut["after"] == "same_symbol:later ticker:later"
+    # Nobody else on either side (an exchange move): every row is kept.
+    assert refs.claimed_cut("solo", "SOLO", "2020-06-01", "2026-08-31")["first"] == ""
+
+
+def test_build_cuts_claimed_rows_flags_the_junction_and_rejects_a_series_outside_its_need(tmp_path):
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    raw.mkdir()
+    days = list(pd.bdate_range("2016-01-04", "2026-08-31").strftime("%Y-%m-%d"))
+    payload = _payload(days, [10.0] * len(days), [1000] * len(days), splits=[("2018-01-22", 3054, 1000)])
+    (raw / "TEST__20261001T010203Z.json.gz").write_bytes(gzip.compress(json.dumps(payload).encode()))
+    later = list(pd.bdate_range("2025-09-29", "2026-08-31").strftime("%Y-%m-%d"))
+    (raw / "WOLF__20261001T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(later, [20.0] * len(later), [1000] * len(later))).encode()))
+    master = [MASTER_ROW, {**MASTER_ROW, "security_id": "8", "successor_security_id": "9"},
+              {**MASTER_ROW, "security_id": "7"}]
+    refs = _Refs(master)
+    refs.spans = pd.DataFrame([
+        {"security_id": "8", "ticker": "OLD", "list_start": "2011-01-03", "list_end": "2018-01-19", "obs_end": ""},
+        {"security_id": "9", "ticker": "TEST", "list_start": "2018-01-22", "list_end": "2026-08-31", "obs_end": ""}])
+    (out / "rejected").mkdir(parents=True)
+    (out / "6.csv.gz").write_bytes(b"")  # a security the candidate list no longer asks for
+    requests = pd.DataFrame([
+        {"security_id": "9", "symbol": "TEST", "needed_start": "2018-01-22", "needed_end": "2026-08-31",
+         "reasons": "Y_active_rank300", "active": "Y", "successor_routed": "", "note": ""},
+        {"security_id": "7", "symbol": "WOLF", "needed_start": "2018-01-21", "needed_end": "2021-10-31",
+         "reasons": "A1_wiki_dv_rank300", "active": "N", "successor_routed": "", "note": ""}])
+    sessions = pd.DatetimeIndex(pd.bdate_range("2011-06-01", "2026-08-31"))
+    summary = yh.build(requests, refs=refs, raw_dir=raw, out_dir=out, sessions=sessions,
+                       metrics_path=tmp_path / "absent.pkl")
+    assert summary["verdicts"] == {"review": 1, "no_rows": 1} and summary["moved_to_not_requested"] == ["6"]
+    assert (out / "not_requested" / "6.csv.gz").exists() and not (out / "6.csv.gz").exists()
+    series = pd.read_csv(out / "9.csv.gz", keep_default_na=False)
+    assert series["date"].iloc[0] == "2018-01-22" and series.loc[0, "junction"] == "Y"
+    report = pd.read_csv(out / "entity_report.csv", keep_default_na=False).set_index("security_id")
+    reasons = report.loc[9, "verdict_reasons"]
+    assert "claimed_rows_cut:" in reasons and "before 2018-01-22 (predecessor:8)" in reasons
+    assert "trim_junction_event:2018-01-22:split:3.054" in reasons
+    events = pd.read_csv(out / "events.csv", keep_default_na=False)
+    assert "trim_junction" in events.loc[events["security_id"] == 9, "flags"].iloc[0]
+    # Rows, but none in the need (post-bankruptcy equity under the old ticker): no_rows, rejected.
+    assert report.loc[7, "verdict"] == "no_rows" and report.loc[7, "verdict_reasons"].startswith("no rows in the need")
+    assert (out / "rejected" / "7.csv.gz").exists() and not (out / "7.csv.gz").exists()
+
+
+def test_series_files_keep_small_factors_and_integer_volumes(tmp_path):
+    # Repeated reverse splits leave a cumulative factor below 5e-7, which %.6f wrote as 0.000000.
+    days = ["2020-01-02", "2020-01-03", "2021-01-04", "2022-01-03"]
+    payload = _payload(days, [40000.0, 41000.0, 30.0, 25.0], [7, 9, 120_000, 130_000],
+                       splits=[("2021-01-04", 1, 1500), ("2022-01-03", 1, 1500)])
+    _, daily, _ = yh.parse_chart(payload)
+    frame = daily.assign(date=daily["date"].dt.strftime("%Y-%m-%d"), symbol="KUST", junction="")
+    written = pd.read_csv(io.BytesIO(yh.series_csv(frame)), dtype={"volume_raw": str})
+    assert written.loc[0, "split_cum_after"] == pytest.approx(1 / 1500 ** 2, rel=1e-9)
+    assert np.allclose(written["close_yahoo"] * written["split_cum_after"], written["close_raw"], rtol=1e-9)
+    assert written.loc[0, "volume_raw"] == "15750000"  # 7 x 1500^2, an integer, not 1.575e+07
+
+
+def test_a_steady_offset_inside_the_lastsale_band_is_reported():
+    # FWONK: every list price is 0.9833 of the raw close, inside the 2% band, so all agree.
+    quote_days = pd.bdate_range("2018-02-01", "2019-06-03", freq="20B")
+    quotes = pd.DataFrame({"security_id": "9", "as_of_session": quote_days.strftime("%Y-%m-%d"),
+                           "last_sale": str(50.0 / 0.9833), "as_of_check": "confirmed"})
+    result = _check(refs=_Refs([MASTER_ROW], quotes=quotes))
+    assert result["lastsale_agree"] == result["lastsale_n"]
+    expected = f"level_offset_lastsale:2018-02-01..{quote_days[-1]:%Y-%m-%d}@0.9833"
+    assert result["verdict"] == "review" and expected in result["verdict_reasons"]
+    # A level within 1% is not reported.
+    quotes["last_sale"] = str(50.0 / 0.995)
+    assert _check(refs=_Refs([MASTER_ROW], quotes=quotes))["verdict"] == "ok"
+
+
+def test_need_sessions_missing_between_the_first_and_last_row_make_a_series_partial():
+    days = pd.bdate_range("2018-01-22", "2026-08-31")
+    gappy = days[(days < "2026-07-20") | (days > "2026-08-21")]
+    result = _check(days=gappy)
+    assert result["verdict"] == "partial" and result["missing_inside"] == 25
+    assert "missing_inside:25 need sessions" in result["verdict_reasons"]
