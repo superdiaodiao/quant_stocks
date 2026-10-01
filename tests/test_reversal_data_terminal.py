@@ -152,7 +152,7 @@ def test_suspension_date():
 def _master(rows):
     columns = ["security_id", "cik", "first_ticker", "name", "share_class", "first_listed", "last_listed", "delist_date",
                "delist_form25_accession", "transfer_date", "transfer_form25_accession", "successor_security_id",
-               "former_names", "exchanges_sec_current"]
+               "successor_date", "former_names", "exchanges_sec_current"]
     return pd.DataFrame([{c: r.get(c, "") for c in columns} for r in rows], dtype=str)
 
 
@@ -639,3 +639,218 @@ def test_built_file_named_cases(built):
     noted = built[built["consideration_value_basis"].str.startswith("existing_row_value_stock_leg")]
     assert noted["consideration_per_share"].eq("").all()
     assert not noted["status_note"].str.contains(r"\d+\.\d+ close \d{4}-\d{2}-\d{2}").any()
+
+
+# ------------------------------------------------------------------ round 5 regressions (named cases)
+
+def test_halt_after_close_reads_close_of_business_without_the_and_a_form25_filed_after_the_close():
+    endp = "Endo's common shares were suspended from trading on the NASDAQ as of close of business on February 28, 2014."
+    assert tr.halt_dates(endp)["after_close"] == "2014-02-28"
+    avgo = ("the NASDAQ filed a Form 25 with the SEC after the close of trading on January 29, 2016 to withdraw Avago "
+            "Ordinary Shares from listing")
+    assert tr.halt_dates(avgo)["after_close"] == "2016-01-29"
+    # 21CF: 'prior to the open of trading on the Merger Effective Date' is dated by the 8-K's filing day
+    fox = ("The shares of 21CF Common Stock were suspended from trading on Nasdaq prior to the open of trading on the "
+           "Merger Effective Date.")
+    assert tr.halt_dates(fox)["before_open"] == "closing_date"
+
+
+def test_effective_time_after_the_close():
+    lilak = ('Item 2.01. Completion of Acquisition or Disposition of Assets On December 29, 2017 at 5:00 p.m., New York '
+             'City time (the "Distribution Effective Time"), Liberty Global completed the split-off')
+    assert tr.effective_after_close(lilak) == "2017-12-29"
+    sohu = 'On May 31, 2018 at 4:30 PM Eastern Daylight Time (such date and time, the "Effective Time"), Sohu Delaware'
+    assert tr.effective_after_close(sohu) == "2018-05-31"
+    ozrk = ('consummated by the filing of articles of merger, effective as of 4:00 p.m., Central Time, on June 26, 2017 '
+            '(the "Effective Time")')
+    assert tr.effective_after_close(ozrk) == "2017-06-26"
+    split = ("on March 8, 2018, at 4:21 p.m., New York City time, pursuant to the terms of the effective charter. On "
+             'March 9, 2018, at 4:01 p.m., New York City time (the "Split-Off Effective Time"), Liberty completed')
+    assert tr.effective_after_close(split) == "2018-03-09"  # the latest stated effective time
+    assert tr.effective_after_close("the earnings call, scheduled for November 4, 2015, at 3:30 p.m. Central Time") == ""
+    assert tr.effective_after_close("effective as of 12:01 p.m. on June 26, 2017 (the Effective Time)") == ""  # noon
+    assert tr.effective_after_close("The Offer expired at 5:00 p.m., New York City time, on March 1, 2016.") == ""
+
+
+def test_successor_starts():
+    catm = ('The Ordinary Shares were approved for listing on NASDAQ and will begin trading on July 1, 2016 under the '
+            'symbol "CATM," the same symbol')
+    assert tr.successor_starts(catm) == ["2016-07-01"]
+    dkng = ("As of the open of trading on May 5, 2022, shares of New DraftKings Class A Common Stock will trade on The "
+            "Nasdaq Global Select Market under the ticker symbol \"DKNG.\"")
+    assert tr.successor_starts(dkng) == ["2022-05-05"]
+    sohu = ("Sohu Delaware expects trading in the ADSs representing Sohu Cayman ordinary shares on the NASDAQ Global "
+            "Select Market to commence on June 1, 2018.")
+    assert tr.successor_starts(sohu) == ["2018-06-01"]
+    assert tr.successor_starts("the new shares will begin trading on a when-issued basis on March 1, 2019.") == []
+
+
+def _successor_names(pred="1", succ="50", ticker="AAA", day="2012-11-30"):
+    return tr.NameIndex(_master([
+        {"security_id": pred, "cik": pred, "first_ticker": ticker, "name": "ACME CORP", "first_listed": "2010-01-01",
+         "last_listed": day, "successor_security_id": succ, "successor_date": day},
+        {"security_id": succ, "cik": succ, "first_ticker": ticker, "name": "ACME HOLDINGS LTD",
+         "first_listed": "2012-12-10", "last_listed": "2026-08-01"}]))
+
+
+def test_successor_reorganisation_ends_on_the_master_successor_date_not_on_the_successors_sessions():
+    # SSYS: Form 25 and successor_date 2012-11-30 (74.95); Stratasys Ltd trades as SSYS from 2012-12-03 (70.05);
+    # the snapshots end 2012-11-13 and no closing 8-K is in the window, so the window ran to 2012-12-28
+    rows = _history("1", "2012-10-01", 44, close=78.0, volume=600_000, src="wiki")  # to 2012-11-29
+    rows += [("1", "2012-11-30", 74.95, 605_500, "wiki"), ("1", "2012-12-03", 70.05, 3_621_700, "wiki")]
+    rows += [("1", d, 72.0, 500_000, "wiki") for d in _days("2012-12-04", 19)]  # to 2012-12-28
+    book = _book(rows)
+    row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2012-11-13",
+               successor_security_id="50", successor_date="2012-11-30")
+    ev = _evidence(closing_items="", closing_accessions="", closing_dates="")
+    frame, used = tr.build_rows(pd.DataFrame([row]), pd.DataFrame([ev]), book, {}, _successor_names(),
+                                pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    out = frame.set_index("security_id").loc["1"]
+    assert (out.terminal_type, out.event_subtype, out.status) == ("stock_merger", "reorganization", "computed")
+    assert (out.last_price_date, out.acquirer_price_date) == ("2012-11-30", "2012-12-03")
+    assert float(out.terminal_return) == pytest.approx(70.05 / 74.95 - 1)
+    assert used.set_index("security_id").loc["1", "limit_basis"] == "successor_form25_filing"
+    assert tr.successor_overruns(frame, pd.DataFrame([row])) == []
+    # the old reading (no successor date) books the successor's December move: the check flags such a row
+    stale = frame.copy()
+    stale["last_price_date"] = "2012-12-28"
+    assert tr.successor_overruns(stale, pd.DataFrame([row])) == ["1"]
+
+
+def test_lilak_effective_time_and_catm_successor_start_cap_the_closing_8k_date():
+    rows = _history("1", "2016-05-16", 33, close=38.0, volume=300_000, src="wiki")  # to 2016-06-29
+    rows += [("1", "2016-06-30", 39.81, 288_123, "wiki"), ("1", "2016-07-01", 40.11, 167_786, "wiki"),
+             ("1", "2016-07-05", 40.80, 397_817, "wiki")]
+    book = _book(rows)
+    row = _row(end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="", end_date="2016-07-07",
+               successor_security_id="50", successor_date="2016-07-13")
+    ev = _evidence(closing_dates="2016-07-01", successor_start="2016-07-01")
+    frame, used = tr.build_rows(pd.DataFrame([row]), pd.DataFrame([ev]), book, {}, _successor_names(day="2016-07-13"),
+                                pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    out = frame.set_index("security_id").loc["1"]
+    assert (out.last_price_date, out.acquirer_price_date) == ("2016-06-30", "2016-07-01")
+    assert float(out.terminal_return) == pytest.approx(40.11 / 39.81 - 1)
+    assert used.set_index("security_id").loc["1", "limit_basis"] == "session_before_stated_successor_start"
+    # an effective time after the close of 2016-06-30 caps the window the same way
+    ev = _evidence(closing_dates="2016-07-05", effective_after_close="2016-06-30")
+    frame, used = tr.build_rows(pd.DataFrame([row]), pd.DataFrame([ev]), book, {}, _successor_names(day="2016-07-13"),
+                                pd.DataFrame(columns=["security_id", "planned_source", "status"]), "2026-10-02")
+    assert frame.set_index("security_id").loc["1", "last_price_date"] == "2016-06-30"
+    assert used.set_index("security_id").loc["1", "limit_basis"] == "effective_time_after_close_stated_in_closing_8k"
+
+
+def test_qdel_and_apa_reviewed():
+    qdel = tr.REVIEWED["353569"]
+    assert qdel["limit"] == "2022-05-26" and qdel["url"].endswith("1906324/000119312522161806/d323352d8k12b.htm")
+    assert "353569" not in tr.REVIEWED_SOURCES  # the reviewed url names the successor's 8-K12B
+    assert "effective time" in tr.REVIEWED["6769"]["hold"] and "effective time" in tr.REVIEWED["912752"]["hold"]
+
+
+def test_special_dividend_paid_at_the_closing_is_part_of_the_value():
+    # NGHC: $32.00 cash plus a special pre-closing dividend of $2.50; last close 34.18 still carries it
+    book = _book([("1578735", "2020-12-30", 34.15, 3_485_901, "tiingo_step8"),
+                  ("1578735", "2020-12-31", 34.18, 4_683_520, "tiingo_step8")])
+    row = _row(security_id="1578735", delist_date="2021-01-14", end_date="2021-01-14", f25_filing_date="2021-01-04")
+    frame, used = _build([row], [_evidence("1578735", terms_cash=32.0, special_dividend=True)], book)
+    out = frame.loc["1578735"]
+    assert (out.status, out.consideration_cash, out.consideration_per_share) == ("computed", "32", "34.5")
+    assert (out.special_dividend_cash, out.consideration_value_basis) == ("2.5", "sec_cash_terms + special_dividend_at_closing")
+    assert float(out.terminal_return) == pytest.approx(34.50 / 34.18 - 1)
+    for sid, total in {"826083": 13.88, "1756497": 27.75, "1581164": 20.50}.items():
+        review = tr.REVIEWED[sid]
+        assert review["cash"] + review["special_dividend"] == pytest.approx(total), sid
+
+
+def test_unreviewed_special_dividend_in_the_closing_8k_holds_the_row():
+    book = _book([("1", "2019-04-19", 43.2, 100, "tiingo")])
+    frame, _ = _build([_row()], [_evidence(terms_cash=43.5, special_dividend=True)], book)
+    out = frame.loc["1"]
+    assert (out.status, out.terminal_return) == ("needs_review", "")
+    assert "special dividend" in out.status_note
+    assert tr.SPECIAL_DIVIDEND.search("plus a special pre-closing dividend of $2.50")
+    assert tr.SPECIAL_DIVIDEND.search("declared a one-time special dividend of $2.00 in cash")
+    assert not tr.SPECIAL_DIVIDEND.search("the regular quarterly dividend of $0.05")
+    assert tr.REVIEWED["1470215"]["special_dividend_before_last_trade"]  # TW: went ex before the last trade
+
+
+def test_vmed_legs_use_the_same_ticker_predecessor_series_after_its_successor_date():
+    # VMED last trade 2013-06-07; Liberty Global plc (60, 61) has no own rows until 2013-06-24, but the old Liberty
+    # Global Inc series (40, 41) carries the plc's closes under LBTYA/LBTYK from 2013-06-10
+    rows = [("1", "2013-06-06", 50.5, 1e6, "tiingo"), ("1", "2013-06-07", 51.0, 1e6, "tiingo"),
+            ("40", "2013-06-07", 76.24, 1e6, "wiki"), ("40", "2013-06-10", 74.18, 1e6, "wiki"),
+            ("41", "2013-06-07", 71.51, 1e6, "tiingo"), ("41", "2013-06-10", 69.44, 1e6, "tiingo"),
+            ("60", "2013-06-24", 70.0, 1e6, "wiki"), ("61", "2013-06-24", 66.0, 1e6, "wiki")]
+    book = _book(rows)
+    names = tr.NameIndex(_master([
+        {"security_id": "40", "first_ticker": "LBTYA", "successor_security_id": "60", "successor_date": "2013-06-07"},
+        {"security_id": "41", "first_ticker": "LBTYK", "successor_security_id": "61", "successor_date": "2013-06-07"},
+        {"security_id": "60", "first_ticker": "LBTYA"}, {"security_id": "61", "first_ticker": "LBTYK"}]))
+    quote = tr.acquirer_close(book, names, "60", pd.Timestamp("2013-06-07"))
+    assert (quote["date"], quote["close"], quote["via"]) == (pd.Timestamp("2013-06-10"), 74.18, "40")
+    assert tr.acquirer_close(book, names, "60", pd.Timestamp("2013-06-07"), target="40")["close"] == 70.0  # never itself
+    scope = pd.DataFrame([_row(f25_filing_date="2013-06-07", delist_date="2013-06-17", end_date="2013-06-17")])
+    ev = pd.DataFrame([_evidence(terms_cash=17.5, terms_shares=0.2582)])
+    original = tr.REVIEWED.get("1")
+    tr.REVIEWED["1"] = {"type": "mixed", "cash": 17.50, "shares": 0.2582, "acq": "60", "extra": [(0.1928, "61")],
+                        "note": "synthetic VMED"}
+    try:
+        frame, _ = tr.build_rows(scope, ev, book, {}, names, pd.DataFrame(columns=["security_id", "planned_source", "status"]),
+                                 "2026-10-02")
+    finally:
+        tr.REVIEWED.pop("1")
+        if original is not None:
+            tr.REVIEWED["1"] = original
+    out = frame.set_index("security_id").loc["1"]
+    assert (out.status, out.acquirer_price_date) == ("computed", "2013-06-10")
+    assert float(out.terminal_return) == pytest.approx((17.50 + 0.2582 * 74.18 + 0.1928 * 69.44) / 51.0 - 1)
+    assert "40 series (same ticker)" in out.acquirer_match
+
+
+def test_msg_exchange_move_without_a_vendor_session_near_the_transfer_leaves_the_last_session_blank():
+    rows = [("1", d, 80.0 + 0.1 * i, 1e6, "wiki") for i, d in enumerate(_days("2015-04-01", 27))]  # to 2015-05-07
+    book = _book(rows)
+    row = _row(end_source="transfer", delist_date="", transfer_date="2015-08-03", end_date="2015-08-03",
+               f25_delisting_basis="", f25_filing_date="", transfer_filing_date="2015-07-24", transfer_basis="issuer_withdrawal",
+               transfer_form25_doc_url="https://www.sec.gov/t25.htm")
+    frame, used = _build([row], [_evidence(transfer_to="NYSE", transfer_start="2015-07-27")], book)
+    out = frame.loc["1"]
+    assert (out.terminal_type, out.status, out.last_price_date, out.destination_start_date) == \
+        ("exchange_move", "no_terminal_return", "", "2015-07-27")
+    handoff = tr.reconcile_handoff(frame.reset_index(), used)
+    assert handoff.set_index("security_id").loc["1", "kind"] == "exchange_move_vendor_gap"
+
+
+def test_reconcile_handoff_reports_a_special_dividend_the_series_books_early(tmp_path, monkeypatch):
+    monkeypatch.setattr(tr, "CANONICAL_PRICES", tmp_path)
+    pd.DataFrame({"date": ["2022-09-27", "2022-09-28", "2022-09-30"], "div_cash": [0, 2.0, 0]}).to_csv(
+        tmp_path / "1756497.csv", index=False)
+    frame = pd.DataFrame([{c: "" for c in tr.OUTPUT_COLUMNS} | {
+        "security_id": "1756497", "ticker": "CHNG", "terminal_type": "cash_merger", "last_price_date": "2022-09-30",
+        "special_dividend_cash": "2", "special_dividend_record_date": "2022-10-03", "source_url": "u"}])
+    out = tr.reconcile_handoff(frame, pd.DataFrame(columns=["security_id"])).iloc[0]
+    assert (out.kind, out.series_booking_date) == ("special_dividend_in_terminal_value", "2022-09-28")
+    assert out.action.startswith("remove the booking")
+
+
+def test_built_file_successor_reorganisations_end_on_the_predecessors_last_session(built):
+    rows = built.set_index("security_id")
+    expect = {"1100962": "2014-02-28", "1104188": "2018-05-31", "353569": "2022-05-26", "915735": "2012-11-30",
+              "1570585.T-LILAK": "2017-12-29", "1570585.T-LILA": "2017-12-29", "1441634": "2016-01-29",
+              "1277856": "2016-06-30", "1772757": "2022-05-04", "1038205": "2017-06-26"}
+    for sid, last in expect.items():
+        if sid in rows.index and rows.loc[sid, "last_price_date"]:
+            assert rows.loc[sid, "last_price_date"] == last, sid
+    if "6769" in rows.index:
+        assert rows.loc["6769", "status"] != "computed"  # APA: no effective time stated
+    scope_path = tr.OUT / "scope.csv"
+    if scope_path.exists():
+        assert tr.successor_overruns(built, tr.read_csv_text(scope_path)) == []
+
+
+def test_built_file_special_dividends_are_in_the_value(built):
+    rows = built.set_index("security_id")
+    expect = {"1578735": "34.5", "826083": "13.88", "1756497": "27.75", "1581164": "20.5"}
+    for sid, value in expect.items():
+        if sid in rows.index:
+            assert rows.loc[sid, "consideration_per_share"] == value, sid
+            assert rows.loc[sid, "special_dividend_cash"] != "", sid

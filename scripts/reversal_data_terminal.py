@@ -29,6 +29,8 @@ How the listing ended (``terminal_type``):
   ``last_price_date`` is the last Nasdaq session: the session before the first day on the new
   exchange that the Item 3.01 8-K or its press release states (``destination_start_date``), else
   the transfer Form 25 filing date, never the Form 25 effective date (trading has moved by then);
+  it is left blank when no vendor session lies within a week before that day (MSG 2015: the
+  series stops 11 weeks early), and the gap is reported in ``for_reconcile_owner.csv``;
 - ``bankruptcy_otc``: removed by Nasdaq (Rule 12d2-2(b)), a bankruptcy, a voluntary delisting
   or a bank failure; the value is the first OTC vendor close after the last Nasdaq session
   (before the suspension date the 8-K states), else a sourced existing row, else it is left
@@ -51,14 +53,28 @@ session before a halt the closing 8-K states, 'prior to the open of trading on <
 Closing Date' (dated by the 8-K's filing day); the last closing 8-K for a snapshot-dated end, else
 the end plus SNAPSHOT_END_SLACK_DAYS cut before the first run of filler rows or a raw price break
 above 50% (SBNY); a reviewed ``limit``), over every vendor raw source (WIKI, the old Tiingo caches
-and the step-8 files, Yahoo step 7 and the holdout charts) and the stored files. A vendor filler
+and the step-8 files, Yahoo step 7 and the holdout charts) and the stored files. A successor
+reorganisation the master links (``successor_date``, the Form 25 Nasdaq filed for it) with a
+snapshot-dated end ends by that date, since the later rows under the same ticker are the
+successor's (SSYS, LILA, SOHU); and for every end, the closing 8-K's own statements cap it further:
+a halt 'as of (the) close of business on <day>' (ENDP) or a Form 25 filed 'after the close of trading
+on <day>' (AVGO 2016), an effective time after the close ('On December 29, 2017 at 5:00 p.m. ... (the
+"Distribution Effective Time")', OZRK), and for a stock part the session before the day the new
+shares begin trading ('will begin trading on July 1, 2016 under the symbol "CATM"', 'As of the open
+of trading on May 5, 2022, shares of New DraftKings ... will trade'), each within HALT_WINDOW_DAYS
+before the end. A vendor filler
 row (plan rule R5: the previous close repeated on less than 5% of the median volume of the last
 20 real sessions, e.g. ATVI 2023-10-13 on 1 share) is not a session: not a last trade, not an
 acquirer close, not an OTC close. The close must come from a vendor on that session and, for a
 merger, within a week of the Form 25 filing. A stock part is valued at the acquirer's vendor
 close on the next XNAS session (or the target's own series under the same ticker for a
-one-for-one reorganisation, rename or same-ticker conversion; on a tie the own series wins); a
-first close 2 to 5 sessions later gives a value held as ``needs_review``, a later one none.
+one-for-one reorganisation, rename or same-ticker conversion; on a tie the own series wins; or the
+series of the acquirer's master predecessor under the same ticker after its successor date, as for
+VMED's Liberty Global plc legs); a first close 2 to 5 sessions later gives a value held as
+``needs_review``, a later one none. A special dividend paid to holders at the closing (NGHC, DELL,
+CHNG, STAY, KRFT: REVIEWED ``special_dividend``) is added to the value, since the last close still
+carries it (``special_dividend_cash``); a closing 8-K that names a special dividend REVIEWED does
+not settle holds the row for review.
 Otherwise:
 - ``pending_price``: a Tiingo fetch for the security is planned or running and its file has
   not arrived (the run of October 2026, or month 2); rerun the build when it has;
@@ -66,8 +82,9 @@ Otherwise:
   for levels);
 - ``needs_acquirer_price``: the stock part needs an acquirer close no vendor series has
   (``--yahoo-acquirers`` fetched 20 charts for the most important ones, ACQUIRER_SYMBOLS);
-- ``needs_review``: a merger value more than 25% from the last close (a data check on that
-  one security); the figure stays in the local cache.
+- ``needs_review``: a merger value more than 25% from the last close, an acquirer close 2 to 5
+  sessions late, an unreviewed special dividend or a reviewed ``hold`` (a data check on that one
+  security, e.g. APA 2021: the documents state no effective time); the figure stays in the local cache.
 
 Committed columns hold SEC facts, dates and returns only: ``consideration_per_share`` (and
 ``existing_consideration_per_share``) is blank where the value comes from a vendor close (stock
@@ -84,7 +101,11 @@ Outputs:
   CACHE/terminal/evidence.csv, leads.csv.gz   terms and flags per security; every lead read
   CACHE/terminal/prices_used.csv          last close and acquirer close used (vendor levels: local only)
   CACHE/terminal/terminal_summary.json    counts by terminal_type and status; unknowns by best rank
+  CACHE/terminal/for_reconcile_owner.csv  special dividends the terminal value owns (and any booking of them in the
+                                          canonical series), exchange moves whose last Nasdaq session no vendor dates
   CACHE/terminal/yahoo_raw/               the acquirer charts
+  CACHE/terminal/review_docs/             SEC documents read by hand for REVIEWED that no stage fetches (the
+                                          successors' 8-K12Bs of QuidelOrtho and APA; SEC_LIMITER, sec_headers)
   CACHE/raw/sec/docs/{cik}/{accession}/{document}.gz   the SEC documents read (and index.htm.gz)
 
 Usage::
@@ -800,9 +821,36 @@ MONTH_NAMES = r"(January|February|March|April|May|June|July|August|September|Oct
 WEEKDAY = r"(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday),?\s+)?"
 DATE_TEXT = MONTH_NAMES + r"\s+(\d{1,2}),?\s+(\d{4})"
 HALT_BEFORE_OPEN = re.compile(r"\b(?:halt|suspend)\w*\b[^.;]{0,220}?\b(?:prior to|before)\s+the\s+open(?:ing)?\b", re.I)
-HALT_AFTER_CLOSE = re.compile(r"\b(?:halt|suspend)\w*\b[^.;]{0,40}?\b(?:after|following|as of|at|upon)\s+the\s+close\s+of\s+"
+# 'the' is optional: ENDP 'suspended from trading on the NASDAQ as of close of business on February 28, 2014'
+HALT_AFTER_CLOSE = re.compile(r"\b(?:halt|suspend)\w*\b[^.;]{0,40}?\b(?:after|following|as of|at|upon)\s+(?:the\s+)?close\s+of\s+"
                               r"(?:trading|the market|business)\b[^.;]{0,40}?\bon\s+" + WEEKDAY + DATE_TEXT, re.I)
-HALT_DAY = re.compile(r"^[^.;]{0,70}?\bon\s+" + WEEKDAY + r"(?:(?P<closing>the\s+(?:Merger\s+)?Closing\s+Date)|" + DATE_TEXT + ")", re.I)
+# AVGO 2016: 'the NASDAQ filed a Form 25 with the SEC after the close of trading on January 29, 2016'
+FORM25_AFTER_CLOSE = re.compile(r"\bForm 25\b[^.;]{0,80}?\b(?:after|following|as of|at|upon)\s+(?:the\s+)?close\s+of\s+"
+                                r"(?:trading|the market|business)\s+on\s+" + WEEKDAY + DATE_TEXT, re.I)
+# 21CF: 'suspended from trading on Nasdaq prior to the open of trading on the Merger Effective Date'
+HALT_DAY = re.compile(r"^[^.;]{0,70}?\bon\s+" + WEEKDAY + r"(?:(?P<closing>the\s+(?:Merger\s+)?(?:Closing|Effective)\s+Date)|"
+                      + DATE_TEXT + ")", re.I)
+# A conversion that took effect after the close: 'On December 29, 2017 at 5:00 p.m., New York City time (the
+# "Distribution Effective Time")' (LILAK), 'effective as of 4:00 p.m., Central Time, on June 26, 2017' (OZRK).
+# An hour of 4 to 11 p.m.; the sentence must say 'effective'.
+PM = r"(?:p\.\s?m\.|p\.?m\b|PM\b)"
+EFFECTIVE_PM_AFTER = re.compile(DATE_TEXT + r",?\s+at\s+(\d{1,2})(?::\d{2})?\s*" + PM + r"(?P<rest>[^.;]{0,140})", re.I)
+EFFECTIVE_PM_BEFORE = re.compile(r"\beffective\b[^.;]{0,40}?\b(?:as of|at)\s+(\d{1,2}):\d{2}\s*" + PM + r"[^.;]{0,60}?"
+                                 r"\bon\s+" + WEEKDAY + DATE_TEXT, re.I)
+# The day the shares that replace the company's begin trading: 'will begin trading on July 1, 2016 under the
+# symbol "CATM"' (CATM), 'As of the open of trading on May 5, 2022, shares of New DraftKings ... will trade' (DKNG),
+# 'expects trading in the ADSs ... to commence on June 1, 2018' (SOHU). The company's last session is the one before.
+SUCCESSOR_START = (
+    re.compile(r"\b(?:begin|commence|start)(?:s|ed|ing)?\s+(?:regular[- ]way\s+)?trading\b[^.;]{0,200}?\bon\s+" + WEEKDAY + DATE_TEXT, re.I),
+    re.compile(r"\btrading\s+(?:in|of)\s+[^.;]{0,160}?\b(?:to|will)\s+(?:begin|commence|start)\s+on\s+" + WEEKDAY + DATE_TEXT, re.I),
+    re.compile(r"\b(?:as of|at|from|with)\s+the\s+open(?:ing)?\s+of\s+(?:trading|the market|business)\s+on\s+" + WEEKDAY + DATE_TEXT
+               + r"[^.;]{0,200}?\btrade", re.I),
+)
+WHEN_ISSUED = re.compile(r"when[- ]issued", re.I)
+# A special dividend the closing 8-K names (NGHC 'plus a special pre-closing dividend of $2.50'): such a row is
+# held for review unless REVIEWED says how the dividend is valued (``special_dividend``) or that it was paid
+# before the last trade (``special_dividend_before_last_trade``).
+SPECIAL_DIVIDEND = re.compile(r"\b(?:special|pre-closing|pre-merger)\s+(?:pre-closing\s+)?(?:cash\s+)?dividend\b", re.I)
 NEW_EXCHANGE_START = re.compile(r"\b(?:begin|commence|start)(?:s|ed|ing)?\s+trading\b", re.I)
 START_BEFORE = re.compile(r"\b(?:On|Effective)\s+" + WEEKDAY + DATE_TEXT + r",?[^.;]{0,120}$")
 
@@ -825,10 +873,41 @@ def halt_dates(text: str) -> dict:
             out["before_open"] = "closing_date" if day.group("closing") else _iso(*day.group(2, 3, 4))
             if out["before_open"]:
                 break
-    match = HALT_AFTER_CLOSE.search(text)
-    if match:
-        out["after_close"] = _iso(*match.groups()[-3:])
+    days = [_iso(*m.groups()[-3:]) for p in (HALT_AFTER_CLOSE, FORM25_AFTER_CLOSE) for m in p.finditer(text)]
+    days = [d for d in days if d]
+    if days:
+        out["after_close"] = min(days)
     return out
+
+
+def effective_after_close(text: str) -> str:
+    """The latest day a document says the conversion took effect after the close (an effective time of 4 to
+    11 p.m.; a 12 o'clock p.m. is noon, inside the session); '' when not stated."""
+    days = []
+    for match in EFFECTIVE_PM_AFTER.finditer(text):
+        hour = int(match.group(4))
+        head = text[max(0, match.start() - 120):match.start()]
+        head = head[max(head.rfind("."), head.rfind(";")) + 1:]
+        if 4 <= hour <= 11 and re.search(r"\beffective\b", head + match.group("rest"), re.I):
+            days.append(_iso(*match.groups()[:3]))
+    for match in EFFECTIVE_PM_BEFORE.finditer(text):
+        if 4 <= int(match.group(1)) <= 11:
+            days.append(_iso(*match.groups()[1:4]))
+    days = [d for d in days if d]
+    return max(days) if days else ""
+
+
+def successor_starts(text: str) -> list[str]:
+    """The days a document says new shares begin trading (any exchange; when-issued trading does not count)."""
+    out = []
+    for pattern in SUCCESSOR_START:
+        for match in pattern.finditer(text):
+            if WHEN_ISSUED.search(match.group(0)):
+                continue
+            iso = _iso(*match.groups()[-3:])
+            if iso:
+                out.append(iso)
+    return sorted(set(out))
 
 
 def new_exchange_starts(text: str) -> list[str]:
@@ -863,6 +942,9 @@ def doc_evidence(text: str, own_names: list[str] | None = None) -> dict:
         "suspension_date": suspension_date(text),
         "halt_before_open": halts["before_open"],
         "halt_after_close": halts["after_close"],
+        "effective_after_close": effective_after_close(text),
+        "successor_start": " ".join(successor_starts(text)),
+        "special_dividend": bool(SPECIAL_DIVIDEND.search(text)),
         "transfer_start": " ".join(new_exchange_starts(text)),
         "transfer_to": transfer_destination(text),
         "bankruptcy": bool(BANKRUPTCY.search(text)),
@@ -1017,7 +1099,8 @@ def gather_evidence(scope: pd.DataFrame, filings: pd.DataFrame) -> tuple[pd.Data
         group = by_sid.get(row.security_id, pd.DataFrame(columns=list(filings.columns)))
         docs = security_documents(group, row.security_id) if len(group) else []
         out = {"security_id": row.security_id, "n_docs": len(docs), "transfer_to": "", "transfer_start": "",
-               "halt_before_open": "", "halt_after_close": "",
+               "halt_before_open": "", "halt_after_close": "", "effective_after_close": "", "successor_start": "",
+               "special_dividend": False,
                **{k: False for k in FLAG_KEYS},
                "closing_items": " ".join(sorted({i for items in group.loc[group["kind"].isin(["closing", "near"]),
                                                                           "items"] for i in _items(items)})),
@@ -1053,6 +1136,12 @@ def gather_evidence(scope: pd.DataFrame, filings: pd.DataFrame) -> tuple[pd.Data
                     out["halt_before_open"] = min(d for d in (out.get("halt_before_open"), halt) if d)
                 if evidence.get("halt_after_close") and doc["kind"] == "closing":
                     out["halt_after_close"] = min(d for d in (out.get("halt_after_close"), evidence["halt_after_close"]) if d)
+                if evidence.get("effective_after_close") and doc["kind"] == "closing":
+                    out["effective_after_close"] = max(out["effective_after_close"], evidence["effective_after_close"])
+                if evidence.get("successor_start") and doc["kind"] == "closing":
+                    days = set(out["successor_start"].split()) | set(evidence["successor_start"].split())
+                    out["successor_start"] = " ".join(sorted(d for d in days if d))
+                out["special_dividend"] = out["special_dividend"] or bool(evidence.get("special_dividend"))
                 starts = set(str(out.get("transfer_start") or "").split()) | set(str(evidence.get("transfer_start") or "").split())
                 out["transfer_start"] = " ".join(sorted(d for d in starts if d))
         stage = "closing" if leads_by_stage["closing"] else "agreement"
@@ -1135,6 +1224,14 @@ class NameIndex:
                     self.rows.append((norm_name(match.group(1)), row, match.group(2), match.group(3)))
         self.rows = [r for r in self.rows if r[0]]
         self.by_id = {row["security_id"]: row for row in master.to_dict("records")}
+        # successor -> [(predecessor, successor_date)] for master successor links under the same ticker: the
+        # predecessor's vendor rows after that date are the successor's (1316631.A after 2013-06-07 is LBTYA plc)
+        self.predecessors: dict[str, list[tuple[str, str]]] = {}
+        for row in self.by_id.values():
+            successor, day = str(row.get("successor_security_id") or ""), str(row.get("successor_date") or "")
+            if successor and day and successor in self.by_id and row.get("first_ticker") \
+                    and row["first_ticker"] == self.by_id[successor].get("first_ticker"):
+                self.predecessors.setdefault(successor, []).append((row["security_id"], day))
 
     def name_of(self, sid: str, day: str = "") -> str:
         """The master's name of ``sid``: the former name it carried on ``day`` when there is one."""
@@ -1554,6 +1651,21 @@ def last_trade(book: PriceBook, sid: str, limit: str, anchor: str = "") -> dict:
             "max_source_diff": close["max_source_diff"]}
 
 
+def acquirer_close(book: PriceBook, names: "NameIndex", acquirer: str, day: pd.Timestamp, target: str = "") -> dict | None:
+    """The acquirer's first vendor close after ``day``: from its own series, or from the series of a master
+    predecessor under the same ticker, after that predecessor's successor date (those rows are the acquirer's:
+    VMED's Liberty Global plc legs close on 2013-06-10 in 1316631.A/C, the plc's own series starts 2013-06-24).
+    The target itself is never such a predecessor (its own next close counts only for one-for-one terms)."""
+    best = book.close_on(acquirer, day, after=True)
+    for predecessor, start in names.predecessors.get(acquirer, []):
+        if predecessor == target:
+            continue
+        quote = book.close_on(predecessor, max(day, pd.Timestamp(start)), after=True)
+        if quote is not None and (best is None or quote["date"] < best["date"]):
+            best = {**quote, "via": predecessor}
+    return best
+
+
 def otc_close(book: PriceBook, sid: str, after: str, within_days: int = 30) -> dict | None:
     """The first vendor close after ``after`` (an OTC continuation of a removed listing); filler rows
     that repeat the last Nasdaq close are not OTC trades."""
@@ -1599,6 +1711,8 @@ OUTPUT_COLUMNS = [
     "end_date", "end_source", "form25_accession", "form25_basis", "best_rank", "in_candidates", "cik", "name",
     "terms_stage", "existing_file", "existing_terminal_return", "existing_consideration_per_share",
     "existing_source_url", "existing_return_diff",
+    # a special dividend paid to holders at the closing, part of the value (an SEC fact; REVIEWED)
+    "special_dividend_cash", "special_dividend_record_date",
 ]
 TYPES = ("cash_merger", "stock_merger", "mixed", "liquidation", "exchange_move", "bankruptcy_otc", "unknown")
 STATUSES = ("computed", "pending_price", "no_vendor_price", "needs_acquirer_price", "needs_review", "no_terminal_return",
@@ -1616,7 +1730,10 @@ NON_NASDAQ = {"NYSE", "NYSE American", "NYSE Arca", "Cboe BZX", "CBOE"}
 # another); each entry overrides the automatic reading. Keys: type, sub, cash, shares, acq
 # (acquirer security_id), acq_name, stock_value, rule ('election': cash or stock alternatives,
 # valued at the stock alternative when the acquirer is priced, else the cash one), dest, url,
-# value (a reviewed total per share), note.
+# value (a reviewed total per share), limit (the last trading day), hold (a reason to keep a computed
+# value for review), special_dividend (cash per share paid to holders at the closing, added to the value;
+# special_dividend_record its record date) or special_dividend_before_last_trade (it went ex before the
+# last trade and belongs to the series), note.
 _SEC = "https://www.sec.gov/Archives/edgar/data/"
 REVIEWED: dict[str, dict] = {
     # ---- reorganisations, reclassifications and renames into another security (1 share)
@@ -1628,8 +1745,11 @@ REVIEWED: dict[str, dict] = {
     "1261694": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1690666",
                 "note": "each Tessera share became one Tessera Holding (later Xperi) share at the DTS acquisition "
                         "(the $42.50 cash is DTS's)"},
-    "353569": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1906324",
-               "note": "each Quidel share became one QuidelOrtho share (the cash and 0.1055 terms are Ortho's)"},
+    "353569": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1906324", "limit": "2022-05-26",
+               "url": _SEC + "1906324/000119312522161806/d323352d8k12b.htm",
+               "note": "each Quidel share became one QuidelOrtho share (the cash and 0.1055 terms are Ortho's); QuidelOrtho's "
+                       "8-K12B: Nasdaq suspended the Quidel shares prior to the market opening on 2022-05-27 and QuidelOrtho "
+                       "shares commenced trading under QDEL that day, so the last Quidel session is 2022-05-26"},
     "864683": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1639691",
                "note": "each Cyberonics share became one LivaNova ordinary share (the 0.0472 ratio is Sorin's)"},
     "1316631.B": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1570585.T-LBTYB",
@@ -1736,8 +1856,11 @@ REVIEWED: dict[str, dict] = {
                         "the combination closed 2017-09-29 (closing 8-K), the last Angie's List session; the ANGI rows from "
                         "2017-10-02 are ANGI Homeservices under the same ticker"},
     "1470215": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1140536",
+                "special_dividend_before_last_trade": True,
                 "note": "2.6490 Willis shares per Towers Watson share followed by Willis's 2.6490-for-1 consolidation: one "
-                        "Willis Towers Watson share; the $4.87 special dividend was paid before the close"},
+                        "Willis Towers Watson share; the pre-merger special dividend ($4.87 in the agreement 8-K) went ex "
+                        "before the last trade (the vendor books it on 2015-12-30, when the raw close fell) and belongs to "
+                        "the canonical series, not to the terminal value"},
     "859014": {"type": "cash_merger", "cash": 10.389188, "url": _SEC + "859014/000114036114045515/form8k.htm",
                "note": "net cash payment of $10.389188 per share (Thoma Bravo, 2014-12-15; the $10.43 agreed less the "
                        "Covisint spin-off tax); the 0.14025466 Covisint shares were a distribution in October 2014"},
@@ -1856,14 +1979,23 @@ REVIEWED: dict[str, dict] = {
                 "note": "holding company merged into its bank: each share became one Bank OZK share, listed on Nasdaq "
                         "from 2017-06-27 under the same symbol"},
     "912752": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1971213",
+               "hold": "the closing 8-K says the New Sinclair shares trade 'on an uninterrupted basis' under SBGI but states "
+                       "no effective time: 2023-06-01 may be New Sinclair's first session (then SBG's last is 2023-05-31)",
                "note": "holding-company reorganisation: each Sinclair Broadcast Group share became one Sinclair, Inc. share "
                        "(2023-06-01); the bankruptcy words in the 8-K concern Diamond Sports"},
     "750004": {"type": "exchange_move", "sub": "listing_transfer", "dest": "ASX",
                "url": _SEC + "750004/000075000425000046/lnw-20250731.htm",
                "note": "sole primary listing moved to the Australian Securities Exchange; Nasdaq delisting November 2025"},
+    "6769": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1841666",
+             "url": _SEC + "1841666/000119312521063695/d127090d8k12b.htm",
+             "hold": "APA's 8-K12B says the reorganisation was completed on 2021-03-01 and APA stock trades on Nasdaq 'on an "
+                     "uninterrupted basis', but states no effective time: 2021-03-01 may be APA Corporation's first session "
+                     "(then Apache's last session is 2021-02-26)",
+             "note": "holding-company reorganisation: each Apache share became one APA Corporation share (2021-03-01)"},
     "1100962": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1593034",
                 "note": "each Endo Health Solutions share became one Endo International ordinary share at the Paladin "
-                        "closing, 2014-02-28 (the $1.16 cash terms are Paladin's)"},
+                        "closing, 2014-02-28 (the $1.16 cash terms are Paladin's); the shares were suspended as of close of "
+                        "business on 2014-02-28"},
     "1326807": {"type": "stock_merger", "sub": "second_step_conversion", "shares": 2.55, "acq": "1594012", "limit": "2014-05-07",
                 "url": _SEC + "1594012/000119312514179187/d718726d8k.htm",
                 "note": "second-step conversion: each public share became 2.5500 shares of the new Investors Bancorp, "
@@ -1908,6 +2040,28 @@ REVIEWED: dict[str, dict] = {
                   "note": "each Liberty Expedia Series A share converted into 0.36 Expedia common share"},
     "1669600.B": {"type": "stock_merger", "shares": 0.36, "acq": "1324424",
                   "note": "each Liberty Expedia Series B share converted into 0.36 Expedia share (Class B, valued at the common)"},
+    # ---- special dividends paid to holders at the closing: part of the terminal value (the last close still
+    # carries them; the canonical series must not book them on an earlier date)
+    "1578735": {"type": "cash_merger", "cash": 32.00, "special_dividend": 2.50, "special_dividend_record": "",
+                "url": _SEC + "1578735/000119312521001004/d71355d8k.htm",
+                "note": "$32.00 cash plus a special pre-closing dividend of $2.50 (Allstate, closing 2021-01-04)"},
+    "826083": {"type": "cash_merger", "cash": 13.75, "special_dividend": 0.13, "special_dividend_record": "2013-10-28",
+               "url": _SEC + "826083/000119312513416110/d619138d8k.htm",
+               "note": "$13.75 cash; shares held at the close of business on 2013-10-28 also receive the $0.13 special cash "
+                       "dividend, paid promptly after the Effective Time"},
+    "1756497": {"type": "cash_merger", "cash": 25.75, "special_dividend": 2.00, "special_dividend_record": "2022-10-03",
+                "url": _SEC + "1756497/000119312522256246/d403452d8k.htm",
+                "note": "$25.75 cash plus the $2.00 special dividend to holders of record as of immediately prior to the "
+                        "Effective Time (2022-10-03), payable 2022-10-04"},
+    "1581164": {"type": "cash_merger", "cash": 18.75, "special_dividend": 1.75, "special_dividend_record": "2021-06-15",
+                "url": _SEC + "1581164/000119312521192102/d183333d8k.htm",
+                "note": "$18.75 cash per Paired Share ($20.50 reduced by the Special Dividend) plus the $1.75 Special Dividend "
+                        "to holders of record at the close of business on 2021-06-15 (the last session), paid 2021-06-16 "
+                        "before the Effective Time"},
+    "1545158": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1637459", "special_dividend": 16.50,
+                "special_dividend_record": "2015-07-02", "url": _SEC + "1545158/000119312515244355/d36612d8k.htm",
+                "note": "one Kraft Heinz share per Kraft share plus the $16.50 special cash dividend to holders of record "
+                        "immediately prior to the closing (2015-07-02)"},
     # ---- liquidations and failures
     "1011006": {"type": "liquidation", "sub": "liquidating_distributions", "value": 22.38,
                 "url": _SEC + "1011006/000119312520284475/d98991d8k.htm",
@@ -1938,7 +2092,6 @@ REVIEWED_SOURCES: dict[str, str] = {
     "885721": _SEC + "885721/000119312512144955/0001193125-12-144955-index.htm",  # closing
     "1058057": _SEC + "1058057/000119312521122807/d156000d8k.htm",  # closing
     "1261694": _SEC + "1261694/000119312516782591/d298517d8k.htm",  # closing
-    "353569": _SEC + "353569/000119312521365588/d270785d8k.htm",  # agreement (no closing 8-K in the window)
     "864683": _SEC + "864683/000086468315000054/form8-k.htm",  # closing
     "1316631.B": _SEC + "1316631/000119312513251856/d548311d8k.htm",  # closing
     "1166691.T-CMCSK": _SEC + "1166691/000095010315009516/0000950103-15-009516-index.htm",  # closing
@@ -2111,7 +2264,9 @@ def classify(row: dict, ev: dict) -> dict:
 REVIEW_KEYS = {"type": "terminal_type", "sub": "event_subtype", "cash": "cash", "shares": "shares",
                "acq": "acquirer_security_id", "acq_name": "acquirer_phrase", "stock_value": "stock_value",
                "rule": "value_rule", "dest": "destination_exchange", "url": "source_url", "value": "fixed_value",
-               "extra": "extra", "limit": "limit", "hold": "hold", "start": "start"}
+               "extra": "extra", "limit": "limit", "hold": "hold", "start": "start",
+               "special_dividend": "special_dividend", "special_dividend_record": "special_dividend_record",
+               "special_dividend_before_last_trade": "special_dividend_before_last_trade"}
 
 
 def apply_review(row: dict, decided: dict) -> dict:
@@ -2190,12 +2345,21 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 out["destination_start_date"] = decided.get("start") or ""
         elif kind == "exchange_move" and decided["destination_exchange"] != "Nasdaq":
             limit, start, limit_basis = transfer_window(row, ev)
-            anchor, out["destination_start_date"] = "", start
+            # the last Nasdaq session lies just before the transfer: a vendor series that stops weeks earlier
+            # (MSG: no rows 2015-05-08 to 2015-09-30) does not date it
+            anchor, out["destination_start_date"] = limit, start
         else:
             if row["end_source"] == "snapshots" and not str(ev.get("closing_dates") or "").strip():
                 cut, reason = snapshot_cut(book, sid, row["end_date"], limit)
                 if reason:
                     limit, limit_basis = cut, reason
+            # a successor reorganisation the master links (holding company, redomicile, split-off): the Form 25
+            # that Nasdaq files for it falls on or after the company's last session, and the later rows under
+            # the same ticker are the successor's (SSYS: Form 25 2012-11-30, Stratasys Ltd from 2012-12-03)
+            successor_day = str(row.get("successor_date") or "")
+            if row["end_source"] == "snapshots" and kind in ("stock_merger", "mixed") and successor_day \
+                    and successor_day < limit:
+                limit, anchor, limit_basis = successor_day, successor_day, "successor_form25_filing"
             # the closing 8-K's own statement of the halt ('prior to the open of trading on the Closing Date');
             # one far before the window is a misreading and is ignored
             halt = ev.get("halt_before_open") or ""
@@ -2205,6 +2369,18 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
             after_close = ev.get("halt_after_close") or ""
             if kind not in ("bankruptcy_otc", "unknown") and after_close and _shift(limit, -HALT_WINDOW_DAYS) <= after_close < limit:
                 limit, limit_basis = after_close, "halt_after_close_stated_in_closing_8k"
+            # an effective time after the close ('On December 29, 2017 at 5:00 p.m. ... (the "Distribution
+            # Effective Time")'): the shares traded that day and not after it
+            effective = ev.get("effective_after_close") or ""
+            if kind not in ("bankruptcy_otc", "unknown") and effective and _shift(limit, -HALT_WINDOW_DAYS) <= effective < limit:
+                limit, limit_basis = effective, "effective_time_after_close_stated_in_closing_8k"
+            # the first day of the shares that replace the company's ('will begin trading on July 1, 2016 under the
+            # symbol "CATM"'): the company's last session is the one before
+            if kind in ("stock_merger", "mixed"):
+                starts = [previous_session(d) for d in str(ev.get("successor_start") or "").split() if d]
+                starts = [d for d in starts if _shift(limit, -HALT_WINDOW_DAYS) <= d < limit]
+                if starts:
+                    limit, limit_basis = min(starts), "session_before_stated_successor_start"
         suspended = ev.get("suspension_date") or ""
         if kind == "bankruptcy_otc" and suspended and suspended <= limit and limit_basis != "reviewed":
             limit, limit_basis = _shift(suspended, -1), "day_before_stated_suspension"
@@ -2269,7 +2445,8 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                     offers.append((0, "own series" + (" (same ticker)" if same_ticker and not same_series else ""),
                                    book.close_on(sid, last_day, after=True)))
                 if acquirer:
-                    offers.append((1, "", book.close_on(acquirer, last_day, after=True)))
+                    quote = acquirer_close(book, names, acquirer, last_day, target=sid)
+                    offers.append((1, f"{quote['via']} series (same ticker)" if quote and quote.get("via") else "", quote))
                 if symbol:
                     if symbol not in charts:
                         charts[symbol] = acquirer_chart(symbol)
@@ -2297,7 +2474,7 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                     value = (decided["cash"] or 0.0) + float(decided["shares"]) * quote["close"]
                     basis_note = "acquirer_vendor_close (local only)"
                     for extra_shares, extra_sid in decided.get("extra") or []:  # further securities in the package
-                        extra = book.close_on(extra_sid, last_day, after=True)
+                        extra = acquirer_close(book, names, extra_sid, last_day, target=sid)
                         extra_gap = sessions_after(last_day, extra["date"]) if extra is not None else None
                         if extra is None or extra_gap > ACQUIRER_HOLD_SESSIONS:
                             notes.append(f"no vendor close for {extra_sid} after the last trade")
@@ -2307,6 +2484,8 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                             holds.append(f"the {extra_sid} close is {extra_gap} XNAS sessions after the last trade")
                         value += float(extra_shares) * extra["close"]
                         level[f"extra_{extra_sid}_close"] = extra["close"]
+                        if extra.get("via"):
+                            notes.append(f"{extra_sid} priced from the {extra['via']} series (same ticker)")
                 if quote is not None:
                     out["acquirer_price_date"] = quote["date"].strftime("%Y-%m-%d")
                     level.update({"acquirer_close": quote["close"], "acquirer_src": quote["src"],
@@ -2348,6 +2527,25 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
             if value is None:
                 status = "awaiting_d5"
                 notes.append("no OTC vendor price; the owner's D5 rule applies")
+        # ---- a special dividend paid to holders at the closing (the last close still carries it)
+        special = decided.get("special_dividend")
+        if special is not None:
+            out["special_dividend_cash"] = _fmt(float(special))
+            out["special_dividend_record_date"] = decided.get("special_dividend_record") or ""
+            if value is not None and basis_note.startswith("existing_row"):
+                holds.append("the special dividend is part of the value, but whether the existing file's value "
+                             "includes it is not known")
+            elif value is not None:
+                value += float(special)
+                basis_note += " + special_dividend_at_closing"
+                if out["consideration_per_share"]:
+                    out["consideration_per_share"] = _fmt(value)
+                notes.append(f"includes the ${float(special):g} special dividend paid to holders at the closing; the "
+                             "canonical series must not book it on an earlier date")
+        elif ev.get("special_dividend") and not decided.get("special_dividend_before_last_trade") \
+                and kind in ("cash_merger", "stock_merger", "mixed", "liquidation"):
+            holds.append("the closing 8-K names a special dividend; whether holders at the closing receive it on top "
+                         "of the terms is not reviewed")
         out["consideration_value_basis"] = basis_note
         if basis_note.startswith("existing_row") and prior:
             out["verified_at"] = pd.Timestamp(prior["verified_at"]).strftime("%Y-%m-%d")
@@ -2368,8 +2566,10 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 status = price_status
         elif not status:
             status = price_status if price_status != "ok" else "unknown"
-        if decided.get("hold") and status != "needs_review":
-            notes.append("to check once priced: " + decided["hold"])
+        if status != "needs_review":
+            later = [decided["hold"]] if decided.get("hold") else []
+            later += [h for h in holds if h.startswith("the closing 8-K names a special dividend")]
+            notes.extend("to check once priced: " + h for h in later)
         if prior and out["terminal_return"]:
             out["existing_return_diff"] = _fmt(float(out["terminal_return"]) - float(prior["terminal_return"]))
         out["status"] = status
@@ -2428,12 +2628,78 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     frame, used = build_rows(scope, evidence, book, matched, NameIndex(master), read_csv_text(CANDIDATES), verified_at)
     common.atomic_write(OUTPUT, frame.to_csv(index=False).encode())
     common.atomic_write(OUT / "prices_used.csv", used.to_csv(index=False).encode())
+    handoff = reconcile_handoff(frame, used)
+    common.atomic_write(RECONCILE_HANDOFF, handoff.to_csv(index=False).encode())
     summary = summarize(frame, existing, matched, used)
+    summary["for_reconcile_owner"] = {k: sorted(g["security_id"]) for k, g in handoff.groupby("kind")} if len(handoff) else {}
+    summary["computed_after_successor_date"] = successor_overruns(frame, scope)
     common.atomic_write(OUT / "terminal_summary.json", (json.dumps(summary, indent=1, default=str) + "\n").encode())
     log(f"wrote {OUTPUT}: {len(frame)} rows")
     log("by type: " + json.dumps(summary["rows_by_terminal_type"]))
     log("by status: " + json.dumps(summary["rows_by_status"]))
     return frame
+
+
+CANONICAL_PRICES = common.CACHE / "prices"
+RECONCILE_HANDOFF = OUT / "for_reconcile_owner.csv"
+HANDOFF_COLUMNS = ["kind", "security_id", "ticker", "last_price_date", "amount", "record_date", "series_booking_date",
+                   "limit", "vendor_last_date", "source_url", "action"]
+
+
+def series_dividend_dates(sid: str, amount: float, before: str, days: int = 45) -> list[str]:
+    """Dates on which the canonical series (CACHE/prices, read only) books a cash dividend of ``amount`` in the
+    ``days`` before ``before`` (inclusive)."""
+    path = CANONICAL_PRICES / f"{sid}.csv"
+    if not path.exists() or not before:
+        return []
+    data = pd.read_csv(path, usecols=["date", "div_cash"])
+    cash = pd.to_numeric(data["div_cash"], errors="coerce").fillna(0.0)
+    inside = (data["date"] <= before) & (data["date"] >= _shift(before, -days)) & ((cash - amount).abs() < 0.005)
+    return sorted(data.loc[inside, "date"].astype(str))
+
+
+def reconcile_handoff(frame: pd.DataFrame, used: pd.DataFrame) -> pd.DataFrame:
+    """Facts the canonical-series (reconcile) owner must act on; this step never edits the series.
+
+    ``special_dividend_in_terminal_value``: the terminal value owns a special dividend paid to holders at the
+    closing; a booking of it in the series on or before the last trade (``series_booking_date``) must go.
+    ``exchange_move_vendor_gap``: no vendor session lies within a week before the transfer limit, so the last
+    Nasdaq session is not dated here (``last_price_date`` blank)."""
+    rows = []
+    for r in frame[frame["special_dividend_cash"].ne("")].itertuples(index=False):
+        booked = series_dividend_dates(r.security_id, float(r.special_dividend_cash), r.last_price_date)
+        rows.append({"kind": "special_dividend_in_terminal_value", "security_id": r.security_id, "ticker": r.ticker,
+                     "last_price_date": r.last_price_date, "amount": r.special_dividend_cash,
+                     "record_date": r.special_dividend_record_date, "series_booking_date": " ".join(booked),
+                     "source_url": r.source_url,
+                     "action": ("remove the booking from the series: the terminal value owns the dividend" if booked
+                                else "none: the series does not book it (keep it that way)")})
+    levels = used.set_index("security_id") if len(used) else pd.DataFrame()
+    moves = frame[frame["terminal_type"].eq("exchange_move") & frame["last_price_date"].eq("")]
+    for r in moves.itertuples(index=False):
+        level = levels.loc[r.security_id] if r.security_id in levels.index else {}
+        vendor_last = level.get("vendor_last_date", "")
+        if level.get("status", "") != "vendor_short" or not vendor_last or vendor_last == WIKI_END:
+            continue  # no vendor rows at all, or the series ends with the WIKI table (a vendor file to come)
+        pending = "tiingo" in str(r.status_note).lower()
+        rows.append({"kind": "exchange_move_vendor_gap", "security_id": r.security_id, "ticker": r.ticker,
+                     "limit": level.get("limit", ""), "vendor_last_date": vendor_last, "source_url": r.source_url,
+                     "action": "the vendor series stops weeks before the last Nasdaq session: a gap in the series"
+                               + (" (a Tiingo file is still to come: recheck once it has arrived)" if pending else "")})
+    return pd.DataFrame(rows, columns=HANDOFF_COLUMNS)
+
+
+def successor_overruns(frame: pd.DataFrame, scope: pd.DataFrame) -> list[str]:
+    """Computed stock or mixed rows with a snapshot-dated end whose last trade falls after the master's
+    successor date (the successor's sessions under the same ticker): should be empty."""
+    succ = scope.set_index("security_id")
+    out = []
+    for r in frame[frame["status"].eq("computed") & frame["terminal_type"].isin(["stock_merger", "mixed"])
+                   & frame["end_source"].eq("snapshots")].itertuples(index=False):
+        day = str(succ["successor_date"].get(r.security_id, "") or "") if "successor_date" in succ else ""
+        if day and r.last_price_date > day:
+            out.append(r.security_id)
+    return sorted(out)
 
 
 def summarize(frame: pd.DataFrame, existing: pd.DataFrame, matched: dict, used: pd.DataFrame | None = None) -> dict:
