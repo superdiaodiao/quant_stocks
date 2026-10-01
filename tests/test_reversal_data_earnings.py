@@ -557,13 +557,14 @@ def test_built_scope_has_no_foreign_filer_and_fallback_rows_are_periodic():
     quarters = set(zip(events.loc[events["event_kind"] != "amendment", "cik"],
                        events.loc[events["event_kind"] != "amendment", "fiscal_quarter_end"]))
     assert not any((c, q) in quarters for c, q in zip(fallback["cik"], fallback["report_date"]))
-    # catch-up and Item 2.02-between rows are never usable as announcement dates
+    # catch-up, Item 2.02-between and 7.01/8.01-between rows are never usable as announcement dates
     days = fallback["days_after_period_end"].astype(int)
     limit = fallback["form"].map(er.CATCH_UP_DAYS)
     assert ((days > limit) == fallback["catch_up_reason"].str.contains("past_due")).all()
     shared = fallback.duplicated(["cik", "d0_session"], keep=False)
     assert (shared == fallback["catch_up_reason"].str.contains("shared_d0")).all()
-    usable = (fallback["catch_up_filing"] == "N") & (fallback["item202_between"] == "")
+    usable = ((fallback["catch_up_filing"] == "N") & (fallback["item202_between"] == "")
+              & (fallback["other_8k_between"] == ""))
     assert (usable == (fallback["usable_as_announcement"] == "Y")).all()
 
 
