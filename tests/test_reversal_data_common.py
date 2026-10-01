@@ -29,3 +29,13 @@ def test_cached_get_reads_the_cache_without_a_request(tmp_path, monkeypatch):
     cache.write_bytes(gzip.compress(b'{"a": 1}'))
     monkeypatch.setattr(common, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
     assert common.cached_get("https://example.com/x", cache, source="test") == b'{"a": 1}'
+
+
+def test_parallel_map_keeps_order_and_returns_errors():
+    out = common.parallel_map(lambda x: 10 // x, [1, 2, 0, 5], workers=3)
+    assert out[:2] == [10, 5] and isinstance(out[2], ZeroDivisionError) and out[3] == 2
+
+
+def test_presigned_links_lose_their_whole_query():
+    url = "https://bucket.s3.amazonaws.com/f.zip?X-Amz-Credential=AKIA%2F&X-Amz-Signature=abc"
+    assert common.redact(url) == "https://bucket.s3.amazonaws.com/f.zip?REDACTED"

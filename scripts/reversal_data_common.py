@@ -31,7 +31,9 @@ QUOTA_LEDGER = CACHE / "quota_ledger.csv"
 # SEC asks for at most ten requests a second; stay well under it.
 SEC_PER_SECOND = 7
 SEC_USER_AGENT = "quant_stocks research data@example.com"
-SECRET_PARAMS = re.compile(r"(api_key|token|apikey)=[^&]+", re.IGNORECASE)
+SECRET_PARAMS = re.compile(
+    r"(api_key|token|apikey|X-Amz-Credential|X-Amz-Signature|X-Amz-Security-Token|Signature|AWSAccessKeyId)=[^&]+",
+    re.IGNORECASE)
 _LOCK = threading.Lock()
 
 
@@ -45,6 +47,9 @@ def read_env_key(path: str | Path, name: str) -> str:
 
 
 def redact(url: str) -> str:
+    """``url`` with keys and presigned-URL credentials removed (a presigned link's whole query)."""
+    if "amazonaws.com" in url and "?" in url:
+        return url.split("?", 1)[0] + "?REDACTED"
     return SECRET_PARAMS.sub(lambda m: f"{m.group(1)}=REDACTED", url)
 
 
@@ -196,3 +201,22 @@ def update_manifest(entries: dict[str, dict]) -> dict:
     manifest["updated_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     atomic_write(path, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"))
     return manifest
+
+
+def parallel_map(function, items, workers: int = 8) -> list:
+    """``function`` over ``items`` on a thread pool, results in input order.
+
+    For slow-answering sources (SEC answers in about a second): the shared
+    limiter still caps the request rate, so more workers only fill it.
+    Exceptions are returned in place of results, not raised.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def safe(item):
+        try:
+            return function(item)
+        except Exception as exc:  # reported per item
+            return exc
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        return list(pool.map(safe, items))
