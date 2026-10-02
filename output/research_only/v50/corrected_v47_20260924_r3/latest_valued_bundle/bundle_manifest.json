@@ -1,0 +1,134 @@
+{
+  "as_of": "2026-10-01",
+  "broker_action_authorized": false,
+  "created_at": "2026-10-02T01:41:42+00:00",
+  "files": {
+    "index_close_provenance.json": "6d638e8ef1ceb28392f2864c37e19e72f8851c4476e605d0738478db3fea5ff0",
+    "nasdaq_index.csv": "d5714807414dd80c0fc9734318485e41bb02c5a8d809212992f093087087d710",
+    "provider_adjustments.csv": "c3dc76b51f76c933680a506de8e02b57791fca69da35cdb27ee3545b641ae640",
+    "qqq.csv": "9f1bfc5c89d08d746e4c475e1fcde75a42b6c0a499591466ae61ebb8d5b73d99",
+    "qqq.provenance.json": "aa3d31000dd0ee6c721ee9afab76ee77c11109d4a92ac46b0b329548fbe83eb6"
+  },
+  "formal_financial_files_modified": false,
+  "formal_market_files_modified": false,
+  "mark_exposure": {
+    "closes_required": [
+      "ILMN",
+      "OKTA",
+      "PLTR",
+      "SMCI",
+      "WDAY"
+    ],
+    "sourced_terminal_returns": [],
+    "targeted_tickers": [
+      "ILMN",
+      "OKTA",
+      "PLTR",
+      "SMCI",
+      "WDAY"
+    ]
+  },
+  "mark_procedure": "v50r3-exposure-aware-mark",
+  "market_refresh": {
+    "index_refresh": {
+      "expected_session": "2026-10-01",
+      "fallback_used": true,
+      "historical_latest_date": "2026-09-30",
+      "index_file_sha256": "940212bca4a045f6d0f644904da0a4a7149ea92b006a6d3281ab6b4454eccd05",
+      "provenance_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/index_close_provenance.json",
+      "source": "nasdaq_official_closed_chart_info",
+      "source_verified": true
+    },
+    "seed": {
+      "copied_price_files": 5,
+      "formal_financial_files_modified": false,
+      "formal_market_files_modified": false,
+      "missing_baseline_price_files": 0,
+      "symbols": 5
+    },
+    "seeded_from_valued_bundle": [],
+    "update": {
+      "counts": {
+        "updated": 5
+      },
+      "end": "2026-10-01",
+      "failures": [],
+      "provider_adjustments_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/provider_adjustments.csv",
+      "provider_adjustments_recorded": [],
+      "reconciliation_counts": {
+        "CONSISTENT": 5
+      },
+      "requested_ticker_count": 5,
+      "requested_tickers": [
+        "ILMN",
+        "OKTA",
+        "PLTR",
+        "SMCI",
+        "WDAY"
+      ],
+      "universe": {
+        "added": [],
+        "count": 1777,
+        "mode": "retained_for_partial_update",
+        "removed": [],
+        "snapshot": null
+      }
+    }
+  },
+  "prefix_carry": {
+    "reason": "no earlier valuation",
+    "source": null
+  },
+  "price_files": {
+    "ILMN": {
+      "file": "prices/ilmn.csv",
+      "latest_date": "2026-10-01",
+      "sha256": "b26079519c40432c63c2552387b7ddcfcd61f0ecd2953684b35c5b737fbb9bc0"
+    },
+    "OKTA": {
+      "file": "prices/okta.csv",
+      "latest_date": "2026-10-01",
+      "sha256": "a1d7880a68ba268d6fba4f65e223a3b372b900bec5a8eb9919c4d7ca4a2ec0e0"
+    },
+    "PLTR": {
+      "file": "prices/pltr.csv",
+      "latest_date": "2026-10-01",
+      "sha256": "42336eff86ba8cd70158439f81b65d5e842eec2f0e43f52997913db7d689b67c"
+    },
+    "SMCI": {
+      "file": "prices/smci.csv",
+      "latest_date": "2026-10-01",
+      "sha256": "b22f24cb0b3a6168e423a1dc0df6f4aca040dc3cd27e2467f445bd6abbcbb96e"
+    },
+    "WDAY": {
+      "file": "prices/wday.csv",
+      "latest_date": "2026-10-01",
+      "sha256": "499f1168c1380392633b9835d8f8594627e862885ecd1f9da172cd66dbc2aef7"
+    }
+  },
+  "purpose": "MARK",
+  "readiness_gates": {
+    "all_required_price_files_present": true,
+    "held_positions_priced_at_as_of": true,
+    "nasdaq_through_as_of": true,
+    "qqq_through_as_of": true
+  },
+  "release_status": "BLOCKED",
+  "research_only": true,
+  "runner_version": "v50r3-corrected-v47-sourced-actions",
+  "runtime_isolation": {
+    "formal_financial_files_modified": false,
+    "formal_market_bindings_after": {
+      "nasdaq_index": "0e9b712afa86d5a47ee6ed04a2d7f1d4636029d9e1a898972f5ebe3d4dc1eddf",
+      "nasdaq_universe": "b08b5ab9abc34dbbb30ba679fc664a28dda012b0b7e0ac0d5818912523a81cf1"
+    },
+    "formal_market_bindings_before": {
+      "nasdaq_index": "0e9b712afa86d5a47ee6ed04a2d7f1d4636029d9e1a898972f5ebe3d4dc1eddf",
+      "nasdaq_universe": "b08b5ab9abc34dbbb30ba679fc664a28dda012b0b7e0ac0d5818912523a81cf1"
+    },
+    "formal_market_files_modified": false,
+    "qqq_cutoff": "2026-10-01",
+    "shared_companyfacts_cache_modified": false
+  },
+  "schema_version": 2
+}
