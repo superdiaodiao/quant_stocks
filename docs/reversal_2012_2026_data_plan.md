@@ -25,6 +25,11 @@ Status of this document: nothing has been fetched for it. It is built from the f
 Owner decisions so far, all made before any returns were seen:
 - 2026-10-01: D2 is Ken French 49 industries; D4 excludes foreign filers from the universe.
 - 2026-10-02: D6 as written above.
+- 2026-10-02, no waiting for more fills:
+  - **Data version 1** is frozen once the rebuild, the checks and the hand reviews pass, whatever Tiingo has fetched by then. The test runs on it.
+  - Later free Tiingo months build **data version 2**. The test rules say in advance that version 2 is only a robustness check, with the rules unchanged. If it changes the conclusion, the conclusion counts as unreliable.
+  - A year whose missing share exceeds 2% of top-250 slots is reported, but it is not used to judge the strategy.
+  - No further sources are sought after the free-source survey of 2026-10-02.
 
 ---
 
