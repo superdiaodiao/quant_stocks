@@ -52,7 +52,15 @@ symbols than its neighbours is presence-only (``partial_snapshot_dates``), and a
 company list or symbol catalog that the nearest Nasdaq symbol directories on both sides
 do not list is no evidence (``uncorroborated_sightings``: NYSE and OTC names in the
 nasdaq.com company lists). Company-list rows with a blank LastSale are no listing
-evidence but count as present.
+evidence but count as present. Nasdaq's issue type 'Closed End Fund' (business development
+companies and closed-end funds) is no security type: such a row is judged by its issuer name like
+any other (``CLOSED_END_LABEL``; ARCC, FUND, AINV/MFIC and TICC/OXSQ were typed 'Common Stock' only in
+2022), and the universe leaves investment companies out from SEC evidence (owner decision D6).
+After a documented move to another exchange (step 3 ``transfer``), a company-list row of the CIK on
+the moved ticker that no symbol directory after the move confirms is dropped (``after_transfer``,
+``stale_after_transfer``): The Madison Square Garden Company moved MSG to NYSE on 2015-07-27, the
+spun-off company took the MSG ticker there on 2015-10-01, and the nasdaq.com lists kept showing MSG
+until 2017-10.
 
 Intervals are runs of one (CIK, ticker) across every snapshot family; the share class
 is assigned to each run afterwards (and splits a run only for a multi-class CIK whose
@@ -68,6 +76,13 @@ full-list snapshot more than DELIST_TOLERANCE_DAYS after it except in a later in
 that begins after two full-list snapshots without it (``listed_past_delisting``;
 ``delist_date_violations`` checks the rule against the raw rows and the build summary
 reports ``still_listed_with_delist_date``).
+
+An interval resting on one ticker-only snapshot row of a CIK that SEC lists today only on another
+exchange is dropped (``elsewhere_one_row_intervals``: Ford's F on the symbol-only 2019-06-17 file).
+
+Every security an interval names has a master row: a current SEC ticker of a multi-class CIK that no
+Nasdaq snapshot shows (a Series B quoted OTC, notes, warrants) is its own security keyed by the ticker,
+with no listing dates and a note saying so.
 
 The foreign-filer flag (owner: foreign filers are excluded; for a MIXED CIK only the weeks whose
 latest periodic report is foreign) reads the recent block and every older submissions page with
@@ -88,10 +103,14 @@ from cache takes a few minutes)::
 repeated until neither table changes (round 4 converged after one alternation; the
 raw rows depend on step 3 only through the filing dates of its common Form 25 rows).
 
+SEC requests go through this builder's own limiter (``SEC_LIMITER``, 3 a second).
+
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_security_master.py            # fetch + build
     PYTHONPATH=. python scripts/reversal_data_security_master.py --offline  # rebuild from cache only
+    # a scratch build: every output under DIR (derived files in DIR/derived), step 3 read from F25
+    PYTHONPATH=. python scripts/reversal_data_security_master.py --offline --out-dir DIR --form25 F25
 """
 from __future__ import annotations
 
@@ -138,7 +157,10 @@ FILINGS_SINCE = "2011-06-01"
 FLAG_UNTIL = "2026-08-31"  # the data window's end: a switch filed later changes none of its weeks
 PERIODIC_HISTORY = common.INPUTS / "periodic_form_history.csv"
 MULTI_CLASS_MIN_DATES = 3
-# SEC answers in about a second, so a few threads share SEC_LIMITER to reach its 7 requests a second.
+# This builder's own SEC limit: several builders run at once, each at most 3 requests a second
+# (common.SEC_LIMITER allows 7 to one process). SEC answers in about a second, so a few threads share it.
+SEC_PER_SECOND = 3
+SEC_LIMITER = common.SlidingWindowLimiter({1: SEC_PER_SECOND})
 WORKERS = 6
 DOMESTIC_FORMS = {"10-K", "10-K405", "10-KSB", "10-KT", "10-Q", "10-QSB", "10-QT"}
 FOREIGN_FORMS = {"20-F", "40-F", "6-K", "20FR12B", "40FR12B"}
@@ -192,7 +214,7 @@ def load_submissions(cik: int, *, offline: bool = False) -> dict | None:
         return None
     try:
         return json.loads(common.cached_get(SUBMISSIONS_URL.format(cik=int(cik)), path, source="sec_submissions",
-                                            headers=common.sec_headers(), limiter=common.SEC_LIMITER,
+                                            headers=common.sec_headers(), limiter=SEC_LIMITER,
                                             symbol=f"CIK{int(cik)}"))
     except FileNotFoundError:
         return None
@@ -204,7 +226,7 @@ def load_submission_page(name: str, *, offline: bool = False) -> dict | None:
         return None
     try:
         return json.loads(common.cached_get(SUBMISSION_PAGE_URL.format(name=name), path, source="sec_submissions",
-                                            headers=common.sec_headers(), limiter=common.SEC_LIMITER))
+                                            headers=common.sec_headers(), limiter=SEC_LIMITER))
     except FileNotFoundError:
         return None
 
@@ -474,7 +496,7 @@ SECURITY_TAIL = re.compile(
 SECURITY_PHRASE = re.compile(
     r"\b(?:stock|shares?|units?|warrants?|rights?|notes?|debentures?|bonds?|preferred|deposit[ao]ry|adrs?|adss?|"
     r"receipts?|interests?|ordinary|common|class [a-z]|series [a-z]|issued|certificates?|voting|subordinate|"
-    r"tracking)\b|%", re.I)
+    r"tracking|closed[- ]end\s+fund)\b|%", re.I)
 
 
 def strip_security_phrase(text: str) -> str:
@@ -586,13 +608,23 @@ ADR_EXCLUDE = re.compile(r"preferred|warr+ant|\brights?\b|\bunits?\b|notes? due|
 DEPOSITARY_PREFERRED = re.compile(r"deposit[ao]ry (?:shares?|receipts?)\b", re.I)
 
 
+# Nasdaq's issue type for the listed shares of a closed-end investment company (a business development
+# company or a closed-end fund): 'Ares Capital Corporation - Closed End Fund'. The same files call the
+# same issues 'Common Stock' at other times (ARCC, FUND, AINV, OXSQ in the 2022-06-24 and 2022-07-23
+# files; the 300M screener throughout), so the label is no security type: the issuer's name is judged as
+# for any other listing (a name with 'Fund' in it stays out), and whether the issuer is an investment
+# company is decided from SEC filings downstream (owner decision D6, step 12).
+CLOSED_END_LABEL = re.compile(r"\s+-\s+closed[- ]end\s+fund\s*$", re.I)
+
+
 def is_common_equity(name: str) -> bool:
     """Common stock, ordinary shares and ADRs; not preferreds, warrants, units, rights, debt, funds, LPs.
 
     Unlike ``investable_common_equities`` this keeps every ADR (the plan's ADR flag)
-    and SPAC shares, so the identity of a SPAC that becomes an operating company is kept.
+    and SPAC shares, so the identity of a SPAC that becomes an operating company is kept. Nasdaq's
+    'Closed End Fund' issue type alone does not exclude a listing (``CLOSED_END_LABEL``).
     """
-    name = str(name or "")
+    name = CLOSED_END_LABEL.sub("", str(name or ""))
     if ADR_NAME.search(name) and not ADR_EXCLUDE.search(name):
         return True
     if DEPOSITARY_PREFERRED.search(name) and not re.search(r"ordinary|common share", name, re.I):
@@ -721,6 +753,74 @@ def uncorroborated_sightings(snapshots: pd.DataFrame, window_days: int = CORROBO
         known = listed[before] | listed[after] | listed.get(day, set())
         mask.loc[group.index[~group["symbol"].isin(known)]] = True
     return mask
+
+
+def directory_rows(frame: pd.DataFrame) -> pd.Series:
+    """Rows of Nasdaq's own symbol directory (nasdaqlisted.txt), from the Wayback or a repo file that
+    names it (``source``/``family`` and ``source_url``); the test ``uncorroborated_sightings`` uses."""
+    family = frame["family"] if "family" in frame else frame["source"]
+    return (family == "wayback_symdir") | frame["source_url"].astype(str).str.contains(SYMBOL_DIRECTORY)
+
+
+def directory_listing(snapshots: pd.DataFrame) -> dict[str, set[str]]:
+    """date -> the symbols Nasdaq's symbol directory lists that day (full-list families only)."""
+    full = snapshots[~snapshots["source"].isin(PARTIAL_FAMILIES)]
+    return full[directory_rows(full)].groupby("date")["symbol"].apply(set).to_dict()
+
+
+def transfer_filings(form25: pd.DataFrame | None) -> dict[int, list[tuple[str, set[str]]]]:
+    """cik -> [(filing date, tickers covered)] of its documented moves to another exchange (step 3's
+    ``transfer`` with ``subject_exit`` Y). The tickers are those the CIK listed before the filing, ended
+    at it or continued past it; an empty set covers every ticker of the CIK."""
+    if form25 is None or form25.empty:
+        return {}
+    rows = form25[(form25["classification"] == "transfer") & (form25["subject_exit"] == "Y")]
+    out: dict[int, list[tuple[str, set[str]]]] = defaultdict(list)
+    for row in rows.itertuples():
+        covered = set(row.tickers_before.split()) | set(row.tickers_ended.split()) | set(row.tickers_continued.split())
+        out[int(row.subject_cik)].append((row.filing_date, covered))
+    return dict(out)
+
+
+def stale_after_transfer(rows: pd.DataFrame, transfers: dict[int, list[tuple[str, set[str]]]],
+                         listed: dict[str, set[str]], grace_days: int | None = None,
+                         window_days: int = CORROBORATE_DAYS) -> pd.Index:
+    """Rows of the nasdaq.com company lists that show a CIK on a ticker it moved to another exchange.
+
+    After a documented transfer (``transfer_filings``: an issuer withdrawal with a Form 8-A12B or a Form
+    25 naming the new exchange), a ``wayback_companylist`` row of the CIK on a covered ticker dated more
+    than ``grace_days`` after the filing is no evidence of a Nasdaq listing unless a symbol directory
+    dated after that cutoff and within ``window_days`` of the row lists the symbol, or the CIK is back
+    in a symbol directory on that ticker by then (a return to Nasdaq: TD Ameritrade from 2016-01). The
+    company lists of 2015-2019 kept such names for months or years where no symbol directory is near
+    enough for ``uncorroborated_sightings`` to check them: The Madison Square Garden Company, on NYSE
+    from 2015-07-27 (and its MSG ticker held there by the spun-off company from 2015-10-01), stayed
+    in them as MSG until 2017-10; America Movil, Condor, Lilis, R.R. Donnelley and FirstCash likewise.
+    Returns the index of those rows. ``rows`` has date, symbol, cik, family, source_url."""
+    grace_days = EXIT_GRACE_DAYS if grace_days is None else grace_days
+    if not transfers or rows.empty:
+        return rows.index[:0]
+    days = sorted(listed)
+    live = rows[rows["cik"].notna()]
+    mine = live[live["cik"].astype(int).isin(set(transfers))]
+    if mine.empty:
+        return rows.index[:0]
+    on_directory = directory_rows(mine)
+    stale = []
+    for (cik, symbol), group in mine.groupby([mine["cik"].astype(int), "symbol"]):
+        own_directory = sorted(group.loc[on_directory[group.index], "date"])
+        for filed, covered in transfers[int(cik)]:
+            if covered and symbol not in covered:
+                continue
+            cutoff = _shift(filed, grace_days)
+            back = next((d for d in own_directory if d > cutoff), "9999-12-31")
+            late = group[(group["date"] > cutoff) & (group["date"] < back) & (group["family"] == "wayback_companylist")]
+            for index, day in zip(late.index, late["date"]):
+                lo, hi = max(_shift(day, -window_days), cutoff), _shift(day, window_days)
+                near = days[bisect.bisect_right(days, lo):bisect.bisect_right(days, hi)]
+                if not any(symbol in listed[d] for d in near):
+                    stale.append(index)
+    return pd.Index(sorted(set(stale)))
 
 
 PARTIAL_DATE_RATIO = 0.9  # a full-list file with fewer common symbols than this share of its neighbours'
@@ -897,7 +997,7 @@ def fetch_sec_tickers_exchange(*, offline: bool = False) -> list[dict]:
     if offline and not path.exists():
         return []
     payload = json.loads(common.cached_get(TICKERS_EXCHANGE_URL, path, source="sec_files", headers=common.sec_headers(),
-                                           limiter=common.SEC_LIMITER))
+                                           limiter=SEC_LIMITER))
     fields = payload["fields"]
     return [dict(zip(fields, row)) | {"_path": str(path)} for row in payload["data"]]
 
@@ -1305,7 +1405,7 @@ def load_cik_lookup(*, offline: bool = False) -> dict[str, set[int]]:
     if offline and not path.exists():
         return {}
     text = common.cached_get(CIK_LOOKUP_URL, path, source="sec_archives", headers=common.sec_headers(),
-                             limiter=common.SEC_LIMITER, timeout=300).decode("latin-1")
+                             limiter=SEC_LIMITER, timeout=300).decode("latin-1")
     index: dict[str, set[int]] = defaultdict(set)
     for line in text.splitlines():
         name, _, rest = line.rstrip().rstrip(":").rpartition(":")
@@ -1648,11 +1748,17 @@ def listed_past_delisting(spans: list[tuple[str, str]], delist_date: str, full: 
     The intervals that began by the delist date must end by it plus ``tolerance_days``, and an
     interval that begins after it counts as a relisting only when at least two full-list snapshots
     (``full``, sorted) without the security lie between the two (the evidence that it left; WW's new
-    stock listed 19 days after the Form 25 of its old one, two monthly lists after its last sighting)."""
+    stock listed 19 days after the Form 25 of its old one, two monthly lists after its last sighting).
+    A security with intervals none of which began by the delist date was not listed when the Form 25
+    was filed, so the filing gives it no delist date."""
     limit = _shift(delist_date, tolerance_days)
     spans = sorted((s, e) for s, e in spans if s and e)
     held = [e for s, e in spans if s <= delist_date]
     last = max(held) if held else ""
+    if spans and not held:
+        # A Form 25 filed before the first listing ended nothing (ShiftPixy withdrew its approved Nasdaq
+        # registration in 2017-02, four months before its shares first traded there).
+        return f"no listing on or before it (first listed {spans[0][0]})"
     if last > limit:
         return f"listed through {last} in the interval holding the delisting"
     later = [s for s, _ in spans if s > delist_date]
@@ -1663,6 +1769,23 @@ def listed_past_delisting(spans: list[tuple[str, str]], delist_date: str, full: 
         if between < 2:
             return f"listed again from {first} with {max(between, 0)} full-list snapshot(s) without it since {lo}"
     return ""
+
+
+def elsewhere_one_row_intervals(intervals: pd.DataFrame, profiles: dict[int, dict]) -> pd.Series:
+    """Intervals resting on one snapshot row matched by ticker alone (``n_snapshots`` 1, ``ticker_only``)
+    of a CIK that SEC lists today only on other exchanges: Ford's F on the symbol-only 2019-06-17 file
+    (SEC: NYSE). One row that matched no SEC name cannot outweigh the SEC's exchange, so the interval is
+    dropped (step 12's ``doubtful_intervals`` left it out of the listed set; steps 6 and 9 read the file
+    themselves). A CIK SEC lists nowhere today (delisted) keeps its interval."""
+    if intervals.empty:
+        return pd.Series(False, index=intervals.index)
+
+    def elsewhere(cik) -> bool:
+        exchanges = [str(e).upper() for e in (profiles.get(int(cik)) or {}).get("exchanges", []) if e]
+        return bool(exchanges) and "NASDAQ" not in exchanges
+
+    one_row = pd.to_numeric(intervals["n_snapshots"], errors="coerce").eq(1) & intervals["match"].eq("ticker_only")
+    return one_row & intervals["cik"].map(elsewhere).astype(bool)
 
 
 def detect_ticker_reuse(intervals: pd.DataFrame) -> dict[str, list[int]]:
@@ -1811,6 +1934,12 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.D
     # The raw evidence step 3 reads (every resolved row, before any row is dropped for a Form 25),
     # so its exit decisions never rest on rows this step removed because of them.
     write_raw_rows(matched, snapshots)
+    # Company-list rows of a CIK on a ticker it moved to another exchange, with no symbol directory to
+    # confirm them, are no listing (MSG on NYSE from 2015-07-27, kept in the nasdaq.com lists to 2017).
+    after_transfer = stale_after_transfer(matched, transfer_filings(form25), directory_listing(snapshots))
+    after_transfer_pairs = sorted({f"{int(c)}:{t}" for c, t in zip(matched.loc[after_transfer, "cik"],
+                                                                    matched.loc[after_transfer, "symbol"])})
+    matched.loc[after_transfer, ["cik", "how"]] = [None, "after_transfer"]
     # The tail of a run after the Form 25 that ended the CIK's listing goes to the successor that
     # took the ticker, or to nobody; rows after the run broke are a relisting and stay.
     pre_drop = matched["cik"].copy()
@@ -1819,7 +1948,7 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.D
     # Sightings for the delist-date rule: every row as resolved, a row handed to a successor as the successor's.
     sightings = matched[["date", "symbol"]].assign(cik=matched["cik"].where(matched["how"] != "after_exit", pre_drop))
     matched = settle_conflicts(matched)
-    for how in ("after_exit", "conflict", "successor"):
+    for how in ("after_exit", "after_transfer", "conflict", "successor"):
         hit = matched.index[matched["how"] == how]
         listings.loc[hit, "how"] = how
         listings.loc[hit, "cik"] = matched.loc[hit, "cik"]
@@ -1844,6 +1973,9 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.D
     intervals = build_intervals(matched, snapshot_dates, present, split_classes=multi)
     if not intervals.empty:
         intervals["security_id"] = [security_id(c, s, c in multi) for c, s in zip(intervals["cik"], intervals["share_class"])]
+    doubtful = elsewhere_one_row_intervals(intervals, profiles)
+    doubtful_dropped = intervals[doubtful][["security_id", "ticker", "start", "end", "source"]].to_dict("records")
+    intervals = intervals[~doubtful].reset_index(drop=True)
 
     # SEC's current tickers and exchanges as open-ended evidence.
     current = []
@@ -1951,6 +2083,8 @@ def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.D
         "ticker_conflicts_after": len(ticker_conflicts(matched)),
         "rows_after_exit_dropped": exit_counts["dropped"], "rows_after_exit_to_successor": exit_counts["moved"],
         "rows_after_exit_kept_relisting": exit_counts["kept_after_exit"],
+        "rows_after_transfer_dropped": len(after_transfer), "after_transfer_cik_tickers": after_transfer_pairs,
+        "intervals_dropped_one_ticker_only_row_listed_elsewhere": doubtful_dropped,
         "exits_contradicted_by_continuation": [f"{c}:{t}" for c, t in exit_counts["contradicted"]],
         "intervals_bridging_coverage_gap_over_120d": int((intervals["coverage_gap_days"] > 120).sum()) if not intervals.empty else 0,
         "master_delist_dates": int(master["delist_date"].fillna("").ne("").sum()),
@@ -2079,7 +2213,11 @@ def delist_date_violations(master: pd.DataFrame, intervals: pd.DataFrame, rows: 
     dropped for a Form 25 (rows handed to a successor count for the successor). A sighting after the
     delist date plus the tolerance is allowed only inside an interval of the same security that
     began after the delist date and that ``listed_past_delisting`` accepts as a relisting (two
-    full-list snapshots without the security before it). One row per (security, ticker) at fault."""
+    full-list snapshots without the security before it). A sighting after the security's documented
+    move to another exchange (``transfer_date``) that none of its intervals holds is a company-list row
+    dropped as no listing (``stale_after_transfer``: Lilis Energy, delisted 2016-08-11 and on NYSE
+    American from 2017-05, still in the nasdaq.com lists to 2017-09), not a contradiction. One row per
+    (security, ticker) at fault."""
     columns = ["security_id", "cik", "ticker", "delist_date", "first_seen_after", "last_seen_after", "n_rows_after",
                "reason"]
     if master.empty or intervals.empty or rows.empty:
@@ -2099,9 +2237,12 @@ def delist_date_violations(master: pd.DataFrame, intervals: pd.DataFrame, rows: 
         verdict = listed_past_delisting(spans, row.delist_date, full, tolerance_days)
         relisted = [] if verdict else [(s, e) for s, e in spans if s > row.delist_date]
         limit = _shift(row.delist_date, tolerance_days)
+        moved = str(getattr(row, "transfer_date", "") or "")
+        stale = lambda d: bool(moved) and d > moved and not any(s <= d <= e for s, e in spans)
         for ticker in sorted(set(own["ticker"])):
             days = seen.get((int(row.cik), ticker), [])
-            late = [d for d in days[bisect.bisect_right(days, limit):] if not any(s <= d <= e for s, e in relisted)]
+            late = [d for d in days[bisect.bisect_right(days, limit):]
+                    if not any(s <= d <= e for s, e in relisted) and not stale(d)]
             if late:
                 out.append({"security_id": row.security_id, "cik": int(row.cik), "ticker": ticker,
                             "delist_date": row.delist_date, "first_seen_after": late[0], "last_seen_after": late[-1],
@@ -2258,6 +2399,14 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
     for cik in set(profiles) | set(f25_by_cik) | set(prices_by_cik):
         if cik not in ciks_with_rows:
             keys[security_id(cik, "COMMON", False)] = (cik, "COMMON")
+    # Every security an interval names is in the master: a current SEC ticker of a multi-class CIK that
+    # no Nasdaq snapshot shows (a Series B quoted OTC, notes, warrants: GOOGM, BATRB, UHAL-B) is a
+    # security of its own, keyed by its ticker, with no listing dates.
+    current_only: dict[str, pd.DataFrame] = {}
+    if not all_intervals.empty:
+        for sid, group in all_intervals[~all_intervals["security_id"].isin(set(keys))].groupby("security_id"):
+            keys[sid] = (int(group["cik"].iloc[0]), str(group["share_class"].iloc[0]))
+            current_only[sid] = group
     by_sid = {sid: g for sid, g in all_intervals.groupby("security_id")} if not all_intervals.empty else {}
     classes_of = defaultdict(set)
     for _, (c, k) in keys.items():
@@ -2359,6 +2508,11 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             notes.append("successor link from a ticker handover with differing names (reorg_review)")
         if cik in missing:
             notes.append("SEC submissions not found")
+        if sid in current_only:
+            seen = current_only[sid]
+            notes.append("only in SEC's current ticker list (" + ", ".join(
+                f"{t} on {e or 'no exchange'}" for t, e in zip(seen["ticker"], seen["exchange"].fillna("")))
+                + "); no Nasdaq snapshot row")
         if successor_of.get(cik):
             notes.append("Form 25 reorg: successor CIK " + " ".join(map(str, sorted(successor_of[cik]))))
         if predecessor_of.get(cik):
@@ -2370,6 +2524,8 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
         first_ticker = ""
         if not listed.empty:
             first_ticker = listed.sort_values("start").iloc[0]["ticker"]
+        elif sid in current_only:
+            first_ticker = current_only[sid]["ticker"].iloc[0]
         elif profile and profile["tickers"]:
             first_ticker = profile["tickers"][0]
         elif f25 is not None and text_value(f25.iloc[0].get("subject_tickers_sec")).strip():
@@ -2426,10 +2582,28 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
     return pd.DataFrame(rows, columns=MASTER_COLUMNS)
 
 
+def redirect_outputs(out_dir: Path | None = None, form25: Path | None = None) -> None:
+    """Write every output under ``out_dir`` (the three INPUTS tables at its top, the derived files in
+    ``out_dir/derived``) instead of INPUTS and CACHE/raw/sec/derived, for a scratch build; read the
+    step-3 table from ``form25`` when given. The SEC cache itself is shared."""
+    global MASTER, INTERVALS, PERIODIC_HISTORY, WORK, RAW_ROWS, FORM25
+    if out_dir is not None:
+        out_dir = Path(out_dir)
+        MASTER, INTERVALS = out_dir / "security_master.csv", out_dir / "ticker_intervals.csv"
+        PERIODIC_HISTORY = out_dir / "periodic_form_history.csv"
+        WORK = out_dir / "derived"
+        RAW_ROWS = WORK / "ticker_rows_raw.csv.gz"
+    if form25 is not None:
+        FORM25 = Path(form25)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
+    parser.add_argument("--out-dir", type=Path, help="scratch build: write every output under this directory")
+    parser.add_argument("--form25", type=Path, help="read the step-3 table from this file (default INPUTS)")
     args = parser.parse_args(argv)
+    redirect_outputs(args.out_dir, args.form25)
     master, intervals, stats, evidence, history = build(offline=args.offline)
     common.atomic_write(MASTER, master.to_csv(index=False).encode("utf-8"))
     common.atomic_write(PERIODIC_HISTORY, history.to_csv(index=False).encode("utf-8"))

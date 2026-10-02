@@ -539,7 +539,9 @@ def test_same_series_rename_prefers_its_own_next_close_on_a_tie():
     out = frame.loc["1"]
     assert out.event_subtype == "reorganization"
     assert float(out.terminal_return) == pytest.approx(30.10 / 29.66 - 1)
-    assert tr.REVIEWED["1560385.T-LMCA"]["limit"] == tr.REVIEWED["1560385.T-LMCK"]["limit"] == "2017-01-23"
+    # round 10: the 8-A12B/A filed after the close on 2017-01-24 dates the symbol change (WIKI's last LMCA row)
+    assert tr.REVIEWED["1560385.T-LMCA"]["limit"] == tr.REVIEWED["1560385.T-LMCK"]["limit"] == "2017-01-24"
+    assert tr.REVIEWED["1560385.T-LMCA"]["url"].endswith("1560385/000110465917003788/a17-3007_18a12ba.htm")
 
 
 def test_orcl_exchange_move_ends_on_the_last_nasdaq_session():
@@ -758,7 +760,11 @@ def test_qdel_and_apa_reviewed():
     qdel = tr.REVIEWED["353569"]
     assert qdel["limit"] == "2022-05-26" and qdel["url"].endswith("1906324/000119312522161806/d323352d8k12b.htm")
     assert "353569" not in tr.REVIEWED_SOURCES  # the reviewed url names the successor's 8-K12B
-    assert "effective time" in tr.REVIEWED["6769"]["hold"] and "effective time" in tr.REVIEWED["912752"]["hold"]
+    assert "effective time" in tr.REVIEWED["6769"]["hold"]
+    # round 10: Sinclair's closing 8-K does state the time (12:00 am ET on 2023-06-01): no hold, last session 05-31
+    sbgi = tr.REVIEWED["912752"]
+    assert "hold" not in sbgi and not sbgi.get("hold_last_session") and sbgi["limit"] == "2023-05-31"
+    assert "12:00 am" in sbgi["note"] and sbgi["url"].endswith("912752/000119312523158935/d530850d8k.htm")
 
 
 def test_special_dividend_paid_at_the_closing_is_part_of_the_value():
@@ -988,8 +994,10 @@ def test_21cf_non_electing_shares_wait_for_a_dis_close(monkeypatch):
     assert float(out.terminal_return) == pytest.approx(0.4517 * 110.0 / 49.6 - 1)
 
 
-def test_reviewed_hold_on_the_last_session_blanks_last_price_date():
-    assert tr.REVIEWED["6769"]["hold_last_session"] and tr.REVIEWED["912752"]["hold_last_session"]
+def test_reviewed_hold_on_the_last_session_blanks_last_price_date(monkeypatch):
+    assert tr.REVIEWED["6769"]["hold_last_session"]
+    # APA continues as APA Corporation (SUCCESSOR_LINKS): taken out here to test the hold itself
+    monkeypatch.delitem(tr.SUCCESSOR_LINKS, "6769")
     book = _book([("6769", "2021-02-26", 21.8, 1e7, "tiingo"), ("6769", "2021-03-01", 21.9, 1e7, "tiingo"),
                   ("6769", "2021-03-02", 22.0, 1e7, "tiingo")])
     row = _row(security_id="6769", end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="",
@@ -999,6 +1007,26 @@ def test_reviewed_hold_on_the_last_session_blanks_last_price_date():
     assert (out.status, out.last_price_date, out.acquirer_price_date, out.terminal_return) == ("needs_review", "", "", "")
     level = used.set_index("security_id").loc["6769"]
     assert (level.last_price_date_held, level.acquirer_price_date_held) == ("2021-03-01", "2021-03-02")
+
+
+def test_a_one_for_one_reorganisation_that_continues_books_no_terminal_return():
+    """Owner convention 2026-10-02: Apache -> APA continues the security (reconcile SUCCESSOR_LINKS), so the row has no
+    terminal return (the successor's first return runs from Apache's last close) and the hold on the last session
+    is moot: the reconcile cut dates it."""
+    assert tr.SUCCESSOR_LINKS["6769"]["continues"]
+    book = _book([("6769", "2021-02-26", 21.8, 1e7, "tiingo"), ("6769", "2021-03-01", 21.9, 1e7, "tiingo"),
+                  ("6769", "2021-03-02", 22.0, 1e7, "tiingo")])
+    row = _row(security_id="6769", end_source="snapshots", delist_date="", f25_delisting_basis="", f25_filing_date="",
+               end_date="2021-03-01")
+    frame, used = _build([row], [_evidence("6769", closing_dates="2021-03-01")], book)
+    out = frame.loc["6769"]
+    assert (out.terminal_type, out.event_subtype, out.consideration_shares) == ("stock_merger", "reorganization", "1")
+    assert (out.status, out.terminal_return, out.continued_as) == ("no_terminal_return", "", "1841666")
+    assert out.last_price_date == tr.SUCCESSOR_LINKS["6769"]["last_session"] == "2021-03-01"
+    assert "continued as 1841666" in out.status_note
+    assert not used.set_index("security_id").loc["6769", "review_reasons"]
+    # a cut-only link (21CF -> Fox) keeps its terminal value
+    assert not tr.SUCCESSOR_LINKS["1308161.A"]["continues"]
 
 
 def test_guard_holds_elections_cvrs_and_values_beyond_5pct_unless_approved_with_a_url():
@@ -1133,7 +1161,8 @@ def test_old_shares_last_trade_never_comes_from_the_new_shares(monkeypatch):
     frame, used = _build([row], evidence, _ww_book(stored_tail=False))
     out, level = frame.loc["1"], used.set_index("security_id").loc["1"]
     assert level["last_date"] == "2025-05-15" and level["limit_basis"] == "session_before_relist_junction"
-    assert (out.terminal_type, out.status, out.relist_junction) == ("bankruptcy_otc", "awaiting_d5", "2025-06-27")
+    # no OTC close and no reviewed plan valuation: held for the plan, never the D5 rule (round 9)
+    assert (out.terminal_type, out.status, out.relist_junction) == ("bankruptcy_otc", "needs_review", "2025-06-27")
     assert "old shares at a relist junction" in out.status_note
     # without the junction entry the same book gives a new-share row as the old shares' last trade
     monkeypatch.delitem(tr.RELIST_JUNCTIONS, "1")
@@ -1172,10 +1201,12 @@ def test_old_shares_otc_tail_values_them_and_stops_at_the_junction(monkeypatch):
     assert (out.status, out.last_price_date) == ("computed", "2020-10-09")
     assert float(out.terminal_return) == pytest.approx(0.10 / 0.16 - 1)
     assert used.set_index("security_id").loc["1", "otc_date"] == "2020-10-12"
-    # with no OTC row before the junction, the new shares' first row is not taken for an OTC close
+    # with no OTC row before the junction, the new shares' first row is not taken for an OTC close, and the row waits
+    # for a plan valuation: the old shares at a junction are never a D5 case (round 9)
     gap_rows = [r for r in rows if r[1] not in ("2020-10-12", "2020-11-19")]
-    frame, _ = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _book(gap_rows))
-    assert frame.loc["1", "status"] == "awaiting_d5" and frame.loc["1", "terminal_return"] == ""
+    frame, used = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _book(gap_rows))
+    assert frame.loc["1", "status"] == "needs_review" and frame.loc["1", "terminal_return"] == ""
+    assert "not a D5 case" in used.set_index("security_id").loc["1", "review_reasons"]
 
 
 def test_old_shares_cancelled_with_nothing_need_no_close(monkeypatch):
@@ -1211,7 +1242,7 @@ def test_old_shares_waiting_for_their_vendor_rows_are_pending_not_d5(monkeypatch
 
 def test_every_relist_junction_has_a_reviewed_row_dated_on_the_old_shares_last_nasdaq_session():
     for sid, junction in tr.RELIST_JUNCTIONS.items():
-        review = tr.REVIEWED.get(sid)
+        review = tr.REVIEWED_OLD_SHARES.get(sid) or tr.REVIEWED.get(sid)  # Frontier: the old shares' own entry
         assert review and review["type"] == "bankruptcy_otc" and review["sub"] == "bankruptcy", sid
         assert review["limit"] == junction["old_nasdaq_last_session"] < junction["first_new_session"], sid
         assert review["url"].startswith("https://www.sec.gov/Archives/edgar/data/"), sid
@@ -1243,10 +1274,129 @@ def test_a_held_plan_valuation_waits_for_review_with_the_value_kept_local(monkey
 
 
 def test_configure_paths_sends_the_outputs_under_the_out_dir(tmp_path, monkeypatch):
-    for name in ("OUT", "OUTPUT", "RECONCILE_HANDOFF", "MANUAL_REVIEW_QUEUE"):
+    for name in ("OUT", "OUTPUT", "RECONCILE_HANDOFF", "MANUAL_REVIEW_QUEUE", "EXCHANGE_MOVES", "SERIES_ENDS_OUT",
+                 "READ_ONLY_SHARED", "RECONCILE_DIR", "CANONICAL_PRICES"):
         monkeypatch.setattr(tr, name, getattr(tr, name))  # restored after the test
     tr.configure_paths(tmp_path)
     root = tmp_path.resolve()
     assert tr.OUTPUT == root / "inputs" / "terminal_returns_2012_2026.csv" and tr.OUT == root / "terminal"
     assert tr.MANUAL_REVIEW_QUEUE.parent == tr.RECONCILE_HANDOFF.parent == root / "terminal"
+    assert tr.EXCHANGE_MOVES == root / "inputs" / "exchange_moves.csv" and tr.SERIES_ENDS_OUT == root / "terminal" / "series_ends.csv"
+    assert tr.READ_ONLY_SHARED  # a scratch build writes nothing outside its out-dir
+    tr.configure_reconcile(tmp_path / "rc")
+    assert tr.RECONCILE_DIR == (tmp_path / "rc").resolve() / "reconcile" and tr.CANONICAL_PRICES.name == "prices"
+    assert tr.SERIES_ENDS_OUT == root / "terminal" / "series_ends.csv"  # still under the out-dir
     assert tr.YAHOO_RAW == tr.TERMINAL_CACHE / "yahoo_raw"  # the charts are still read from CACHE/terminal
+
+
+
+# ------------------------------------------------------------------ round 9: the old shares of a junction whose new shares
+# were delisted later, a junction-only scope row, exchange_moves.csv, the refreshed series_ends column, scratch builds
+
+def test_old_shares_of_a_security_delisted_again_later_go_to_their_own_columns(monkeypatch):
+    """Frontier: the row values FYBR's 2026 cash merger with the whole book; the old FTR shares (cancelled with nothing,
+    an inference written as such) are -100% in the relist_old_shares_* columns."""
+    _junction(monkeypatch, first_new="2021-05-04", effective="2021-04-30")
+    monkeypatch.setitem(tr.REVIEWED_OLD_SHARES, "1", {
+        "type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2020-04-23", "value": 0.0,
+        "url": "https://www.sec.gov/Archives/edgar/data/1/o.htm", "approved": "partly an inference", "note": "FTR-like"})
+    monkeypatch.delitem(tr.REVIEWED, "1", raising=False)
+    book = _book([("1", "2018-03-07", 8.05, 1e6, "wiki"), ("1", "2026-01-15", 38.4, 1e6, "tiingo"),
+                  ("1", "2026-01-16", 38.45, 1e6, "tiingo")])
+    row = _row(delist_date="2026-01-30", end_date="2026-01-30", f25_filing_date="2026-01-20")
+    frame, used = _build([row], [_evidence(terms_cash=38.5, closing_dates="2026-01-20")], book)
+    out = frame.loc["1"]
+    assert (out.terminal_type, out.status, out.last_price_date, out.relist_junction) == ("cash_merger", "computed",
+                                                                                         "2026-01-16", "")
+    assert float(out.terminal_return) == pytest.approx(38.5 / 38.45 - 1)
+    assert (out.relist_old_shares_status, out.relist_old_shares_terminal_return,
+            out.relist_old_shares_last_price_date) == ("computed", "-1", "2020-04-23")
+    assert "partly an inference" in out.relist_old_shares_note
+    assert used.set_index("security_id").loc["1", "old_limit"] == "2020-04-23"
+
+
+def test_a_junction_whose_master_has_no_end_is_in_scope_on_its_old_shares_last_nasdaq_session(monkeypatch):
+    """Vroom: no 2024 Form 25 in the step-3 table and the new shares still listed, so the master dates no end."""
+    monkeypatch.setitem(tr.RELIST_JUNCTIONS, "9", {"first_new_session": "2025-02-20", "effective_date": "2025-01-14",
+                                                   "old_nasdaq_last_session": "2024-11-29", "kind": "x", "url": "u"})
+    master = _master([{"security_id": "9", "cik": "9", "first_ticker": "VRM", "last_listed": "2026-07-01"},
+                      {"security_id": "8", "cik": "8", "first_ticker": "ACT", "last_listed": "2026-07-01"}])
+    facts = pd.DataFrame({"security_id": ["9", "8"], "best_rank": ["180", "50"], "active_nasdaq": ["True", "True"],
+                          "last_listed": ["2026-07-01"] * 2, "last_ticker": ["VRM", "ACT"], "tickers": ["VRM", "ACT"],
+                          "last_universe_week": [""] * 2}, dtype=str)
+    form25 = pd.DataFrame(columns=["accession", "effective_date", "filing_date", "rule_provision", "delisting_basis",
+                                   "classification", "subject_exit", "successor_cik", "successor_tickers", "tickers_new",
+                                   "tickers_ended", "doc_url"])
+    scope = tr.terminal_candidates(master, pd.DataFrame({"security_id": []}, dtype=str), facts, form25)
+    assert list(scope["security_id"]) == ["9"]  # an active security without a junction stays out
+    assert scope.iloc[0]["end_date"] == "2024-11-29" and scope.iloc[0]["end_source"] == "relist_junction"
+
+
+def test_every_round_9_junction_review_is_held_or_written_as_an_inference():
+    vroom, cepl, thry = tr.REVIEWED["1580864"], tr.REVIEWED["1009759"], tr.REVIEWED["1556739"]
+    assert "approved" not in vroom and vroom["hold"] and vroom["rule"] == "plan_new_shares" and vroom["shares"] == 0.2
+    assert "approved" not in cepl and cepl["limit"] == "2023-10-04"  # the guard holds the OTC close for a check
+    assert thry["approved"].startswith("an inference") and tr.REVIEWED_OLD_SHARES["20520"]["approved"].startswith(
+        "partly an inference")
+    assert "20520" not in tr.REVIEWED  # Frontier's row values FYBR's 2026 delisting
+
+
+def test_exchange_moves_join_the_terminal_rows_series_ends_and_the_holdout_overrides(tmp_path, monkeypatch):
+    overrides = tmp_path / "overrides.csv"
+    pd.DataFrame([{"ticker": "PEP", "nasdaq_from": "2017-12-20", "nasdaq_until": "", "basis": "8-K", "evidence": "https://e/1"},
+                  {"ticker": "HON", "nasdaq_from": "2099-01-01", "nasdaq_until": "", "basis": "absent", "evidence": "snapshots"},
+                  {"ticker": "ORCL", "nasdaq_from": "", "nasdaq_until": "2013-07-15", "basis": "moved to NYSE",
+                   "evidence": "https://e/2"}]).to_csv(overrides, index=False)
+    monkeypatch.setattr(tr, "HOLDOUT_OVERRIDES", overrides)
+    frame = pd.DataFrame([{"security_id": "1", "ticker": "ORCL", "terminal_type": "exchange_move", "status": "no_terminal_return",
+                           "destination_start_date": "2013-07-15", "last_price_date": "2013-07-12", "end_date": "2013-07-22",
+                           "destination_exchange": "NYSE", "source_url": "https://sec/orcl"},
+                          {"security_id": "2", "ticker": "X", "terminal_type": "cash_merger", "status": "computed",
+                           "destination_start_date": "", "last_price_date": "2015-01-02", "end_date": "2015-01-05",
+                           "destination_exchange": "", "source_url": ""}])
+    ends = pd.DataFrame([{"security_id": "3", "ticker_last": "UNFI", "likely_cause": "exchange_move", "transfer_date": "2019-01-07",
+                          "last_date": "2019-01-04"}])
+    master = _master([{"security_id": "3", "cik": "1020859", "transfer_form25_accession": "0001020859-18-000166",
+                       "exchanges_sec_current": "NYSE"}])
+    intervals = pd.DataFrame([{"security_id": "1", "ticker": "ORCL", "start": "2010-12-31", "end": "2013-07-12", "exchange": "NASDAQ"},
+                              {"security_id": "77476", "ticker": "PEP", "start": "2017-12-20", "end": "2026-08-01",
+                               "exchange": "NASDAQ"}])
+    moves = tr.exchange_moves(frame, ends, master, intervals).set_index("ticker")
+    assert list(moves.columns[:5]) == ["security_id", "date", "from_exchange", "to_exchange", "source_url"]
+    assert sorted(moves.index) == ["ORCL", "PEP", "UNFI"]  # ORCL once (the terminal row), no 2099 placeholder
+    assert (moves.loc["ORCL", "date"], moves.loc["ORCL", "source"]) == ("2013-07-15", "terminal")
+    assert (moves.loc["PEP", "security_id"], moves.loc["PEP", "to_exchange"]) == ("77476", "NASDAQ")
+    assert moves.loc["UNFI", "to_exchange"] == "NYSE" and moves.loc["UNFI", "source_url"].endswith("-index.htm")
+    # a holdout row that names no old exchange says why the field is blank (round 10)
+    assert moves.loc["PEP", "from_exchange"] == "" and "blank: the old exchange is not named" in moves.loc["PEP", "note"]
+    assert "2019" in tr.EXCHANGE_MOVES_SCOPE and "onto Nasdaq" in tr.EXCHANGE_MOVES_SCOPE
+
+
+def test_refresh_series_ends_quotes_this_build_and_labels_the_old_shares():
+    ends = pd.DataFrame([{"security_id": "J", "category": "old_shares_at_relist_junction", "terminal_2012_2026": "stale"},
+                         {"security_id": "K", "category": "ends_before_delist", "terminal_2012_2026": "stale"},
+                         {"security_id": "Z", "category": "ends_before_delist", "terminal_2012_2026": "stale"}])
+    frame = pd.DataFrame([{"security_id": "J", "terminal_type": "cash_merger", "status": "computed", "last_price_date": "2026-01-16",
+                           "end_date": "2026-01-30", "relist_old_shares_status": "computed",
+                           "relist_old_shares_last_price_date": "2020-04-23"},
+                          {"security_id": "K", "terminal_type": "bankruptcy_otc", "status": "needs_review",
+                           "last_price_date": "2024-11-29", "end_date": "2024-11-29", "relist_old_shares_status": "",
+                           "relist_old_shares_last_price_date": ""}])
+    out = tr.refresh_series_ends(ends, frame).set_index("security_id")["terminal_2012_2026"]
+    assert out["J"].startswith("bankruptcy_otc/computed (old shares") and "2020-04-23" in out["J"]
+    assert out["K"] == "bankruptcy_otc/needs_review last_price_date=2024-11-29 end_date=2024-11-29" and out["Z"] == ""
+    assert tr.refresh_series_ends(None, frame) is None
+
+
+def test_a_scratch_build_reads_the_repos_sec_envelopes_without_copying_them(tmp_path, monkeypatch):
+    monkeypatch.setattr(tr, "_from_provenance", lambda url: b"body")
+    path = tmp_path / "docs" / "x.htm.gz"
+    monkeypatch.setattr(tr, "READ_ONLY_SHARED", True)
+    assert tr.fetch_sec("https://www.sec.gov/x.htm", path, offline=True) == b"body" and not path.exists()
+    monkeypatch.setattr(tr, "READ_ONLY_SHARED", False)
+    assert tr.fetch_sec("https://www.sec.gov/x.htm", path, offline=True) == b"body" and path.exists()
+
+
+def test_a_month_2_tiingo_row_is_pending_for_month_2():
+    candidates = pd.DataFrame({"security_id": ["1"], "planned_source": ["tiingo"], "status": ["pending_month2"]})
+    assert tr.price_pending("1", candidates, _book([])) == "tiingo month 2"

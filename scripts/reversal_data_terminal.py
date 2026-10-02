@@ -45,11 +45,29 @@ How the listing ended (``terminal_type``):
   (reviewed: the session before the stated suspension), their OTC tail up to the junction when a
   vendor has it (CHRD), else the plan of reorganization: new shares per old share at the new
   shares' first vendor close (REVIEWED ``rule`` ``plan_new_shares``: WW, ``needs_review`` until the
-  owner approves the valuation: the builder's checks are in its ``checked`` key), or nothing (``value``
-  0: OPI, Dex Media), which is -100% whatever the last close, so it needs no vendor close; one
-  whose old shares have no vendor rows yet is ``pending_price``, not D5 (CORZ: its holders got
-  21% of the new equity);
+  owner approves the valuation: the builder's checks are in its ``checked`` key; Vroom), or nothing
+  (``value`` 0: OPI, Dex Media, whose "nothing" is an inference written as such), which is -100% whatever
+  the last close, so it needs no vendor close; one whose old shares have no vendor rows yet is
+  ``pending_price``, not D5 (CORZ: its holders got 21% of the new equity); one with neither an OTC close
+  nor a reviewed plan valuation is ``needs_review``: the old shares at a junction are never a D5 case.
+  A junction security whose master end the snapshots do not date (Vroom: no 2024 Form 25 in the step-3
+  table, the new shares still listed) is in scope with ``end_source`` relist_junction, ending on its old
+  shares' last Nasdaq session. When the new shares were themselves delisted later (Frontier: FYBR,
+  2026-01-30), the row values that later end and the old shares go to the ``relist_old_shares_*``
+  columns (REVIEWED_OLD_SHARES: last Nasdaq session, return, status, document, note);
 - ``unknown``: no SEC evidence decided it; listed explicitly, never defaulted.
+
+A 1:1 holding-company reorganisation or reincorporation that the reconcile step's ``SUCCESSOR_LINKS``
+continues (owner convention of 2026-10-02, as CRSP keeps one PERMNO: Google -> Alphabet, Apache -> APA, ...)
+stays a ``stock_merger`` / ``reorganization`` of 1 share with ``acquirer_security_id`` the successor, but books no
+terminal return (status ``no_terminal_return``, ``continued_as`` the successor, ``last_price_date`` the reconcile
+cut): the series runs on in the successor, whose first return is measured from this last close, so a terminal
+return would count that day twice. The links that do not continue (21CF, Pinnacle, Angie's List, AspenTech; round
+10: Investors Bancorp's 2.55 conversion, Uniti's 0.6029 and Amerant's Class B folded into Class A) keep their
+terminal value; the reconcile step cuts their series at the same last session. Round 10 added the 1:1
+reorganisations and renames of REVIEWED that the master gives no successor link (ESRX, MRVL, ASRT, SBGI, VNOM, RTIX,
+Z, LBTYB, LMCA/LMCK, LINTA/LINTB, QVCA/QVCB, QRTEA/QRTEB, and Bank of the Ozarks into Bank OZK): they continue too,
+so they book no terminal return.
 
 The automatic reading is overridden by ``REVIEWED`` (hand review of the documents named) for
 the rows it gets wrong: another company's terms in the same 8-K, ADS ratios, elections,
@@ -127,7 +145,21 @@ Outputs:
   CACHE/terminal/terminal_summary.json    counts by terminal_type and status; unknowns by best rank
   CACHE/terminal/manual_review_queue.csv  security_id, ticker, best_rank, reason, documents: every row to check by hand
   CACHE/terminal/for_reconcile_owner.csv  special dividends the terminal value owns (and any booking of them in the
-                                          canonical series), exchange moves whose last Nasdaq session no vendor dates
+                                          canonical series: round 9's reconcile drops such a booking, so the action
+                                          should read "none"), exchange moves whose last Nasdaq session no vendor dates
+  INPUTS/exchange_moves.csv               plan 1.1 (security_id, ticker, date = the first session on the new exchange,
+                                          from_exchange, to_exchange, source_url; then last_nasdaq_session, date_basis,
+                                          source, terminal_status, note): this step's exchange_move rows, the reconcile
+                                          step's series_ends.csv exchange moves this step has no row for, and the
+                                          holdout's nasdaq_listing_overrides.csv. Scope (EXCHANGE_MOVES_SCOPE): moves
+                                          off Nasdaq 2012-2026 (this step and series_ends); moves onto Nasdaq only from
+                                          the holdout table, so to 2019 (none after 2019 is listed: no source of this
+                                          step names them); a holdout row's from_exchange is blank unless its text
+                                          names the old exchange, its source_url blank when it is a snapshot bracket,
+                                          its security_id blank when no Nasdaq interval of the ticker lies within 400
+                                          days
+  CACHE/reconcile/series_ends.csv         its terminal_2012_2026 column refreshed from this build (reconcile runs first
+                                          and can only quote the previous terminal table)
   CACHE/terminal/yahoo_raw/               the acquirer charts
   CACHE/terminal/yahoo_otc/               a record of a fetch made by hand on 2026-10-02, outside this module (3 Yahoo
                                           requests 2 s apart for the old shares' OTC tails at relist junctions:
@@ -140,7 +172,10 @@ Outputs:
                                           by hand for the relist junctions (the CORZ and OPI emergence 8-Ks and OPI's
                                           EX-99.1, WW's 10-Q for the quarter to 2025-06-30, Thryv's 2020 424B4, Dex
                                           Media's 2016-01-05 8-K)
-  ``--out-dir DIR`` writes the INPUTS file under DIR/inputs and the CACHE/terminal outputs under DIR/terminal.
+  ``--out-dir DIR`` writes the INPUTS files under DIR/inputs and the CACHE/terminal outputs (and the refreshed
+  series_ends.csv) under DIR/terminal, and nothing else: the repo's earlier SEC envelopes are read but not copied
+  into CACHE/raw/sec/docs. ``--reconcile-out ROOT`` reads series_ends.csv and the canonical prices from a reconcile
+  ``--out-dir`` build instead of CACHE.
 
 SEC requests (the fetch stages only) go through this process's own limiter, at most 4 a second.
 
@@ -167,7 +202,7 @@ import numpy as np
 import pandas as pd
 
 from scripts import reversal_data_common as common
-from scripts.reversal_data_reconcile import RELIST_JUNCTIONS
+from scripts.reversal_data_reconcile import RELIST_JUNCTIONS, SUCCESSOR_LINKS
 
 MAIN = common.MAIN_CHECKOUT
 INPUTS = common.INPUTS
@@ -252,7 +287,12 @@ def terminal_candidates(master: pd.DataFrame | None = None, candidates: pd.DataF
     rows["last_universe_week"] = rows["security_id"].map(fact["last_universe_week"]).fillna("")
     delist = rows["delist_date"].where(rows["delist_date"].ne(""), None)
     ended = (rows["active_nasdaq"].str.lower() != "true") | (delist.notna() & (delist.fillna("9999") <= WINDOW_END))
-    rows = rows[ended].copy()
+    # the old shares at a relist junction whose Nasdaq end the master does not date (Vroom: no 2024 Form 25 in the
+    # step-3 table, and the new shares still trade): in scope, ending on their last Nasdaq session
+    junction_only = rows["security_id"].isin(set(RELIST_JUNCTIONS)) & ~ended
+    keep = ended | junction_only
+    rows = rows[keep].copy()
+    rows["junction_only"] = junction_only[keep].to_numpy(dtype=bool)
     by_accession = form25.drop_duplicates("accession").set_index("accession")
     keep = ["effective_date", "filing_date", "rule_provision", "delisting_basis", "classification",
             "subject_exit", "successor_cik", "successor_tickers", "tickers_new", "tickers_ended", "doc_url"]
@@ -266,6 +306,18 @@ def terminal_candidates(master: pd.DataFrame | None = None, candidates: pd.DataF
         for delist_date, transfer, last in zip(rows["delist_date"], rows["transfer_date"], rows["last_listed"])]
     rows["end_source"] = ["form25" if d else ("transfer" if t else "snapshots")
                           for d, t in zip(rows["delist_date"], rows["transfer_date"])]
+    for k in rows.index[rows["junction_only"]]:
+        entry = RELIST_JUNCTIONS[rows.at[k, "security_id"]]
+        rows.at[k, "end_date"] = entry.get("old_nasdaq_last_session") or entry["first_new_session"]
+        rows.at[k, "end_source"] = "relist_junction"
+    rows = rows.drop(columns="junction_only")
+    # a security with no listing end at all (no Form 25, no transfer, no listed interval: Ford's lone 2019 snapshot
+    # interval, removed by step 4) has nothing to value; it is left out and named in the log
+    undated = rows["end_date"].fillna("").eq("")
+    if undated.any():
+        log(f"scope: left out {int(undated.sum())} securities with no listing end: "
+            f"{' '.join(rows.loc[undated, 'security_id'])}")
+        rows = rows[~undated].copy()
     intervals = read_csv_text(INTERVALS) if INTERVALS.exists() else pd.DataFrame(columns=["security_id", "end", "source_url"])
     last_interval = intervals.sort_values("end").drop_duplicates("security_id", keep="last").set_index("security_id")
     rows["listing_source_url"] = rows["security_id"].map(last_interval["source_url"]).fillna("")
@@ -374,9 +426,15 @@ def _provenance_cache() -> dict[str, Path]:
                 except Exception:  # an unreadable envelope is simply not reused
                     continue
             _PROVENANCE_CACHE = found
-            TERMINAL_CACHE.mkdir(parents=True, exist_ok=True)
-            common.atomic_write(index_path, json.dumps({k: str(v) for k, v in found.items()}, indent=0).encode())
+            if not READ_ONLY_SHARED:
+                TERMINAL_CACHE.mkdir(parents=True, exist_ok=True)
+                common.atomic_write(index_path, json.dumps({k: str(v) for k, v in found.items()}, indent=0).encode())
     return _PROVENANCE_CACHE
+
+
+# ``--out-dir`` (a scratch build): nothing is written outside the out-dir, so the repo's earlier SEC envelopes are read
+# but not copied into CACHE/raw/sec/docs, and the provenance index is not written
+READ_ONLY_SHARED = False
 
 
 def _from_provenance(url: str) -> bytes | None:
@@ -403,7 +461,8 @@ def fetch_sec(url: str, path: Path, symbol: str = "", offline: bool = False) -> 
         return None
     reused = _from_provenance(url)
     if reused is not None:
-        common.atomic_write(path, gzip.compress(reused, mtime=0) if path.suffix == ".gz" else reused)
+        if not READ_ONLY_SHARED:
+            common.atomic_write(path, gzip.compress(reused, mtime=0) if path.suffix == ".gz" else reused)
         return reused
     if offline:
         return None
@@ -1824,6 +1883,8 @@ def price_pending(sid: str, candidates: pd.DataFrame, book: PriceBook) -> str:
                 continue
             if row.status == "conditional_tier_c":
                 return "tiingo month 2 (conditional tier C)"
+            if row.status == "pending_month2" or tiingo & {"pending_month2"}:
+                return "tiingo month 2"
             if row.status == "deferred_quota" or tiingo & {"deferred_quota", "error"}:
                 return "tiingo deferred to month 2"
             return "tiingo run in progress (file not yet arrived)"
@@ -1848,6 +1909,11 @@ OUTPUT_COLUMNS = [
     "special_dividend_cash", "special_dividend_record_date",
     # the first traded session of the new shares when this row is the old shares' at a relist junction
     "relist_junction",
+    # a 1:1 reorganisation that continues the security (reconcile SUCCESSOR_LINKS): the successor; no terminal return
+    "continued_as",
+    # the old shares at a relist junction of a security whose row values a later end (REVIEWED_OLD_SHARES: Frontier)
+    "relist_old_shares_last_price_date", "relist_old_shares_terminal_return", "relist_old_shares_status",
+    "relist_old_shares_source_url", "relist_old_shares_note",
 ]
 TYPES = ("cash_merger", "stock_merger", "mixed", "liquidation", "exchange_move", "bankruptcy_otc", "unknown")
 STATUSES = ("computed", "pending_price", "no_vendor_price", "needs_acquirer_price", "needs_review", "no_terminal_return",
@@ -1875,11 +1941,16 @@ NON_NASDAQ = {"NYSE", "NYSE American", "NYSE Arca", "Cboe BZX", "CBOE"}
 _SEC = "https://www.sec.gov/Archives/edgar/data/"
 REVIEWED: dict[str, dict] = {
     # ---- reorganisations, reclassifications and renames into another security (1 share)
-    "885721": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1532063",
+    "885721": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1532063", "limit": "2012-03-30",
+               "url": _SEC + "885721/000119312512144955/d328743d8k.htm",
                "note": "Medco merger: the Company's stockholders received Express Scripts Holding shares one-for-one "
-                       "(the $28.80 + 0.81 terms in the 8-K are Medco's)"},
-    "1058057": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1835632",
-                "note": "redomicile into Marvell Technology, Inc. one-for-one at the Inphi closing (the $66 + 2.323 terms are Inphi's)"},
+                       "(the $28.80 + 0.81 terms in the 8-K are Medco's); the 8-K accepted at 08:07 on 2012-04-02 says "
+                       "trading in the Company's stock 'has been halted' and the Parent's 'will trade' as ESRX, so the last "
+                       "session is 2012-03-30"},
+    "1058057": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1835632", "limit": "2021-04-20",
+                "url": _SEC + "1058057/000119312521122807/d156000d8k.htm",
+                "note": "redomicile into Marvell Technology, Inc. one-for-one at the Inphi closing (the $66 + 2.323 terms are "
+                        "Inphi's); the Bermuda Merger took effect at 4:01 p.m. ET on 2021-04-20"},
     "1261694": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1690666",
                 "note": "each Tessera share became one Tessera Holding (later Xperi) share at the DTS acquisition "
                         "(the $42.50 cash is DTS's)"},
@@ -1905,12 +1976,16 @@ REVIEWED: dict[str, dict] = {
     "1734342.B": {"type": "stock_merger", "sub": "reclassification", "shares": 1.0, "acq": "1734342.A",
                   "note": "Class B converted into Class A one-for-one in the 2021-11-18 merger; last Class B trade 2021-11-17"},
     "1560385.T-LMCA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1560385.T-FWONA",
-                       "limit": "2017-01-23", "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
+                       "limit": "2017-01-24", "url": _SEC + "1560385/000110465917003788/a17-3007_18a12ba.htm",
                        "note": "Liberty Media Group Series A tracking stock renamed Formula One Group (LMCA -> FWONA) after "
-                               "the F1 closing, January 2017; the April 2016 recapitalisation is a distribution inside the series"},
+                               "the F1 closing (EX-99.1 of 2017-01-23: the symbols change 'later this week'); the 8-A12B/A "
+                               "filed after the close on 2017-01-24 expects the change 'shortly following the filing' and "
+                               "WIKI's last LMCA row is 2017-01-24; the April 2016 recapitalisation is a distribution "
+                               "inside the series"},
     "1560385.T-LMCK": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1560385.T-FWONK",
-                       "limit": "2017-01-23", "url": _SEC + "1560385/000156038517000004/lmca-20170123ex991483c15.htm",
-                       "note": "Liberty Media Group Series C tracking stock renamed Formula One Group (LMCK -> FWONK), January 2017"},
+                       "limit": "2017-01-24", "url": _SEC + "1560385/000110465917003788/a17-3007_18a12ba.htm",
+                       "note": "Liberty Media Group Series C tracking stock renamed Formula One Group (LMCK -> FWONK) with "
+                               "Series A (8-A12B/A filed after the close on 2017-01-24)"},
     "1355096.T-LINTA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QVCA",
                         "limit": "2014-10-06", "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
                         "note": "LINTA renamed QVC Group Series A (QVCA) at the open of 2014-10-07; the Liberty Ventures "
@@ -1919,9 +1994,12 @@ REVIEWED: dict[str, dict] = {
                         "limit": "2014-10-06", "url": _SEC + "1355096/000135509614000070/lint-20141006x8k.htm",
                         "note": "LINTB renamed QVC Group Series B (QVCB) at the open of 2014-10-07"},
     "1355096.T-QVCA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QRTEA",
-                       "note": "QVC Group Series A renamed Qurate Retail Series A (QRTEA) in 2018 after the GCI Liberty split-off"},
+                       "limit": "2018-03-09", "url": _SEC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",
+                       "note": "QVC Group Series A renamed Qurate Retail Series A (QRTEA) after the GCI Liberty split-off: "
+                               "'Beginning on Monday, March 12, 2018' it trades as QRTEA (EX-99.1)"},
     "1355096.T-QVCB": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QRTEB",
-                       "note": "QVC Group Series B renamed Qurate Retail Series B (QRTEB) in 2018"},
+                       "limit": "2018-03-09", "url": _SEC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",
+                       "note": "QVC Group Series B renamed Qurate Retail Series B (QRTEB) from 2018-03-12 (EX-99.1)"},
     "1355096.T-QRTEA": {"type": "stock_merger", "sub": "rename", "shares": 1.0, "acq": "1355096.T-QVCGA",
                         "limit": "2025-02-21", "url": _SEC + "1355096/000110465925016368/tm257272d1_8k.htm",
                         "note": "Qurate Retail renamed QVC Group; the 8-K: the Series A shares 'effective as of open of "
@@ -1939,9 +2017,11 @@ REVIEWED: dict[str, dict] = {
                         "acq_name": "GCI Liberty, Inc. Class B (GLIBB; not in the security master)",
                         "url": _SEC + "1355096/000110465918017857/a18-8242_18k.htm",
                         "note": "each LVNTB share redeemed for one GLIBB share in the GCI Liberty split-off, 2018-03-09"},
-    "1100441": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1760173",
+    "1100441": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1760173", "limit": "2019-03-08",
+                "url": _SEC + "1100441/000119312519069904/d719647d8k.htm",
                 "note": "each RTI Surgical share became one share of the new holding company (RTI Surgical Holdings, later "
-                        "Surgalign) at the Paradigm closing, 2019-03-08"},
+                        "Surgalign) at the Paradigm closing, 2019-03-08; the old shares were suspended prior to the open "
+                        "on 2019-03-11"},
     "1006269": {"type": "stock_merger", "sub": "merger", "shares": 1.0, "acq": "1845840",
                 "note": "each Loral share became one Telesat Corporation share (or, by election, one Telesat Partnership unit)"},
     "1509470": {"type": "exchange_move", "sub": "rename_same_security", "dest": "Nasdaq",
@@ -2071,8 +2151,9 @@ REVIEWED: dict[str, dict] = {
                         "note": "each Liberty SiriusXM share exchanged for 0.8375 New Sirius XM share (2024-09-09)"},
     "1434729": {"type": "stock_merger", "shares": 1.65, "acq": "1355096.T-QVCA",
                 "note": "each HSN share converted into 1.65 QVC Group Series A (QVCA) shares"},
-    "1602065": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "",
-                "acq_name": "New Viper Energy Class A (Nasdaq: VNOM, new holding company)", "limit": "2025-08-18",
+    "1602065": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "2074176",
+                "acq_name": "New Viper Energy Class A (Nasdaq: VNOM, new holding company; master 2074176 'Viper Energy, "
+                            "Inc.' from 2025-10-01)", "limit": "2025-08-18",
                 "url": _SEC + "1602065/000119312525183040/d65540d8k.htm",
                 "note": "Sitio combination: each Viper Class A share became one share of the new Viper holding company "
                         "at the Viper Pubco Merger Effective Time, 12:01 a.m. Eastern Time on 2025-08-19, and 'on August "
@@ -2117,8 +2198,10 @@ REVIEWED: dict[str, dict] = {
     "1617977": {"type": "cash_merger", "cash": 14.00, "note": "$14.00 cash (Yum! Brands); the 1-share line is the LLC unit exchange"},
     "1160958": {"type": "mixed", "cash": 66.00, "shares": 2.323, "acq": "1835632",
                 "note": "$66.00 cash + 2.323 Marvell Technology, Inc. shares"},
-    "1334814": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1617640.A",
-                "note": "each Zillow Class A share became one Zillow Group Class A share (Trulia closing, 2015-02-17)"},
+    "1334814": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1617640.A", "limit": "2015-02-17",
+                "url": _SEC + "1334814/000119312515050780/d874732d8k.htm",
+                "note": "each Zillow Class A share became one Zillow Group Class A share (Trulia closing, 2015-02-17); the "
+                        "8-K filed that day: 'After close of market today' trading in Zillow's Class A ceases"},
     "1365101": {"type": "mixed", "sub": "election", "cash": 14.00, "shares": 0.6549, "acq": "", "rule": "election",
                 "acq_name": "Cott Corporation (NYSE: COT)", "note": "election: $14.00 cash or 0.6549 Cott share (prorated)"},
     "1575189": {"type": "mixed", "sub": "election", "cash": 3.00, "shares": 1.0, "acq": "891103",
@@ -2133,15 +2216,16 @@ REVIEWED: dict[str, dict] = {
     "785787": {"type": "mixed", "sub": "election", "cash": 110.0, "shares": 2.5011, "acq": "", "rule": "election",
                "acq_name": "Berry Plastics Group (NYSE: BERY)",
                "note": "election: $110.00 cash or 2.5011 Berry shares, prorated to 50% cash and 50% stock"},
-    "1038205": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "",
-                "acq_name": "Bank OZK (Nasdaq; the bank files with the FDIC, not the SEC)",
-                "note": "holding company merged into its bank: each share became one Bank OZK share, listed on Nasdaq "
-                        "from 2017-06-27 under the same symbol"},
-    "912752": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1971213", "hold_last_session": True,
-               "hold": "the closing 8-K says the New Sinclair shares trade 'on an uninterrupted basis' under SBGI but states "
-                       "no effective time: 2023-06-01 may be New Sinclair's first session (then SBG's last is 2023-05-31)",
+    "1038205": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1569650",
+                "acq_name": "Bank OZK (Nasdaq; the bank files with the FDIC; master 1569650, listed there from 2018-08-07)",
+                "note": "holding company merged into its bank at 4:00 p.m. Central on 2017-06-26: each share became one "
+                        "Bank OZK share, listed on Nasdaq from 2017-06-27 under the same symbol and CUSIP"},
+    "912752": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1971213", "limit": "2023-05-31",
+               "url": _SEC + "912752/000119312523158935/d530850d8k.htm",
                "note": "holding-company reorganisation: each Sinclair Broadcast Group share became one Sinclair, Inc. share "
-                       "(2023-06-01); the bankruptcy words in the 8-K concern Diamond Sports"},
+                       "in the share exchange 'Effective at 12:00 am Eastern U.S. time on June 1, 2023' (closing 8-K, "
+                       "read in round 10: the earlier hold on the last session is resolved), so SBG's last session is "
+                       "2023-05-31; the bankruptcy words in the 8-K concern Diamond Sports"},
     "750004": {"type": "exchange_move", "sub": "listing_transfer", "dest": "ASX",
                "url": _SEC + "750004/000075000425000046/lnw-20250731.htm",
                "note": "sole primary listing moved to the Australian Securities Exchange; Nasdaq delisting November 2025"},
@@ -2163,11 +2247,13 @@ REVIEWED: dict[str, dict] = {
                 "acq_name": "Alliance Data Systems (NYSE: ADS)", "stock_value": 0.07037 * 282.2264,
                 "note": "standard election: $15.14 cash + 0.07037 Alliance Data share, $35.00 in all at the $282.2264 "
                         "closing VWAP; the Alliance Data close is not available, so the stock part is valued at that VWAP"},
-    "1005201": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1808665", "limit": "2020-05-20",
+    "1005201": {"type": "stock_merger", "sub": "reorganization", "shares": 1.0, "acq": "1808665", "limit": "2020-05-19",
                 "url": _SEC + "1005201/000110465920065440/tm2020220-1_8k.htm",
-                "note": "Assertio Therapeutics became a subsidiary of Assertio Holdings, each share converting into one "
-                        "Assertio Holdings share (2020-05-20); the 2026 Form 25 on this CIK concerns the successor's "
-                        "delisting and the master's 2026 delist date is wrong for this security"},
+                "note": "Assertio Therapeutics became a subsidiary of Assertio Holdings on 2020-05-19, each share converting "
+                        "into one Assertio Holdings share; the Nasdaq listing passed to Assertio Holdings 'effective as of "
+                        "May 20, 2020' (Item 3.01), so the last session of the old shares is 2020-05-19; the 2026 Form 25 "
+                        "on this CIK concerns the successor's delisting and the master's 2026 delist date is wrong for "
+                        "this security"},
     "1375365": {"sub": "removed_then_relisted",
                 "note": "removed for late filings in August 2018 and traded OTC until it was listed on Nasdaq again on "
                         "2020-01-14 (the same security); the value is the first OTC close after the removal"},
@@ -2292,13 +2378,43 @@ REVIEWED.update({
                         "were cancelled with no distribution; the new shares trade on Nasdaq from 2026-06-22"},
     "1556739": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2016-01-06", "value": 0.0,
                 "url": _SEC + "1556739/000114036120022046/nt10007762x19_424b4.htm",
-                "approved": "Thryv's 2020 prospectus: Dex Media's former lenders obtained 100% of the reorganized "
-                            "company's common stock at the 2016 emergence, so the old DXM shares received nothing; "
-                            "Nasdaq suspended DXM at the opening of business on 2016-01-07 (8-K filed 2016-01-05), so "
-                            "its last Nasdaq session is 2016-01-06",
+                "approved": "an inference, not a document's statement: Thryv's 2020 prospectus says only that Dex Media's "
+                            "former lenders 'obtained ownership of 100% of the common stock of the reorganized Dex "
+                            "Media, Inc., subject to dilution from a management incentive plan'; it does not say what the "
+                            "old holders received, and Dex Media filed no 8-K after its 2016-02-05 deregistration (none "
+                            "is on EDGAR to 2020), so -100% is read from the lenders' 100% (no cash, warrant or other "
+                            "distribution to the old holders is named anywhere read); Nasdaq suspended DXM at the "
+                            "opening of business on 2016-01-07 (8-K filed 2016-01-05), so its last Nasdaq session is "
+                            "2016-01-06",
                 "note": "Dex Media (DXM): suspended from Nasdaq on 2016-01-07 (Form 25 filed 2016-01-26), deregistered "
-                        "on 2016-02-05, prepackaged Chapter 11 in 2016, emerged on 2016-07-29 with the old equity "
-                        "cancelled; the new shares (Thryv) listed on Nasdaq on 2020-10-01"},
+                        "on 2016-02-05, prepackaged Chapter 11 in 2016, emerged on 2016-07-29 (the old equity's "
+                        "treatment is inferred: the lenders obtained 100% of the new common stock); the new shares "
+                        "(Thryv) listed on Nasdaq on 2020-10-01"},
+    # round 9: the relistings the final review of round 8 found (RELIST_JUNCTIONS 1580864 and 1009759; Frontier's old
+    # shares are in REVIEWED_OLD_SHARES, since its row values the 2026 delisting of the new shares)
+    "1580864": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2024-11-29", "rule": "plan_new_shares",
+                "shares": 0.2, "url": _SEC + "1580864/000095017025005647/vrm-20250108.htm",
+                # held for the owner, as WW: the builder does not approve its own plan valuation
+                "hold": "the plan valuation awaits the owner's approval: 0.2 new share per old share (the 1-for-5 "
+                        "Bankruptcy Emergence Issuance Adjustment), the warrants valued at 0, and the new shares' first "
+                        "vendor close is about 53 XNAS sessions after the old shares' last Nasdaq session",
+                "checked": "no vendor has the old shares' OTC tail (the series stops on 2024-11-29 and resumes with the "
+                           "new shares on 2025-02-20); the emergence 8-K: all previously issued equity interests were "
+                           "cancelled and extinguished on the 2025-01-14 Effective Date and the 1,822,577 old shares "
+                           "were converted at 1-for-5 into new common stock (364,515 shares, the 7.06% the convertible "
+                           "noteholders' 92.94% leaves), with 364,516 warrants at $60.95 to the stockholders",
+                "note": "Vroom: Nasdaq suspended the common stock at the opening of business on 2024-12-02 (8-K "
+                        "2024-11-26, Item 3.01); prepackaged Chapter 11 filed 2024-11-13, effective 2025-01-14; the new "
+                        "common stock was registered on the Nasdaq Global Market on 2025-02-19 (8-A12B) and trades from "
+                        "2025-02-20"},
+    "1009759": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2023-10-04",
+                "url": _SEC + "1009759/000155837023016108/cgrn-20230926x8k.htm",
+                "note": "Capstone Green Energy: trading on Nasdaq suspended at the opening of business on 2023-10-05 "
+                        "(8-K 2023-09-28, Item 3.01; Form 25 filed 2023-10-12); prepackaged Chapter 11 filed "
+                        "2023-09-28, effective 2023-12-07: the old common stock was canceled and the successor issued "
+                        "18,540,877 new shares pro rata to its holders (8-K12G3); the new shares were quoted OTC as CGEH "
+                        "and trade on Nasdaq as CEPL from 2026-07-08. The old shares are valued by their OTC tail "
+                        "(Tiingo has them from 2023-10-05), held by the guard for a hand check of that close"},
     "1839341": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2022-12-30",
                 "url": _SEC + "1839341/000119312524013078/d661343d8k.htm",
                 "note": "Core Scientific: Chapter 11 filed 2022-12-21; the old common stock traded exclusively on OTC "
@@ -2307,6 +2423,24 @@ REVIEWED.update({
                         "states no per-share ratio); the new shares trade on Nasdaq from 2024-01-24. Not a D5 case: "
                         "the old shares wait for their vendor rows (CORZQ, Tiingo month 2) and their OTC tail"},
 })
+
+# The old shares at a relist junction of a security whose row values a later end: the new shares themselves were
+# delisted afterwards (Frontier: FYBR acquired by Verizon, Form 25 effective 2026-01-30), so the row is the new
+# shares' and the old shares' valuation goes to the ``relist_old_shares_*`` columns. Keys as in REVIEWED.
+REVIEWED_OLD_SHARES: dict[str, dict] = {
+    "20520": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2020-04-23", "value": 0.0,
+              "url": _SEC + "20520/000114036121015200/brhc10023786_8k12g3.htm",
+              "approved": "partly an inference: the emergence 8-K12G3 states that all equity securities of Old Frontier, "
+                          "including its common stock, were canceled, released and extinguished on the 2021-04-30 "
+                          "Effective Date (Item 1.02) and that the new common stock went to the holders of Allowed "
+                          "Senior Notes Claims (Item 3.02); it names no distribution to the old stockholders (the plan "
+                          "itself was not read), so -100% is read from those statements; Nasdaq suspended the old "
+                          "shares at the opening of business on 2020-04-24 (8-K 2020-04-17, Item 3.01), so their last "
+                          "Nasdaq session is 2020-04-23",
+              "note": "Frontier Communications (old FTR): suspended from Nasdaq on 2020-04-24, OTC as FTRQ; Chapter 11 "
+                      "filed 2020-04-14; the plan became effective on 2021-04-30 with the old common stock cancelled; "
+                      "the new shares trade on Nasdaq as FYBR from 2021-05-04"},
+}
 
 # The document behind each reviewed entry that sets cash, shares or a value without its own ``url``:
 # found by searching the cached documents of the security for the reviewed figures (closing 8-Ks
@@ -2584,6 +2718,14 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         # their own rows (``view``: the book cut before the new shares' first session), never the new shares'
         junction = RELIST_JUNCTIONS.get(sid) or {}
         first_new = junction.get("first_new_session", "")
+        old_level = {}
+        if first_new and sid in REVIEWED_OLD_SHARES:
+            # the new shares were delisted later (Frontier's FYBR, 2026-01-30): this row values that end with the whole
+            # book, and the old shares' valuation goes to the relist_old_shares_* columns (a Form 25 for the old shares
+            # that Nasdaq dated after the relisting, as WW's 2025-07-13, is still the old shares' end)
+            old_cols, old_level = old_shares_valuation(sid, junction, book)
+            out.update(old_cols)
+            first_new = ""
         view = book.before(sid, first_new) if first_new else book
         if first_new:
             out["relist_junction"] = first_new
@@ -2650,7 +2792,7 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         trade = last_trade(view, sid, limit, anchor)
         level = {"security_id": sid, "limit": limit, "limit_basis": limit_basis, "anchor": anchor,
                  **{k: trade.get(k, "") for k in ("status", "last_date", "vendor_last_date", "stored_last_date", "close",
-                                                    "src", "n_sources", "max_source_diff", "filler_dropped")}}
+                                                    "src", "n_sources", "max_source_diff", "filler_dropped")}, **old_level}
         if trade["status"] == "ok":
             out["last_price_date"] = trade["last_date"]
             out["price_source"] = trade["src"]
@@ -2816,6 +2958,13 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 notes.append("no vendor rows for the old shares yet; once they arrive the OTC tail values them (the "
                              "owner's D5 rule is not the answer: see the reviewed note on what the plan gave the old "
                              "shares)")
+            elif value is None and first_new:
+                # the old shares at a relist junction: the plan of reorganization says what they received (an OTC tail,
+                # new shares per old share, or nothing), so the owner's D5 rule never applies to them
+                status = "needs_review"
+                holds.append("relist junction without an OTC vendor close or a reviewed plan valuation: value the old "
+                             "shares from the plan of reorganization (REVIEWED); not a D5 case")
+                notes.append("no OTC vendor price and no reviewed plan valuation for the old shares")
             elif value is None:
                 status = "awaiting_d5"
                 notes.append("no OTC vendor price; the owner's D5 rule applies")
@@ -2908,6 +3057,28 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
             out["last_price_date"], out["acquirer_price_date"] = "", ""
             notes.append("the last session is not dated until the hold is resolved (the candidate is in "
                          "CACHE/terminal/prices_used.csv)")
+        link = SUCCESSOR_LINKS.get(sid) or {}
+        if link.get("continues") and kind == "stock_merger":
+            # owner convention 2026-10-02 (CRSP keeps one PERMNO): a 1:1 holding-company reorganisation continues the
+            # security; the canonical series runs on in the successor, whose first return is measured from this last
+            # close (reconcile SUCCESSOR_LINKS), so a terminal return here would count that day twice
+            status, out["terminal_return"], out["consideration_per_share"] = "no_terminal_return", "", ""
+            out["continued_as"] = link["successor"]
+            # the reconcile link records the one-for-one conversion into the successor: the row says so (the
+            # universe step reads stock_merger / reorganization / 1 share / successor as a continuing link)
+            out.update({"event_subtype": "reorganization", "consideration_shares": "1", "consideration_cash": "",
+                        "acquirer_security_id": link["successor"]})
+            level["terminal_value"], level["review_reasons"] = None, ""
+            if out["last_price_date"] != link["last_session"]:
+                if out["last_price_date"]:
+                    notes.append(f"this step's last session ({out['last_price_date']}) differs from the reconcile cut "
+                                 f"({link['last_session']}): the cut is used")
+                out["last_price_date"] = link["last_session"]
+            notes.append(f"continued as {link['successor']}: a one-for-one reorganisation continues the same security "
+                         "(owner convention 2026-10-02, as CRSP keeps one PERMNO); the canonical series runs on in the "
+                         f"successor, whose first return is measured from this security's last close on "
+                         f"{link['last_session']}; no terminal return is booked (the holds and the guard above do not "
+                         "apply)")
         if prior and out["terminal_return"]:
             out["existing_return_diff"] = _fmt(float(out["terminal_return"]) - float(prior["terminal_return"]))
         out["status"] = status
@@ -2916,6 +3087,48 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         used.append(level)
     frame = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
     return frame, pd.DataFrame(used)
+
+
+def old_shares_valuation(sid: str, junction: dict, book: "PriceBook") -> tuple[dict, dict]:
+    """The ``relist_old_shares_*`` columns: the old shares at a relist junction of a security whose row values a later
+    end (REVIEWED_OLD_SHARES; Frontier). Their rows only (the book cut before the new shares' first session), their
+    last Nasdaq session (the reviewed limit), then a reviewed value of nothing (-100%, no close needed), else the first
+    OTC vendor close (held for review), else held: the plan decides, never the D5 rule. Dates, returns and SEC facts
+    only; the levels go to the second return value (local)."""
+    review = REVIEWED_OLD_SHARES.get(sid) or {}
+    first_new = junction["first_new_session"]
+    view = book.before(sid, first_new)
+    limit = review.get("limit") or junction.get("old_nasdaq_last_session") or previous_session(first_new)
+    trade = last_trade(view, sid, limit, "")
+    approved = bool(review.get("approved") and review.get("url"))
+    cols = {"relist_old_shares_last_price_date": "", "relist_old_shares_terminal_return": "",
+            "relist_old_shares_status": "", "relist_old_shares_source_url": review.get("url") or junction.get("url", ""),
+            "relist_old_shares_note": ""}
+    level = {"old_limit": limit, "old_trade_status": trade.get("status", ""), "old_last_date": trade.get("last_date", "")}
+    notes = [("reviewed: " + review["note"]) if review.get("note") else ""]
+    value = review.get("value")
+    if value is not None and float(value) == 0.0 and approved:
+        cols["relist_old_shares_terminal_return"] = _fmt(-1.0)
+        cols["relist_old_shares_last_price_date"] = limit
+        cols["relist_old_shares_status"] = "computed"
+        notes.append(f"approved by review: {review['approved']}")
+        notes.append("the holders received nothing, so the return is -100% whatever the last Nasdaq close was")
+    elif trade.get("status") == "ok":
+        cols["relist_old_shares_last_price_date"] = trade["last_date"]
+        within = max(30, (pd.Timestamp(first_new) - pd.Timestamp(trade["last_date"])).days)
+        quote = otc_close(view, sid, trade["last_date"], within_days=within)
+        cols["relist_old_shares_status"] = "needs_review"
+        if quote is not None:
+            level.update({"old_otc_close": quote["close"], "old_otc_date": quote["date"], "old_last_close": trade["close"]})
+            notes.append(f"first OTC vendor close on {quote['date']} (the level is local only); held for a hand check")
+        else:
+            notes.append("no OTC vendor close: value the old shares from the plan of reorganization (REVIEWED_OLD_SHARES); "
+                         "not a D5 case")
+    else:
+        cols["relist_old_shares_status"] = "needs_review"
+        notes.append("no vendor close on the old shares' last Nasdaq session and no reviewed value; not a D5 case")
+    cols["relist_old_shares_note"] = "; ".join(n for n in notes if n)
+    return cols, level
 
 
 # ------------------------------------------------------------------ main
@@ -2937,12 +3150,28 @@ def configure_paths(out_dir: Path | None) -> None:
     """Send the outputs under ``out_dir`` (``inputs/terminal_returns_2012_2026.csv`` and ``terminal/`` for the
     CACHE/terminal files this step writes) instead of INPUTS and CACHE/terminal. Everything read (the documents,
     the charts, the price files, the provenance index) is still read from its usual place."""
-    global OUT, OUTPUT, RECONCILE_HANDOFF, MANUAL_REVIEW_QUEUE
+    global OUT, OUTPUT, RECONCILE_HANDOFF, MANUAL_REVIEW_QUEUE, EXCHANGE_MOVES, SERIES_ENDS_OUT, READ_ONLY_SHARED
     if out_dir is None:
         return
     root = Path(out_dir).resolve()
     OUT, OUTPUT = root / "terminal", root / "inputs" / "terminal_returns_2012_2026.csv"
     RECONCILE_HANDOFF, MANUAL_REVIEW_QUEUE = OUT / "for_reconcile_owner.csv", OUT / "manual_review_queue.csv"
+    EXCHANGE_MOVES, SERIES_ENDS_OUT = root / "inputs" / "exchange_moves.csv", OUT / "series_ends.csv"
+    READ_ONLY_SHARED = True  # a scratch build writes nothing outside out_dir
+
+
+def configure_reconcile(root: Path | None) -> None:
+    """Read the reconcile step's outputs (``series_ends.csv``, the canonical price files) from a reconcile
+    ``--out-dir`` build at ``root`` (``root/reconcile``, ``root/prices``) instead of CACHE; without --out-dir the
+    refreshed series_ends.csv is written back there."""
+    global RECONCILE_DIR, CANONICAL_PRICES, SERIES_ENDS_OUT
+    if root is None:
+        return
+    root = Path(root).resolve()
+    default_out = SERIES_ENDS_OUT == RECONCILE_DIR / "series_ends.csv"
+    RECONCILE_DIR, CANONICAL_PRICES = root / "reconcile", root / "prices"
+    if default_out:
+        SERIES_ENDS_OUT = RECONCILE_DIR / "series_ends.csv"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2957,10 +3186,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-fetch", action="store_true", help="skip the SEC fetch stages (same as --offline here)")
     parser.add_argument("--yahoo-acquirers", action="store_true",
                         help=f"fetch the Yahoo charts of ACQUIRER_SYMBOLS not yet cached (at most {YAHOO_MAX} in all)")
+    parser.add_argument("--reconcile-out", default="",
+                        help="read series_ends.csv and the canonical price files from this reconcile --out-dir build "
+                             "(ROOT/reconcile, ROOT/prices) instead of CACHE")
     args = parser.parse_args(argv)
     if args.offline:
         forbid_network()
     configure_paths(Path(args.out_dir) if args.out_dir else None)
+    configure_reconcile(Path(args.reconcile_out) if args.reconcile_out else None)
     OUT.mkdir(parents=True, exist_ok=True)
     log(f"outputs: {OUTPUT} and {OUT}; " + ("offline (network refused)" if args.offline else "SEC fetch stages on"))
     scope = terminal_candidates()
@@ -3000,9 +3233,30 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     common.atomic_write(OUT / "prices_used.csv", used.to_csv(index=False).encode())
     handoff = reconcile_handoff(frame, used)
     common.atomic_write(RECONCILE_HANDOFF, handoff.to_csv(index=False).encode())
+    ends = read_csv_text(RECONCILE_DIR / "series_ends.csv") if (RECONCILE_DIR / "series_ends.csv").exists() else None
+    moves = exchange_moves(frame, ends, master, read_csv_text(INTERVALS))
+    common.atomic_write(EXCHANGE_MOVES, moves.to_csv(index=False).encode())
+    log(f"wrote {EXCHANGE_MOVES}: {len(moves)} rows ({moves['source'].value_counts().to_dict() if len(moves) else {}})")
+    refreshed = refresh_series_ends(ends, frame)
+    if refreshed is not None:
+        common.atomic_write(SERIES_ENDS_OUT, refreshed.to_csv(index=False).encode())
+        log(f"refreshed the terminal_2012_2026 column of {SERIES_ENDS_OUT}")
     summary = summarize(frame, existing, matched, used)
     summary["for_reconcile_owner"] = {k: sorted(g["security_id"]) for k, g in handoff.groupby("kind")} if len(handoff) else {}
     summary["computed_after_successor_date"] = successor_overruns(frame, scope, used)
+    summary["exchange_moves"] = {
+        "rows": int(len(moves)), "file": str(EXCHANGE_MOVES), "scope": EXCHANGE_MOVES_SCOPE,
+        "by_source": {k: int(v) for k, v in moves["source"].value_counts().items()} if len(moves) else {},
+        "onto_nasdaq": {"rows": int(moves["to_exchange"].eq("NASDAQ").sum()) if len(moves) else 0,
+                        "last_date": str(moves.loc[moves["to_exchange"].eq("NASDAQ"), "date"].max()) if len(moves) else ""},
+        "blank_fields": {c: int(moves[c].eq("").sum()) for c in ("security_id", "from_exchange", "to_exchange",
+                                                                 "source_url")} if len(moves) else {}}
+    summary["continued_by_successor"] = sorted(frame.loc[frame["continued_as"].ne(""), "security_id"])
+    summary["relist_old_shares"] = [
+        {"security_id": r.security_id, "status": r.relist_old_shares_status,
+         "last_price_date": r.relist_old_shares_last_price_date}
+        for r in frame[frame["relist_old_shares_status"].ne("")].itertuples(index=False)]
+    summary["series_ends_refreshed"] = str(SERIES_ENDS_OUT) if refreshed is not None else ""
     queue = manual_review_queue(frame, used)
     common.atomic_write(MANUAL_REVIEW_QUEUE, queue.to_csv(index=False).encode())
     summary["manual_review_queue"] = {"rows": int(len(queue)),
@@ -3020,6 +3274,132 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
 
 
 CANONICAL_PRICES = common.CACHE / "prices"
+RECONCILE_DIR = common.CACHE / "reconcile"  # read: series_ends.csv (its terminal_2012_2026 column is refreshed)
+SERIES_ENDS_OUT = RECONCILE_DIR / "series_ends.csv"
+EXCHANGE_MOVES = INPUTS / "exchange_moves.csv"
+HOLDOUT_OVERRIDES = Path("output/research_only/holdout_2011_2019/inputs/nasdaq_listing_overrides.csv")
+EXCHANGE_MOVES_SCOPE = (
+    "moves off Nasdaq, 2012-2026: this step's exchange_move rows (source terminal) and the reconcile step's "
+    "series_ends.csv exchange moves this step has no row for (source series_ends); moves onto Nasdaq: only the "
+    "holdout's nasdaq_listing_overrides.csv (source holdout_overrides), whose last move is dated 2019-12-27, so no "
+    "move onto Nasdaq after 2019 is listed (no source of this step names them; a security that came from another "
+    "exchange later simply starts its Nasdaq interval in ticker_intervals.csv). In the holdout rows from_exchange "
+    "is blank unless the row's text names the old exchange (NYSE), source_url is blank when the row rests on a "
+    "snapshot bracket only, and security_id is blank when no Nasdaq interval of the ticker starts or ends within "
+    "400 days of the move (WTW, OPK, PARA)")
+EXCHANGE_MOVE_COLUMNS = ["security_id", "ticker", "date", "from_exchange", "to_exchange", "source_url",
+                         "last_nasdaq_session", "date_basis", "source", "terminal_status", "note"]
+
+
+def _next_session(day: str) -> str:
+    sessions = xnas_sessions()
+    k = int(sessions.searchsorted(pd.Timestamp(day), side="right"))
+    return str(sessions[k].date()) if k < len(sessions) else ""
+
+
+def _holder(intervals: pd.DataFrame, ticker: str, day: str, max_days: int = 400) -> str:
+    """The security whose Nasdaq interval of ``ticker`` starts (or ends) nearest ``day`` within ``max_days``."""
+    part = intervals[(intervals["ticker"] == ticker) & intervals["exchange"].str.upper().eq("NASDAQ")]
+    best, gap = "", max_days + 1
+    for r in part.itertuples(index=False):
+        for edge in (r.start, r.end):
+            if edge:
+                d = abs((pd.Timestamp(edge) - pd.Timestamp(day)).days)
+                if d < gap:
+                    best, gap = r.security_id, d
+    return best
+
+
+def exchange_moves(frame: pd.DataFrame, ends: pd.DataFrame | None, master: pd.DataFrame,
+                   intervals: pd.DataFrame) -> pd.DataFrame:
+    """``INPUTS/exchange_moves.csv`` (plan 1.1: security_id, ticker, date, from_exchange, to_exchange, source_url):
+    every listing move, ``date`` the first session on the new exchange. From this step's ``exchange_move`` rows
+    (``date`` the stated first day on the new exchange, else the session after the last Nasdaq session, else the
+    transfer Form 25's end date; ``source`` terminal), the reconcile step's series_ends.csv ``exchange_move`` rows this
+    step has no row for (the master's transfer date and transfer Form 25, the destination from SEC's current exchange
+    list, which may postdate the move; ``source`` series_ends), and the holdout's nasdaq_listing_overrides.csv (moves
+    onto Nasdaq dated by ``nasdaq_from``, moves off it by ``nasdaq_until``; the 2099 placeholders, never listed in the
+    snapshots, are not moves; ``source`` holdout_overrides). SEC facts and dates only."""
+    rows, seen = [], set()
+    for r in frame[frame["terminal_type"].eq("exchange_move")].itertuples(index=False):
+        if r.destination_start_date:
+            date, basis = r.destination_start_date, "first day on the new exchange stated in the 8-K or press release"
+        elif r.last_price_date:
+            date, basis = _next_session(r.last_price_date), "the session after the last Nasdaq session"
+        else:
+            date, basis = r.end_date, "the transfer Form 25's end date (no stated first day, no vendor-dated last session)"
+        rows.append({"security_id": r.security_id, "ticker": r.ticker, "date": date, "from_exchange": "NASDAQ",
+                     "to_exchange": r.destination_exchange, "source_url": r.source_url,
+                     "last_nasdaq_session": r.last_price_date, "date_basis": basis, "source": "terminal",
+                     "terminal_status": r.status, "note": ""})
+        seen.add(r.security_id)
+    info = master.set_index("security_id") if len(master) else pd.DataFrame()
+    if ends is not None and len(ends):
+        for r in ends[ends["likely_cause"].eq("exchange_move")].itertuples(index=False):
+            if r.security_id in seen or r.security_id not in info.index:
+                continue
+            m = info.loc[r.security_id]
+            accession, cik = str(m.get("transfer_form25_accession", "") or ""), str(m.get("cik", "") or "")
+            url = (f"https://www.sec.gov/Archives/edgar/data/{int(float(cik))}/{accession.replace('-', '')}/"
+                   f"{accession}-index.htm") if accession and cik else ""
+            current = [e for e in str(m.get("exchanges_sec_current", "") or "").split() if e and e != "Nasdaq"]
+            rows.append({"security_id": r.security_id, "ticker": r.ticker_last, "date": r.transfer_date,
+                         "from_exchange": "NASDAQ", "to_exchange": current[0] if current else "", "source_url": url,
+                         "last_nasdaq_session": "", "date_basis": "the master's transfer date (the transfer Form 25)",
+                         "source": "series_ends", "terminal_status": "",
+                         "note": "destination from SEC's current exchange list (may postdate the move); "
+                                 f"the series' last row is {r.last_date}"})
+            seen.add(r.security_id)
+    if HOLDOUT_OVERRIDES.exists():
+        overrides = read_csv_text(HOLDOUT_OVERRIDES)
+        for r in overrides.itertuples(index=False):
+            for day, direction in ((r.nasdaq_from, "onto"), (r.nasdaq_until, "off")):
+                if not day or day >= "2099" or not ("2011-06-01" <= day <= WINDOW_END):
+                    continue
+                sid = _holder(intervals, r.ticker, day)
+                if direction == "off" and sid in seen:
+                    continue  # this step's own row for the same move
+                text = f"{r.basis} {r.evidence}"
+                other = "NYSE" if re.search(r"\bNYSE\b", text) else ""
+                url = r.evidence if str(r.evidence).startswith("http") else ""
+                gaps = [g for g, missing in (("the old exchange is not named in the holdout row", not other),
+                                             ("no document: a snapshot bracket", not url),
+                                             ("no Nasdaq interval of the ticker within 400 days", not sid)) if missing]
+                rows.append({"security_id": sid, "ticker": r.ticker, "date": day,
+                             "from_exchange": "NASDAQ" if direction == "off" else other,
+                             "to_exchange": other if direction == "off" else "NASDAQ",
+                             "source_url": url,
+                             "last_nasdaq_session": "", "date_basis": f"nasdaq_{'until' if direction == 'off' else 'from'} "
+                                                                       "in the holdout overrides",
+                             "source": "holdout_overrides", "terminal_status": "",
+                             "note": "; ".join([str(r.basis)] + [f"blank: {g}" for g in gaps])})
+    out = pd.DataFrame(rows, columns=EXCHANGE_MOVE_COLUMNS)
+    return out.sort_values(["date", "security_id", "ticker"], kind="stable").reset_index(drop=True)
+
+
+def refresh_series_ends(ends: pd.DataFrame | None, frame: pd.DataFrame) -> pd.DataFrame | None:
+    """The reconcile step's series_ends.csv with its ``terminal_2012_2026`` column taken from this build (reconcile
+    runs first and can only quote the previous terminal table): the old shares at a relist junction whose row values
+    a later end show the relist_old_shares_* status."""
+    if ends is None or "terminal_2012_2026" not in ends:
+        return None
+    by_id = frame.set_index("security_id")
+    values = []
+    for r in ends.itertuples(index=False):
+        if r.security_id not in by_id.index:
+            values.append("")
+            continue
+        t = by_id.loc[r.security_id]
+        if r.category == "old_shares_at_relist_junction" and t.get("relist_old_shares_status", ""):
+            kind = (REVIEWED_OLD_SHARES.get(r.security_id) or {}).get("type", "bankruptcy_otc")
+            values.append(f"{kind}/{t['relist_old_shares_status']} (old shares; the row values the later end) "
+                          f"last_price_date={t['relist_old_shares_last_price_date'] or '-'}")
+        else:
+            values.append(f"{t['terminal_type']}/{t['status']} last_price_date={t['last_price_date'] or '-'} "
+                          f"end_date={t['end_date'] or '-'}")
+    return ends.assign(terminal_2012_2026=values)
+
+
 RECONCILE_HANDOFF = OUT / "for_reconcile_owner.csv"
 HANDOFF_COLUMNS = ["kind", "security_id", "ticker", "last_price_date", "amount", "record_date", "series_booking_date",
                    "limit", "vendor_last_date", "source_url", "action"]

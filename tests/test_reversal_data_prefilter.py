@@ -595,8 +595,13 @@ def test_built_candidate_list_follows_the_plan():
     assert list(candidates.columns) == pf.CANDIDATE_COLUMNS
     assert set(candidates["planned_source"]) <= {"wiki", "yahoo", "tiingo", "unfillable"}
     assert not candidates.duplicated(["security_id", "reason", "planned_source", "needed_start"]).any()
-    # (a Yahoo row and its Tiingo or unfillable fallback share the reason; nothing else does)
-    assert not candidates[candidates["fallback_from"] == ""].duplicated(["security_id", "reason"]).any()
+    # (a Yahoo row and its Tiingo or unfillable fallback share the reason; so do the pieces of a need split at a
+    # listing gap, round 9, whose needs do not overlap; nothing else does)
+    own_rows = candidates[candidates["fallback_from"] == ""]
+    pieces = own_rows[own_rows.duplicated(["security_id", "reason"], keep=False)]
+    assert pieces["note"].str.contains(pf.GAP_NOTE, regex=False).all()
+    for _, g in pieces.sort_values("needed_start").groupby(["security_id", "reason"]):
+        assert (g["needed_start"].to_numpy()[1:] > g["needed_end"].to_numpy()[:-1]).all(), g
     # Foreign filers are never ranked or fetched (MIXED ones only outside their foreign years).
     assert not candidates["security_id"].map(master["foreign_filer"]).eq("Y").any()
     # Tiingo is planned only on a supported_tickers range match; active names go to Yahoo.
@@ -610,18 +615,23 @@ def test_built_candidate_list_follows_the_plan():
     own = fetch[fetch["fallback_from"] == ""]
     assert (own.loc[own["active"] == "Y", "planned_source"] == "yahoo").all()
     # a Tiingo fallback is month 2, after a Yahoo answer that failed or covers under half of the need
+    # (round 9: one the fetcher has answered carries its answer's status)
     fallback = fetch[(fetch["fallback_from"] != "") & (fetch["planned_source"] == "tiingo")]
-    assert (fallback["status"] == pf.FALLBACK_STATUS).all() and (fallback["fetch_month"] == pf.MONTH_2).all()
+    unanswered = fallback[~fallback["status"].isin(pf.TIINGO_FINAL)]
+    assert (unanswered["status"] == pf.FALLBACK_STATUS).all() and (unanswered["fetch_month"] == pf.MONTH_2).all()
     assert (fetch.loc[fetch["planned_source"] == "unfillable", "status"].isin(["no_data", "wrong_entity"])).all()
     # The seeded tier-C sample has 20 names and V has 50.
     assert (candidates["reason"] == "B_C_sample_300M_500M").sum() == pf.TIER_C_SAMPLE
     assert (candidates["reason"] == "V_verify_sample").sum() == pf.V_SAMPLE
+    # (round 9: answered rows carry the month of their answer; October's runs stopped at 500 on purpose)
+    budget = __import__("json").loads((pf.OUT / "prefilter_summary.json").read_text())["tiingo_budget"]
     month1 = tiingo[tiingo["fetch_month"] == pf.MONTH_1]["ticker_for_source"].nunique()
-    assert month1 <= pf.TIINGO_MONTH_STOP
+    assert month1 <= max(pf.TIINGO_MONTH_STOP, budget["month_stop_used"]) <= pf.TIINGO_MONTHLY_SYMBOLS
     # One fetch_order per Tiingo ticker; S names are month 1, ahead of the samples.
     order = tiingo.assign(n=tiingo["fetch_order"].astype(int))
     assert order.groupby("ticker_for_source")["n"].nunique().eq(1).all()
-    s_rows = order[order["reason"].str.startswith("S_") & (order["status"] == "pending")]
+    s_rows = order[order["reason"].str.startswith("S_") & (order["fetch_month"] == pf.MONTH_1)
+                   & (order["status"] != "deferred_quota")]
     samples = order["reason"].isin(["V_verify_sample", "B_C_sample_300M_500M"])
     # (a sample ticker that a higher rule also needs, ZG for old Zillow, keeps that rule's place)
     later = order[samples & ~order["ticker_for_source"].isin(order.loc[~samples, "ticker_for_source"])]
@@ -954,7 +964,7 @@ def test_built_list_feeds_yahoo_answers_back_and_plans_the_fallbacks():
         columns=["security_id", "ticker_for_source", "needed_start", "needed_end", "status"])
     final = {tuple(r) for r in status.loc[status["status"].isin(pf.TIINGO_FINAL),
                                           ["security_id", "ticker_for_source", "needed_start", "needed_end"]].to_numpy()}
-    open_fallback = fallback[(fallback["planned_source"] == "tiingo") & ~pd.Series(
+    open_fallback = fallback[(fallback["planned_source"] == "tiingo") & ~fallback["status"].isin(pf.TIINGO_FINAL) & ~pd.Series(
         [tuple(r) in final for r in fallback[["security_id", "ticker_for_source", "needed_start", "needed_end"]].to_numpy()],
         index=fallback.index)]
     assert set(open_fallback["security_id"]) <= set(plan["security_id"])
@@ -1142,7 +1152,7 @@ def test_built_round7_junctions_fallbacks_classes_and_investment_companies():
     assert corz["needed_start"].min() >= "2024-01-24"  # no warm-up in the old shares
     # the Yahoo fallbacks on Tiingo are rows the month-2 command selects
     fallback = candidates[(candidates["fallback_from"] != "") & (candidates["planned_source"] == "tiingo")]
-    assert set(fallback["status"]) <= set(pf.MONTH_2_STATUSES)
+    assert set(fallback["status"]) <= set(pf.MONTH_2_STATUSES) | pf.TIINGO_FINAL  # (round 9: or its answer's)
     # D6: no candidate row needs a week only an investment company holds
     spans = pd.read_csv(pf.IC_SPANS_OUT, dtype=str, keep_default_na=False)
     for row in candidates[candidates["security_id"].isin(set(spans["security_id"]))].itertuples():
@@ -1177,3 +1187,233 @@ def test_month2_plan_does_not_count_an_untested_float_that_dwarfs_the_form25_flo
                                       cached=lambda t: False)
     assert plan.loc[0, "expected_top250_weeks"] == 0.01 and plan.loc[0, "proxy_not_counted_weeks"] == 2
     assert out["evidence_adjustments"]["float_doubtful_securities"] == ["drtt"]
+
+
+# ------------------------------------------------------------------ round 9
+
+def _cgrn_spans():
+    # Capstone: CPST then CGRN (one run), Form 25 2023-10-22, OTC as CGRNQ, listed again as CEPL from 2026-07-02;
+    # "short" leaves the snapshots for 57 days, which the warm-up and the hold bridge.
+    return pd.DataFrame([
+        {"security_id": "1009759", "ticker": "CPST", "list_start": "2010-12-31", "list_end": "2021-04-26"},
+        {"security_id": "1009759", "ticker": "CGRN", "list_start": "2021-04-27", "list_end": "2023-10-22"},
+        {"security_id": "1009759", "ticker": "CEPL", "list_start": "2026-07-02", "list_end": pf.WINDOW_END},
+        {"security_id": "short", "ticker": "SH", "list_start": "2015-01-02", "list_end": "2016-01-04"},
+        {"security_id": "short", "ticker": "SH", "list_start": "2016-03-01", "list_end": pf.WINDOW_END}])
+
+
+def test_a_need_across_a_listing_gap_is_split_per_listing_run():
+    runs = pf.listing_runs(_cgrn_spans())
+    assert list(runs) == ["1009759"] and pf.SPLIT_GAP_DAYS == pf.WARMUP_DAYS + pf.HOLD_DAYS
+    assert [(a, b) for a, b, _ in runs["1009759"]] == [("2010-12-31", "2023-10-22"), ("2026-07-02", pf.WINDOW_END)]
+    pieces = pf.split_at_listing_gaps("2018-01-21", pf.WINDOW_END, runs["1009759"])
+    assert [(a, b) for a, b, _ in pieces] == [("2018-01-21", "2023-10-22"), ("2026-07-02", pf.WINDOW_END)]
+    assert all("listing gaps 2023-10-23..2026-07-01" in note for _, _, note in pieces)
+    # a need inside one run stays whole
+    assert pf.split_at_listing_gaps("2018-01-21", "2023-06-30", runs["1009759"]) == [("2018-01-21", "2023-06-30", "")]
+    # with the weekly table, a run without an uncovered universe week gives no piece
+    weekly = pd.DataFrame({"security_id": "1009759", "week_end": pd.to_datetime(["2019-01-04", "2026-07-10"]),
+                           "universe": True, "vendor_ok": [False, True], "outside_trading": False})
+    runs = pf.listing_runs(_cgrn_spans(), weekly)
+    assert [(a, b) for a, b, _ in pf.split_at_listing_gaps("2018-01-21", pf.WINDOW_END, runs["1009759"])] == [
+        ("2018-01-21", "2023-10-22")]
+
+
+def _cgrn_case():
+    fact = {**_relisted_fact("1009759", "2026-07-02", "2023-10-22", "2023-10-22", "2018-04-06", ticker="CEPL"),
+            "first_listed": "2010-12-31", "tickers": "CEPL CGRN CPST",
+            "ticker_last_held": f"CEPL:{pf.WINDOW_END} CGRN:2023-10-22 CPST:2021-04-26",
+            "ticker_first_held": "CEPL:2026-07-02 CGRN:2021-04-27 CPST:2010-12-31"}
+    facts = pd.DataFrame([fact], index=["1009759"])
+    hits = {"1009759": {"Y_active_all": ("uncovered_universe_weeks", 293)}}
+    index = supported([("CGRNQ", "", "Stock", "USD", "2000-06-30", "2024-04-22")])
+    answers = {("1009759", "CEPL"): [{"symbol": "CEPL", "verdict": "partial", "needed_start": "2018-01-21",
+                                      "needed_end": pf.WINDOW_END, "first_row": "2026-07-08", "last_row": pf.WINDOW_END,
+                                      "need_coverage": 0.018, "missing_inside": 0, "reasons": "",
+                                      "verdict_reasons": "starts 2026-07-08 (Yahoo's first trade): 2100 need sessions before"}]}
+    weekly = pd.DataFrame({"security_id": "1009759", "week_end": pd.to_datetime(["2019-01-04", "2026-07-10"]),
+                           "universe": True, "vendor_ok": False, "outside_trading": False, "mcap": np.nan,
+                           "float_usd": np.nan})
+    return facts, hits, index, answers, weekly
+
+
+def test_a_relisted_single_rule_name_is_routed_per_listing_run_cgrn_cepl():
+    facts, hits, index, answers, weekly = _cgrn_case()
+    ranks = pd.DataFrame(columns=["security_id", "snapshot_date", "mcap_rank"])
+    sessions = pf.xnas_sessions()
+    # round 8: one Yahoo row 2018-01-21..2026-08-31; its Tiingo fallback CGRNQ partial (to 2024-04-22), and the OTC
+    # months 2024-04-23..2026-07-07 an unfillable row although they are no universe weeks
+    whole = pf.route(facts, hits, {}, index, pd.DataFrame())
+    whole, _ = pf.yahoo_fallback(whole, facts, answers, index, sessions=sessions)
+    old = pf.unfillable_rows(whole, facts, weekly, pd.Series(False, index=weekly.index), ranks)
+    assert whole.loc[whole["planned_source"] == "tiingo", "tiingo_range_match"].tolist() == ["partial"]
+    assert list(zip(old["needed_start"], old["needed_end"])) == [("2024-04-23", "2026-07-07")]
+    # round 9: a Yahoo row per listing run; the first falls back to CGRNQ, which covers it, the second is covered
+    runs = pf.listing_runs(_cgrn_spans(), weekly)
+    out = pf.route(facts, hits, {}, index, pd.DataFrame(), runs=runs)
+    assert list(zip(out["planned_source"], out["needed_start"], out["needed_end"])) == [
+        ("yahoo", "2018-01-21", "2023-10-22"), ("yahoo", "2026-07-02", pf.WINDOW_END)]
+    assert out["note"].str.contains(pf.GAP_NOTE, regex=False).all()
+    out, counts = pf.yahoo_fallback(out, facts, answers, index, sessions=sessions)
+    tiingo = out[out["planned_source"] == "tiingo"]
+    assert tiingo[["ticker_for_source", "needed_start", "needed_end", "tiingo_range_match"]].values.tolist() == [
+        ["CGRNQ", "2018-01-21", "2023-10-22", "Y"]]
+    yahoo = out[out["planned_source"] == "yahoo"].set_index("needed_start")
+    assert yahoo.loc["2018-01-21", "status"] == "partial"  # no Yahoo row before 2026: the fallback serves it
+    assert yahoo.loc["2026-07-02", "status"] == "done" and "cover this row's own need" in yahoo.loc["2026-07-02", "note"]
+    assert counts["yahoo_verdict_on_own_need:partial->ok"] == 1
+    assert pf.unfillable_rows(out, facts, weekly, pd.Series(False, index=weekly.index), ranks).empty
+    # new equity (step 9's junction): the later piece starts with the new shares, which is its junction
+    equity = facts.assign(relist_new_equity="bankruptcy", relist_first_session="2026-07-08")
+    out = pf.route(equity, hits, {}, index, pd.DataFrame(), runs=runs)
+    assert out[["needed_start", "junction_date"]].fillna("").values.tolist() == [["2018-01-21", ""],
+                                                                                ["2026-07-08", "2026-07-08"]]
+
+
+def test_yahoo_first_trade_and_partial_are_judged_on_the_rows_own_need():
+    ww = {"verdict": "review", "needed_start": "2025-06-27", "needed_end": pf.WINDOW_END, "first_row": "2025-06-27",
+          "last_row": pf.WINDOW_END, "missing_inside": 0, "need_coverage": 1.0, "symbol": "WW",
+          "verdict_reasons": "need_starts_before_first_trade:0; first_trade_2025-06-27_after_listing_2018-11-21"}
+    verdict, note = pf.row_verdict(ww, "2025-06-27", pf.WINDOW_END, "2025-06-27")
+    assert verdict == "ok" and "first listing 2018-11-21" in note
+    # THRY: the row needs 2020-07-19 on, Yahoo trades from 2018-04-18; the old Dex Media listing does not matter
+    thry = {**ww, "needed_start": "2020-07-19", "verdict_reasons": "first_trade_2018-04-18_after_listing_2013-05-26"}
+    assert pf.row_verdict(thry, "2020-07-19", pf.WINDOW_END)[0] == "ok"
+    # a first trade more than 30 days after the row's own start, or another review item, keeps the review
+    late = {**ww, "verdict_reasons": "first_trade_2025-09-01_after_listing_2018-11-21"}
+    assert pf.row_verdict(late, "2025-06-27", pf.WINDOW_END) == ("review", "")
+    opi = {**ww, "verdict_reasons": "first_trade_2026-06-18_after_listing_2016-07-07; relist_junction:2026-06-22 "
+                                    "(listed again from 2026-06-22)"}
+    assert pf.row_verdict(opi, "2026-06-22", pf.WINDOW_END, "2026-06-22")[0] == "review"
+    named = {**ww, "verdict_reasons": "name_mismatch; first_trade_2025-06-27_after_listing_2018-11-21"}
+    assert pf.row_verdict(named, "2025-06-27", pf.WINDOW_END)[0] == "review"
+    # a partial answer: on the request's own need, or with sessions missing inside, it stays partial
+    part = {"verdict": "partial", "needed_start": "2018-01-21", "needed_end": pf.WINDOW_END, "first_row": "2026-07-08",
+            "last_row": pf.WINDOW_END, "missing_inside": 0, "verdict_reasons": "starts 2026-07-08: 2100 need sessions before"}
+    assert pf.row_verdict(part, "2018-01-21", pf.WINDOW_END)[0] == "partial"
+    assert pf.row_verdict(part, "2026-07-02", pf.WINDOW_END)[0] == "ok"
+    assert pf.row_verdict({**part, "missing_inside": 3}, "2026-07-02", pf.WINDOW_END)[0] == "partial"
+    assert pf.row_verdict({**part, "verdict_reasons": part["verdict_reasons"] + "; stored_dv_ratio:0.40"},
+                          "2026-07-02", pf.WINDOW_END)[0] == "review"
+    # written back: WW's Yahoo row is done, with the reason in its note
+    candidates = pd.DataFrame([{**_yahoo_row("105319", "WW", "2025-06-27", pf.WINDOW_END, "Y_active_rank300"),
+                                "junction_date": "2025-06-27"}]).reindex(columns=pf.CANDIDATE_COLUMNS)
+    out, _ = pf.yahoo_fallback(candidates, pd.DataFrame(), {("105319", "WW"): [ww]}, {}, sessions=pf.xnas_sessions())
+    assert out.loc[0, "status"] == "done" and "first trade 2025-06-27" in out.loc[0, "note"]
+
+
+def test_tiingo_answers_are_written_back_to_the_candidate_rows(tmp_path):
+    sessions = pf.xnas_sessions("2017-01-03", pf.WINDOW_END)
+    days = sessions[(sessions >= "2017-01-03") & (sessions <= "2024-04-22")]
+    path = tmp_path / "CGRNQ.csv.gz"
+    pd.DataFrame({"date": days.strftime("%Y-%m-%d"), "close": 1.0, "volume": 1.0}).to_csv(path, index=False)
+    row = {"planned_source": "tiingo", "fetch_month": pf.MONTH_2, "note": "", "reason": "Y_active_all",
+           "needed_start": "2018-01-21", "needed_end": "2020-12-31", "fallback_from": "", "tiingo_flags": ""}
+    candidates = pd.DataFrame([
+        {**row, "security_id": "a", "ticker_for_source": "AAA", "status": "pending", "fetch_month": pf.MONTH_1},
+        {**row, "security_id": "1009759", "ticker_for_source": "CGRNQ", "needed_end": "2023-10-22",
+         "status": "pending_month2", "fallback_from": "yahoo_partial"},
+        {**row, "security_id": "c", "ticker_for_source": "CCC", "status": "conditional_tier_c",
+         "reason": "B_C_rest_300M_500M"},
+        {**row, "security_id": "w", "ticker_for_source": "WOLF", "status": "pending_month2", "fallback_from": "yahoo_no_rows"},
+        {**row, "security_id": "y", "ticker_for_source": "YYY", "status": "done", "planned_source": "yahoo"}])
+    answer = {"needed_start": "2018-01-21", "needed_end": "2020-12-31", "prices_path": "", "http_status": "200",
+              "fetched_utc": "2026-10-01T20:00:00+00:00", "updated_utc": "2026-10-01T20:00:00+00:00", "entity_notes": ""}
+    status = pd.DataFrame([
+        {**answer, "security_id": "a", "ticker_for_source": "AAA", "status": "wrong_entity", "entity_check": "fail"},
+        {**answer, "security_id": "1009759", "ticker_for_source": "CGRNQ", "needed_end": "2026-07-07",
+         "status": "partial", "entity_check": "review", "entity_notes": "covers 74% of the needed sessions",
+         "prices_path": str(path), "fetched_utc": "2026-10-02T09:37:07+00:00"},
+        {**answer, "security_id": "w", "ticker_for_source": "WOLF", "status": "wrong_entity", "entity_check": "precheck"}])
+    out, counts = pf.tiingo_answers_back(candidates, status, sessions)
+    st = out.set_index("security_id")
+    assert (st.loc["a", "status"], st.loc["a", "fetch_month"]) == ("wrong_entity", "2026-10")
+    # CGRNQ was asked for 2018-01-21..2026-07-07 (partial, 74%); its rows cover the split need in full
+    assert (st.loc["1009759", "status"], st.loc["1009759", "fetch_month"]) == ("done", "2026-10")
+    assert "re-checked on this row's need: done, 100% of its sessions" in st.loc["1009759", "note"]
+    # not answered (or only prechecked: asked on purpose later): the plan's status stays
+    assert st.loc["c", "status"] == "conditional_tier_c" and st.loc["w", "status"] == "pending_month2"
+    assert st.loc["y", "status"] == "done" and counts["same_need"] == 1 and counts["other_need_rechecked"] == 1
+    # the month-2 plan drops the answered rows
+    weekly = pd.DataFrame(columns=["security_id", "week_end", "universe", "vendor_ok", "dv50_rank"])
+    evidence = pd.DataFrame({"week_end": pd.to_datetime([]), "security_id": [], "p_top250": [], "unknown": []})
+    plan, _ = pf.tiingo_month2_plan(out.reindex(columns=pf.CANDIDATE_COLUMNS).fillna(""), pd.DataFrame(),
+                                    pd.DataFrame(), {}, weekly, evidence, pd.DataFrame(), cached=lambda t: False)
+    assert set(plan["security_id"]) == {"c", "w"}
+    # a need the answer covers only in part is partial
+    longer = candidates.assign(needed_end=lambda f: np.where(f["security_id"] == "1009759", "2026-07-07", f["needed_end"]))
+    longer.loc[longer["security_id"] == "1009759", "needed_end"] = "2025-12-31"
+    out, _ = pf.tiingo_answers_back(longer, status, sessions)
+    assert out.set_index("security_id").loc["1009759", "status"] == "partial"
+
+
+def test_the_budget_block_names_symbols_spent_above_the_default_stop():
+    frame = pd.DataFrame({"planned_source": ["tiingo"] * 2, "fetch_month": [pf.MONTH_1] * 2, "priority": [1, 2],
+                          "security_id": ["a", "b"], "ticker_for_source": ["A", "B"], "status": ["pending"] * 2,
+                          "fetch_order": ["1", "2"]})
+    out, budget = pf.apply_budget(frame, used=500)
+    assert budget["month1_room"] == 0 and budget["month_stop"] == pf.TIINGO_MONTH_STOP == 480
+    assert budget["month_stop_used"] == 500 and budget["symbols_above_default_stop"] == 20
+    assert "--month-stop 500" in budget["budget_note"] and set(out["status"]) == {"deferred_quota"}
+    _, budget = pf.apply_budget(frame, used=10)
+    assert (budget["month_stop_used"], budget["symbols_above_default_stop"], budget["month1_room"]) == (480, 0, 470)
+
+
+def test_step6_drops_an_untested_float_that_dwarfs_the_form25_float_dirtt():
+    # DIRTT: $17.07B for 2023-06-30 with no close to test it, 47x its checked $364.7M Form 25 float (x1000 gives
+    # $17.1M, a twentieth of its other facts: not an x1000 error); a $15B fact 15x its Form 25 float is kept.
+    floats = pd.DataFrame({"cik": [1340476, 1340476, 2], "end": pd.to_datetime(["2021-06-30", "2023-06-30", "2023-06-30"]),
+                           "val": [3.647e8, 1.707438e10, 1.5e10], "shares": [85.3e6, 104.4e6, 100e6]})
+    weekly = pd.DataFrame({"security_id": ["1340476", "b"], "week_end": pd.to_datetime(["2021-07-02"] * 2),
+                           "close": [4.0, 150.0]})
+    master = pd.DataFrame({"security_id": ["1340476", "b"], "cik": ["1340476", "2"],
+                           "delist_form25_accession": ["0001354457-23-000757", "acc2"]})
+    form25 = pd.DataFrame({"accession": ["0001354457-23-000757", "acc2"], "public_float_usd": ["364706983.0", "1e9"],
+                           "float_check_flag": ["ok", "ok"]})
+    kept, dropped = pf.float_price_check(floats, weekly, master, [], form25)
+    assert sorted(kept["val"]) == [3.647e8, 1.5e10]
+    assert [(d["cik"], d["end"]) for d in dropped] == [(1340476, "2023-06-30")]
+    assert "46.8x the checked Form 25 float ($364.7M" in dropped[0]["check_or_reason"]
+    # without a Form 25 float to compare with (round 8's rule), it stays
+    kept, _ = pf.float_price_check(floats, weekly, master[["security_id", "cik"]])
+    assert len(kept) == 3
+    # the month-2 plan still counts nothing from it in step 12's weeks that carried it
+    weeks = pd.DataFrame({"security_id": "1340476", "week_end": pd.to_datetime(["2022-09-02", "2023-07-07", "2021-09-03"])})
+    ranks = pd.DataFrame({"security_id": pd.Series([], dtype=str), "snapshot_date": pd.Series([], dtype=str),
+                          "market_cap": pd.Series([], dtype=float)})
+    assert pf.dropped_float_weeks(weeks, master, ranks, floats, dropped) == {
+        ("1340476", pd.Timestamp("2022-09-02")), ("1340476", pd.Timestamp("2023-07-07"))}
+
+
+@pytest.mark.skipif(not all(Path(p).exists() for p in BUILT + [pf.FETCH_STATUS, pf.FLOAT_FIXES]),
+                    reason="step 6 round-9 outputs not built")
+def test_built_round9_answers_written_back_needs_split_at_listing_gaps_and_dirtt():
+    candidates = pd.read_csv(pf.CANDIDATES, dtype=str, keep_default_na=False)
+    summary = __import__("json").loads((pf.OUT / "prefilter_summary.json").read_text())
+    # every Tiingo row the fetcher answered on its very need carries that answer's status
+    status = pd.read_csv(pf.FETCH_STATUS, dtype=str, keep_default_na=False)
+    key = ["security_id", "ticker_for_source", "needed_start", "needed_end"]
+    final = status[status["status"].isin(pf.TIINGO_FINAL) & (status["entity_check"] != "precheck")]
+    answer = final.sort_values("updated_utc", kind="stable").drop_duplicates(key, keep="last").set_index(key)["status"]
+    tiingo = candidates[candidates["planned_source"] == "tiingo"].set_index(key)
+    both = tiingo.index.intersection(answer.index)
+    assert len(both) > 400 and (tiingo.loc[both, "status"] == answer.loc[both]).all()
+    # Capstone: two Yahoo pieces (CGRN to the Form 25, CEPL from the relisting, or from the new shares' first
+    # session when step 9 lists it as new equity), no unfillable OTC months
+    cepl = candidates[(candidates["security_id"] == "1009759") & (candidates["planned_source"] == "yahoo")]
+    relisted = summary["relist_junctions"]["new_equity"].get("1009759", {}).get("first_new_session", "2026-07-02")
+    assert sorted(cepl["needed_start"]) == ["2018-01-21", relisted]
+    unfillable = pd.read_csv(pf.UNFILLABLE, dtype=str, keep_default_na=False)
+    mine = unfillable[unfillable["security_id"] == "1009759"]
+    assert not ((mine["needed_end"] > "2023-10-22") & (mine["needed_start"] < "2026-07-02")).any()
+    assert summary["need_split_at_listing_gaps"]["rows"] > 0
+    # WW, CORZ and THRY: Yahoo's first trade judged on the row's own start
+    yahoo = candidates[candidates["planned_source"] == "yahoo"]
+    for sid in ("105319", "1839341", "1556739"):
+        assert set(yahoo.loc[yahoo["security_id"] == sid, "status"]) == {"done"}, sid
+    # DIRTT's untested $17.07B is left out in step 6 itself; the budget room is never below 0
+    fixes = pd.read_csv(pf.FLOAT_FIXES, dtype=str, keep_default_na=False)
+    drtt = fixes[(fixes["cik"] == "1340476") & (fixes["end"] == "2023-06-30")]
+    assert len(drtt) and set(drtt["action"]) == {"dropped"}
+    budget = summary["tiingo_budget"]
+    assert budget["month1_room"] >= 0 and budget["month_stop_used"] <= pf.TIINGO_MONTHLY_SYMBOLS

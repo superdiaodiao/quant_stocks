@@ -1799,8 +1799,11 @@ def test_built_tables_respect_every_delist_date_and_the_named_cases():
     assert by_sid.loc["1355096.T-QRTEA", "delist_date"] == "" and by_sid.loc["1355096.T-QRTEB", "delist_date"] == ""
     for sid, successor in [("1560385.T-LLYVK", "2078416.C"), ("1560385.T-LLYVA", "2078416.A"),
                            ("1560385.T-BATRK", "1958140.C"), ("1288776.A", "1652044.A"), ("1288776.C", "1652044.C"),
-                           ("1308161.A", "1754301.A"), ("1316631.C", "1570585.T-LBTYK"), ("1570585.T-LILAK", "1712184.C")]:
+                           ("1316631.C", "1570585.T-LBTYK"), ("1570585.T-LILAK", "1712184.C")]:
         assert by_sid.loc[sid, "successor_security_id"] == successor, sid
+    # 21CF was bought by Disney after distributing Fox (0.263183 21CF shares for 1/3 FOX share, 8-K
+    # 0000950157-19-000308): not a 1:1 reorganisation, so no successor link.
+    assert by_sid.loc["1308161.A", "successor_security_id"] == ""
 
 
 def test_a_delist_date_long_after_the_last_listing_is_flagged_for_review():

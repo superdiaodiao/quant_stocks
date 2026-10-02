@@ -268,8 +268,12 @@ def test_proxy_above_takes_either_market_cap_or_float_and_keeps_the_market_cap_f
     # INO 2020: a carried market cap below the band median does not outweigh a float that reaches it.
     assert un.proxy_above(frame, cut).tolist() == [True, True, True, False, False]
     assert un.proxy_above_mcap_first(frame, cut).tolist() == [True, False, True, False, False]
-    # The calibrated ratio stays market cap first (the bins the hit rates are measured on).
-    assert un.proxy_ratio_of(frame, cut)[[0, 1, 2]].tolist() == [2.5, 0.5, 1.5]
+    # The calibrated ratio is the either-one reading (round 8): a float-only week is binned by its float, so
+    # ratio >= 1 exactly where proxy_above; the plan's market-cap-first ratio is kept for the check-6 view.
+    ratio = un.proxy_ratio_of(frame, cut)
+    assert ratio[[0, 1, 2, 4]].tolist() == [2.5, 4.5, 1.5, 0.5] and np.isnan(ratio[3])
+    assert ((ratio >= 1.0) == un.proxy_above(frame, cut)).all()
+    assert un.proxy_ratio_mcap_first(frame, cut)[[0, 1, 2]].tolist() == [2.5, 0.5, 1.5]
 
 
 def _missing_frame():
@@ -528,9 +532,10 @@ def test_mark_missing_skips_weeks_outside_trading_new_listings_and_closes_under_
     rows = [
         # a: its series ends 2020-01-08 and its listing 10 days later: the weeks after are outside trading.
         {"security_id": "a", "week_index": 2, "first_row": "2015-01-02", "last_row": "2020-01-08"},
-        # b: first row 2020-01-02, a close but no 25-row median yet: a new listing, not missing.
+        # b: first row 2020-01-02, a close but no 25-row median yet: a new listing whose series starts at its
+        # earliest start, not missing.
         {"security_id": "b", "week_index": 1, "first_row": "2020-01-02", "last_row": "2020-12-31", "close": 15.0,
-         "price_ge_10": "Y"},
+         "price_ge_10": "Y", "series_starts_listing": True},
         # c: a close under $10 and no median: the $10 test already excludes it.
         {"security_id": "c", "week_index": 1, "first_row": "2015-01-02", "last_row": "2020-12-31", "close": 4.0,
          "price_ge_10": "N"},
@@ -1113,12 +1118,403 @@ def test_one_ticker_only_snapshot_row_against_a_non_nasdaq_sec_exchange_is_left_
 def test_the_summary_definitions_follow_the_constants_the_code_uses():
     young = un.young_definition()
     for part in (f"{un.YOUNG_DAYS} days", f"{un.YOUNG_ISSUER_DAYS} days", "1 to 24", "24 or fewer", "n50 = 0",
-                 "older_issuer", "issuer_listed_before", "snapshot_gap", "ipo_rule"):
+                 "older_issuer", "issuer_listed_before", "snapshot_gap", "ipo_rule", "successor_link",
+                 f"within {un.SERIES_START_SESSIONS} sessions of its earliest start"):
         assert part in young, part
+    link = un.successor_link_definition()
+    for part in (f"{un.SUCCESSOR_LINK_DAYS} days", "stock_merger / reorganization of 1 successor share", "no day"):
+        assert part in link, part
     ic = un.investment_company_definition()
     for part in (un.IC_ELECTION, un.IC_WITHDRAWAL, un.IC_DEREGISTRATION, un.IC_OPEN_END, f"{un.IC_RUN_GAP_DAYS} days",
                  f">= {un.IC_MIN_RUN}", "filings_current", "merger_tail", f"{un.IC_TAIL_DAYS} days", un.IC_NPX_BEFORE):
         assert part in ic, part
+
+
+# ------------------------------------------------------------------ round 8 review: young only for new listings, successor links
+
+def _link_master(rows):
+    base = {"cik": "", "domestic_periodic_first": "", "successor_security_id": "", "successor_date": "", "delist_date": "",
+            "transfer_date": ""}
+    return pd.DataFrame([{**base, **r} for r in rows])
+
+
+def _reorganization(predecessor, successor, kind="stock_merger", subtype="reorganization", shares="1"):
+    return {"security_id": predecessor, "terminal_type": kind, "event_subtype": subtype, "consideration_shares": shares,
+            "acquirer_security_id": successor}
+
+
+def test_googl_shape_a_1to1_successor_link_runs_the_windows_across_and_is_no_new_listing():
+    # Google -> Alphabet (2015-10-02): the old class A rows run to 10-08 (and three more rows after the
+    # handover here, which must not count), Alphabet's from 10-09, its first listed day; a second link has the
+    # LBTYA shape, the successor's own rows duplicated before its listing starts.
+    sessions, weeks, week_pos, prev_pos = _grid(80)
+    day = lambda k: sessions[k].strftime("%Y-%m-%d")
+    hand = 45
+    rows = [("goog", sessions[k], 1000.0 if k >= hand else 10.0, 1000.0, "wiki") for k in range(hand + 3)]
+    rows += [("googl", sessions[k], 20.0, 1000.0, "wiki") for k in range(hand, 80)]
+    rows += [("lgi", sessions[k], 10.0, 1000.0, "wiki") for k in range(hand)]
+    rows += [("lgi_plc", sessions[k], 30.0 if k < hand else 20.0, 1000.0, "wiki") for k in range(hand - 5, 80)]
+    panel = pd.DataFrame(rows, columns=["security_id", "date", "close_raw", "volume_raw", "src_primary"])
+    master = _link_master([
+        {"security_id": "goog", "cik": "1288776", "domestic_periodic_first": "2004-11-12",
+         "successor_security_id": "googl", "successor_date": day(40)},
+        {"security_id": "googl", "cik": "1652044"},
+        {"security_id": "lgi", "cik": "1316631", "domestic_periodic_first": "2005-08-15",
+         "successor_security_id": "lgi_plc", "successor_date": day(40)},
+        {"security_id": "lgi_plc", "cik": "1570585"}])
+    spans = _spans([{"security_id": "goog", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+                    {"security_id": "googl", "list_start": day(hand), "start_prev_absent": day(hand - 2), "ipo_start": True},
+                    {"security_id": "lgi", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+                    {"security_id": "lgi_plc", "list_start": day(hand), "start_prev_absent": day(hand - 2)}])
+    terminal = pd.DataFrame([_reorganization("goog", "googl"), _reorganization("lgi", "lgi_plc")])
+    plain = un.canonical_metrics(panel, sessions, week_pos, prev_pos)
+    links = un.successor_links(master, spans, plain["first_row"], terminal).set_index("successor_id")
+    assert links.loc["googl", "continuing"] and links.loc["googl", "continuing_basis"] == "successor_date"
+    assert links.loc["googl", "one_to_one"] and links.loc["googl", "windows_cross"]
+    assert links.loc["googl", "handover"] == day(hand)
+    m = un.canonical_metrics(panel, sessions, week_pos, prev_pos, links=links.reset_index())
+    ids = list(m["ids"])
+    g, old, plc = ids.index("googl"), ids.index("goog"), ids.index("lgi_plc")
+    first = int(np.searchsorted(week_pos, hand))          # Alphabet's first week: 5 rows of its own
+    assert np.isnan(plain["dv50"][first, g]) and np.isnan(plain["dv20"][first, g])
+    for w in range(first, len(weeks)):
+        pos = week_pos[w]
+        # one row per session: the predecessor's before the handover, Alphabet's own from it (never the
+        # predecessor's three rows after the handover, at 100 times the dollar volume)
+        combined = [1e4 if k < hand else 2e4 for k in range(pos - 49, pos + 1)]
+        assert m["dv50"][w, g] == pytest.approx(np.median(combined)), w
+        assert m["dv20"][w, g] == pytest.approx(np.median(combined[-20:])), w
+    assert m["successor_windows"]["googl"] == {"predecessor": "goog", "handover": day(hand),
+                                               "predecessor_rows_in_first_window": 45, "own_rows_replaced": 0,
+                                               "predecessor_rows_on_or_after_handover_unused": 3}
+    # The successor's own rows before its listing start give way to the predecessor's (no day twice).
+    assert m["successor_windows"]["lgi_plc"]["own_rows_replaced"] == 5
+    assert m["dv50"][first, plc] == pytest.approx(np.median([1e4 if k < hand else 2e4 for k in
+                                                             range(week_pos[first] - 49, week_pos[first] + 1)]))
+    # The predecessor's own windows, the closes and the first rows do not change.
+    assert np.array_equal(m["dv50"][:, old], plain["dv50"][:, old], equal_nan=True)
+    assert np.array_equal(m["close"], plain["close"], equal_nan=True)
+    assert m["first_row"] == plain["first_row"] and m["first_row"]["googl"] == day(hand)
+    # Alphabet is no new listing: even without a dv50 (the windows not run across) it is not young.
+    newness = un.new_listing_evidence(spans, master, sessions, links=links.reset_index(), first_row=m["first_row"])
+    ev = newness.set_index("security_id")
+    assert ev.loc["googl", "new_listing_basis"] == "successor_link" and ev.loc["googl", "predecessor_security_id"] == "goog"
+    assert ev.loc["googl", "listing_continues"] and not ev.loc["googl", "new_listing"]
+    assert not ev.loc["googl", "series_starts_listing"]
+    listed = pd.DataFrame({"security_id": "googl", "week_index": np.arange(first, len(weeks)),
+                           "week_end": weeks[first:], "listing_start": day(hand), "pf_dv50": np.nan,
+                           "pf_n50": 5.0, "pf_first_data": pd.to_datetime(day(hand))})
+    listed = un.attach_new_listing(listed, spans, newness, sessions, week_pos)
+    without = un.attach_metrics(listed, plain)
+    assert np.isnan(without["dv50"].iloc[0]) and not np.isnan(without["close"].iloc[0])
+    assert (un.young_rules(without) == "").all()           # before the fix: "canonical" for 5 weeks
+    across = un.attach_metrics(listed, m)
+    assert across["dv50"].notna().all()                    # ranked from its first week
+
+
+def test_kdp_and_hst_shape_a_transfer_from_nyse_without_rows_before_it_stays_missing_and_blocks():
+    # KDP (2020-09-21) and HST (2020-11-02) moved from NYSE; their rows start at the Nasdaq start, so the
+    # first weeks have a close and no dv50. An issuer filing 10-Ks for years is no new listing: missing, and
+    # the proxy (or step 6's dollar volume) blocks the week. A real IPO of the same shape stays young.
+    sessions = pd.bdate_range("2020-06-01", "2021-03-31")
+    weeks = pd.DatetimeIndex(pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-SUN")).max().values)
+    week_pos = sessions.get_indexer(weeks)
+    master = _link_master([{"security_id": "kdp", "cik": "1418135", "domestic_periodic_first": "2008-05-08"},
+                           {"security_id": "hst", "cik": "1070750", "domestic_periodic_first": "1999-03-26"},
+                           {"security_id": "ipo", "cik": "9"},
+                           {"security_id": "gpro", "cik": "8"}])
+    spans = _spans([{"security_id": "kdp", "list_start": "2020-09-21", "start_prev_absent": "2020-09-18"},
+                    {"security_id": "hst", "list_start": "2020-11-02", "start_prev_absent": "2020-10-30"},
+                    {"security_id": "ipo", "list_start": "2020-09-21", "start_prev_absent": "2020-09-11", "ipo_start": True},
+                    # GoPro-shaped: an IPO prospectus dates the start; the series begins 8 sessions later.
+                    {"security_id": "gpro", "list_start": "2020-09-25", "start_prev_absent": "2020-09-04"}])
+    first_row = {"kdp": "2020-09-21", "hst": "2020-11-02", "ipo": "2020-09-21", "gpro": "2020-09-25"}
+    newness = un.new_listing_evidence(spans, master, sessions, {"8": ["2020-09-16"]}, first_row=first_row)
+    ev = newness.set_index("security_id")
+    assert ev.loc["kdp", "new_listing_basis"] == "older_issuer" and ev.loc["hst", "new_listing_basis"] == "older_issuer"
+    assert ev.loc["ipo", "series_starts_listing"] and ev.loc["ipo", "series_start_gap"] == 0
+    assert ev.loc["gpro", "new_listing_basis"] == "prospectus" and ev.loc["gpro", "series_start_gap"] == 9
+    assert not ev.loc["gpro", "series_starts_listing"]
+    k = int(np.searchsorted(weeks, pd.Timestamp("2020-10-09")))
+    h = int(np.searchsorted(weeks, pd.Timestamp("2020-11-13")))
+    ids = ["kdp", "hst", "ipo", "gpro"]
+    listed = pd.DataFrame({"security_id": ids, "week_index": [k, h, k, k], "week_end": weeks[[k, h, k, k]],
+                           "listing_start": ["2020-09-21", "2020-11-02", "2020-09-21", "2020-09-25"],
+                           "first_row": [first_row[s] for s in ids], "close": 30.0, "dv50": np.nan,
+                           "price_ge_10": "Y", "eligible": True, "dv50_rank_any_price": np.nan, "has_series": True,
+                           "last_row": "2026-08-31", "pf_outside_trading": False, "pf_dv50": np.nan, "pf_price": "",
+                           "pf_n50": np.nan, "pf_first_data": pd.to_datetime([None] * 4),
+                           "mcap": [4e10, 1.2e10, 4e10, 4e9], "float_usd": np.nan, "multi_class": False, "cik": "1"})
+    listed = un.attach_new_listing(listed, spans, newness, sessions, week_pos)
+    # Before the fix the canonical rule called all four young; now only the IPO whose series starts at its
+    # start; GoPro is young by rule 1 (sessions from its earliest start), the transfers by none.
+    assert un.young_rules(listed).tolist() == ["", "", "canonical", "new_listing"]
+    cut = pd.DataFrame({"cut250": 1e8, "cut300": 8e7, "cut_mcap": 1e10, "cut_float": 1e10},
+                       index=pd.Index(sorted({k, h}), name="week_index"))
+    out = un.mark_missing(listed, spans.assign(list_end="2026-08-31"), {s: "not_candidate" for s in ids}, cut)
+    out = out.set_index("security_id")
+    assert out.loc[["kdp", "hst"], "missing"].all() and not out.loc[["ipo", "gpro"], "missing"].any()
+    assert (out.loc[["kdp", "hst"], "evidence"] == "proxy").all() and out.loc[["kdp", "hst"], "proxy_above"].all()
+    assert un.blocks_week(out.loc[["kdp", "hst"]]).all()
+    # With step 6's dollar volume at or above the cut (its own Yahoo history), the dv evidence blocks instead.
+    dv = un.mark_missing(listed.assign(pf_dv50=2e8, pf_price="Y"), spans.assign(list_end="2026-08-31"),
+                         {s: "not_candidate" for s in ids}, cut).set_index("security_id")
+    assert dv.loc["kdp", "missing"] and dv.loc["kdp", "pf_ge_cut250"] and un.blocks_week(dv.loc[["kdp"]]).all()
+    # A relist junction still restarts the rule (CHRD): a segment that starts there is young.
+    junction = listed.assign(segment_first_row=listed["first_row"], segment_junction=[True, False, False, False])
+    assert un.young_rules(junction).tolist()[0] == "canonical"
+
+
+def test_azpn_shape_a_successor_with_a_predecessor_is_a_continuing_listing_for_every_young_rule():
+    # New AspenTech (2022-05-16, Emerson's $87.69 + 0.42 share): its listing starts 2022-06-07, the day after
+    # the old AspenTech's last listed day, 22 days after the successor date; its first canonical row is 05-12.
+    # A QDEL-shaped link (QuidelOrtho listed from 06-07, the Form 25 dated 05-27) counts by the handover alone.
+    sessions = pd.bdate_range("2022-01-03", "2022-12-30")
+    weeks = pd.DatetimeIndex(pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-SUN")).max().values)
+    week_pos = sessions.get_indexer(weeks)
+    master = _link_master([
+        {"security_id": "929940", "cik": "929940", "domestic_periodic_first": "1996-02-14",
+         "successor_security_id": "1897982", "successor_date": "2022-05-16"},
+        {"security_id": "1897982", "cik": "1897982", "domestic_periodic_first": "2022-08-09"},
+        {"security_id": "353569", "cik": "353569", "domestic_periodic_first": "1994-01-01",
+         "successor_security_id": "1906324", "successor_date": "2022-05-27"},
+        {"security_id": "1906324", "cik": "1906324"},
+        # a link far from the successor's listing (60 days after the date, 40 after the predecessor's end)
+        {"security_id": "old", "cik": "7", "domestic_periodic_first": "2001-01-01",
+         "successor_security_id": "far", "successor_date": "2022-03-01"},
+        {"security_id": "far", "cik": "6"}])
+    spans = _spans([
+        {"security_id": "929940", "list_start": "2010-12-31", "list_end": "2022-06-06"},
+        {"security_id": "1897982", "list_start": "2022-06-07", "start_prev_absent": "2022-06-03"},
+        {"security_id": "353569", "list_start": "2010-12-31", "list_end": "2022-06-06"},
+        {"security_id": "1906324", "list_start": "2022-06-07", "start_prev_absent": "2022-06-03"},
+        {"security_id": "old", "list_start": "2010-12-31", "list_end": "2022-03-20"},
+        {"security_id": "far", "list_start": "2022-04-29", "start_prev_absent": "2022-04-27", "ipo_start": True}])
+    first_row = {"929940": "2011-06-01", "1897982": "2022-05-12", "353569": "2011-06-01", "1906324": "2022-06-07",
+                 "old": "2011-06-01", "far": "2022-04-29"}
+    terminal = pd.DataFrame([_reorganization("929940", "1897982", "mixed", "merger", "0.42"),
+                             _reorganization("353569", "1906324")])
+    links = un.successor_links(master, spans, first_row, terminal).set_index("successor_id")
+    assert links.loc["1897982", "continuing"] and links.loc["1897982", "continuing_basis"] == "first_row"
+    assert not links.loc["1897982", "one_to_one"] and not links.loc["1897982", "windows_cross"]
+    assert "mixed / merger / 0.42" in links.loc["1897982", "one_to_one_basis"]
+    assert links.loc["1906324", "continuing_basis"] == "handover" and links.loc["1906324", "windows_cross"]
+    assert not links.loc["far", "continuing"] and links.loc["far", "continuing_basis"] == ""
+    newness = un.new_listing_evidence(spans, master, sessions, links=links.reset_index(), first_row=first_row)
+    ev = newness.set_index("security_id")
+    assert ev.loc["1897982", "new_listing_basis"] == "successor_link" and ev.loc["1897982", "listing_continues"]
+    assert ev.loc["1897982", "earliest_start"] == "" and ev.loc["1906324", "new_listing_basis"] == "successor_link"
+    assert ev.loc["far", "new_listing_basis"] == "ipo_rule" and ev.loc["far", "series_starts_listing"]
+    # AZPN 2022-06-10: rule 1 (before: new_listing), short_series (a 10-row step-6 series) and the canonical
+    # rule (a close without a dv50) all leave it missing.
+    k = int(np.searchsorted(weeks, pd.Timestamp("2022-06-10")))
+    base = {"security_id": "1897982", "week_index": k, "week_end": weeks[k], "listing_start": "2022-06-07",
+            "first_row": "2022-05-12", "dv50": np.nan, "pf_dv50": np.nan, "pf_n50": 10.0,
+            "pf_first_data": pd.Timestamp("2022-06-07")}
+    listed = pd.DataFrame([{**base, "close": np.nan}, {**base, "close": 150.0}])
+    listed = un.attach_new_listing(listed, spans, newness, sessions, week_pos)
+    assert np.isnan(listed["listing_sessions"]).all()
+    assert un.young_rules(listed).tolist() == ["", ""]
+    # The same rows read as a new listing (no link) were young by rule 1 and short_series.
+    bare = un.new_listing_evidence(spans, master.assign(successor_security_id=""), sessions, first_row=first_row)
+    assert bare.set_index("security_id").loc["1897982", "new_listing_basis"] == "snapshot_gap"
+    unlinked = un.attach_new_listing(listed.drop(columns=["new_listing", "new_listing_basis", "listing_continues",
+                                                          "earliest_start", "predecessor_security_id",
+                                                          "series_starts_listing", "listing_sessions",
+                                                          "first_listing_run"]),
+                                     spans, bare, sessions, week_pos)
+    assert un.young_rules(unlinked).tolist()[0] == "new_listing"
+
+
+def test_esrx_shape_a_1to1_reorganisation_step_11_books_but_the_master_does_not_link_continues_the_security():
+    # Express Scripts -> Express Scripts Holding (2012-04): the master has no successor link, step 11 books the
+    # old shares' end as stock_merger / reorganization / 1 share into the new holding company (its Form 25 is
+    # dated 17 days after the handover). The old rows run to the day before the new listing starts. Before
+    # the fix the holding company was young for five weeks (canonical / short_series) while ranked 12th-13th.
+    sessions, weeks, week_pos, prev_pos = _grid(80)
+    day = lambda k: sessions[k].strftime("%Y-%m-%d")
+    hand = 45
+    rows = [("esrx_old", sessions[k], 10.0, 1000.0, "wiki") for k in range(hand)]
+    rows += [("esrx_new", sessions[k], 20.0, 1000.0, "wiki") for k in range(hand, 80)]
+    panel = pd.DataFrame(rows, columns=["security_id", "date", "close_raw", "volume_raw", "src_primary"])
+    master = _link_master([
+        {"security_id": "esrx_old", "cik": "885721", "domestic_periodic_first": "1996-03-29"},
+        {"security_id": "esrx_new", "cik": "1532063"},
+        # a master link elsewhere for the same kind of predecessor: step 11 adds nothing to it
+        {"security_id": "linked", "cik": "5", "domestic_periodic_first": "2001-01-01",
+         "successor_security_id": "linked_new", "successor_date": day(hand)},
+        {"security_id": "linked_new", "cik": "4"},
+        {"security_id": "solo", "cik": "3", "domestic_periodic_first": "2001-01-01"},
+        {"security_id": "blank", "cik": "2", "domestic_periodic_first": "2001-01-01"},
+        {"security_id": "cashy", "cik": "1", "domestic_periodic_first": "2001-01-01"},
+        {"security_id": "cashy_new", "cik": "11"}])
+    spans = _spans([
+        {"security_id": "esrx_old", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+        {"security_id": "esrx_new", "list_start": day(hand), "start_prev_absent": day(hand - 2), "ipo_start": True},
+        {"security_id": "linked", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+        {"security_id": "linked_new", "list_start": day(hand), "start_prev_absent": day(hand - 2)},
+        {"security_id": "solo", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+        {"security_id": "blank", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+        {"security_id": "cashy", "list_start": "2010-12-31", "list_end": day(hand - 1)},
+        {"security_id": "cashy_new", "list_start": day(hand), "start_prev_absent": day(hand - 2)}])
+    end = {"end_date": day(hand + 12), "delist_date": day(hand + 12)}
+    terminal = pd.DataFrame([{**_reorganization("esrx_old", "esrx_new"), **end},
+                             {**_reorganization("linked", "esrx_new"), **end},     # the master link wins
+                             {**_reorganization("solo", "not_listed"), **end},     # acquirer never listed
+                             {**_reorganization("blank", ""), **end},              # no acquirer named
+                             {**_reorganization("cashy", "cashy_new", "mixed", "merger", "0.42"), **end}])
+    plain = un.canonical_metrics(panel, sessions, week_pos, prev_pos)
+    links = un.successor_links(master, spans, plain["first_row"], terminal)
+    assert sorted(zip(links["predecessor_id"], links["successor_id"], links["link_source"])) == [
+        ("esrx_old", "esrx_new", "step11"), ("linked", "linked_new", "security_master")]
+    esrx = links.set_index("successor_id").loc["esrx_new"]
+    assert esrx["successor_date"] == day(hand + 12) and esrx["predecessor_end"] == day(hand - 1)
+    assert esrx["continuing"] and esrx["continuing_basis"] == "handover"   # not 10 days from the Form 25
+    assert esrx["one_to_one"] and esrx["windows_cross"] and esrx["handover"] == day(hand)
+    # The windows run across: ranked from the first week, one row per session.
+    m = un.canonical_metrics(panel, sessions, week_pos, prev_pos, links=links)
+    k = list(m["ids"]).index("esrx_new")
+    first = int(np.searchsorted(week_pos, hand))
+    assert np.isnan(plain["dv50"][first, k])
+    for w in range(first, len(weeks)):
+        pos = week_pos[w]
+        assert m["dv50"][w, k] == pytest.approx(np.median([1e4 if j < hand else 2e4 for j in range(pos - 49, pos + 1)]))
+    assert m["successor_windows"]["esrx_new"]["predecessor_rows_in_first_window"] == 45
+    # No new listing: not young by any rule, even without the windows run across.
+    newness = un.new_listing_evidence(spans, master, sessions, links=links, first_row=m["first_row"]).set_index("security_id")
+    assert newness.loc["esrx_new", "new_listing_basis"] == "successor_link"
+    assert newness.loc["esrx_new", "predecessor_security_id"] == "esrx_old"
+    assert not newness.loc["esrx_new", "series_starts_listing"]
+    listed = pd.DataFrame({"security_id": "esrx_new", "week_index": np.arange(first, first + 5),
+                           "week_end": weeks[first:first + 5], "listing_start": day(hand), "pf_dv50": np.nan,
+                           "pf_n50": 5.0, "pf_first_data": pd.to_datetime(day(hand))})
+    listed = un.attach_new_listing(listed, spans, newness.reset_index(), sessions, week_pos)
+    without = un.attach_metrics(listed, plain)
+    assert np.isnan(without["dv50"].iloc[0]) and (un.young_rules(without) == "").all()
+    assert un.attach_metrics(listed, m)["dv50"].notna().all()
+    # The round-9 failure: the same rows with no step-11 row read as a new listing, young by the canonical rule.
+    bare = un.successor_links(master, spans, plain["first_row"], terminal.iloc[1:])
+    assert "esrx_new" not in set(bare["successor_id"])
+    old = un.new_listing_evidence(spans, master, sessions, links=bare, first_row=plain["first_row"])
+    unlinked = un.attach_metrics(un.attach_new_listing(listed[["security_id", "week_index", "week_end",
+                                                               "listing_start", "pf_dv50", "pf_n50", "pf_first_data"]],
+                                                       spans, old, sessions, week_pos), plain)
+    assert un.young_rules(unlinked).tolist()[0] == "canonical"
+
+
+def test_iac_shape_a_predecessor_listed_on_after_the_successor_starts_does_not_continue_it():
+    # New IAC (2020-07-01) is a spin-off: old IAC went on under its own security as MTCH to 2026 (a rename,
+    # joined into one listing run), so the master link does not continue it and new IAC is a new listing.
+    # RCM 2022 (the old shares listed 28 days past the new start) still continues; a predecessor that lists
+    # again years later is measured by its run before the successor's start.
+    sessions = pd.bdate_range("2014-01-01", "2023-12-29")
+    master = _link_master([
+        {"security_id": "iac_old", "cik": "891103", "domestic_periodic_first": "1996-01-01",
+         "successor_security_id": "iac_new", "successor_date": "2020-06-30"},
+        {"security_id": "iac_new", "cik": "1800227"},
+        {"security_id": "rcm_old", "cik": "1472595", "domestic_periodic_first": "2010-01-01",
+         "successor_security_id": "rcm_new", "successor_date": "2022-06-22"},
+        {"security_id": "rcm_new", "cik": "1910851"},
+        {"security_id": "back_old", "cik": "70", "domestic_periodic_first": "2001-01-01",
+         "successor_security_id": "back_new", "successor_date": "2016-03-01"},
+        {"security_id": "back_new", "cik": "71"}])
+    spans = _spans([
+        {"security_id": "iac_old", "list_start": "2010-12-31", "list_end": "2016-01-28"},
+        {"security_id": "iac_old", "list_start": "2016-01-29", "list_end": "2020-07-28"},
+        {"security_id": "iac_old", "list_start": "2020-07-29", "list_end": "2026-08-31"},   # as MTCH
+        {"security_id": "iac_new", "list_start": "2020-07-01", "start_prev_absent": "2020-06-29", "ipo_start": True},
+        {"security_id": "rcm_old", "list_start": "2017-03-16", "list_end": "2022-07-22"},
+        {"security_id": "rcm_new", "list_start": "2022-06-24", "start_prev_absent": "2022-06-07"},
+        {"security_id": "back_old", "list_start": "2010-12-31", "list_end": "2016-03-03"},
+        {"security_id": "back_old", "list_start": "2019-05-01", "list_end": "2026-08-31"},
+        {"security_id": "back_new", "list_start": "2016-03-04", "start_prev_absent": "2016-03-01"}])
+    first_row = {"iac_old": "2011-06-01", "iac_new": "2020-07-01", "rcm_old": "2017-03-16", "rcm_new": "2022-03-25",
+                 "back_old": "2011-06-01", "back_new": "2016-03-04"}
+    links = un.successor_links(master, spans, first_row).set_index("successor_id")
+    assert links.loc["iac_new", "predecessor_end"] == "2026-08-31"
+    assert links.loc["iac_new", "continuing_basis"] == "predecessor_listed_on" and not links.loc["iac_new", "continuing"]
+    assert links.loc["rcm_new", "continuing"] and links.loc["rcm_new", "continuing_basis"] == "successor_date"
+    assert links.loc["back_new", "predecessor_end"] == "2016-03-03" and links.loc["back_new", "continuing"]
+    # With a tighter overlap the RCM shape would not continue either.
+    assert not un.successor_links(master, spans, first_row, overlap_days=20).set_index("successor_id").loc[
+        "rcm_new", "continuing"]
+    newness = un.new_listing_evidence(spans, master, sessions, links=links.reset_index(),
+                                      first_row=first_row).set_index("security_id")
+    assert newness.loc["iac_new", "new_listing_basis"] == "ipo_rule" and newness.loc["iac_new", "series_starts_listing"]
+    assert newness.loc["iac_new", "predecessor_security_id"] == ""
+    assert newness.loc["rcm_new", "new_listing_basis"] == "successor_link"
+
+
+def test_young_summary_counts_canonical_weeks_by_basis_link_and_proxy_above_and_the_weeks_it_leaves_missing():
+    sessions = pd.bdate_range("2020-01-01", periods=80)
+    weeks = pd.DatetimeIndex(pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-SUN")).max().values)
+    week_pos = sessions.get_indexer(weeks)
+    w = weeks[2]
+    rows = [
+        # a real IPO, canonical young, its proxy at the band median
+        {"security_id": "ipo", "ticker": "IPO", "young": True, "young_rule": "canonical", "new_listing_basis": "ipo_rule",
+         "proxy_above": True, "missing": False},
+        # KDP-shaped: a close, no dv50, 10 days after its first row: no longer young, missing and blocking
+        {"security_id": "kdp", "ticker": "KDP", "young": False, "young_rule": "", "new_listing_basis": "older_issuer",
+         "proxy_above": True, "missing": True, "evidence": "proxy"},
+        # Alphabet-shaped without the windows run across: continuing, missing
+        {"security_id": "googl", "ticker": "GOOGL", "young": False, "young_rule": "", "predecessor_security_id": "goog",
+         "new_listing_basis": "successor_link", "proxy_above": True, "missing": True, "evidence": "proxy"},
+        # an old name with a dv50: not counted anywhere
+        {"security_id": "old", "ticker": "OLD", "young": False, "young_rule": "", "new_listing_basis": "no_earlier_snapshot",
+         "proxy_above": False, "missing": False, "dv50": 5e7, "first_row": "2011-06-01"}]
+    base = {"week_index": 2, "week_end": w, "eligible": True, "close": 20.0, "dv50": np.nan, "pf_dv50": np.nan,
+            "first_row": (w - pd.Timedelta(days=10)).strftime("%Y-%m-%d"), "predecessor_security_id": "",
+            "listing_start": sessions[0].strftime("%Y-%m-%d"), "first_listing_run": True, "pf_ge_cut250": False,
+            "pf_dv_ok": False, "pf_price_low": False, "evidence": ""}
+    listed = pd.DataFrame([{**base, **r} for r in rows])
+    listed["segment_first_row"] = listed["first_row"]
+    out = un.young_summary(listed, sessions, week_pos)
+    assert out["canonical_rule"]["by_basis"] == {"ipo_rule": 1} and out["canonical_rule"]["proxy_above_name_weeks"] == 1
+    assert out["canonical_rule"]["with_predecessor_link"] == 0 and out["with_predecessor_link"]["name_weeks"] == 0
+    left = out["canonical_rule_not_applied"]
+    assert left["by_basis"] == {"older_issuer": 1, "successor_link": 1} and left["with_predecessor_link"] == 1
+    assert left["missing_name_weeks"] == 2 and left["missing_blocking_name_weeks"] == 2
+    assert left["proxy_above_by_basis"] == {"older_issuer": 1, "successor_link": 1}
+    assert left["blocking_securities"] == {"googl:GOOGL": 1, "kdp:KDP": 1}
+
+
+def test_successor_link_summary_reports_each_link_and_its_first_weeks():
+    links = pd.DataFrame([{"predecessor_id": "goog", "successor_id": "googl", "successor_date": "2015-10-02",
+                           "successor_start": "2015-10-09", "successor_first_row": "2015-10-09",
+                           "predecessor_end": "2015-10-08", "continuing": True, "continuing_basis": "successor_date",
+                           "one_to_one": True, "one_to_one_basis": "step 11: stock_merger / reorganization / 1 share",
+                           "windows_cross": True, "handover": "2015-10-09"}], columns=un.LINK_COLUMNS)
+    weeks = pd.to_datetime(["2015-10-09", "2015-10-16"])
+    listed = pd.DataFrame({"security_id": "googl", "ticker": "GOOGL", "week_index": [0, 1], "week_end": weeks,
+                           "eligible": True, "dv50_rank_any_price": [6.0, 7.0], "dv50_rank": [6.0, 7.0],
+                           "missing": False, "young": False})
+    windows = {"googl": {"predecessor": "goog", "handover": "2015-10-09", "predecessor_rows_in_first_window": 45}}
+    out = un.successor_link_summary(listed, links, windows)
+    assert out["links"] == 1 and out["windows_cross_with_predecessor_rows"] == 1
+    entry = out["by_link"][0]
+    assert entry["first_5_weeks"] == {"base": 2, "ranked_dv50": 2, "best_dv50_rank": 6, "missing": 0,
+                                      "missing_blocking": 0, "young": 0}
+    assert entry["predecessor_rows_in_first_window"] == 45 and entry["ticker"] == "GOOGL"
+    assert un.successor_links(pd.DataFrame({"security_id": ["a"]}), pd.DataFrame(columns=["security_id"]), {}).empty
+
+
+def test_check_6_reports_the_market_cap_first_binning_beside_the_either_one_count():
+    # INO-shaped float-only week: binned by its float (p 0.6) rather than by a stale market cap (p 0.01).
+    settled = pd.DataFrame({"missing_reason": ["unfillable", "not_candidate", "not_candidate"],
+                            "evidence": ["proxy", "proxy", "unknown"], "p_top250": [0.6, 0.4, np.nan],
+                            "p_top250_mcap_first": [0.01, 0.4, np.nan], "proxy_above_float_only": [True, False, False]})
+    six = un.check_6(settled, settled, slots=50)
+    alt = six["market_cap_first_binning"]
+    assert six["residual_share"] == 0.02 and alt["residual_share"] == 0.0082
+    assert alt["residual_name_weeks_difference"] == 0.59 and alt["float_only_name_weeks"] == 1
+    assert alt["float_only_est_top250"] == {"either_one_binning": 0.6, "market_cap_first_binning": 0.01}
+    assert alt["unfillable_only_share"] == 0.0002 and alt["upper_share"] == 0.0282
+    table = un.completeness_table({2012: {"weeks": 1, "complete_250_share": 1.0, "complete_250_strict_share": 1.0,
+                                          "complete_250_after_pending_share": 1.0,
+                                          "complete_250_after_pending_ex_sibling_classes_share": 1.0,
+                                          "top250_close_in_week_share": 1.0, "check_6": six}})
+    assert table["residual_mcap_first"].tolist() == [0.0082]
 
 
 # ------------------------------------------------------------------ built outputs

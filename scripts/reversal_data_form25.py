@@ -52,13 +52,29 @@ still lists on Nasdaq. ``unlisted_withdrawal``: an issuer's own Form 25 filed be
 CIK's first Nasdaq row (ShiftPixy), which ended nothing. The security master drops the
 tail of the run after an exit only for the tickers it covered.
 
+Hand classifications (``HAND_CLASSIFICATIONS``, 2026-10-02): the 21 ``reorg_review``
+rows and the one ``unlisted_withdrawal`` row were read in their SEC filings and put into
+the plan's four classes. A 1:1 conversion into a new registrant that carries on the
+subject's business (a holding-company reorganisation or reincorporation, also with a
+purchase made at the same time; a tracking stock redeemed one for one into the company
+holding its group) is ``reorg`` with the successor link; a merger into a combination led
+by another business, a ratio other than one, or a cash election is ``common_delisting``
+with none. ShiftPixy's withdrawal before any trading is ``common_delisting`` with
+``subject_exit`` N (it ended nothing). The evidence column starts with ``hand:`` and keeps
+the rule's own label. A filing the rules put outside the four classes later still shows up
+as ``reorg_review`` or ``unlisted_withdrawal`` until it is read and added to the table.
+
 ``effective_date`` is the filing date plus 10 days (Rule 12d2-2(d)(1)); the
 document carries no effective date, and trading has usually stopped before.
+
+SEC requests go through this builder's own limiter (``SEC_LIMITER``, 3 a second).
 
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_form25.py            # fetch + build
     PYTHONPATH=. python scripts/reversal_data_form25.py --offline  # rebuild from cache only
+    # a scratch build: outputs under DIR, the security master's raw rows read from MASTER_DERIVED
+    PYTHONPATH=. python scripts/reversal_data_form25.py --offline --out-dir DIR --master-dir MASTER_DERIVED
 """
 from __future__ import annotations
 
@@ -96,6 +112,11 @@ OLD_LIST = Path("output/research_only/sue_lt_2020_2026/inputs/sec_form25_nasdaq_
 SNAPSHOT_DATES = SEC_RAW / "derived" / "snapshot_dates.json"
 FILES_READ: set[str] = set()  # raw/sec files read in this run (written to derived/files_read_form25.json)
 COMPARISON = SEC_RAW / "derived" / "form25_vs_sue_lt_2020_2026.json"
+DERIVED = SEC_RAW / "derived"  # this builder's summary and files-read list
+RAW_ROWS = SEC_RAW / "derived" / "ticker_rows_raw.csv.gz"  # the security master's raw rows (step 4)
+# This builder's own SEC limit: several builders run at once, each at most 3 requests a second.
+SEC_PER_SECOND = 3
+SEC_LIMITER = common.SlidingWindowLimiter({1: SEC_PER_SECOND})
 EFFECTIVE_LAG_DAYS = 10
 FLOAT_LOOKBACK_YEARS = 3
 # Implied float per share (float / shares outstanding) outside this band means a unit error
@@ -139,7 +160,7 @@ def efts_search(form: str, start: str, end: str, from_: int, cik: int = NASDAQ_C
     if offline and not path.exists():
         raise FileNotFoundError(f"offline and not cached: {path}")
     return json.loads(common.cached_get(url, path, source="sec_efts", headers=common.sec_headers(),
-                                        limiter=common.SEC_LIMITER))
+                                        limiter=SEC_LIMITER))
 
 
 def efts_query(params: dict, cache_name: str, *, offline: bool = False) -> dict:
@@ -149,7 +170,7 @@ def efts_query(params: dict, cache_name: str, *, offline: bool = False) -> dict:
     if offline and not path.exists():
         raise FileNotFoundError(f"offline and not cached: {path}")
     return json.loads(common.cached_get(url, path, source="sec_efts", headers=common.sec_headers(),
-                                        limiter=common.SEC_LIMITER))
+                                        limiter=SEC_LIMITER))
 
 
 def all_hits(form: str = FORM, start: str = START, end: str = END, *, offline: bool = False,
@@ -341,7 +362,7 @@ def fetch_form25_doc(cik: int, accession: str, document: str, *, offline: bool =
         return None
     try:
         return common.cached_get(doc_url(cik, accession, document), path, source="sec_archives",
-                                 headers=common.sec_headers(), limiter=common.SEC_LIMITER)
+                                 headers=common.sec_headers(), limiter=SEC_LIMITER)
     except FileNotFoundError:
         return None
 
@@ -505,7 +526,7 @@ def fetch_frame(concept: str, unit: str, period: str, *, offline: bool = False) 
     try:
         return json.loads(common.cached_get(FRAME_URL.format(concept=concept, unit=unit, period=period), path,
                                             source="sec_frames", headers=common.sec_headers(),
-                                            limiter=common.SEC_LIMITER))
+                                            limiter=SEC_LIMITER))
     except FileNotFoundError:
         return None
 
@@ -824,6 +845,159 @@ def classify_row(class_kind: str, basis: str, evidence: dict) -> tuple[str, str]
         gone = f"ticker(s) {ended} left the Nasdaq lists at the filing" if ended else "not in the Nasdaq lists after the filing"
         return "common_delisting", f"{basis}; {gone}; relisted on Nasdaq later ({later})"
     return "common_delisting", basis + unlinked
+
+
+# ------------------------------------------------------------------ hand classifications
+
+ARCHIVES = "https://www.sec.gov/Archives/edgar/data/"
+# The filings the rules leave outside the plan's four classes (``reorg_review``: a ticker handed to a new
+# registrant of another name; ``unlisted_withdrawal``), classified by hand from each deal's SEC record on
+# 2026-10-02. The owner's convention (plan section 0, 2026-10-02): a 1:1 holding-company reorganisation
+# or reincorporation continues the same security, as CRSP keeps one PERMNO. So ``reorg`` (the successor
+# link kept) where each subject share became exactly one share of the new registrant, with no cash, and
+# the new registrant carries on the subject's own business (its successor issuer under Rule 12g-3, also
+# when it bought another company at the same time), or, for a tracking stock, where the tracking shares
+# were redeemed one for one into the shares of the new company that holds the tracked group. Otherwise
+# ``common_delisting`` with no successor link: the new registrant registered its shares afresh (Form
+# 8-A12B) and took the subject's holders in as merger consideration in a combination led by another
+# business, at a ratio other than one, or with cash. Each entry: classification, subject_exit (None:
+# computed as usual), whether the successor link stays, the evidence, and the filing it comes from.
+HAND_CLASSIFICATIONS: dict[str, dict] = {
+    "0001354457-13-000162": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation: each CardioNet share converted into one BioTelemetry share; "
+                 "BioTelemetry is CardioNet's successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1574774/000110465913058455/a13-17694_18k.htm"),
+    "0001354457-14-000036": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="reincorporation in Ireland with the purchase of Paladin: each Endo common share converted into "
+                 "one New Endo ordinary share; New Endo is Endo's successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1593034/000119312514077873/d684005d8k12b.htm"),
+    "0001354457-15-000180": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation: each NWLI Colorado Class A share converted into one Class A share "
+                 "of National Western Life Group (Delaware), its successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1635984/000163598415000019/a8-kreorganziation10x01x20.htm"),
+    "0001354457-15-000182": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation: each share of each class of Google stock converted into an "
+                 "equivalent share of Alphabet stock (GOOGL to class A, GOOG to class C); Alphabet is the "
+                 "successor issuer",
+        url=ARCHIVES + "1652044/000119312515336577/d82837d8k12b.htm"),
+    "0001354457-15-000251": dict(
+        classification="common_delisting", subject_exit=None, successor=False,
+        evidence="stock merger: in the business combination with Grupo FerroAtlantica each Globe share was converted "
+                 "into the right to receive one Ferroglobe ordinary share (CIK 1639877); Ferroglobe registered its "
+                 "shares afresh (Form 8-A12B 0000950157-15-001435, no Rule 12g-3 succession) and Globe filed Form 15",
+        url=ARCHIVES + "1383571/000119312515413088/d106496d8k.htm"),
+    "0001354457-16-000260": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="reincorporation in the UK with the purchase of Pace: ARRIS Group holders received one New ARRIS "
+                 "share per share (about 76% of New ARRIS); New ARRIS is ARRIS Group's successor issuer under Rule "
+                 "12g-3(a)",
+        url=ARCHIVES + "1645494/000119312516419999/d110943d8k12b.htm"),
+    "0001354457-16-000281": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="Avago's purchase of Broadcom through a new holding company: one Holdco (Broadcom Limited) "
+                 "ordinary share for each Avago ordinary share; Holdco is the successor issuer to Avago under Rule "
+                 "12g-3(c)",
+        url=ARCHIVES + "1649338/000119312516446865/d47106d8k12b.htm"),
+    "0001354457-16-000563": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation (with the DTS purchase): each Tessera share converted into an "
+                 "equivalent share of Tessera Holding (later Xperi), its successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1690666/000119312516781774/d293859d8k12b.htm"),
+    "0001477932-17-000756": dict(
+        classification="common_delisting", subject_exit="N", successor=False,
+        evidence="voluntary withdrawal (Rule 12d2-2(c)) of the common stock's Nasdaq Capital Market registration "
+                 "before any share traded there: no Nasdaq row of the CIK before the filing, first seen 2017-07-01; "
+                 "it ended no listing (subject_exit N) and gives no delist date",
+        url=ARCHIVES + "1675634/000147793217000756/pixy_25.htm"),
+    "0001354457-17-000195": dict(
+        classification="common_delisting", subject_exit=None, successor=False,
+        evidence="merger into ANGI Homeservices (IAC's HomeAdvisor combination): one ANGI Class A share per Angie's "
+                 "List share, or $8.50 cash by election (prorated); ANGI registered afresh (Form 8-A12B "
+                 "0001104659-17-059693)",
+        url=ARCHIVES + "1705110/000110465917060061/a17-22578_28k.htm"),
+    "0001354457-17-000274": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="tracking-stock split-off: one Liberty Latin America Class A / Class C share for each Class A / "
+                 "Class C LiLAC ordinary share; LLA holds the businesses attributed to the LiLAC Group",
+        url=ARCHIVES + "1570585/000157058518000013/a1-5x188xksplitxoffoflla.htm"),
+    "0001354457-19-000136": dict(
+        classification="common_delisting", subject_exit=None, successor=False,
+        evidence="21CF was acquired by Disney on 2019-03-20 after distributing Fox Corporation (part of each 21CF "
+                 "share exchanged for 1/3 of a FOX share in a recapitalisation merger); Fox Corporation is a new "
+                 "registrant (Form 8-A12B 0001193125-19-079728), not 21CF's continuation",
+        url=ARCHIVES + "1308161/000095015719000308/form8k.htm"),
+    "0001354457-20-000314": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation: each ANICO share converted into one American National Group share; "
+                 "ANG is ANICO's successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1801075/000119312520186637/d942529d8k12b.htm"),
+    "0001354457-21-000304": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="holding-company reorganisation: each Apache share converted into one APA Corporation share; APA "
+                 "is the successor issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1841666/000119312521063695/d127090d8k12b.htm"),
+    "0001354457-21-000896": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="reincorporation (Israel to Delaware): after a 1-for-4 reverse split effective after the close of "
+                 "2021-07-26, each Intec Israel share converted into one Intec Parent share, trading as NTEC from "
+                 "2021-07-27; the Decoy merger followed under the new CIK (step 9: the reverse split is at the "
+                 "junction)",
+        url=ARCHIVES + "1638381/000149315221018109/form8-k.htm"),
+    "0001354457-21-001128": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="Xeris's purchase of Strongbridge through a new holding company: each Xeris share converted into one "
+                 "Xeris Holdco share (cash only for fractions); Holdco is the successor issuer to Xeris under Rule "
+                 "12g-3(c)",
+        url=ARCHIVES + "1867096/000119312521292100/d208027d8k12b.htm"),
+    "0001354457-22-000080": dict(
+        classification="common_delisting", subject_exit=None, successor=False,
+        evidence="mutual-holding-company second-step conversion: each PDL share converted into 1.3952 shares of Ponce "
+                 "Financial Group (CIK 1874071), which registered afresh (Form 8-A12B 0001193125-22-019971); the "
+                 "same bank, but not one for one, so outside the owner's 1:1 convention",
+        url=ARCHIVES + "1874071/000156459022002699/pdlb-ex991_6.htm"),
+    "0001354457-22-000322": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="Quidel's combination with Ortho through a new holding company: each Quidel share converted into one "
+                 "QuidelOrtho share (Ortho holders got 0.1055 shares and $7.14); QuidelOrtho is Quidel's successor "
+                 "issuer under Rule 12g-3(a)",
+        url=ARCHIVES + "1906324/000119312522161806/d323352d8k12b.htm"),
+    "0001354457-23-000512": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="tracking-stock split-off: each Liberty Braves share redeemed for one share of the corresponding "
+                 "series of Atlanta Braves Holdings, which holds the Braves group",
+        url=ARCHIVES + "1958140/000110465923082076/tm2321023d2_8k.htm"),
+    "0001354457-23-000564": dict(
+        classification="reorg", subject_exit=None, successor=False,
+        evidence="reclassification within Liberty Media (same CIK): the old Liberty SiriusXM and Formula One series "
+                 "became new series under the same tickers plus Liberty Live shares; no new registrant (the "
+                 "Atlanta Braves handover the rule attached belongs to the 2023-07-18 filing)",
+        url=ARCHIVES + "1560385/000110465923087380/tm2320270d12_8k.htm"),
+    "0001354457-25-001249": dict(
+        classification="common_delisting", subject_exit=None, successor=False,
+        evidence="SPAC business combination: the Columbus Circle Capital Corp. I shell's shares were exchanged for "
+                 "equivalent shares of the new public company holding ProCap BTC (CIK 2076163), which registered "
+                 "afresh (Form 8-A12B 0001213900-25-118514); the shell ended",
+        url=ARCHIVES + "2076163/000121390025120791/ea0268757-8k_procap.htm"),
+    "0001354457-25-001270": dict(
+        classification="reorg", subject_exit=None, successor=True,
+        evidence="tracking-stock split-off: each Liberty Live share redeemed for one share of the corresponding "
+                 "series of Liberty Live Holdings, which holds the Liberty Live group",
+        url=ARCHIVES + "2078416/000110465925121239/tm2533349d1_8k.htm"),
+}
+
+
+def apply_hand_classification(accession: str, label: str, note: str, keep_successor: bool):
+    """(classification, evidence note, keep the successor link, subject_exit override or None) for a
+    filing, the hand classification (``HAND_CLASSIFICATIONS``) replacing the rule's where there is one."""
+    hand = HAND_CLASSIFICATIONS.get(accession)
+    if hand is None:
+        return label, note, keep_successor, None
+    note = f"hand: {hand['evidence']} ({hand['url']}); rule said {label}: {note}"
+    return hand["classification"], note, keep_successor and hand["successor"], hand["subject_exit"]
 
 
 def subject_exit(classification: str, evidence: dict) -> str:
@@ -1169,8 +1343,8 @@ def build(offline: bool = False) -> pd.DataFrame:
     rows["effective_date"] = [(date.fromisoformat(d) + timedelta(days=EFFECTIVE_LAG_DAYS)).isoformat() for d in rows["filing_date"]]
     rows["doc_url"] = [doc_url(c, a, d) for c, a, d in zip(rows["subject_cik"], rows["accession"], rows["document"])]
 
-    from scripts.reversal_data_security_master import (RAW_ROWS, load_submissions, parse_submissions,
-                                                       read_raw_rows, regime_facts)
+    from scripts.reversal_data_security_master import (load_submissions, parse_submissions, read_raw_rows,
+                                                       regime_facts)
     # The security master's raw snapshot rows, from before it dropped any row for a Form 25: the
     # exit decisions below never rest on rows removed because of them.
     raw_rows = read_raw_rows(RAW_ROWS)
@@ -1268,10 +1442,13 @@ def build(offline: bool = False) -> pd.DataFrame:
         if row.accession in successors:
             ev["successor"] = successors[row.accession]
         label, note = classify_row(row.class_kind, row.delisting_basis, ev)
-        if not (label.startswith("reorg") and "new Nasdaq registrant" in note):
+        label, note, keep, forced_exit = apply_hand_classification(
+            row.accession, label, note, label.startswith("reorg") and "new Nasdaq registrant" in note)
+        if not keep:
             ev.pop("successor", None)  # a handover the classification did not rest on
         handover = ev.get("successor")
-        out.append((label, note, subject_exit(label, ev) if row.class_kind in ("common", "ads") else "N",
+        exit_flag = forced_exit or (subject_exit(label, ev) if row.class_kind in ("common", "ads") else "N")
+        out.append((label, note, exit_flag,
                     handover["cik"] if handover else None, " ".join(handover["tickers"]) if handover else ""))
     rows["classification"] = [o[0] for o in out]
     rows["classification_evidence"] = [o[1] for o in out]
@@ -1301,6 +1478,8 @@ def build(offline: bool = False) -> pd.DataFrame:
         "multi_subject_filings": int((rows["n_subject_ciks"] > 1).sum()),
         "forms": dict(Counter(rows["form"])), "class_kind": dict(Counter(rows["class_kind"])),
         "classification": dict(Counter(rows["classification"])),
+        "hand_classified": int(rows["accession"].isin(set(HAND_CLASSIFICATIONS)).sum()),
+        "hand_classifications_unmatched": sorted(set(HAND_CLASSIFICATIONS) - set(rows["accession"])),
         "classification_by_form": {f: dict(Counter(g["classification"])) for f, g in rows.groupby("form")},
         "delisting_basis": dict(Counter(rows["delisting_basis"])),
         "float_check_flag": dict(Counter(rows["float_check_flag"])),
@@ -1311,7 +1490,7 @@ def build(offline: bool = False) -> pd.DataFrame:
         "unique_subject_ciks": int(rows["subject_cik"].nunique()),
         "by_year": dict(Counter(rows["filing_date"].str[:4])),
     }
-    common.atomic_write(SEC_RAW / "derived" / "form25_build_summary.json", (json.dumps(summary, indent=2) + "\n").encode())
+    common.atomic_write(DERIVED / "form25_build_summary.json", (json.dumps(summary, indent=2) + "\n").encode())
     print(json.dumps({k: v for k, v in summary.items() if k not in ("slices", "issuer_slices")}, indent=2), flush=True)
     return table
 
@@ -1329,7 +1508,7 @@ def write_files_read() -> None:
                "probe_note": "four requests on 2026-10-01 testing whether EFTS finds issuer-filed Form 25 for "
                              "Nasdaq: ciks=Oracle 2013 (found; lists only the issuer CIK), q=Nasdaq forms=25 "
                              "2013-H2 (15 hits), and the Oracle and VimpelCom documents"}
-    common.atomic_write(SEC_RAW / "derived" / "files_read_form25.json", (json.dumps(summary, indent=1) + "\n").encode())
+    common.atomic_write(DERIVED / "files_read_form25.json", (json.dumps(summary, indent=1) + "\n").encode())
 
 
 # ------------------------------------------------------------------ comparison with sue_lt_2020_2026
@@ -1372,10 +1551,29 @@ def compare_with_sue_lt(new: pd.DataFrame, old_path: Path = OLD_LIST, offline: b
     }
 
 
+def redirect(out_dir: Path | None = None, master_dir: Path | None = None) -> None:
+    """A scratch build: write the table under ``out_dir`` and the derived files in ``out_dir/derived``;
+    read the security master's raw rows and snapshot dates from ``master_dir`` (a scratch security-master
+    build's ``derived`` directory) when given. The SEC cache itself is shared."""
+    global OUTPUT, COMPARISON, DERIVED, RAW_ROWS, SNAPSHOT_DATES
+    if out_dir is not None:
+        out_dir = Path(out_dir)
+        OUTPUT = out_dir / "form25_nasdaq_2012_2026.csv"
+        DERIVED = out_dir / "derived"
+        COMPARISON = DERIVED / "form25_vs_sue_lt_2020_2026.json"
+    if master_dir is not None:
+        RAW_ROWS = Path(master_dir) / "ticker_rows_raw.csv.gz"
+        SNAPSHOT_DATES = Path(master_dir) / "snapshot_dates.json"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
+    parser.add_argument("--out-dir", type=Path, help="scratch build: write every output under this directory")
+    parser.add_argument("--master-dir", type=Path,
+                        help="read ticker_rows_raw.csv.gz and snapshot_dates.json from this directory")
     args = parser.parse_args(argv)
+    redirect(args.out_dir, args.master_dir)
     table = build(offline=args.offline)
     comparison = compare_with_sue_lt(table)
     common.atomic_write(COMPARISON, (json.dumps(comparison, indent=2, default=str) + "\n").encode())

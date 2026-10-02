@@ -69,13 +69,53 @@ div_cash, tr, src_primary, n_sources, max_src_diff, flags.
   shares end with a terminal event (``series_ends.csv`` ``old_shares_at_relist_junction``, measured
   against their last Nasdaq session, for the terminal step). Other relistings keep one series (the same
   shares: SMCI, removed for late filings), and a raw level change of 10x or more around one with no
-  split is queued (R9, ``relist_jump``) for a junction entry or a market move.
+  split is queued (R9, ``relist_jump``) for a junction entry or a market move. A relisting is any
+  ``after_cut`` span, and (round 9) any later listing span after a common-stock Form 25 of the issuer, under
+  the same ticker or a new one (``form25_relistings``: Frontier's FTR, Form 25 effective 2020-05-09, listed
+  again as FYBR from 2021-05-04); round 9 added the junctions of Frontier (2021-05-04), Vroom (2025-02-20,
+  whose 2024 Form 25 is not in the step-3 table) and Capstone (CEPL, 2026-07-08).
+- Plan R9 gaps: no return across a gap of more than ``GAP_RETURN_MAX`` = 10 sessions between two kept rows
+  (tr blank, ``gap_return_blank``; summary.json ``gap_returns_blank``): Frontier 2018-03-01 after a 213-session
+  WIKI gap that holds the 2017 1:15 reverse split, NANO 2019-10-28.
+- Successor links (``SUCCESSOR_LINKS``: the 26 master successor links of target securities whose series ended at
+  the link in round 8): every predecessor is cut at its last session (the terminal step's reading of the
+  closing 8-K or Form 25), so no day is in two series. A 1:1 holding-company reorganisation or reincorporation
+  (``continues``; owner convention of 2026-10-02, as CRSP keeps one PERMNO: Google -> Alphabet 2015-10-02) continues
+  the security: the predecessor's later rows under the same ticker go to the successor, the successor's own rows
+  up to the cut (the old company's history in a file of the ticker) are dropped, and the successor's first return
+  is measured from the predecessor's last close (``successor_link:{predecessor}``; the predecessor's rows on the
+  last session are the anchor, never kept); its listing is counted from the next session. A link that does not
+  continue (an election, cash or another company's shares) only cuts: the successor starts a new series with no
+  return on its first row (``successor_of:{predecessor}``). The successors of continuing targets are targets too
+  (``successor_of_target``, along a chain). ``reconcile/successor_links.csv`` lists every pair after the build, with
+  ``overlap_days`` (days in both series: 0 for every continuing pair) and ``short_after_continuation`` (a continued
+  successor whose own files stop long before its listing ends: SOHU Ltd, Xperi, Ferroglobe, Stratasys Ltd, ...).
+  Round 10 added the 1:1 reorganisations and renames of the terminal step's REVIEWED table with no master link
+  (ESRX, MRVL, ASRT, SBGI, VNOM, RTIX, Z, LBTYB, LMCA/LMCK, LINTA/LINTB, QVCA/QVCB, QRTEA/QRTEB, OZRK: continued) and
+  three cuts (ISBC's 2.55 conversion, UNIT's 0.6029 merger, AMTBB folded into AMTB). A predecessor is listed up to its
+  reviewed last session and a successor from its first session (the master's snapshot-dated intervals start or end
+  later or earlier: Bank OZK only from 2018-08-07), and a continuing predecessor gets back its successor's rows
+  between its own last row and the cut (Zillow 2014-11-21..2015-02-17). A cut successor's first row books no split
+  or cash (the conversion ratio is the predecessor's terminal value: ISBC 2.55, UNIT 0.602). The continuing anchor is the
+  predecessor's last vendor row on or before its last session (LBTYB's last trade 2013-06-06). Step 7's trim mark
+  on a successor's first Yahoo row (``yahoo_junction``) is cleared when rows of the link come before it (MRVL
+  2021-04-27). Fox (21CF's cut): the successor's first session is the day it shares with 21CF (2019-03-19, 21CF
+  trading as TFCFA; ``successor_first_session``), and its rows up to the step-7 file's start (2019-05-06, the
+  master's snapshot-dated interval start) come from the cached raw Yahoo chart (``raw_yahoo_fill``).
+- A target with no listing interval at all (Ford 37996, a NYSE stock whose only Nasdaq interval step 4 removed)
+  gets no series (no_series.csv reason ``no_listing_interval``) instead of every vendor row of its ticker.
+- A special dividend paid to holders at a merger closing (the terminal step's REVIEWED ``special_dividend``) is
+  booked once, in the terminal value (the last close still carries it): a vendor booking of the same amount in
+  the 45 days up to its record date is dropped from the series (``div_in_terminal_value``; CHNG 2022-09-28 $2.00,
+  STAY 2021-06-11 $1.75; summary.json ``dividends.terminal_dividends_dropped``).
 - ``tr`` = (C_t x S_t + D_t) / C_{t-1} - 1 from one source's own rows (plan 4.1), so only returns
-  are chained across sources, never levels (R8). A listing's first row is blank too when it would be
-  measured against a quote (``listing_start_after_quote``): the row before it is outside the listing
-  with volume 0 in every vendor and no vendor row traded in the ``pf.CLOSE_STALE_SESSIONS`` sessions
-  before it (THRY 2020-10-01: +88.8% against 480 identical zero-volume Yahoo closes; IPO files that
-  start with zero-volume rows). summary.json lists them (``listing_starts_after_quote``).
+  are chained across sources, never levels (R8). A listing's first traded row (vendor volume > 0) is blank
+  too when it would be measured against a quote (``listing_start_after_quote``): every row since the listing
+  start (a listed session after an unlisted one) is untraded, the row before it is untraded, no vendor row
+  traded in the ``pf.CLOSE_STALE_SESSIONS`` sessions before it and the kept closes there equal that row's
+  (THRY 2020-10-01: +88.8% against 480 identical zero-volume Yahoo closes; an IPO file whose first row has
+  volume 0, then the first trade). The untraded rows themselves keep their tr (round 9: Yahoo files with
+  volume 0 every day while the close moves are prices). summary.json lists them (``listing_starts_after_quote``).
 - Precedence per day: WIKI, Tiingo, Yahoo to 2017-10-31; Tiingo, Yahoo, WIKI from 2017-11-01. Each
   vendor's return, and the stored vote where valid, is compared with the others: agreeing within
   0.5% or not (R3). With a strict majority, the highest-ranked source in it is primary
@@ -147,6 +187,13 @@ Tables:
   listed days that can matter are queued: 10 weeks before to 5 weeks after a week ranked <= 300 by
   step 6, or whose canonical dollar volume reaches step 6's rank-300 cut; every R9 hit is queued
   whatever its scope; every entry, with that scope marked, is in ``CACHE/reconcile/moves_all.csv``.
+  An R1 entry that two or more sources confirm within 0.5% (``sources_agreeing``: the day's own source and
+  another vendor, or the stored file, which counts as a second source by the owner's convention of
+  2026-10-02) is resolved by plan 4.4's own R1 rule: classified mechanically as ``market_move_second_source``
+  with ``verified_at`` the build date and the basis in ``notes``; every other entry stays ``unreviewed``.
+- ``CACHE/dividends.csv`` (plan 1.2): every cash dividend the canonical series books, as paid on the ex-date
+  (security_id, ex_date, cash_as_paid, sources: the vendors with the same amount that day within $0.001;
+  then ticker, src_primary, other_amounts, special).
 - ``CACHE/reconcile/``: summary.json (coverage of ranks 1-300 by year with step 6's 5-session
   staleness rule, flag counts by type and year, the plan-6 multi-source agreement count with the
   stored vote and, separately, among vendors only and for the V sample's Tiingo-Yahoo days within
@@ -162,7 +209,10 @@ Tables:
   stored-only tests list as breaks with no unit_break row: none is expected) and ``run`` (timings,
   peak memory); ``sources/`` holds the source bundles and
   ``per_security/`` the state that makes a rerun redo only the securities whose inputs (or this
-  file) changed. ``CACHE/prices/daily_panel.csv.gz`` is the long form of every canonical file.
+  file) changed. ``CACHE/prices/daily_panel.csv.gz`` is the long form of every canonical file. ``--rebuild``
+  moves the price files of securities that are no longer targets (round 8's six D6 BDCs) into
+  ``reconcile/superseded_prices_{date}/``, and an emptied series' file goes there too: data files are never
+  deleted (summary.json ``price_files``).
 
 Offline: the step reads local files only, and any socket connection in the process is refused
 (``forbid_network``). Each phase logs its time and the peak resident memory; summary.json ``run`` and
@@ -200,7 +250,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.4"
+CODE_VERSION = "2026-10-02.6"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
 CODE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 MAIN = common.MAIN_CHECKOUT
@@ -218,6 +268,7 @@ UNFILLABLE = INPUTS / "unfillable.csv"
 SPLIT_EVENTS = INPUTS / "split_events.csv"
 SPECIAL = INPUTS / "special_distributions.csv"
 REVIEWED_MOVES = INPUTS / "reviewed_moves.csv"
+DIVIDENDS = CACHE / "dividends.csv"  # plan 1.2: security_id, ex_date, cash_as_paid, sources (from the canonical div_cash)
 WEEKLY_METRICS = CACHE / "prefilter" / "weekly_metrics.pkl"
 WIKI_ENTITY = CACHE / "prefilter" / "entity.csv.gz"
 WIKI_DIR = CACHE / "wiki" / "by_ticker"
@@ -334,9 +385,10 @@ RELIST_JUNCTIONS = {
                 "note": "Office Properties Income Trust: the common shares were suspended from Nasdaq on 2025-10-07 and "
                         "quoted on OTC Pink as OPITS (8-K 2025-11-06, cover note); the plan became effective on "
                         "2026-06-17 (the Effective Date): the Old Common Shares were cancelled and their holders did "
-                        "not receive any distribution (emergence 8-K, Item 3.03); the 8-K states no first trading day "
-                        "for the new shares: Yahoo's first new-share row, 2026-06-18, has volume 0 (a placeholder), "
-                        "and its first traded row is 2026-06-22"},
+                        "not receive any distribution (emergence 8-K, Item 3.03); the emergence 8-K's EX-99.1 states "
+                        "that the new shares are listed on Nasdaq again starting on 2026-06-18, but Yahoo's row that "
+                        "day has volume 0, so the first traded session, 2026-06-22, is the junction: cutting the "
+                        "2026-06-18 row rests on the vendor volume alone (keep or cut it: the owner's call)"},
     "1556739": {"first_new_session": "2018-04-18", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
                 "effective_date": "2016-07-29", "old_nasdaq_last_session": "2016-01-06",
                 "url": _SEC_ARCHIVE + "1556739/000114036120022046/nt10007762x19_424b4.htm",
@@ -345,9 +397,296 @@ RELIST_JUNCTIONS = {
                         "2016-01-07 (8-K 2016-01-05, Item 3.01); the company deregistered (15-12B 2016-02-05) and filed "
                         "no 8-K for its 2016 prepackaged Chapter 11, from which it emerged on 2016-07-29; Thryv's "
                         "2020 prospectus (424B4): the former lenders obtained 100% of the reorganized company's common "
-                        "stock, so the old DXM shares received nothing; the new shares had no public market before "
+                        "stock (it does not say what the old holders received: that they received nothing is an "
+                        "inference from it); the new shares had no public market before "
                         "the Nasdaq direct listing on 2020-10-01 (a limited history of private trades); their first "
                         "vendor row is 2018-04-18 (Yahoo)"},
+    # round 9 (final review of round 8): two relistings after a Form 25 that the R9 screen missed (Frontier, under a
+    # new ticker; Vroom, whose 2024 Form 25 is not in the step-3 table), and Capstone (R9 hit, 56.6x)
+    "20520": {"first_new_session": "2021-05-04", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
+              "effective_date": "2021-04-30", "old_nasdaq_last_session": "2020-04-23",
+              "url": _SEC_ARCHIVE + "20520/000114036121015200/brhc10023786_8k12g3.htm",
+              "nasdaq_end_url": _SEC_ARCHIVE + "20520/000114036120009130/brhc10011071-8k.htm",
+              "note": "Frontier Communications: Nasdaq suspended the common stock at the opening of business on "
+                      "2020-04-24 and OTC trading as FTRQ was expected from that day (8-K 2020-04-17, Item 3.01); the "
+                      "plan became effective on 2021-04-30 (the Effective Date): Old Frontier's common stock was "
+                      "canceled, released and extinguished (Item 1.02), and the new parent (successor issuer under "
+                      "Rule 12g-3) issued 244,400,000 shares to the holders of Allowed Senior Notes Claims (Item 3.02); "
+                      "its common stock trades on Nasdaq as FYBR from 2021-05-04 (the 8-K12G3: 'expected to begin on "
+                      "or about May 4, 2021'; the first vendor row is 2021-05-04); the old FTR series stops at the "
+                      "WIKI end (2018-03-27 table, last FTR row 2018-03-07)"},
+    "1580864": {"first_new_session": "2025-02-20", "kind": "bankruptcy_share_exchange", "read": True,
+                "read_on": "2026-10-02", "effective_date": "2025-01-14", "old_nasdaq_last_session": "2024-11-29",
+                "url": _SEC_ARCHIVE + "1580864/000095017025005647/vrm-20250108.htm",
+                "nasdaq_end_url": _SEC_ARCHIVE + "1580864/000119312524266124/d882020d8k.htm",
+                "note": "Vroom: Nasdaq suspended the common stock at the opening of business on 2024-12-02 (8-K "
+                        "2024-11-26, Item 3.01); the prepackaged plan became effective on 2025-01-14: all previously "
+                        "issued equity interests were cancelled and extinguished, and the 1,822,577 old shares were "
+                        "converted at 1-for-5 (the Bankruptcy Emergence Issuance Adjustment, 5:00 p.m. on 2025-01-14) "
+                        "into new common stock, with 364,516 warrants (exercise price $60.95) to the stockholders; the "
+                        "convertible noteholders received 92.94% of the 5,163,109 new shares (emergence 8-K, Items 1.01, "
+                        "1.03, 3.02, 5.01); the 8-A12B of 2025-02-19 registered the new common stock on the Nasdaq "
+                        "Global Market, and the first vendor row is 2025-02-20 (Tiingo)"},
+    "1009759": {"first_new_session": "2026-07-08", "kind": "bankruptcy_share_exchange", "read": True,
+                "read_on": "2026-10-02", "effective_date": "2023-12-07", "old_nasdaq_last_session": "2023-10-04",
+                "url": _SEC_ARCHIVE + "1009759/000110465923124877/tm2332548d1_8k12g3.htm",
+                "nasdaq_end_url": _SEC_ARCHIVE + "1009759/000155837023016108/cgrn-20230926x8k.htm",
+                "note": "Capstone Green Energy (CGRN): trading on Nasdaq was to be suspended at the opening of business "
+                        "on 2023-10-05 (8-K 2023-09-28, Item 3.01; Form 25 filed 2023-10-12); the prepackaged plan "
+                        "became effective on 2023-12-07: the Old Common Stock was canceled, released and extinguished, "
+                        "and the successor (Capstone Green Energy Holdings, formerly Capstone Turbine International) "
+                        "issued 18,540,877 new shares pro rata to the holders of Old Capstone's common stock (8-K12G3, "
+                        "Items 1.02 and 3.02; no per-share ratio stated); the new shares were quoted OTC as CGEH and "
+                        "trade on the Nasdaq Global Market as CEPL from 2026-07-08 (8-K 2026-07-07, Item 7.01; 8-A12B "
+                        "2026-07-07): a separate segment, so the 56.6x level change is no return"},
+}
+GAP_RETURN_MAX = 10  # plan R9: no return across a gap of more than 10 sessions (tr blank, ``gap_return_blank``)
+TERMINAL_DIVIDEND_DAYS = 45  # a closing special dividend the terminal value owns: a vendor booking this close before it
+R1_MECHANICAL_CLASS = "market_move_second_source"  # an R1 entry the plan's rule resolves (two sources within 0.5%)
+
+# Successor links (``security_master.successor_security_id``) of target securities whose series ended at the link
+# (series_ends.csv ``successor_link`` in round 8: 26 pairs). Every predecessor is cut at its real last session,
+# ``last_session`` (the terminal step's reading of the closing 8-K or the Form 25, ``basis``; ``url`` is that
+# document), so its later rows, under the same ticker, go to the successor and no day is in both series.
+# ``continues`` (owner convention of 2026-10-02, as CRSP keeps one PERMNO): a 1:1 holding-company reorganisation or
+# reincorporation (each share became one successor share, no cash or election: the terminal step's
+# stock_merger / reorganization of 1 share) continues the same security, so the successor's first return is measured
+# from the predecessor's last close (``successor_link`` on that row) and no terminal return is booked; the successor's
+# rows dated on or before ``last_session`` (a Yahoo or Tiingo file of the ticker carries the old company's history)
+# are the predecessor's and are dropped. Pairs that do not continue (an election, cash, or another company's shares:
+# 21CF -> Fox 2019, Pinnacle 2016, Angie's List 2017, AspenTech 2022) are cut the same way; their successor starts as a
+# new series (no return on its first row) and the predecessor keeps its terminal value. Reviewed on 2026-10-02
+# against the terminal step's dates and the vendor rows around each date (``successor_links.csv``).
+# Optional keys: ``successor_first_session`` (the successor's first session when it trades on the predecessor's
+# last one, under the ticker: Fox on 2019-03-19, the day 21CF traded as TFCFA); ``raw_yahoo_fill`` (a ticker: the
+# successor's rows from that first session to its first step-7 Yahoo row come from the cached raw v8 chart of the
+# ticker, which step 7 cut at a later snapshot-dated interval start); ``handover_files`` (a cut-only link whose
+# predecessor's own per-security files run on in the successor: UNIT); ``handover`` False (a class reclassified
+# into another existing class: only the predecessor is cut, the other class keeps its rows and gets none).
+# Round 10 added the 1:1 reorganisations and renames of the terminal step's REVIEWED table that the master gives no
+# successor link (ESRX, MRVL, ASRT, SBGI, VNOM, RTIX, Z, LBTYB, LMCA/LMCK, LINTA/LINTB, QVCA/QVCB, QRTEA/QRTEB, OZRK)
+# and three cuts (ISBC, UNIT, AMTBB), each dated from the cached closing document.
+_SUCC = "https://www.sec.gov/Archives/edgar/data/"
+SUCCESSOR_LINKS = {
+    "1288776.A": {"successor": "1652044.A", "ticker": "GOOGL", "last_session": "2015-10-02", "continues": True,
+                  "basis": "last_closing_8k_filing",
+                  "url": _SUCC + "1288776/000119312515336550/0001193125-15-336550-index.htm",
+                  "note": "Google -> Alphabet holding-company reorganisation; Alphabet trades from 2015-10-05"},
+    "1288776.C": {"successor": "1652044.C", "ticker": "GOOG", "last_session": "2015-10-02", "continues": True,
+                  "basis": "last_closing_8k_filing",
+                  "url": _SUCC + "1288776/000119312515336550/0001193125-15-336550-index.htm",
+                  "note": "Google -> Alphabet holding-company reorganisation; Alphabet trades from 2015-10-05"},
+    "1100962": {"successor": "1593034", "ticker": "ENDP", "last_session": "2014-02-28", "continues": True,
+                "basis": "successor_form25_filing", "url": _SUCC + "1100962/000119312514077915/d683967d8k.htm",
+                "note": "Endo Health Solutions -> Endo International at the Paladin closing, one share per share"},
+    "1104188": {"successor": "1734107", "ticker": "SOHU", "last_session": "2018-05-31", "continues": True,
+                "basis": "successor_form25_filing",
+                "url": _SUCC + "1104188/000135445718000173/0001354457-18-000173-index.htm",
+                "note": "Sohu.com Inc -> Sohu.com Limited (redomicile, one ADS per share)"},
+    "1141107": {"successor": "1645494", "ticker": "ARRS", "last_session": "2016-01-04", "continues": True,
+                "basis": "last_closing_8k_filing", "url": _SUCC + "1141107/000119312516420003/d112940d8k.htm",
+                "note": "ARRIS Group -> ARRIS International plc at the Pace closing, one share per share"},
+    "1261694": {"successor": "1690666", "ticker": "TSRA", "last_session": "2016-12-01", "continues": True,
+                "basis": "last_closing_8k_filing", "url": _SUCC + "1261694/000119312516782591/d298517d8k.htm",
+                "note": "Tessera Technologies -> Tessera Holding (later Xperi) at the DTS acquisition, one share per share"},
+    "1277856": {"successor": "1671013", "ticker": "CATM", "last_session": "2016-06-30", "continues": True,
+                "basis": "session_before_stated_successor_start",
+                "url": _SUCC + "1277856/000110465916130585/0001104659-16-130585-index.htm",
+                "note": "Cardtronics Inc -> Cardtronics plc (reincorporation); the plc trades as CATM from 2016-07-01"},
+    "1316631.A": {"successor": "1570585.T-LBTYA", "ticker": "LBTYA", "last_session": "2013-06-07", "continues": True,
+                  "basis": "last_closing_8k_filing", "url": _SUCC + "1316631/000119312513251856/d548311d8k.htm",
+                  "note": "Liberty Global Inc -> Liberty Global plc at the Virgin Media closing, one share per share"},
+    "1316631.C": {"successor": "1570585.T-LBTYK", "ticker": "LBTYK", "last_session": "2013-06-07", "continues": True,
+                  "basis": "last_closing_8k_filing", "url": _SUCC + "1316631/000119312513251856/d548311d8k.htm",
+                  "note": "Liberty Global Inc -> Liberty Global plc at the Virgin Media closing, one share per share"},
+    "1383571": {"successor": "1639877", "ticker": "GSM", "last_session": "2015-12-23", "continues": True,
+                "basis": "successor_form25_filing", "url": _SUCC + "1383571/000119312515413088/d106496d8k.htm",
+                "note": "Globe Specialty Metals -> Ferroglobe, one share per share; GSM suspended prior to the open on "
+                        "2015-12-24"},
+    "1441634": {"successor": "1649338", "ticker": "AVGO", "last_session": "2016-01-29", "continues": True,
+                "basis": "successor_form25_filing", "url": _SUCC + "1441634/000119312516446897/d121614d8k.htm",
+                "note": "Avago -> Broadcom Limited (the Avago scheme), one share per share; Form 25 filed after the "
+                        "close of trading on 2016-01-29"},
+    "1566895": {"successor": "1902733", "ticker": "NCNO", "last_session": "2022-01-07", "continues": True,
+                "basis": "session_before_halt_stated_in_closing_8k",
+                "url": _SUCC + "1566895/000119312522005080/d272832d8k.htm",
+                "note": "nCino OpCo -> nCino, Inc. (holding company at the SimpleNexus closing), one share per share"},
+    "1570585.T-LILA": {"successor": "1712184.A", "ticker": "LILA", "last_session": "2017-12-29", "continues": True,
+                       "basis": "successor_form25_filing",
+                       "url": _SUCC + "1570585/000157058518000013/0001570585-18-000013-index.htm",
+                       "note": "LiLAC Class A -> Liberty Latin America Class A (split-off at 5:00 p.m. on 2017-12-29), "
+                               "one share per share"},
+    "1570585.T-LILAK": {"successor": "1712184.C", "ticker": "LILAK", "last_session": "2017-12-29", "continues": True,
+                        "basis": "successor_form25_filing",
+                        "url": _SUCC + "1570585/000157058518000013/0001570585-18-000013-index.htm",
+                        "note": "LiLAC Class C -> Liberty Latin America Class C (split-off at 5:00 p.m. on 2017-12-29), "
+                                "one share per share"},
+    "1649338": {"successor": "1730168", "ticker": "AVGO", "last_session": "2018-04-04", "continues": True,
+                "basis": "successor_form25_filing",
+                "url": _SUCC + "1649338/000119312518107587/0001193125-18-107587-index.htm",
+                "note": "Broadcom Limited -> Broadcom Inc. (redomicile), one share per share"},
+    "1772757": {"successor": "1883685", "ticker": "DKNG", "last_session": "2022-05-04", "continues": True,
+                "basis": "session_before_stated_successor_start",
+                "url": _SUCC + "1772757/000110465921101852/tm2124529d1_8k.htm",
+                "note": "DraftKings Inc. -> New DraftKings (holding company at the GNOG closing), one share per share; "
+                        "New DraftKings trades from the open on 2022-05-05"},
+    "353569": {"successor": "1906324", "ticker": "QDEL", "last_session": "2022-05-26", "continues": True,
+               "basis": "reviewed", "url": _SUCC + "1906324/000119312522161806/d323352d8k12b.htm",
+               "note": "Quidel -> QuidelOrtho, one share per share; QuidelOrtho trades as QDEL from 2022-05-27"},
+    "6769": {"successor": "1841666", "ticker": "APA", "last_session": "2021-03-01", "continues": True,
+             "basis": "last_closing_8k_filing", "url": _SUCC + "1841666/000119312521063695/d127090d8k12b.htm",
+             "note": "Apache -> APA Corporation holding-company reorganisation; the 8-K12B states no effective time, so "
+                     "2021-03-01 may already be APA's first session: under the continuation no return depends on it"},
+    "69499": {"successor": "1623613", "ticker": "MYL", "last_session": "2015-02-27", "continues": True,
+              "basis": "last_closing_8k_filing", "url": _SUCC + "69499/000119312515068777/d882093d8k.htm",
+              "note": "Mylan Inc. -> Mylan N.V. at the Abbott EPD closing, one share per share"},
+    "904163": {"successor": "1801075", "ticker": "ANAT", "last_session": "2020-07-01", "continues": True,
+               "basis": "session_before_stated_successor_start",
+               "url": _SUCC + "904163/000119312520186645/0001193125-20-186645-index.htm",
+               "note": "American National Insurance -> American National Group holding-company reorganisation"},
+    "915735": {"successor": "1517396", "ticker": "SSYS", "last_session": "2012-11-30", "continues": True,
+               "basis": "successor_form25_filing", "url": _SUCC + "915735/000120677412001496/stratasys_8k.htm",
+               "note": "Stratasys Inc -> Stratasys Ltd (the Objet merger), one share per share; Stratasys Ltd from "
+                       "2012-12-03"},
+    # round 10: the 1:1 reorganisations, reincorporations and renames of the terminal step's REVIEWED table
+    # (stock_merger / reorganization or rename, one share) that the master gives no successor link; each date read
+    # in the cached closing document (``url``)
+    "885721": {"successor": "1532063", "ticker": "ESRX", "last_session": "2012-03-30", "continues": True,
+               "basis": "session_before_halt_stated_in_closing_8k",
+               "url": _SUCC + "885721/000119312512144955/d328743d8k.htm",
+               "note": "Express Scripts -> Express Scripts Holding at the Medco closing (effective 2012-04-02), one share "
+                       "per share; the 8-K accepted at 08:07 on 2012-04-02 says trading in the Company's stock 'has been "
+                       "halted' and the Parent's stock 'will trade' as ESRX, so the old shares' last session is "
+                       "2012-03-30"},
+    "1058057": {"successor": "1835632", "ticker": "MRVL", "last_session": "2021-04-20", "continues": True,
+                "basis": "effective_after_close_stated_in_closing_8k",
+                "url": _SUCC + "1058057/000119312521122807/d156000d8k.htm",
+                "note": "Marvell Technology Group (Bermuda) -> Marvell Technology, Inc. (Delaware) at the Inphi closing, "
+                        "one share per share; the Bermuda Merger took effect at 4:01 p.m. ET on 2021-04-20"},
+    "1005201": {"successor": "1808665", "ticker": "ASRT", "last_session": "2020-05-19", "continues": True,
+                "basis": "session_before_stated_listing_transfer",
+                "url": _SUCC + "1005201/000110465920065440/tm2020220-1_8k.htm",
+                "note": "Assertio Therapeutics -> Assertio Holdings (DGCL 251(g) holding company, 2020-05-19), one share "
+                        "per share; the Nasdaq listing passed to Assertio Holdings 'effective as of May 20, 2020' (Item "
+                        "3.01; Nasdaq's Form 25 for the old shares is dated 2020-05-19)"},
+    "912752": {"successor": "1971213", "ticker": "SBGI", "last_session": "2023-05-31", "continues": True,
+               "basis": "effective_before_open_stated_in_closing_8k",
+               "url": _SUCC + "912752/000119312523158935/d530850d8k.htm",
+               "note": "Sinclair Broadcast Group -> Sinclair, Inc. (holding company share exchange), one share per "
+                       "share, effective at 12:00 a.m. ET on 2023-06-01, so SBG's last session is 2023-05-31"},
+    "1602065": {"successor": "2074176", "ticker": "VNOM", "last_session": "2025-08-18", "continues": True,
+                "basis": "session_before_stated_successor_start",
+                "url": _SUCC + "1602065/000119312525183040/d65540d8k.htm",
+                "note": "Viper Energy -> New Viper (holding company at the Sitio combination), one Class A share per "
+                        "share at 12:01 a.m. ET on 2025-08-19; New Viper Class A began trading on Nasdaq as VNOM on "
+                        "2025-08-19"},
+    "1100441": {"successor": "1760173", "ticker": "RTIX", "last_session": "2019-03-08", "continues": True,
+                "basis": "session_before_halt_stated_in_closing_8k",
+                "url": _SUCC + "1100441/000119312519069904/d719647d8k.htm",
+                "note": "RTI Surgical -> RTI Surgical Holdings (later Surgalign) at the Paradigm closing, one share per "
+                        "share; the old shares were suspended prior to the open on 2019-03-11 and the holding company "
+                        "continued regular-way trading as RTIX 'using the Company's trading history'"},
+    "1334814": {"successor": "1617640.A", "ticker": "Z", "last_session": "2015-02-17", "continues": True,
+                "basis": "last_session_stated_in_closing_8k",
+                "url": _SUCC + "1334814/000119312515050780/d874732d8k.htm",
+                "note": "Zillow, Inc. Class A -> Zillow Group Class A at the Trulia closing, one share per share; the "
+                        "8-K filed on 2015-02-17: 'After close of market today' trading in Zillow's Class A ceases and "
+                        "the holding company's Class A trades as Z"},
+    "1316631.B": {"successor": "1570585.T-LBTYB", "ticker": "LBTYB", "last_session": "2013-06-07", "continues": True,
+                  "basis": "last_closing_8k_filing", "url": _SUCC + "1316631/000119312513251856/d548311d8k.htm",
+                  "note": "Liberty Global Inc Series B -> Liberty Global plc Class B at the Virgin Media closing, one "
+                          "share per share (as LBTYA and LBTYK)"},
+    "1560385.T-LMCA": {"successor": "1560385.T-FWONA", "ticker": "LMCA", "last_session": "2017-01-24", "continues": True,
+                       "basis": "symbol_change_after_8a12b_amendment",
+                       "url": _SUCC + "1560385/000110465917003788/a17-3007_18a12ba.htm",
+                       "note": "rename of the Liberty Media Group Series A tracking stock to Formula One Group (LMCA -> "
+                               "FWONA); the 8-A12B/A filed after the close on 2017-01-24 expects the symbols to change "
+                               "'shortly following the filing', and WIKI's last LMCA row is 2017-01-24"},
+    "1560385.T-LMCK": {"successor": "1560385.T-FWONK", "ticker": "LMCK", "last_session": "2017-01-24", "continues": True,
+                       "basis": "symbol_change_after_8a12b_amendment",
+                       "url": _SUCC + "1560385/000110465917003788/a17-3007_18a12ba.htm",
+                       "note": "rename of the Liberty Media Group Series C tracking stock to Formula One Group (LMCK -> "
+                               "FWONK), with Series A"},
+    "1355096.T-LINTA": {"successor": "1355096.T-QVCA", "ticker": "LINTA", "last_session": "2014-10-06", "continues": True,
+                        "basis": "session_before_stated_successor_start",
+                        "url": _SUCC + "1355096/000135509614000070/lint-20141006x8k.htm",
+                        "note": "rename LINTA -> QVCA (Series A QVC Group tracking stock), effective at the market open "
+                                "on 2014-10-07"},
+    "1355096.T-LINTB": {"successor": "1355096.T-QVCB", "ticker": "LINTB", "last_session": "2014-10-06", "continues": True,
+                        "basis": "session_before_stated_successor_start",
+                        "url": _SUCC + "1355096/000135509614000070/lint-20141006x8k.htm",
+                        "note": "rename LINTB -> QVCB, effective at the market open on 2014-10-07"},
+    "1355096.T-QVCA": {"successor": "1355096.T-QRTEA", "ticker": "QVCA", "last_session": "2018-03-09", "continues": True,
+                       "basis": "session_before_stated_successor_start",
+                       "url": _SUCC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",
+                       "note": "rename QVCA -> QRTEA (Qurate Retail) after the GCI Liberty split-off: 'Beginning on "
+                               "Monday, March 12, 2018' the Series A shares trade as QRTEA"},
+    "1355096.T-QVCB": {"successor": "1355096.T-QRTEB", "ticker": "QVCB", "last_session": "2018-03-09", "continues": True,
+                       "basis": "session_before_stated_successor_start",
+                       "url": _SUCC + "1355096/000110465918017857/a18-8242_1ex99d1.htm",
+                       "note": "rename QVCB -> QRTEB from 2018-03-12"},
+    "1355096.T-QRTEA": {"successor": "1355096.T-QVCGA", "ticker": "QRTEA", "last_session": "2025-02-21", "continues": True,
+                        "basis": "session_before_stated_successor_start",
+                        "url": _SUCC + "1355096/000110465925016368/tm257272d1_8k.htm",
+                        "note": "rename QRTEA -> QVCGA (QVC Group), 'effective as of open of trading on February 24, "
+                                "2025'"},
+    "1355096.T-QRTEB": {"successor": "1355096.T-QVCGB", "ticker": "QRTEB", "last_session": "2025-02-21", "continues": True,
+                        "basis": "session_before_stated_successor_start",
+                        "url": _SUCC + "1355096/000110465925016368/tm257272d1_8k.htm",
+                        "note": "rename QRTEB -> QVCGB from the open of 2025-02-24"},
+    "1038205": {"successor": "1569650", "ticker": "OZRK", "last_session": "2017-06-26", "continues": True,
+                "basis": "effective_after_close_stated_in_closing_8k",
+                "url": _SUCC + "1038205/000156459017012994/ozrk-8k_20170626.htm",
+                "note": "Bank of the Ozarks, Inc. merged into its bank (Bank OZK, 1569650) at 4:00 p.m. Central on "
+                        "2017-06-26 to drop the holding company: each share one bank share, same ticker and CUSIP; the "
+                        "master lists the bank only from 2018-08-07 (OZK), so its listing is counted from 2017-06-27 "
+                        "through the link, where WIKI's OZRK rows (to 2017-07-06) and the bank's own Yahoo file carry "
+                        "it"},
+    # cut only: the successor is another security (no 1:1 continuation)
+    # 21CF: Fox Corporation's shares were distributed at 7:25 a.m. ET on 2019-03-19 and traded as FOXA / FOX from
+    # that day, while 21CF traded that one day as TFCFA / TFCF (closing 8-K): ``successor_first_session`` is the
+    # shared day (the ticker's rows that day are Fox's, the predecessor keeps its own per-security file's row);
+    # step 7 cut the Yahoo file at the master's later interval start (2019-05-06, a snapshot), so the rows from
+    # 2019-03-19 to that start come from the cached raw chart of the ticker (``raw_yahoo_fill``)
+    "1308161.A": {"successor": "1754301.A", "ticker": "FOXA", "last_session": "2019-03-19", "continues": False,
+                  "basis": "session_before_halt_stated_in_closing_8k",
+                  "url": _SUCC + "1308161/000095015719000308/form8k.htm",
+                  "successor_first_session": "2019-03-19", "raw_yahoo_fill": "FOXA",
+                  "note": "21CF -> Disney (cash or 0.4517 share by election); Fox Corporation is a distribution, "
+                          "trading as FOXA from 2019-03-19"},
+    "1308161.B": {"successor": "1754301.B", "ticker": "FOX", "last_session": "2019-03-19", "continues": False,
+                  "basis": "session_before_halt_stated_in_closing_8k",
+                  "url": _SUCC + "1308161/000095015719000308/form8k.htm",
+                  "successor_first_session": "2019-03-19", "raw_yahoo_fill": "FOX",
+                  "note": "21CF -> Disney (0.4517 share); Fox Corporation is a distribution, trading as FOX from "
+                          "2019-03-19"},
+    "356213": {"successor": "1656239", "ticker": "PNK", "last_session": "2016-04-28", "continues": False,
+               "basis": "last_closing_8k_filing", "url": _SUCC + "356213/000119312516564276/d188315d8k.htm",
+               "note": "old Pinnacle: 0.85 GLPI share plus one new Pinnacle share per share"},
+    "1491778": {"successor": "1705110", "ticker": "ANGI", "last_session": "2017-09-29", "continues": False,
+                "basis": "reviewed", "url": _SUCC + "1491778/000149177817000194/angi2017102-8k.htm",
+                "note": "Angie's List: one ANGI Homeservices share, or $8.50 cash by election"},
+    "929940": {"successor": "1897982", "ticker": "AZPN", "last_session": "2022-05-16", "continues": False,
+               "basis": "successor_form25_filing", "url": _SUCC + "929940/000114036122019468/ny20004077x9_8k.htm",
+               "note": "old AspenTech: $87.69 cash plus 0.42 New AspenTech share (the Emerson transaction)"},
+    # round 10, cut only
+    "1326807": {"successor": "1594012", "ticker": "ISBC", "last_session": "2014-05-07", "continues": False,
+                "basis": "reviewed", "url": _SUCC + "1594012/000119312514179187/d718726d8k.htm",
+                "note": "Investors Bancorp second-step conversion: each public share became 2.55 shares of the new "
+                        "Investors Bancorp (not one for one: the terminal value books the 2.55)"},
+    "1620280": {"successor": "2020795", "ticker": "UNIT", "last_session": "2025-08-01", "continues": False,
+                "basis": "last_closing_8k_filing", "url": _SUCC + "1620280/000095010325009717/dp232456_8k-wizard.htm",
+                "handover_files": True,
+                "note": "Uniti Group -> New Uniti (Windstream combination): 0.6029 New Uniti share per share; the "
+                        "Yahoo file of UNIT runs on in New Uniti after the closing (with the 0.602 ratio as a split), "
+                        "so its later rows are the successor's (``handover_files``)"},
+    # a class reclassified into another existing class of the issuer: the predecessor is cut at its last session and
+    # the other class is left as it is (``handover`` False: no rows go to it, its own rows are kept)
+    "1734342.B": {"successor": "1734342.A", "ticker": "AMTBB", "last_session": "2021-11-17", "continues": False,
+                  "handover": False, "basis": "effective_before_open_stated_in_closing_8k",
+                  "url": _SUCC + "1734342/000173434221000071/amtb-20211115.htm",
+                  "note": "Amerant Class B converted into Class A one for one by a merger effective at 12:01 a.m. on "
+                          "2021-11-18; the Class B rows after 2021-11-17 are filler"},
 }
 RELIST_JUMP = 10.0          # unreviewed relisting: a raw level change this large (or 1/10) with no split is queued (R9)
 RELIST_SCREEN_BEFORE_DAYS, RELIST_SCREEN_AFTER_DAYS = 20, 60  # the screen's span: Form 25 - 20 days to relisting + 60
@@ -369,13 +708,13 @@ def log(message: str) -> None:
 
 def configure_paths(out_dir: Path | None) -> None:
     """Send every output under ``out_dir`` (``prices/``, ``reconcile/`` with its source bundles and
-    per-security state, and ``inputs/`` for the three tables) instead of CACHE and INPUTS. The inputs
+    per-security state, ``inputs/`` for the three tables and ``dividends.csv``) instead of CACHE and INPUTS. The inputs
     (candidate list, caches, master) are still read from their usual places."""
-    global PRICES_DIR, OUT, SOURCE_CACHE, STATE_DIR, LOG_DIR, SPLIT_EVENTS, SPECIAL, REVIEWED_MOVES
+    global PRICES_DIR, OUT, SOURCE_CACHE, STATE_DIR, LOG_DIR, SPLIT_EVENTS, SPECIAL, REVIEWED_MOVES, DIVIDENDS
     if out_dir is None:
         return
     root = Path(out_dir).resolve()
-    PRICES_DIR, OUT = root / "prices", root / "reconcile"
+    PRICES_DIR, OUT, DIVIDENDS = root / "prices", root / "reconcile", root / "dividends.csv"
     SOURCE_CACHE, STATE_DIR, LOG_DIR = OUT / "sources", OUT / "per_security", OUT / "logs"
     SPLIT_EVENTS, SPECIAL, REVIEWED_MOVES = (root / "inputs" / name for name in
                                              ("split_events.csv", "special_distributions.csv", "reviewed_moves.csv"))
@@ -475,24 +814,67 @@ def ratio_match(a: float, b: float, tolerance: float = TOL_RATIO) -> bool:
 # ------------------------------------------------------------------ identity: spans, tickers, targets
 
 def load_identity() -> dict:
-    identity = identity_from(pf.load_intervals(), pf.load_master())
-    identity["signature"] = file_signature([pf.MASTER, pf.INTERVALS])
+    form25 = pd.read_csv(pf.FORM25, dtype=str, keep_default_na=False) if pf.FORM25.exists() else None
+    identity = identity_from(pf.load_intervals(), pf.load_master(), form25)
+    identity["signature"] = file_signature([pf.MASTER, pf.INTERVALS, pf.FORM25])
     return identity
 
 
-def identity_from(intervals: pd.DataFrame, master: pd.DataFrame) -> dict:
+def form25_relistings(mapping: pd.DataFrame, master: pd.DataFrame, form25: pd.DataFrame | None) -> dict:
+    """security -> [(Form 25 effective date, first day of the later listing, last day of it)] for every Nasdaq
+    Form 25 that delisted the issuer's common stock (``classification`` common_delisting) between two of the
+    security's listing spans, whatever the later span's ticker: Frontier's FTR (Form 25 effective 2020-05-09)
+    listed again as FYBR from 2021-05-04, which the master's single delist date (the 2026 Form 25) and the
+    ``after_cut`` rule cannot see."""
+    if form25 is None or not len(form25) or "classification" not in form25:
+        return {}
+    common_rows = form25[form25["classification"] == "common_delisting"]
+    by_cik = defaultdict(set)
+    for cik, effective, filed in zip(common_rows["subject_cik"], common_rows["effective_date"], common_rows["filing_date"]):
+        try:
+            key = str(int(str(cik).strip()))
+        except ValueError:
+            continue
+        if effective or filed:
+            by_cik[key].add(effective or filed)
+    if not by_cik:
+        return {}
+    cik_of = dict(zip(master["security_id"], master["cik"])) if "cik" in master else {}
+    out = {}
+    for sid, part in mapping.groupby("security_id"):
+        try:
+            key = str(int(str(cik_of.get(sid, "") or sid.split(".")[0]).strip()))
+        except ValueError:
+            continue
+        for cut in sorted(by_cik.get(key, ())):
+            before = part[part["list_start"] < cut]
+            later = part[part["list_start"] > cut]
+            if len(before) and len(later):
+                out.setdefault(sid, []).append((cut, str(later["list_start"].min()), str(later["list_end"].max())))
+    return out
+
+
+def identity_from(intervals: pd.DataFrame, master: pd.DataFrame, form25: pd.DataFrame | None = None) -> dict:
     """Listing spans (``pf.listing_spans``: an interval that starts on or after the Form 25 delist date is
     a later listing, ``after_cut``, and is not cut to the delist date, so SMCI 2020-01..2026 and CHRD
     stay listed), the mapping spans that assign ticker-keyed rows, and per security its relistings:
-    (Form 25 delist date, first day of the later listing, last day of it)."""
+    (Form 25 delist date, first day of the later listing, last day of it). Relistings come from the
+    ``after_cut`` spans and from every common-stock Form 25 of the issuer followed by a later listing span,
+    under the same ticker or a new one (``form25_relistings``: Frontier's FYBR); ``relisted_via`` says which."""
     spans = pf.listing_spans(intervals, master)
     mapping = pf.mapping_spans(spans)
     after = mapping["after_cut"].astype(str).eq("True") if "after_cut" in mapping else pd.Series(False, index=mapping.index)
     delist = dict(zip(master["security_id"], master["delist_date"]))
     relisted = {sid: [(delist.get(sid, ""), str(part["list_start"].min()), str(part["list_end"].max()))]
                 for sid, part in mapping[after].groupby("security_id")}
+    via = {sid: "after_cut" for sid in relisted}
+    for sid, items in form25_relistings(mapping, master, form25).items():
+        if sid in relisted:
+            continue  # the after_cut listing already covers it
+        relisted[sid] = items[-1:]  # the latest Form 25 with a later listing
+        via[sid] = "form25_then_later_listing"
     return {"master": master, "spans": spans, "mapping": mapping, "ticker_map": pf.TickerMap(mapping),
-            "relisted": relisted}
+            "relisted": relisted, "relisted_via": via}
 
 
 def load_targets() -> pd.DataFrame:
@@ -506,11 +888,23 @@ def load_targets() -> pd.DataFrame:
         candidate_reasons=("reason", lambda r: " ".join(sorted(set(r)))),
         planned_sources=("planned_source", lambda r: " ".join(sorted(set(r)))),
         candidate_status=("status", lambda r: " ".join(sorted(set(r)))))
-    ids = sorted(set(candidates["security_id"]) | set(top["security_id"]))
+    base = set(candidates["security_id"]) | set(top["security_id"])
+    # the successor of a target that continues it (SUCCESSOR_LINKS ``continues``): the same security under the
+    # owner's convention, so it is priced too (Sohu.com Ltd, Tessera Holding, Ferroglobe, Stratasys Ltd)
+    # (along a chain too: LINTA -> QVCA -> QRTEA -> QVCGA)
+    added: set[str] = set()
+    while True:
+        more = {link["successor"] for pred, link in SUCCESSOR_LINKS.items()
+                if link["continues"] and pred in base | added and link["successor"] not in base | added}
+        if not more:
+            break
+        added |= more
+    ids = sorted(base | added)
     frame = pd.DataFrame({"security_id": ids}).set_index("security_id")
     frame = frame.join(reasons).join(best).join(weeks300)
     frame["in_candidates"] = frame["candidate_reasons"].notna()
     frame["rank300"] = frame["weeks_rank300"].fillna(0) > 0
+    frame["successor_of_target"] = frame.index.isin(sorted(added))
     return frame.reset_index()
 
 
@@ -543,6 +937,18 @@ def ticker_lookup(mapping: pd.DataFrame, sid: str):
         return str(tickers[int(distance.argmin())])
 
     return lookup
+
+
+def first_listed(mapping: pd.DataFrame, sid: str) -> pd.Timestamp:
+    """The first day of the security's earliest listing span (far in the future without one)."""
+    starts = mapping.loc[mapping["security_id"] == sid, "list_start"]
+    return pd.Timestamp(starts.min()) if len(starts) else pd.Timestamp("2100-01-01")
+
+
+def last_listed(mapping: pd.DataFrame, sid: str) -> pd.Timestamp:
+    """The last day of the security's latest listing span (far in the past without one)."""
+    ends = mapping.loc[mapping["security_id"] == sid, "list_end"]
+    return pd.Timestamp(ends.max()) if len(ends) else pd.Timestamp("1900-01-01")
 
 
 def listed_mask(mapping: pd.DataFrame, sid: str, dates: pd.DatetimeIndex) -> np.ndarray:
@@ -1184,11 +1590,35 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
                           "sources": " ".join(s for i, s in enumerate(SRC) if has[i].any()),
                           "dropped_non_session": a["dropped_non_session"],
                           "dropped_outside_window": a["dropped_outside_window"]}}
-    has_vendor = has[:3].any(axis=0)
+    # a successor that continues its predecessor (SUCCESSOR_LINKS ``continues``): the predecessor's rows on its last
+    # session (``link_cut``) are in the arrays as the anchor of the successor's first return, never kept
+    link_cut = ctx.get("link_cut") or ""
+    anchor = grid <= pd.Timestamp(link_cut) if link_cut else np.zeros(n, dtype=bool)
+    # the anchor is the predecessor's last vendor row on or before its last session (a thin series may have no row
+    # on the last session itself: LBTYB's last trade 2013-06-06)
+    anchored = anchor & has[:3].any(axis=0)
+    k_anchor = int(np.flatnonzero(anchored)[-1]) if anchored.any() else -1
+    has_vendor = has[:3].any(axis=0) & ~anchor
     if not has_vendor.any():
         result["summary"].update(rows=0, first_date="", last_date="")
         result["canonical"] = pd.DataFrame(columns=PRICE_COLUMNS)
         return result
+    # a special dividend paid to holders at a merger closing belongs to the terminal value (the terminal step's
+    # REVIEWED ``special_dividend``; the last close still carries it): a vendor booking of it in the 45 days up to
+    # its record date (the series end without one) is not an ex-date, so it is dropped here and counted once, in
+    # the terminal value (CHNG 2022-09-28 $2.00, STAY 2021-06-11 $1.75)
+    terminal_div_dropped = []
+    for item in ctx.get("terminal_dividends", ()):
+        hi = pd.Timestamp(item.get("record") or grid[-1])
+        lo = hi - pd.Timedelta(days=TERMINAL_DIVIDEND_DAYS)
+        for k in np.flatnonzero((grid >= lo) & (grid <= hi)):
+            for i in range(3):
+                if has[i, k] and abs(D[i, k] - float(item["amount"])) < 0.005:
+                    terminal_div_dropped.append({"date": str(grid[k].date()), "source": SRC[i],
+                                                 "amount": float(item["amount"]), "record": item.get("record", ""),
+                                                 "url": item.get("url", "")})
+                    D[i, k] = 0.0
+    terminal_div_days = {d["date"] for d in terminal_div_dropped}
 
     # relist junctions (RELIST_JUNCTIONS, ``ctx["junctions"]``): segment s runs from its junction (the first
     # session of the new shares) on. No return is computed across a junction, and an S or D a vendor
@@ -1268,7 +1698,7 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # (Tiingo's SPLK 2024-03-18..22: volumes 0, 90, 47, ...)
     # (each segment's own end too: the old shares' last trade before a relist junction); the new shares'
     # placeholder rows before their first trade are cut first (``leading``)
-    keep = has_vendor & (primary >= 0)
+    keep = has_vendor & (primary >= 0)  # never the successor's anchor rows (``has_vendor`` leaves them out)
     leading_cut = [str(grid[k].date()) for k in np.flatnonzero(keep & leading)]
     keep &= ~leading
     filler_cut, filler_tiny = 0, np.zeros(0, dtype=int)
@@ -1302,18 +1732,66 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         else:
             tr[k] = total_return(Cp[k], Sp[k], Dp[k], Cp[j])
             cross[k] = True
-    # a listing's first row priced against a quote: the row before it is outside the listing and no vendor
-    # row in the step-6 staleness span before it (pf.CLOSE_STALE_SESSIONS sessions) traded, so the close it
-    # is measured against is a vendor's carried or reference price, not a trade (THRY 2020-10-01, +88.8%
-    # against 480 identical zero-volume closes; IPOs whose Yahoo file starts with zero-volume rows). Its
-    # tr is blank (``listing_start_after_quote``), as at a relist junction
+    # the successor's first row (SUCCESSOR_LINKS): when it continues the predecessor (a 1:1 reorganisation, the
+    # owner's convention) its return runs from the predecessor's last close (the anchor: the day's own source,
+    # else another vendor's close that session, ``cross_source_return``); otherwise it starts a new series
+    gap_rows = np.zeros(n, dtype=int)
+    gap_rows[idx] = gap
+    link_first = np.zeros(n, dtype=bool)
+    if link_cut and len(idx):
+        k0 = int(idx[0])
+        link_first[k0] = True
+        if ctx.get("link_continues") and k_anchor >= 0:
+            gap_rows[k0] = k0 - k_anchor - 1
+            if not own[k0]:
+                for i in [int(p[k0])] + [i for i in range(3) if i != p[k0]]:
+                    if i < 3 and has[i, k_anchor]:
+                        tr[k0] = total_return(Cp[k0], Sp[k0], Dp[k0], C[i, k_anchor])
+                        cross[k0] = i != p[k0]
+                        break
+        else:
+            tr[k0] = np.nan
+            if not ctx.get("link_continues"):
+                # a new series: a split or cash a vendor books on its first row is the predecessor's conversion (ISBC's
+                # 2.55, Yahoo's 0.602 for UNIT), which the predecessor's terminal value holds: not this series' event
+                if (np.abs(S[:3, k0] - 1.0) > 1e-9).any() or (D[:3, k0] > 0).any():
+                    result["summary"]["link_first_row_event_dropped"] = {
+                        "date": str(grid[k0].date()), "split": float(Sp[k0]), "cash": float(Dp[k0])}
+                S[:, k0], D[:, k0], Sp[k0], Dp[k0] = 1.0, 0.0, 1.0, 0.0
+    # plan R9: no return across a gap of more than GAP_RETURN_MAX sessions (Frontier 2018-03-01 across a 213-session
+    # WIKI gap with a 1:15 reverse split in it; 2021-05-04 across the bankruptcy; Vroom 2025-02-20)
+    gap_blank = np.zeros(n, dtype=bool)
+    gap_blank[idx] = (gap_rows[idx] > GAP_RETURN_MAX) & np.isfinite(tr[idx])
+    tr[gap_blank] = np.nan
+    # a listing's first traded row priced against a quote: from the listing's start (or a segment's) to its first row
+    # with a trade (vendor volume > 0) every row is untraded, the row before it is untraded and carries the same close
+    # as every kept row in the step-6 staleness span before it (pf.CLOSE_STALE_SESSIONS sessions), in which no vendor
+    # row traded: the close it is measured against is a carried or reference price, not a trade (THRY 2020-10-01,
+    # +88.8% against 480 identical zero-volume Yahoo closes; an IPO whose file starts with a zero-volume row). Its tr
+    # is blank (``listing_start_after_quote``), as at a relist junction. The untraded rows themselves keep their tr
+    # (Yahoo files whose volume is 0 every day while the close moves are prices, not quotes)
     quote_start = np.zeros(n, dtype=bool)
-    for k, j in zip(idx, prev_idx):
-        if j >= 0 and listed[k] and not listed[j] and no_trade[j] and seg[k] == seg[j] and np.isfinite(tr[k]) and \
-                no_trade[max(0, k - pf.CLOSE_STALE_SESSIONS): k].all():
+    # listing starts the grid shows (a listed session after an unlisted one; a listing older than the grid's first
+    # session shows none, so a series that merely begins at the window start is no listing start)
+    starts = np.flatnonzero(listed[1:] & ~listed[:-1]) + 1 if n > 1 else np.zeros(0, dtype=int)
+    traded = keep & ~no_trade
+    for s0 in starts:
+        later = idx[(idx >= s0) & traded[idx]]
+        if not len(later):
+            continue
+        k = int(later[0])
+        if not listed[idx[(idx >= s0) & (idx <= k)]].all():
+            continue  # the listing ended again before its first trade
+        position = int(np.searchsorted(idx, k))
+        j = int(idx[position - 1]) if position > 0 else -1
+        if j < 0 or not no_trade[j] or seg[k] != seg[j] or not np.isfinite(tr[k]):
+            continue
+        span = slice(max(0, k - pf.CLOSE_STALE_SESSIONS), k)
+        before = np.flatnonzero(keep[span]) + span.start
+        if no_trade[span].all() and (Cp[before] == Cp[j]).all():
             quote_start[k] = True
     tr[quote_start] = np.nan
-    n_sources = np.where(quote_start, 0, choice["n_valid"])
+    n_sources = np.where(quote_start | gap_blank | (link_first & ~np.isfinite(tr)), 0, choice["n_valid"])
     with np.errstate(invalid="ignore"):
         diffs = np.where(valid, np.abs(r - tr[None, :]), np.nan)
     max_diff = np.where(np.isfinite(diffs).any(axis=0), np.nanmax(np.where(np.isfinite(diffs), diffs, -1), axis=0), np.nan)
@@ -1438,6 +1916,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.extend(name for name in YAHOO_VOLUME_TOKENS.values() if name in RF[Y, k].split())
         if junction[k] and has[Y, k]:
             t.append("yahoo_junction")
+        if p[k] == Y and "raw_yahoo_fill" in RF[Y, k].split():
+            t.append("raw_yahoo_fill")  # a successor's first rows from the ticker's cached raw chart (SUCCESSOR_LINKS)
         if p[k] == W and not early[k] and not has[1:3, k].any():
             t.append("wiki_div_gap")
         if "tiingo_adj_identity" in RF[T_, k] and has[T_, k]:
@@ -1452,6 +1932,14 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("listing_start_after_quote")  # tr is blank: no trade before it to measure against
         if relist_jump[k]:
             t.append("relist_jump")  # R9: a 10x level change around an unreviewed relisting
+        if gap_blank[k]:
+            t.append("gap_return_blank")  # R9: no return across a gap of more than GAP_RETURN_MAX sessions
+        if link_first[k]:
+            t.append(f"{'successor_link' if ctx.get('link_continues') else 'successor_of'}:{ctx.get('link_predecessor', '')}")
+            if ctx.get("link_continues") and gap_rows[k] > 0:
+                t.append(f"gap_before:{int(gap_rows[k])}")
+        if str(grid[k].date()) in terminal_div_days:
+            t.append("div_in_terminal_value")  # a vendor's booking of a closing special dividend, dropped
 
     canonical = pd.DataFrame({
         "date": grid[idx].strftime("%Y-%m-%d"), "close_raw": Cp[idx], "volume_raw": Vp[idx],
@@ -1510,6 +1998,29 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         result["summary"]["relist_jumps"] = [str(grid[k].date()) for k in np.flatnonzero(relist_jump)]
     if quote_start.any():
         result["summary"]["listing_starts_after_quote"] = [str(grid[k].date()) for k in np.flatnonzero(quote_start)]
+    if gap_blank.any():
+        result["summary"]["gap_returns_blank"] = [f"{grid[k].date()} (gap {int(gap_rows[k])})" for k in np.flatnonzero(gap_blank)]
+    if terminal_div_dropped:
+        result["summary"]["terminal_dividends_dropped"] = terminal_div_dropped
+    if link_cut:
+        k0 = int(idx[0]) if len(idx) else -1
+        result["summary"]["successor_link"] = {
+            "predecessor": ctx.get("link_predecessor", ""), "predecessor_last_session": link_cut,
+            "continues": bool(ctx.get("link_continues")), "anchor_sources": [SRC[i] for i in range(4) if k_anchor >= 0
+                                                                              and has[i, k_anchor]],
+            "first_row": str(grid[k0].date()) if k0 >= 0 else "",
+            "first_row_return": "measured" if k0 >= 0 and np.isfinite(tr[k0]) else "blank",
+            "sessions_between": int(gap_rows[k0]) if k0 >= 0 and ctx.get("link_continues") and k_anchor >= 0 else ""}
+    # the cash dividends the series books (CACHE/dividends.csv): as paid on the ex-date, from the day's source, and
+    # the vendors that carry the same amount that day (within $0.001)
+    dividends = []
+    for k in idx[Dp[idx] > 0]:
+        same = [SRC[i] for i in range(3) if has[i, k] and abs(D[i, k] - Dp[k]) <= 0.001]
+        other = [f"{SRC[i]}:{D[i, k]:.6g}" for i in range(3) if has[i, k] and abs(D[i, k] - Dp[k]) > 0.001]
+        dividends.append({"ex_date": str(grid[k].date()), "cash_as_paid": float(Dp[k]), "sources": "+".join(same),
+                          "ticker": ticker_of(grid[k]), "src_primary": SRC[p[k]], "other_amounts": " ".join(other),
+                          "special": "Y" if "special_div" in tokens[k] else ""})
+    result["dividends"] = dividends
     # the known break days where the stored file moves 1.4x or more either way (step 6's list of break
     # files) or changes units: ``unit_break`` (a row in split_events.csv), ``stored_moves_with_vendors``
     # (a real move: no unit break), ``unit_change_on_vendor_event`` (the stored file's change is on a
@@ -1935,12 +2446,45 @@ def save_result(sid: str, result: dict, signature: str) -> dict:
     if len(canonical):
         write_csv(path, canonical)
     elif path.exists():
-        path.unlink()
+        supersede_price_file(path)  # a series that is empty now: moved aside, never deleted
     days = pd.to_datetime(canonical["date"]).values.astype("datetime64[D]").astype(np.int32) if len(canonical) else \
         np.zeros(0, dtype=np.int32)
     state = {**result, "signature": signature, "dates": days, "built_utc": now_utc()}
     common.atomic_write(state_path(sid), pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL))
     return state
+
+
+def superseded_dir() -> Path:
+    """``reconcile/superseded_prices_{UTC date}/``: where price files that are no longer this step's output go."""
+    return OUT / f"superseded_prices_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+
+
+def supersede_price_file(path: Path) -> Path:
+    """Move ``path`` into ``superseded_dir()`` (a later copy of the same name gets a numbered suffix): data files
+    are never deleted."""
+    target_dir = superseded_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / path.name
+    n = 1
+    while target.exists():
+        target = target_dir / f"{path.stem}.{n}{path.suffix}"
+        n += 1
+    os.replace(path, target)
+    return target
+
+
+def supersede_non_targets(ids: list[str]) -> list[dict]:
+    """``--rebuild``: the per-security price files in PRICES_DIR of securities that are no longer targets (the six
+    D6 business development companies of round 8: PSEC, ARCC, FSC, OXLC, GSVC, ACAS) are moved to
+    ``superseded_dir()``, so CACHE/prices holds exactly the panel's securities."""
+    wanted = set(ids)
+    moved = []
+    for path in sorted(PRICES_DIR.glob("*.csv")):
+        if path.stem in wanted:
+            continue
+        target = supersede_price_file(path)
+        moved.append({"security_id": path.stem, "moved_to": str(target)})
+    return moved
 
 
 def junctions_of(sid: str) -> list[str]:
@@ -1955,23 +2499,226 @@ def junction_effective_of(sid: str) -> dict[str, str]:
     return {entry["first_new_session"]: entry["effective_date"]} if entry and entry.get("effective_date") else {}
 
 
+_TERMINAL_DIVIDENDS: dict[str, list[dict]] | None = None
+
+
+def terminal_owned_dividends() -> dict[str, list[dict]]:
+    """security -> the special dividends paid to holders at a merger closing that the terminal value owns: the
+    terminal step's REVIEWED entries with ``special_dividend`` (and not ``special_dividend_before_last_trade``),
+    {amount, record (record date, may be blank), url}. Rule (round 9, recorded in summary.json): such a dividend
+    is booked once, in the terminal value (the last close still carries it), never in the series."""
+    global _TERMINAL_DIVIDENDS
+    if _TERMINAL_DIVIDENDS is None:
+        from scripts import reversal_data_terminal as terminal  # imported here: terminal imports this module
+        out = {}
+        for sid, entry in terminal.REVIEWED.items():
+            if entry.get("special_dividend") is None or entry.get("special_dividend_before_last_trade"):
+                continue
+            out[sid] = [{"amount": float(entry["special_dividend"]), "record": entry.get("special_dividend_record") or "",
+                         "url": entry.get("url", "")}]
+        _TERMINAL_DIVIDENDS = out
+    return _TERMINAL_DIVIDENDS
+
+
+def successor_of() -> dict[str, str]:
+    """successor -> predecessor for SUCCESSOR_LINKS (a successor with two predecessors is not expected); a link
+    with ``handover`` False (a class folded into another existing class) gives the other class no predecessor."""
+    return {link["successor"]: pred for pred, link in SUCCESSOR_LINKS.items()
+            if link.get("successor") and link.get("handover", True)}
+
+
+PER_SECURITY_FILE_PREFIXES = ("tiingo_run/", "yahoo/")  # the step-8 Tiingo and step-7 Yahoo files, one per security
+RAW_YAHOO_DIR = common.RAW / "yahoo"  # step 7's cached raw v8 charts, ``{TICKER}__{stamp}.json.gz`` (read only)
+
+
+def successor_start(link: dict, sessions: pd.DatetimeIndex | None = None) -> pd.Timestamp:
+    """The successor's first session at a link: ``successor_first_session`` when the entry gives one (a day it
+    shares with the predecessor's last), else the session after the predecessor's last (the next calendar day when
+    no session calendar is given; the grid drops non-sessions anyway)."""
+    if link.get("successor_first_session"):
+        return pd.Timestamp(link["successor_first_session"])
+    cut = pd.Timestamp(link["last_session"])
+    if sessions is not None:
+        later = sessions[sessions > cut]
+        if len(later):
+            return later[0]
+    return cut + pd.Timedelta(days=1)
+
+
+def raw_yahoo_rows(ticker: str) -> pd.DataFrame:
+    """The latest cached raw v8 chart of ``ticker`` (step 7's raw cache), restored like the old Yahoo caches."""
+    paths = sorted(RAW_YAHOO_DIR.glob(f"{ticker}__*.json.gz")) if RAW_YAHOO_DIR.exists() else []
+    if not paths:
+        return _empty_rows()
+    path = paths[-1]
+    result = json.loads(gzip.decompress(path.read_bytes()))["chart"]["result"][0]
+    rows = yahoo_restore(result)
+    rows["file"] = f"raw_yahoo/{path.name}"
+    return rows
+
+
+def link_frames(sid: str, frames: dict[str, pd.DataFrame], bundles, pred: str,
+                sessions: pd.DatetimeIndex | None = None) -> tuple[dict[str, pd.DataFrame], dict]:
+    """The successor's frames at a SUCCESSOR_LINKS link: its own rows from its first session (``successor_start``),
+    the predecessor's rows from then on that the successor lacks (the same ticker's later rows, which the ticker map
+    gave the predecessor; for a cut-only link the ticker-mapped ones only, unless ``handover_files``), and, when the
+    link continues, the predecessor's last row on or before its last session in each source (the anchor of the
+    first return; the successor's own row there when the predecessor has none). The successor's own rows before
+    its first session are the predecessor's history under the ticker and are dropped. With ``raw_yahoo_fill`` the
+    successor's missing rows from its first session to its first step-7 Yahoo row come from the ticker's cached raw
+    chart (flag ``raw_yahoo_fill``). Step 7 marks the first row of a file it trimmed (``yahoo_junction``: no Yahoo
+    return); when rows handed over or filled here come before that row, the trim is undone, so the mark is
+    cleared (MRVL 2021-04-27 after the predecessor's rows to 2021-04-26)."""
+    link = SUCCESSOR_LINKS[pred]
+    cut = pd.Timestamp(link["last_session"])
+    start = successor_start(link, sessions)
+    theirs_all = frames_for(pred, bundles)
+    out, facts = {}, {"own_rows_dropped": 0, "predecessor_rows_added": 0, "anchor_sources": [],
+                      "first_session": str(start.date())}
+    for name in SRC:
+        own, theirs = frames.get(name), theirs_all.get(name)
+        parts = []
+        mine = own[own["date"] >= start] if own is not None else None
+        if own is not None:
+            facts["own_rows_dropped"] += int((own["date"] < start).sum())
+        if mine is not None and len(mine):
+            parts.append(mine)
+        if theirs is not None:
+            extra = theirs[theirs["date"] >= start]
+            per_file = extra["file"].astype(str).str.startswith(PER_SECURITY_FILE_PREFIXES)
+            if not link["continues"] and not link.get("handover_files"):
+                # a cut-only link hands over only the ticker-mapped rows (the ticker's later rows in WIKI, the old
+                # caches and the stored files: ANGI Homeservices from 2017-10-02); a file fetched for the predecessor
+                # itself may carry its own filler after its last session (21CF's Tiingo row of 2019-03-20)
+                extra = extra[~per_file]
+            elif start <= cut:
+                extra = extra[~(per_file & (extra["date"] <= cut))]  # the predecessor's own rows on a shared day
+            if mine is not None:
+                extra = extra[~extra["date"].isin(mine["date"])]
+            if len(extra):
+                parts.append(extra.assign(security_id=sid))
+                facts["predecessor_rows_added"] += int(len(extra))
+        if link["continues"]:
+            # the row on the last session itself (the predecessor's, else the successor's own file's), else the
+            # latest earlier one (a thin series: LBTYB's last trade 2013-06-06)
+            anchor = None
+            for pool in (theirs, own):
+                if pool is not None and (pool["date"] == cut).any():
+                    anchor = pool[pool["date"] == cut].tail(1)
+                    break
+            if anchor is None:
+                earlier = [f[f["date"] <= cut].tail(1) for f in (theirs, own) if f is not None and (f["date"] <= cut).any()]
+                anchor = max(earlier, key=lambda f: f["date"].iloc[0]) if earlier else None
+            if anchor is not None and len(anchor):
+                parts.append(anchor.assign(security_id=sid))
+                facts["anchor_sources"].append(name)
+        if name == "yahoo" and link.get("raw_yahoo_fill"):
+            raw = raw_yahoo_rows(link["raw_yahoo_fill"])
+            own_first = mine["date"].min() if mine is not None and len(mine) else pd.Timestamp.max
+            have = set(pd.concat(parts)["date"]) if parts else set()
+            fill = raw[(raw["date"] >= start) & (raw["date"] < own_first) & ~raw["date"].isin(have)]
+            if len(fill):
+                parts.append(fill.assign(security_id=sid, rowflag="raw_yahoo_fill"))
+            facts["raw_yahoo_fill_rows"] = int(len(fill))
+            facts["raw_yahoo_fill_file"] = str(raw["file"].iloc[0]) if len(raw) else ""
+        if parts:
+            out[name] = pd.concat(parts, ignore_index=True).sort_values("date", kind="stable").reset_index(drop=True)
+    # step 7's trim mark on the successor's own first Yahoo row, when rows of the link come before it
+    y = out.get("yahoo")
+    own_y = frames.get("yahoo")
+    if y is not None and own_y is not None and len(own_y):
+        own_y = own_y[own_y["date"] >= start]
+        if len(own_y):
+            first = own_y["date"].min()
+            before = [f[(f["date"] >= start) & (f["date"] < first)] for f in out.values()]
+            hit = y.index[(y["date"] == first) & y["rowflag"].fillna("").str.contains("yahoo_junction")]
+            if len(hit) and any(len(b) for b in before):
+                y.loc[hit, "rowflag"] = [" ".join(t for t in str(v).split() if t != "yahoo_junction") for v in y.loc[hit, "rowflag"]]
+                facts["yahoo_junction_cleared"] = str(first.date())
+    return out, facts
+
+
+def predecessor_frames(frames: dict[str, pd.DataFrame], link: dict, successor_own: dict[str, pd.DataFrame] | None = None,
+                       sid: str = "") -> tuple[dict[str, pd.DataFrame], dict]:
+    """A SUCCESSOR_LINKS predecessor's frames: cut at its last session (its later rows are its successor's). When the
+    successor trades on that session under the ticker (``successor_first_session``: Fox on 2019-03-19, while 21CF
+    traded that day as TFCFA), the ticker-mapped rows from that day are the successor's too; the predecessor keeps
+    its own per-security files' rows (21CF's Tiingo row of 2019-03-19). When the link continues, the successor's own
+    rows after the predecessor's last row and up to the last session (its files carry the ticker's history, the
+    same security's) are given back to the predecessor (Zillow: its own rows stop at 2014-11-20, Zillow Group's
+    Yahoo file has the days to 2015-02-17), so ``link_frames`` drops no day that neither series would have; only
+    that tail gap is filled (the predecessor's earlier history keeps its own sources)."""
+    cut = pd.Timestamp(link["last_session"])
+    facts = {"rows_after_last_session_cut": int(sum((f["date"] > cut).sum() for f in frames.values()))}
+    out = {name: f[f["date"] <= cut].reset_index(drop=True) for name, f in frames.items()}
+    if link.get("continues") and successor_own:
+        given = 0
+        last_own = max((f["date"].max() for f in out.values() if len(f)), default=pd.Timestamp("1900-01-01"))
+        for name, theirs in successor_own.items():
+            if theirs is None or not len(theirs):
+                continue
+            back = theirs[(theirs["date"] > last_own) & (theirs["date"] <= cut)]
+            if len(back):
+                parts = [f for f in (out.get(name), back.assign(security_id=sid)) if f is not None and len(f)]
+                out[name] = pd.concat(parts, ignore_index=True).sort_values("date", kind="stable").reset_index(drop=True)
+                given += int(len(back))
+        facts["successor_rows_given_back"] = given
+    shared = link.get("successor_first_session", "")
+    if shared and pd.Timestamp(shared) <= cut and link.get("handover", True):
+        def mapped_late(f):
+            return (f["date"] >= pd.Timestamp(shared)) & ~f["file"].astype(str).str.startswith(PER_SECURITY_FILE_PREFIXES)
+        facts["ticker_rows_on_shared_day_given_to_successor"] = int(sum(mapped_late(f).sum() for f in out.values()))
+        out = {name: f[~mapped_late(f)].reset_index(drop=True) for name, f in out.items()}
+    return out, facts
+
+
 def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild: bool = False) -> dict[str, dict]:
     mapping, master = identity["mapping"], identity["master"]
     relists = identity.get("relisted", {})
     first_ticker = dict(zip(master["security_id"], master["first_ticker"]))
+    predecessor_of = successor_of()
+    dividends_owned = terminal_owned_dividends()
     states, built, reused = {}, 0, 0
     started = time.time()
     for n, sid in enumerate(ids, 1):
         frames = frames_for(sid, bundles)
+        link_facts = {}
+        pred = predecessor_of.get(sid, "")
+        link = SUCCESSOR_LINKS.get(pred) if pred else None
+        if link:  # a successor: the predecessor's rows after its last session, and the anchor
+            frames, facts = link_frames(sid, frames, bundles, pred, sessions)
+            link_facts.update(facts)
+        own_link = SUCCESSOR_LINKS.get(sid, {})
+        cut_at = own_link.get("last_session", "")
+        if cut_at:  # a predecessor (also in a chain: Avago -> Broadcom Ltd -> Broadcom Inc.): its later rows are its successor's
+            succ_own = frames_for(own_link["successor"], bundles) if own_link.get("continues") else None
+            frames, facts = predecessor_frames(frames, own_link, succ_own, sid)
+            link_facts.update(facts)
         dates = [f["date"] for f in frames.values() if len(f)]
         window = windows.get(sid)
+        if window is None and not link:
+            # a target with no listing interval at all (step 4 removed the only one: Ford 37996, a NYSE stock):
+            # no series is built from its ticker's vendor rows (they would all lie outside any listing)
+            state = {"signature": "no_listing_interval", "summary": {"security_id": sid, "rows": 0,
+                                                                      "no_listing_interval": True},
+                     "events": [], "specials": [], "moves": [], "pairs": []}
+            states[sid] = save_result(sid, {**state, "canonical": pd.DataFrame(columns=PRICE_COLUMNS)},
+                                      "no_listing_interval")
+            built += 1
+            continue
         if window is None:
             if not dates:
                 window = (pd.Timestamp(WINDOW_START), pd.Timestamp(WINDOW_START))
             else:
                 window = (min(d.min() for d in dates), max(d.max() for d in dates))
+        if link:  # the anchor (the predecessor's last session) and the handed-over rows lie inside the window
+            window = (min(window[0], pd.Timestamp(link["last_session"])), window[1])
+        if cut_at:  # a predecessor is listed up to its reviewed last session (the closing document dates it)
+            window = (window[0], max(window[1], pd.Timestamp(cut_at)))
+        owned = dividends_owned.get(sid, [])
         signature = signature_of(sid, frames, window, mapping, json.dumps([junctions_of(sid), junction_effective_of(sid),
-                                                                           relists.get(sid, [])]))
+                                                                           relists.get(sid, []), cut_at, pred,
+                                                                           link or {}, owned]))
         state = None if rebuild else load_state(sid)
         if state is not None and state.get("signature") == signature and \
                 (state["summary"].get("rows", 0) == 0 or (PRICES_DIR / f"{sid}.csv").exists()):
@@ -1980,13 +2727,27 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
         else:
             lookup = ticker_lookup(mapping, sid)
             fallback = first_ticker.get(sid, "")
+            listed_from = None
+            if link:  # listed from its first session (the session after the predecessor's last one: the ticker passed)
+                listed_from = successor_start(link, sessions)
+            until = pd.Timestamp(cut_at) if cut_at else None  # a predecessor: listed to its reviewed last session
             ctx = {"sessions": sessions, "window": window,
-                   "listed": lambda grid, sid=sid: listed_mask(mapping, sid, grid),
+                   "listed": (lambda grid, sid=sid, since=listed_from, until=until: listed_mask(mapping, sid, grid) |
+                              ((grid >= since) & (grid < first_listed(mapping, sid)) if since is not None else False) |
+                              ((grid > last_listed(mapping, sid)) & (grid <= until) if until is not None else False)),
                    "ticker_of": (lambda day, lookup=lookup, fallback=fallback: lookup(day) or fallback),
                    "junctions": junctions_of(sid), "junction_effective": junction_effective_of(sid),
-                   "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, [])}
+                   "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, []),
+                   "terminal_dividends": owned}
+            if link:
+                # ``link_cut``: the last session before the successor's first one (the predecessor's last session,
+                # or the day before a shared first session: Fox 2019-03-18); rows up to it are only the anchor
+                ctx.update({"link_cut": previous_session_of(str(successor_start(link, sessions).date()), sessions),
+                            "link_continues": bool(link["continues"]), "link_predecessor": pred})
             result = reconcile_security(sid, frames, ctx)
             result["summary"].update(tiingo_self_check(sid, bundles))
+            if link_facts:
+                result["summary"]["successor_link_rows"] = link_facts
             states[sid] = save_result(sid, result, signature)
             built += 1
         if n % 200 == 0 or n == len(ids):
@@ -2183,13 +2944,39 @@ def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFr
                 frame.loc[k, ["classification", "source_url", "verified_at"]] = \
                     [row.classification, row.source_url, row.verified_at]
                 frame.at[k, "notes"] += f" | reviewed_market_moves.csv: {row.notes}"
+    # plan 4.4 R1 resolves a big move with a second source within 0.5% (or a document): with the stored files
+    # counted as a second source (owner convention of 2026-10-02), an R1 entry that two or more sources confirm
+    # (``sources_agreeing``: the day's own source and at least one other, vendor or stored) is resolved by the
+    # plan's own rule. It is classified mechanically, with that basis written in the notes; every other entry
+    # (R1/R2, R1b, R1c, R3, ...) stays unreviewed for the hand review
+    agreeing = frame["sources_agreeing"].fillna("").map(lambda s: [x for x in s.split("+") if x])
+    mechanical = frame["rule"].eq("R1") & frame["classification"].eq("unreviewed") & agreeing.map(len).ge(2)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+    for k in frame.index[mechanical]:
+        sources = agreeing[k]
+        frame.loc[k, ["classification", "verified_at"]] = [R1_MECHANICAL_CLASS, stamp]
+        frame.at[k, "notes"] += (f" | classified mechanically (plan 4.4 R1: a second source within 0.5%): "
+                                 f"{'+'.join(sources)} agree"
+                                 + (" (the stored file counts as a second source: owner convention 2026-10-02)"
+                                    if "stored" in sources and len([s for s in sources if s != "stored"]) < 2 else ""))
+    facts_mechanical = {"rows": int(mechanical.sum()),
+                        "with_two_vendors": int((mechanical & agreeing.map(lambda s: len([x for x in s if x != "stored"]) >= 2)).sum()),
+                        "vendor_and_stored": int((mechanical & agreeing.map(lambda s: "stored" in s and
+                                                                            len([x for x in s if x != "stored"]) < 2)).sum()),
+                        "classification": R1_MECHANICAL_CLASS,
+                        "rule": "R1 entries with two or more sources agreeing within 0.5% (the day's own and another, "
+                                "a vendor or the stored file) are resolved by plan 4.4's R1 rule and classified "
+                                "mechanically; the rest stay unreviewed"}
     frame = frame.sort_values(["security_id", "event_date", "rule"], kind="stable")
     year = frame["event_date"].str[:4]
     facts.update({"entries": int(len(frame)),
                   "by_rule": {k: int(v) for k, v in frame["rule"].value_counts().items()},
                   "by_rule_year": {rule: {y: int(v) for y, v in year[frame["rule"] == rule].value_counts().sort_index().items()}
                                    for rule in sorted(frame["rule"].unique())},
-                  "prefilled_from_reviewed_market_moves": int((frame["classification"] != "unreviewed").sum())})
+                  "prefilled_from_reviewed_market_moves": int((frame["classification"] != "unreviewed").sum()
+                                                              - facts_mechanical["rows"]),
+                  "classified_mechanically": facts_mechanical,
+                  "unreviewed": int((frame["classification"] == "unreviewed").sum())})
     return frame[MOVE_COLUMNS], facts
 
 
@@ -2348,7 +3135,10 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
                          "junction_url": junction.get("url", ""), "old_nasdaq_last_session": nasdaq_end,
                          "old_shares_cancelled": junction.get("effective_date", ""),
                          "unfillable_status": unfillable.get(sid, ""), **common_fields(sid, info, summary, existing)})
-        if sid in relisted:  # listed again after the Form 25: the later listing's end is the target
+        later_start = max((start for _, start, _ in relisted.get(sid, [])), default="")
+        if sid in relisted and not (delist and later_start and delist >= later_start):
+            # listed again after the Form 25: the later listing's end is the target (unless a later Form 25 ended
+            # that listing too: Frontier's FYBR, 2026-01-30, is measured against that delisting)
             listing_end = min(max(end for _, _, end in relisted[sid]), WINDOW_END)
             target = sessions[sessions <= pd.Timestamp(listing_end)][-1]
             if pd.Timestamp(last) >= target - pd.Timedelta(days=7):
@@ -2370,6 +3160,8 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
             cause = "wiki_end_no_later_source" + ("_tiingo_pending" if pending else "")
         elif pending:
             cause = "tiingo_pending"
+        elif sid in SUCCESSOR_LINKS:  # cut at its last session (SUCCESSOR_LINKS); a 1:1 reorganisation continues
+            cause = "successor_continuation" if SUCCESSOR_LINKS[sid]["continues"] else "successor_link"
         elif info is not None and info["transfer_date"] and info["transfer_date"] <= target_day:
             cause = "exchange_move"
         elif info is not None and info["successor_security_id"]:
@@ -2572,7 +3364,8 @@ def no_series_table(states: dict[str, dict], targets: pd.DataFrame) -> pd.DataFr
     for row in targets.itertuples(index=False):
         if states.get(row.security_id, {}).get("summary", {}).get("rows", 0):
             continue
-        reason = "tiingo_pending" if row.security_id in waiting_ids else \
+        no_interval = states.get(row.security_id, {}).get("summary", {}).get("no_listing_interval")
+        reason = "no_listing_interval" if no_interval else "tiingo_pending" if row.security_id in waiting_ids else \
             "unfillable" if row.security_id in unfillable_ids else "no_vendor_source"
         rows.append({"security_id": row.security_id, "reason": reason, "candidate_reasons": row.candidate_reasons,
                      "planned_sources": row.planned_sources, "candidate_status": row.candidate_status,
@@ -2614,6 +3407,7 @@ def relist_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataFrame,
         else:
             status = "same_shares"
         rows.append({"security_id": sid, "ticker_last": summary.get("ticker_last", ""), "form25_delist_date": cut,
+                     "relisted_via": identity.get("relisted_via", {}).get(sid, ""),
                      "later_listing_start": start, "later_listing_end": end, "status": status,
                      "series_first": summary.get("first_date", ""), "series_last": summary.get("last_date", ""),
                      "rows_before_later_listing": before, "rows_in_later_listing": inside,
@@ -2641,11 +3435,124 @@ def relist_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataFrame,
                                 for sid, e in sorted(RELIST_JUNCTIONS.items())},
              "leading_zero_volume_rows_cut": {r.security_id: r.junction_leading_zero_volume_cut for r in frame.itertuples()
                                               if r.junction_leading_zero_volume_cut} if len(frame) else {},
+             "relisted_via": {k: int(v) for k, v in Counter(identity.get("relisted_via", {}).values()).items()},
              "rule": "RELIST_JUNCTIONS entries split the series at the new shares' first traded session: no return "
                      "across it (new-share rows with volume 0 before the first trade are cut), the old shares end "
                      "there (series_ends.csv old_shares_at_relist_junction, measured against their last Nasdaq "
                      "session); other relistings keep one series, and a raw level change of "
                      f"{RELIST_JUMP:g}x around them is queued (R9, in reviewed_moves.csv whatever its scope)"}
+    return frame, facts
+
+
+DIVIDEND_COLUMNS = ["security_id", "ex_date", "cash_as_paid", "sources", "ticker", "src_primary", "other_amounts",
+                    "special"]
+
+
+def dividend_table(states: dict[str, dict]) -> tuple[pd.DataFrame, dict]:
+    """``CACHE/dividends.csv`` (plan 1.2): every cash dividend the canonical series books (div_cash > 0), as paid
+    on the ex-date: ``sources`` the vendors carrying the same amount that day (within $0.001), ``other_amounts``
+    the vendors with a row that day and another amount (0 when they book none), ``special`` Y above 10% of the
+    prior close. Closing special dividends the terminal value owns are not in the series, so not here."""
+    rows = [{"security_id": sid, **{k: d.get(k, "") for k in DIVIDEND_COLUMNS if k != "security_id"}}
+            for sid, state in sorted(states.items()) for d in state.get("dividends", [])]
+    frame = pd.DataFrame(rows, columns=DIVIDEND_COLUMNS)
+    single = frame["sources"].fillna("").map(lambda s: len([x for x in s.split("+") if x]) < 2) if len(frame) else []
+    facts = {"rows": int(len(frame)), "securities": int(frame["security_id"].nunique()) if len(frame) else 0,
+             "rows_one_source": int(np.sum(single)) if len(frame) else 0,
+             "rows_special": int(frame["special"].eq("Y").sum()) if len(frame) else 0,
+             "terminal_dividends_dropped": {sid: s["summary"]["terminal_dividends_dropped"]
+                                            for sid, s in sorted(states.items())
+                                            if s["summary"].get("terminal_dividends_dropped")},
+             "rule": "a special dividend paid to holders at a merger closing (the terminal step's REVIEWED "
+                     "special_dividend: CHNG, STAY, NGHC, DELL, KRFT) is booked once, in the terminal value, since "
+                     "the last close still carries it; a vendor's booking of it within "
+                     f"{TERMINAL_DIVIDEND_DAYS} days up to its record date is dropped from the series "
+                     "(div_in_terminal_value)"}
+    return frame, facts
+
+
+SUCCESSOR_LINK_COLUMNS = ["predecessor_id", "successor_id", "ticker", "last_session", "continues", "basis", "url",
+                          "predecessor_last_row", "predecessor_rows_cut", "successor_first_session",
+                          "successor_first_row", "successor_first_return", "sessions_between", "anchor_sources",
+                          "successor_own_rows_dropped", "predecessor_rows_added", "raw_yahoo_fill_rows",
+                          "yahoo_junction_cleared", "overlap_days", "successor_rows", "successor_last_row",
+                          "successor_last_listed", "short_after_continuation", "status", "note"]
+SHORT_SUCCESSOR_DAYS = 60  # a continued successor whose series ends this long before its last listed day is short
+
+
+def successor_link_table(states: dict[str, dict], master: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+    """``CACHE/reconcile/successor_links.csv``: each SUCCESSOR_LINKS pair after the build. ``status``: ``continued``
+    (the successor's first return runs from the predecessor's last close), ``continued_no_return`` (a continuing
+    link whose first return could not be measured: no anchor close, or a gap of more than GAP_RETURN_MAX sessions),
+    ``cut`` (a pair that does not continue), ``cut_class_kept`` (a class folded into another existing class:
+    ``handover`` False, the other class untouched), ``predecessor_ends_early`` (its series stops before the last
+    session), ``no_successor_series`` / ``no_predecessor_series``. ``overlap_days``: days in both series (0 by
+    construction, checked here; a ``handover`` False pair is not counted: the other class trades on). A continued
+    successor whose series ends more than SHORT_SUCCESSOR_DAYS days before its last listed day (master) is
+    ``short_after_continuation`` (its own files are missing: not fetched, or fetched for a later span only)."""
+    last_listed = dict(zip(master["security_id"], master["last_listed"])) if master is not None else {}
+    rows = []
+    for pred, link in sorted(SUCCESSOR_LINKS.items()):
+        succ = link["successor"]
+        p_state, s_state = states.get(pred, {}), states.get(succ, {})
+        p_sum, s_sum = p_state.get("summary", {}), s_state.get("summary", {})
+        handover = link.get("handover", True)
+        info = s_sum.get("successor_link", {}) if handover else {}
+        s_rows = s_sum.get("successor_link_rows", {}) if handover else {}
+        p_rows = p_sum.get("successor_link_rows", {})
+        p_days, s_days = p_state.get("dates"), s_state.get("dates")
+        overlap = int(len(np.intersect1d(p_days, s_days))) if handover and p_days is not None and s_days is not None else ""
+        if not p_sum.get("rows"):
+            status = "no_predecessor_series"
+        elif not s_sum.get("rows"):
+            status = "no_successor_series"
+        elif p_sum.get("last_date", "") < link["last_session"]:
+            status = "predecessor_ends_early"
+        elif not handover:
+            status = "cut_class_kept"
+        elif not link["continues"]:
+            status = "cut"
+        else:
+            status = "continued" if info.get("first_row_return") == "measured" else "continued_no_return"
+        s_last, s_listed = s_sum.get("last_date", ""), last_listed.get(succ, "")
+        short = bool(link["continues"] and s_last and s_listed and
+                     pd.Timestamp(s_last) < min(pd.Timestamp(s_listed), pd.Timestamp(WINDOW_END)) -
+                     pd.Timedelta(days=SHORT_SUCCESSOR_DAYS))
+        rows.append({"predecessor_id": pred, "successor_id": succ, "ticker": link["ticker"],
+                     "last_session": link["last_session"], "continues": bool(link["continues"]), "basis": link["basis"],
+                     "url": link["url"], "predecessor_last_row": p_sum.get("last_date", ""),
+                     "predecessor_rows_cut": p_rows.get("rows_after_last_session_cut", ""),
+                     "successor_first_session": s_rows.get("first_session", ""),
+                     "successor_first_row": info.get("first_row", s_sum.get("first_date", "") if handover else ""),
+                     "successor_first_return": info.get("first_row_return", ""),
+                     "sessions_between": info.get("sessions_between", ""),
+                     "anchor_sources": "+".join(info.get("anchor_sources", [])),
+                     "successor_own_rows_dropped": s_rows.get("own_rows_dropped", ""),
+                     "predecessor_rows_added": s_rows.get("predecessor_rows_added", ""),
+                     "raw_yahoo_fill_rows": s_rows.get("raw_yahoo_fill_rows", ""),
+                     "yahoo_junction_cleared": s_rows.get("yahoo_junction_cleared", ""), "overlap_days": overlap,
+                     "successor_rows": s_sum.get("rows", 0), "successor_last_row": s_last,
+                     "successor_last_listed": s_listed, "short_after_continuation": short, "status": status,
+                     "note": link.get("note", "")})
+    frame = pd.DataFrame(rows, columns=SUCCESSOR_LINK_COLUMNS)
+    facts = {"pairs": int(len(frame)), "continuing": int(frame["continues"].sum()) if len(frame) else 0,
+             "by_status": {k: int(v) for k, v in frame["status"].value_counts().items()} if len(frame) else {},
+             "overlap_days_total": int(pd.to_numeric(frame["overlap_days"], errors="coerce").fillna(0).sum())
+             if len(frame) else 0,
+             "short_after_continuation": {
+                 "rule": f"a continued successor whose series ends more than {SHORT_SUCCESSOR_DAYS} days before its last "
+                         "listed day (master last_listed, at most the window end): its own price files are missing "
+                         "(the prefilter / Yahoo / Tiingo lines have not fetched it, or only a later span); the "
+                         "positions held across the link run into that gap",
+                 "pairs": [{"predecessor": r.predecessor_id, "successor": r.successor_id,
+                            "successor_last_row": r.successor_last_row, "successor_last_listed": r.successor_last_listed,
+                            "successor_rows": int(r.successor_rows)}
+                           for r in frame.itertuples(index=False) if r.short_after_continuation]} if len(frame) else {},
+             "rule": "owner convention 2026-10-02 (CRSP keeps one PERMNO): a 1:1 holding-company reorganisation or "
+                     "reincorporation continues the same security; every SUCCESSOR_LINKS predecessor is cut at its "
+                     "last session (no day is in both series), and a continuing successor's first return runs from "
+                     "the predecessor's last close (flag successor_link:{predecessor}); the terminal step books no "
+                     "terminal return for a continuing predecessor"}
     return frame, facts
 
 
@@ -2716,6 +3623,11 @@ def summarize_tables(states, prep, ids, args) -> dict:
     write_csv(OUT / "source_pairs.csv", pairs)
     relists, relist_facts = relist_table(states, identity)
     write_csv(OUT / "relist_junctions.csv", relists)
+    dividends, dividend_facts = dividend_table(states)
+    write_csv(DIVIDENDS, dividends)
+    links, link_facts = successor_link_table(states, identity["master"])
+    write_csv(OUT / "successor_links.csv", links)
+    log(f"dividends.csv {len(dividends)} rows; successor_links.csv {link_facts['by_status']}")
     securities = pd.DataFrame([{**{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in s["summary"].items()
                                    if not isinstance(v, dict)},
                                 "rows_by_primary": json.dumps(s["summary"].get("rows_by_primary", {}), sort_keys=True),
@@ -2769,16 +3681,26 @@ def summarize_tables(states, prep, ids, args) -> dict:
         "tiingo_run_vs_old_diff_days": int(sum(s["summary"].get("tiingo_run_vs_old_diff_days", 0) for s in states.values())),
         "relistings": relist_facts,
         "listing_starts_after_quote": {
-            "rule": "a listing's first row whose previous row is outside the listing, with no vendor volume > 0 in the "
-                    f"{pf.CLOSE_STALE_SESSIONS} sessions before it, has a blank tr (flag listing_start_after_quote)",
+            "rule": "a listing's (or segment's) first row with a trade (vendor volume > 0), when every row before it "
+                    "since the listing start is untraded, the row before it is untraded, no vendor row traded in the "
+                    f"{pf.CLOSE_STALE_SESSIONS} sessions before it and the kept closes there all equal that row's "
+                    "(a carried quote), has a blank tr (flag listing_start_after_quote); untraded rows keep their tr",
             "securities": {sid: s["summary"]["listing_starts_after_quote"] for sid, s in sorted(states.items())
                            if s["summary"].get("listing_starts_after_quote")}},
+        "gap_returns_blank": {
+            "rule": f"plan R9: no return across a gap of more than {GAP_RETURN_MAX} sessions (tr blank, flag "
+                    "gap_return_blank)",
+            "securities": {sid: s["summary"]["gap_returns_blank"] for sid, s in sorted(states.items())
+                           if s["summary"].get("gap_returns_blank")}},
+        "dividends": dividend_facts,
+        "successor_links": link_facts,
         "break_days": break_day_table(states),
         "checks": checks,
         "files": {"prices": str(PRICES_DIR), "split_events": str(SPLIT_EVENTS), "special_distributions": str(SPECIAL),
                   "reviewed_moves": str(REVIEWED_MOVES), "series_ends": str(OUT / "series_ends.csv"),
                   "coverage_gaps": str(OUT / "coverage_gaps.csv"), "no_series": str(OUT / "no_series.csv"),
-                  "relist_junctions": str(OUT / "relist_junctions.csv")},
+                  "relist_junctions": str(OUT / "relist_junctions.csv"), "dividends": str(DIVIDENDS),
+                  "successor_links": str(OUT / "successor_links.csv")},
         "no_returns_aggregated": "tr is per security and day; this summary holds counts only",
     }
     if not args.no_panel:
@@ -2991,6 +3913,12 @@ def main(argv=None) -> int:
     ids = sorted(set(prep["targets"]["security_id"]) if only is None else set(only))
     states = run_securities(ids, prep["bundles"], prep["identity"], prep["windows"], prep["sessions"], args.rebuild)
     mark = phase("securities", mark)
+    superseded = []
+    if only is None and args.rebuild:  # price files of securities that are no longer targets: moved aside
+        superseded = supersede_non_targets(ids)
+        if superseded:
+            log(f"moved {len(superseded)} price files of non-targets to {superseded_dir()}: "
+                f"{' '.join(m['security_id'] for m in superseded)}")
     if only is not None:
         for sid in ids:
             summary = states[sid]["summary"]
@@ -3004,6 +3932,11 @@ def main(argv=None) -> int:
         return 0
     summary = summarize_tables(states, prep, ids, args)
     mark = phase("tables_and_panel", mark)
+    stale = sorted(path.stem for path in PRICES_DIR.glob("*.csv") if path.stem not in set(ids))
+    summary["price_files"] = {"superseded_this_run": superseded, "not_targets_left": stale,
+                              "rule": "--rebuild moves the price files of securities that are no longer targets to "
+                                      "reconcile/superseded_prices_{date}/ (never deleted); a build without --rebuild "
+                                      "lists them here"}
     log(f"coverage dv50 1-300: {summary['coverage_ranked']['dv50_rank_1_300']['all']}")
     if args.compare and args.out_dir:
         compare = compare_outputs(defaults)

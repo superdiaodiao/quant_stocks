@@ -60,8 +60,18 @@ Canonical metrics (``CACHE/prices/daily_panel.csv.gz``, step 9), on the XNAS ses
 (at least 10 / 25 rows, as in step 6), restarted at a relist junction (step 9's ``relist_junction``
 flag on the new shares' first row after a bankruptcy relisting: CHRD 2020-11-20, WW 2025-06-27, OPI
 2026-06-18), so the old shares' dollar volume never enters the new shares' medians (only the ``flags``
-column is read for this, never ``tr``); the week's close is the last canonical close at most 5 sessions
-before the week end (step 6's staleness rule). ``price_ge_10`` is that raw close >= $10.
+column is read for this, never ``tr``), and run across a 1:1 successor link (owner convention of
+2026-10-02, CRSP's single PERMNO; ``successor_links``): a successor link (a ``security_master`` link, or
+for a predecessor the master links to nothing step 11's own 1:1 booking with the successor as acquirer:
+Express Scripts Holding 2012-04, Marvell 2021-04) whose successor is listed within 10 days of the successor
+date, of its own first canonical row or of the predecessor's last listed day, whose predecessor is not
+listed on for more than 30 days after it (new IAC 2020: old IAC went on as MTCH, so new IAC is a new
+security), and whose end step 11 books as a stock_merger / reorganization of one share per share
+(Alphabet 2015-10, APA 2021, Broadcom 2016 and 2018), gives the successor's windows the predecessor's rows
+on the sessions before the successor's first listed day (one row per session: no day counted twice), so
+GOOGL ranks 6th from 2015-10-09 instead of being young for five weeks; the week's close is the last
+canonical close at most 5 sessions before the week end (step 6's staleness rule). ``price_ge_10`` is that
+raw close >= $10.
 - ``dv50_rank`` / ``dv20_rank``: descending rank within the week among universe-base names with a close
   >= $10 and the median (ties by security_id). ``*_any_price`` ranks skip the $10 test.
 - ``close_in_week``: a canonical row after the previous week end; ``close_on_week_end``: a row on t.
@@ -83,18 +93,25 @@ Completeness checks (plan 3.3, no returns):
   does not cover the week), outside the weeks before the first / after the last trade (``outside_trading``:
   the listing starts or ends within 30 days of the series, or step 6 marked it so) and not a new listing
   that is still short of 25 sessions (``young``, ``young_rule``: ``canonical``, a canonical close without
-  a dv50 within 75 days of the first canonical row; or, without a dv50 from step 6 either,
+  a dv50 within 75 days of the first canonical row, only at a relist junction or for a new listing whose
+  series starts within 5 sessions of its earliest start (``series_starts_listing``; a transfer from NYSE
+  whose rows start at the Nasdaq start, KDP 2020-09 and HST 2020-11, stays missing, so its proxy blocks the
+  week); or, without a dv50 from step 6 either,
   ``new_listing``, the security's first listing run in its first 24 XNAS sessions counted from the
   earliest day it can have begun trading, only for a real new listing: the IPO rule's first price, or a
   snapshot start counted from the session after the last snapshot without it (or, when a final IPO
   prospectus, 424B4 / 424B1, was filed in that gap, from two sessions before it), of an issuer that filed no
   10-K / 10-Q more than 90 days before and had no other Nasdaq security listed within 90 days before
   (``new_listing_evidence``: a transfer from NYSE such as NBL or LSI, a reorganised tracking stock such as
-  QVCA or QRTEB, and a start no snapshot dates stay missing); or ``short_series``, step 6 holding 1-24
+  QVCA or QRTEB, the successor of a successor link such as AspenTech 2022 (``successor_link``), and a
+  start no snapshot dates stay missing); or ``short_series``, step 6 holding 1-24
   rows in the 50-session window of a series that began within 75 days, at most 75 days after the
   listing, of an issuer not public before: IRHO and RACC in their first weeks; a name step 6 holds no
   row for, n50 = 0, is not young; the summary counts the young weeks by rule, the rule-1 weeks whose
-  proxy reaches the band median, and the first-run weeks rule 1 leaves missing). Each missing
+  proxy reaches the band median, the first-run weeks rule 1 leaves missing, the canonical-rule weeks by
+  basis, predecessor link and proxy_above, and the weeks the canonical rule leaves missing, with how many
+  block; ``successor_links`` lists every successor link, master and step 11, with its treatment and the
+  successor's first five weeks). Each missing
   name-week gets evidence of top-250 membership
   (``evidence``): step 6's dollar volume (``weekly_metrics.pkl``: any source, the stored files included)
   against this week's canonical rank-250 cut (``dv``), else a market-cap proxy (Wayback market cap, or XBRL
@@ -106,7 +123,10 @@ Completeness checks (plan 3.3, no returns):
   them. A name-week with none of these is ``unknown``: it gets no estimate, is counted apart, counts as a
   top-250 name-week in the upper bounds and makes its week incomplete (never taken as small).
   The expected count (``p_top250``) uses each rule's hit rate by year and by distance to the cut
-  (value / cut in bins): the dollar-volume rule measured on canonical names step 6 priced from a stored
+  (value / cut in bins; the proxy's value is the larger of market cap / band median market cap and float /
+  band median float, the either-one reading of ``proxy_above``, so a float-only week is binned by its float;
+  check 6 also gives each year's shares with the plan's market-cap-first binning): the dollar-volume rule
+  measured on canonical names step 6 priced from a stored
   file only (like most missing names); the proxy rule, separately for single-class securities and for
   classes of a multi-class company (whose market cap and float are the company's), measured on every
   universe-base name-week whose top-250 status dollar volume settles (canonical ranks, or step 6's
@@ -198,7 +218,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.5"
+CODE_VERSION = "2026-10-02.7"
 MAIN = common.MAIN_CHECKOUT
 CACHE = common.CACHE
 INPUTS = common.INPUTS
@@ -967,8 +987,11 @@ def stored_direct_dv(listed: pd.DataFrame, spans: pd.DataFrame, master: pd.DataF
 
 
 def canonical_metrics(panel: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np.ndarray,
-                      prev_pos: np.ndarray) -> dict:
-    """Week x security arrays from the canonical rows on the session grid (see the module notes)."""
+                      prev_pos: np.ndarray, links: pd.DataFrame | None = None) -> dict:
+    """Week x security arrays from the canonical rows on the session grid (see the module notes). With
+    ``links`` (``successor_links``), the dv20 / dv50 windows of each ``windows_cross`` successor read its
+    predecessor's rows before the handover (``link_successor_rows``; ``successor_windows`` holds the facts);
+    the closes, first and last rows stay each security's own."""
     rows = panel[panel["date"].isin(sessions)]
     ids = np.array(sorted(rows["security_id"].unique()), dtype=object)
     column = {s: k for k, s in enumerate(ids)}
@@ -982,8 +1005,9 @@ def canonical_metrics(panel: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos:
     volume[r, c] = rows["volume_raw"].values
     source[r, c] = rows["src_primary"].map(SRC_CODES).astype(float).values
     has = ~np.isnan(close)
-    dv = pd.DataFrame(close * volume)
-    out = {"ids": ids}
+    dv_values = close * volume
+    out = {"ids": ids, "successor_windows": link_successor_rows(dv_values, ids, sessions, links)}
+    dv = pd.DataFrame(dv_values)
     for window, minimum in DV_WINDOWS.items():
         out[f"dv{window}"] = dv.rolling(window, min_periods=minimum).median().values[week_pos]
     # A relist junction (the new shares' first row) starts new windows: the old shares' dollar volume
@@ -994,7 +1018,7 @@ def canonical_metrics(panel: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos:
         junction[r, c] = rows["relist_junction"].to_numpy(dtype=bool)
         for k in np.flatnonzero(junction.any(axis=0)):
             segment = np.cumsum(junction[:, k])
-            column_dv = pd.Series(close[:, k] * volume[:, k])
+            column_dv = pd.Series(dv_values[:, k])
             for window, minimum in DV_WINDOWS.items():
                 median = column_dv.groupby(segment).transform(
                     lambda x: x.rolling(window, min_periods=minimum).median()).to_numpy()
@@ -1038,7 +1062,21 @@ def attach_metrics(listed: pd.DataFrame, metrics: dict) -> pd.DataFrame:
         out[name] = take(metrics[name], k, cols, fill=False).astype(bool)
     out["first_row"] = out["security_id"].map(metrics["first_row"]).fillna("")
     out["last_row"] = out["security_id"].map(metrics["last_row"]).fillna("")
-    out["segment_first_row"] = segment_first_rows(out, metrics.get("relist_junctions") or {})
+    junctions = metrics.get("relist_junctions") or {}
+    out["segment_first_row"] = segment_first_rows(out, junctions)
+    out["segment_junction"] = segment_at_junction(out, junctions)
+    return out
+
+
+def segment_at_junction(listed: pd.DataFrame, junctions: dict[str, list[str]]) -> np.ndarray:
+    """True where the week's segment starts at a relist junction (``segment_first_row`` is one of the
+    security's junction days, the security's first row included)."""
+    out = np.zeros(len(listed), dtype=bool)
+    if not junctions or "segment_first_row" not in listed:
+        return out
+    mask = listed["security_id"].isin(list(junctions)).to_numpy()
+    days = {(s, d) for s, ds in junctions.items() for d in ds}
+    out[mask] = [(s, d) in days for s, d in zip(listed.loc[mask, "security_id"], listed.loc[mask, "segment_first_row"])]
     return out
 
 
@@ -1356,9 +1394,20 @@ def proxy_ratios(frame: pd.DataFrame, cut: pd.DataFrame) -> tuple[np.ndarray, np
 
 
 def proxy_ratio_of(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
+    """The larger of market cap / the week's band median market cap and float / the band median float
+    (either one where only one exists; NaN without both): the ratio whose bins the proxy rule's hit rates
+    are measured on, the same way for the calibration population and the missing names. It is the either-one
+    reading of ``proxy_above`` (ratio >= 1 exactly when ``proxy_above``), so a float-only week (a carried
+    market cap under the median, a float at or above it: INO 2020-01-03) is binned by its float, not by the
+    stale market cap (round-8 review). ``proxy_ratio_mcap_first`` keeps the plan's market-cap-first ratio;
+    the expected count with it is reported beside check 6 (``market_cap_first_binning``)."""
+    by_mcap, by_float = proxy_ratios(frame, cut)
+    return np.fmax(by_mcap, by_float)
+
+
+def proxy_ratio_mcap_first(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
     """Market cap / the week's band median market cap, or, without both, float / the band median float
-    (the ratio whose bins the proxy rule's hit rates are measured on, the same way for the calibration
-    population and the missing names)."""
+    (the plan's market-cap-first ratio, the binning of builds before round 8's fix)."""
     by_mcap, by_float = proxy_ratios(frame, cut)
     return np.where(~np.isnan(by_mcap), by_mcap, by_float)
 
@@ -1377,7 +1426,7 @@ def proxy_above(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
 def proxy_above_mcap_first(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
     """The plan's reading of check 1: the market cap at or above the band median, or, without one (or
     without a band median of market caps), the float at or above the band median float."""
-    ratio = proxy_ratio_of(frame, cut)
+    ratio = proxy_ratio_mcap_first(frame, cut)
     with np.errstate(invalid="ignore"):
         return ~np.isnan(ratio) & (ratio >= 1.0)
 
@@ -1423,15 +1472,165 @@ NEW_LISTING_BASES = ("ipo_rule", "prospectus", "snapshot_gap")   # the first-run
 PROSPECTUS_FORMS = {"424B4", "424B1"}  # a final IPO prospectus (Rule 424(b)(4) / (b)(1)), filed a day or two after pricing
 PROSPECTUS_LEAD_SESSIONS = 2           # the first trade can be up to this many sessions before the prospectus is filed
 PROSPECTUS_SLACK_DAYS = 7              # a prospectus this long before the last snapshot without the name still counts
-CONTINUING_BASES = ("older_issuer", "issuer_listed_before")  # the issuer was public before: not a new listing
+# the security continues another one, or the issuer was public before: not a new listing
+CONTINUING_BASES = ("successor_link", "older_issuer", "issuer_listed_before")
+SUCCESSOR_LINK_DAYS = 10    # a successor link counts when the successor's listing starts this close to it
+SERIES_START_SESSIONS = CLOSE_STALE_SESSIONS  # the canonical young rule: first row this close to the earliest start
+ONE_TO_ONE = ("stock_merger", "reorganization", 1.0)  # step 11's booking of a 1:1 reorganisation or redomicile
+PREDECESSOR_OVERLAP_DAYS = 30  # a predecessor listed this long past the successor's start continues itself
+LINK_SOURCES = ("security_master", "step11")
+LINK_COLUMNS = ["predecessor_id", "successor_id", "successor_date", "successor_start", "successor_first_row",
+                "predecessor_end", "continuing", "continuing_basis", "one_to_one", "one_to_one_basis", "windows_cross",
+                "handover", "link_source"]
+
+
+def _one_to_one(t: dict | None, successor: str) -> tuple[bool, str]:
+    """Whether step 11's row ``t`` books the end as a 1:1 reorganisation into ``successor`` (and why)."""
+    if t is None:
+        return False, "no step-11 row"
+    shares = pd.to_numeric(pd.Series([t.get("consideration_shares", "")]), errors="coerce").iloc[0]
+    acquirer = str(t.get("acquirer_security_id", "") or "")
+    kind = (str(t.get("terminal_type", "") or ""), str(t.get("event_subtype", "") or ""))
+    one = kind == ONE_TO_ONE[:2] and shares == ONE_TO_ONE[2] and acquirer in ("", successor)
+    return bool(one), f"step 11: {kind[0] or '-'} / {kind[1] or '-'} / {'' if pd.isna(shares) else f'{shares:g}'} share"
+
+
+def successor_links(master: pd.DataFrame, spans: pd.DataFrame, first_row: dict, terminal: pd.DataFrame | None = None,
+                    days: int = SUCCESSOR_LINK_DAYS, overlap_days: int = PREDECESSOR_OVERLAP_DAYS) -> pd.DataFrame:
+    """One row per successor link: each ``security_master`` link (the predecessor's ``successor_security_id``
+    and ``successor_date``, the Form 25 Nasdaq filed for a reorganisation with a ticker handover;
+    ``link_source`` security_master), and each 1:1 reorganisation step 11 books for a predecessor the master
+    links to nothing (``link_source`` step11: terminal_type stock_merger, event_subtype reorganization,
+    consideration_shares 1, acquirer_security_id a listed security that no master link names as a successor;
+    the successor date is step 11's ``end_date``, else its ``delist_date``): Express Scripts -> Express
+    Scripts Holding 2012-04, Marvell's Delaware redomicile 2021-04, Sinclair 2023, Zillow Group 2015.
+
+    - ``continuing`` (``continuing_basis``): the successor's first listing span starts within ``days`` of the
+      successor date (``successor_date``), or its first canonical row does (``first_row``), or the span
+      starts within ``days`` of the predecessor's last listed day (``handover``: the ticker passes at a
+      snapshot boundary, so QuidelOrtho is listed from 2022-06-07, the day after Quidel's last listed day,
+      though the Form 25 is dated 2022-05-27; Express Scripts Holding from 2012-04-05, the day after the old
+      shares' last listed day, though their Form 25 is dated 2012-04-22) -- and the predecessor's listing
+      (``predecessor_end``: the end of its last listing run, renames joined, starting on or before the
+      successor's start) ends no more than ``overlap_days`` after the successor's listing starts. A
+      predecessor listed on for longer continues itself, so the successor is a new security
+      (``predecessor_listed_on``: new IAC 2020-07, spun off while old IAC went on as Match Group to 2026;
+      RCM 2022, 28 days of overlap, still continues).
+      A continuing successor is no new listing (``new_listing_evidence`` basis ``successor_link``: not young
+      by any rule);
+    - ``one_to_one``: step 11 books the predecessor's end as a ``stock_merger`` / ``reorganization`` of one
+      successor share per share (``terminal_returns_2012_2026.csv``: terminal_type, event_subtype,
+      consideration_shares, and acquirer_security_id the successor or blank): Google -> Alphabet 2015,
+      Apache -> APA 2021. Not AspenTech 2022 ($87.69 cash + 0.42 share), 21CF -> Fox 2019 (Disney's election),
+      IAC 2020 (no step-11 row: old IAC went on as Match Group);
+    - ``windows_cross``: continuing and one_to_one (owner convention of 2026-10-02, CRSP's single PERMNO): the
+      successor's dv20 / dv50 windows read the predecessor's rows on the sessions before ``handover`` (the
+      successor's first listed day) and its own rows from then on, one row per session
+      (``link_successor_rows``)."""
+    if len(spans):
+        start = spans.groupby("security_id")["list_start"].min().to_dict()
+        # listing runs (a rename joins the spans: old IAC's run goes on as MTCH to 2026)
+        joined = spans.assign(run_start=run_starts(spans)).groupby(["security_id", "run_start"])["list_end"].max()
+        runs = defaultdict(list)
+        for (sid, a), b in joined.items():
+            runs[sid].append((a, b))
+    else:
+        start, runs = {}, {}
+    booked = {}
+    if terminal is not None and len(terminal) and "security_id" in terminal:
+        booked = terminal.drop_duplicates("security_id", keep="last").set_index("security_id").to_dict(orient="index")
+    pairs = []
+    if "successor_security_id" in master:
+        linked = master[master["successor_security_id"].fillna("").astype(str) != ""]
+        dates = linked["successor_date"] if "successor_date" in linked else pd.Series("", index=linked.index)
+        pairs = [(p, str(s), str(d or ""), LINK_SOURCES[0])
+                 for p, s, d in zip(linked["security_id"], linked["successor_security_id"], dates.fillna(""))]
+    # a step-11 link only where no link leaves the predecessor and none reaches the successor (a chain
+    # through a master successor, Tessera -> Xperi -> Xperi Holding, is fine)
+    leaving, reaching = {p for p, _, _, _ in pairs}, {s for _, s, _, _ in pairs}
+    for p, t in booked.items():
+        s = str(t.get("acquirer_security_id", "") or "")
+        if not s or s == p or p in leaving or s in reaching or s not in start or not _one_to_one(t, s)[0]:
+            continue
+        day = str(t.get("end_date", "") or "") or str(t.get("delist_date", "") or "")
+        pairs.append((p, s, day, LINK_SOURCES[1]))
+        leaving.add(p)
+        reaching.add(s)
+    near = lambda a, b: bool(a and b) and abs((pd.Timestamp(a) - pd.Timestamp(b)).days) <= days
+
+    def predecessor_end(p: str, s_start: str) -> str:
+        """The end of the predecessor's last listing run starting on or before the successor's start."""
+        before = [(a, b) for a, b in runs.get(p, []) if not s_start or a <= s_start]
+        return max(before)[1] if before else ""
+
+    rows = []
+    for p, s, day, source in pairs:
+        s_start, s_first = start.get(s, ""), first_row.get(s, "")
+        p_end = predecessor_end(p, s_start)
+        if not s_start:
+            basis = "successor_not_listed"
+        elif p_end and (pd.Timestamp(p_end) - pd.Timestamp(s_start)).days > overlap_days:
+            basis = "predecessor_listed_on"
+        elif near(s_start, day):
+            basis = "successor_date"
+        elif near(s_first, day):
+            basis = "first_row"
+        elif near(s_start, p_end):
+            basis = "handover"
+        else:
+            basis = ""
+        one, why = _one_to_one(booked.get(p), s)
+        continuing = basis in ("successor_date", "first_row", "handover")
+        rows.append({"predecessor_id": p, "successor_id": s, "successor_date": day, "successor_start": s_start,
+                     "successor_first_row": s_first, "predecessor_end": p_end, "continuing": continuing,
+                     "continuing_basis": basis, "one_to_one": one, "one_to_one_basis": why,
+                     "windows_cross": bool(continuing and one), "handover": s_start, "link_source": source})
+    return pd.DataFrame(rows, columns=LINK_COLUMNS)
+
+
+def link_successor_rows(dv: np.ndarray, ids: np.ndarray, sessions: pd.DatetimeIndex,
+                        links: pd.DataFrame | None) -> dict:
+    """Run the dollar-volume windows across each ``windows_cross`` successor link (owner convention: a 1:1
+    reorganisation continues the security): on the sessions before the handover (the successor's first
+    listed day) the successor's column takes the predecessor's dollar volume where the predecessor has a row
+    (its own rows there, if any, are kept only where the predecessor has none); from the handover on only
+    its own rows count. One value per session, so no day is counted twice. ``dv`` (sessions x ids) is
+    changed in place; links are applied in handover order, so a chain (Tessera -> Xperi -> Xperi Holding)
+    carries through. Returns successor -> facts."""
+    out: dict[str, dict] = {}
+    if links is None or not len(links) or "windows_cross" not in links:
+        return out
+    column = {s: k for k, s in enumerate(ids)}
+    window = max(DV_WINDOWS)
+    for row in links[links["windows_cross"].astype(bool)].sort_values("handover", kind="stable").itertuples(index=False):
+        k, j = column.get(row.successor_id), column.get(row.predecessor_id)
+        facts = {"predecessor": row.predecessor_id, "handover": row.handover, "predecessor_rows_in_first_window": 0,
+                 "own_rows_replaced": 0, "predecessor_rows_on_or_after_handover_unused": 0}
+        if k is None or j is None:
+            facts["note"] = "no canonical rows for the " + ("successor" if k is None else "predecessor")
+            out[row.successor_id] = facts
+            continue
+        pos = int(sessions.searchsorted(pd.Timestamp(row.handover)))
+        theirs = ~np.isnan(dv[:pos, j])
+        facts["own_rows_replaced"] = int((theirs & ~np.isnan(dv[:pos, k])).sum())
+        dv[:pos, k] = np.where(theirs, dv[:pos, j], dv[:pos, k])
+        facts["predecessor_rows_in_first_window"] = int(theirs[max(pos - window, 0):].sum())
+        facts["predecessor_rows_on_or_after_handover_unused"] = int((~np.isnan(dv[pos:, j])).sum())
+        out[row.successor_id] = facts
+    return out
 
 
 def new_listing_evidence(spans: pd.DataFrame, master: pd.DataFrame, sessions: pd.DatetimeIndex,
-                         prospectus: dict | None = None, issuer_days: int = YOUNG_ISSUER_DAYS) -> pd.DataFrame:
+                         prospectus: dict | None = None, issuer_days: int = YOUNG_ISSUER_DAYS,
+                         links: pd.DataFrame | None = None, first_row: dict | None = None) -> pd.DataFrame:
     """Per security, whether its first listing run is a real new listing and the earliest XNAS session it
     can have begun trading on (``young_weeks`` rule 1; the snapshot start alone is not that evidence).
 
     ``new_listing_basis`` of the security's first span:
+    - ``successor_link``: the security is the successor of a ``continuing`` successor link
+      (``successor_links``: a master link, Alphabet 2015-10, AspenTech 2022-06, or a step-11 1:1
+      reorganisation the master does not link, Express Scripts Holding 2012-04, Marvell 2021-04): it
+      continues the predecessor, so it is no new listing (``predecessor_security_id`` names it);
     - ``older_issuer``: the issuer filed a 10-K / 10-Q (``security_master.domestic_periodic_first``) more
       than ``issuer_days`` before the listing started: a public company before (a transfer from NYSE such
       as NBL 2020 or LSI 2013, a reclassified tracking stock such as QVCA 2014 or QRTEA 2018, VIACA 2019);
@@ -1448,8 +1647,13 @@ def new_listing_evidence(spans: pd.DataFrame, master: pd.DataFrame, sessions: pd
       start (VWR, IPO 2014-10-02, first in a snapshot of 2014-11-21, absent from 2014-09-21);
     - ``no_earlier_snapshot``: no snapshot before shows it absent, so nothing dates the start.
     ``new_listing`` is True for ``ipo_rule``, ``prospectus`` and ``snapshot_gap`` only; ``earliest_start`` is
-    blank for the others."""
-    columns = ["security_id", "earliest_start", "new_listing", "new_listing_basis", "listing_continues"]
+    blank for the others. ``series_start_gap``: XNAS sessions from ``earliest_start`` to the security's first
+    canonical row (``first_row``; NaN without both); ``series_starts_listing``: a new listing whose canonical
+    series starts within SERIES_START_SESSIONS of its earliest start, so the series holds the listing's first
+    sessions (the canonical young rule's condition; not GoPro 2014, whose rows start 8 sessions after the
+    earliest start its IPO prospectus gives, nor a snapshot start whose series begins weeks after it)."""
+    columns = ["security_id", "earliest_start", "new_listing", "new_listing_basis", "listing_continues",
+               "predecessor_security_id", "series_start_gap", "series_starts_listing"]
     if not len(spans):
         return pd.DataFrame(columns=columns)
     values = sessions.strftime("%Y-%m-%d").to_numpy(dtype=object)
@@ -1465,6 +1669,13 @@ def new_listing_evidence(spans: pd.DataFrame, master: pd.DataFrame, sessions: pd
         if cik.get(sid, ""):
             by_cik[cik[sid]].append((sid, a, b))
     first = spans.sort_values(["security_id", "list_start"], kind="stable").drop_duplicates("security_id")
+    predecessor: dict[str, str] = {}
+    if links is not None and len(links):
+        for p, s, ok in zip(links["predecessor_id"], links["successor_id"], links["continuing"].astype(bool)):
+            if ok and s not in predecessor:
+                predecessor[s] = p
+    first_row = first_row or {}
+    position = lambda day: int(np.searchsorted(values, day, "left"))
     rows = []
     for row in first.itertuples(index=False):
         sid, start = row.security_id, row.list_start
@@ -1472,7 +1683,9 @@ def new_listing_evidence(spans: pd.DataFrame, master: pd.DataFrame, sessions: pd
         filed = periodic.get(sid, "")
         before = [o for o, a, b in by_cik.get(cik.get(sid, ""), []) if o != sid and a < start and b >= since]
         earliest = ""
-        if filed and filed < since:
+        if sid in predecessor:
+            basis = "successor_link"
+        elif filed and filed < since:
             basis = "older_issuer"
         elif before:
             basis = "issuer_listed_before"
@@ -1486,22 +1699,30 @@ def new_listing_evidence(spans: pd.DataFrame, master: pd.DataFrame, sessions: pd
                 basis, earliest = "prospectus", max(earliest, lead(min(filed)))
         else:
             basis = "no_earlier_snapshot"
-        rows.append({"security_id": sid, "earliest_start": earliest, "new_listing": basis in NEW_LISTING_BASES,
-                     "new_listing_basis": basis, "listing_continues": basis in CONTINUING_BASES})
+        series = first_row.get(sid, "")
+        gap = position(series) - position(earliest) if series and earliest else np.nan
+        new = basis in NEW_LISTING_BASES
+        rows.append({"security_id": sid, "earliest_start": earliest, "new_listing": new,
+                     "new_listing_basis": basis, "listing_continues": basis in CONTINUING_BASES,
+                     "predecessor_security_id": predecessor.get(sid, ""), "series_start_gap": gap,
+                     "series_starts_listing": bool(new and not np.isnan(gap) and abs(gap) <= SERIES_START_SESSIONS)})
     return pd.DataFrame(rows, columns=columns)
 
 
 def attach_new_listing(listed: pd.DataFrame, spans: pd.DataFrame, newness: pd.DataFrame,
                        sessions: pd.DatetimeIndex, week_pos: np.ndarray) -> pd.DataFrame:
-    """Add the young rule-1 inputs to ``listed``: ``new_listing``, ``new_listing_basis``,
-    ``listing_continues`` and ``earliest_start`` (``new_listing_evidence``), ``first_listing_run`` (the row's
-    listing run is the security's first) and ``listing_sessions``: XNAS sessions from ``earliest_start`` to
-    the week end (NaN without an earliest start). Changes ``listed`` in place."""
+    """Add the young-rule inputs to ``listed``: ``new_listing``, ``new_listing_basis``, ``listing_continues``,
+    ``earliest_start``, ``predecessor_security_id`` and ``series_starts_listing`` (``new_listing_evidence``),
+    ``first_listing_run`` (the row's listing run is the security's first) and ``listing_sessions``: XNAS
+    sessions from ``earliest_start`` to the week end (NaN without an earliest start). Changes ``listed`` in
+    place."""
     evidence = newness.set_index("security_id")
-    for column in ("earliest_start", "new_listing_basis"):
-        listed[column] = listed["security_id"].map(evidence[column]).fillna("")
-    for column in ("new_listing", "listing_continues"):
-        listed[column] = listed["security_id"].map(evidence[column]).fillna(False).astype(bool)
+    for column in ("earliest_start", "new_listing_basis", "predecessor_security_id"):
+        values = evidence[column] if column in evidence else pd.Series(dtype=object)
+        listed[column] = listed["security_id"].map(values).fillna("")
+    for column in ("new_listing", "listing_continues", "series_starts_listing"):
+        values = evidence[column] if column in evidence else pd.Series(dtype=bool)
+        listed[column] = listed["security_id"].map(values).fillna(False).astype(bool)
     earliest = pd.to_datetime(listed["earliest_start"].replace("", None))
     first = np.where(earliest.notna(), sessions.searchsorted(earliest.fillna(sessions[0])), -1)
     listed["listing_sessions"] = np.where(first >= 0, week_pos[listed["week_index"].to_numpy()] - first + 1, np.nan)
@@ -1518,7 +1739,16 @@ def young_rules(frame: pd.DataFrame) -> np.ndarray:
     has_close = ~np.isnan(frame["close"].to_numpy(dtype=float))
     no_dv = np.isnan(frame["dv50"].to_numpy(dtype=float))
     first = "segment_first_row" if "segment_first_row" in frame else "first_row"   # restarts at a relist junction
-    canonical = has_close & no_dv & (days(first) <= YOUNG_DAYS).fillna(False).to_numpy(dtype=bool)
+    if "segment_junction" in frame:
+        junction = flag("segment_junction", False)
+    elif {"segment_first_row", "first_row"} <= set(frame.columns):
+        junction = (frame["segment_first_row"].astype(str) != frame["first_row"].astype(str)).to_numpy(dtype=bool)
+    else:
+        junction = np.zeros(len(frame), bool)
+    # Only where the segment starts at a relist junction or the series starts a real new listing: a series
+    # that begins at a transfer from NYSE (KDP, HST) or at a successor link (Alphabet) is no new listing.
+    starts = junction | flag("series_starts_listing", False)
+    canonical = has_close & no_dv & starts & (days(first) <= YOUNG_DAYS).fillna(False).to_numpy(dtype=bool)
     pf_no_dv = np.isnan(frame["pf_dv50"].to_numpy(dtype=float)) if "pf_dv50" in frame else np.ones(len(frame), bool)
     minimum = DV_WINDOWS[max(DV_WINDOWS)]
     first_sessions = ((frame["listing_sessions"] < minimum).fillna(False).to_numpy(dtype=bool)
@@ -1542,7 +1772,12 @@ def young_weeks(frame: pd.DataFrame) -> np.ndarray:
     """New listings still short of 25 sessions (not missing), three rules:
     - ``canonical``: a canonical close without a dv50 within YOUNG_DAYS of the first canonical row of its
       segment (``segment_first_row``: the last relist junction on or before the week, where the windows
-      restart, else the security's first row);
+      restart, else the security's first row), only where that segment starts at a relist junction
+      (``segment_junction``) or the security is a real new listing whose series starts within
+      SERIES_START_SESSIONS of its earliest start (``series_starts_listing``, see ``new_listing_evidence``);
+      a transfer from NYSE whose rows start at the Nasdaq start (KDP 2020-09, HST 2020-11), a successor link
+      (Alphabet 2015-10, ``successor_link``) or a series that starts weeks after the listing could have
+      begun stays missing, so its proxy or step-6 evidence speaks for the week;
     - with no dv50 from step 6 either, ``new_listing``: the security's first listing run
       (``first_listing_run``; a later run after a gap in the snapshots, such as Ur-Energy's 2015-2017
       runs, is no new listing) whose start is a real new listing (``new_listing``, see
@@ -1557,7 +1792,9 @@ def young_weeks(frame: pd.DataFrame) -> np.ndarray:
       listing run that started at most YOUNG_DAYS before that series, of an issuer not public before
       (``listing_continues`` False; a SPAC's shares trade weeks after its units list: IRHO, RACC).
     A name step 6 holds no row for (n50 = 0: Altaba after 2017-06) or whose data merely starts late in an
-    old listing is not young."""
+    old listing is not young; nor is the successor of a continuing successor link
+    (``successor_link``, by any rule: AspenTech 2022, Alphabet 2015, whose 1:1 link also runs its windows
+    across, so it ranks from its first week)."""
     return young_rules(frame) != ""
 
 
@@ -1807,6 +2044,12 @@ def calibrate(listed: pd.DataFrame) -> dict:
                 "dv_rule_all_sources": rule_rates(ranked[dv], ranked["pf_ge_cut250"].to_numpy(dtype=bool)[dv], actual[dv]),
                 "proxy_rule": rule_rates(known[single_rows], above[single_rows], status[single_rows]),
                 "proxy_rule_multi_class": rule_rates(known[multi_rows], above[multi_rows], status[multi_rows])}}
+
+
+# The columns ``calibrate`` and ``expected_top250`` read (a narrow copy serves the binning sensitivity).
+CALIBRATION_COLUMNS = ["eligible", "outside_trading", "young", "missing", "week_end", "dv50_rank", "dv50_rank_any_price",
+                       "price_ge_10", "pf_dv_ok", "pf_src", "pf_ge_cut250", "pf_price_low", "dv_ratio", "proxy_ratio",
+                       "proxy_above", "multi_class", "proxy_class_capped"]
 
 
 def expected_top250(missing: pd.DataFrame, rates: dict, proxy_bin0: float | None = None) -> np.ndarray:
@@ -2382,7 +2625,10 @@ def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
     held by missing names (the model, on known evidence), plus the unknown name-weeks counted as top-250
     name-weeks (``upper``: they are never taken as small); ``lower`` puts 0 on the proxy's lowest bin
     (the bin-0 base rate is measured on known-status names and probably overstates); the plan's own
-    population (``unfillable`` only) is kept beside it."""
+    population (``unfillable`` only) is kept beside it. The proxy bins use the either-one ratio
+    (``proxy_ratio_of``, the reading of ``proxy_above``); ``market_cap_first_binning`` gives the same shares
+    with the plan's market-cap-first ratio (``p_top250_mcap_first``) and the float-only name-weeks' expected
+    count under both."""
     residual = float(settled["p_top250"].sum())
     low = float(settled["p_top250_low"].sum()) if "p_top250_low" in settled else residual
     unknown = int((settled["evidence"] == "unknown").sum())
@@ -2405,6 +2651,23 @@ def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
             "unfillable_only_share": share(float(unfill_rows["p_top250_uncapped"].sum())),
             "pass_unfillable_only": bool(float(unfill_rows["p_top250_uncapped"].sum()) / slots
                                          <= UNFILLABLE_SHARE_LIMIT)}
+    if "p_top250_mcap_first" in my:
+        # The expected count binned by the plan's market-cap-first ratio (builds before round 8's fix): a
+        # float-only week (proxy_above by its float alone) then sits in the bin of its stale market cap.
+        alt = float(settled["p_top250_mcap_first"].sum())
+        alt_unfill = float(unfill_rows["p_top250_mcap_first"].sum())
+        float_only = (settled["proxy_above_float_only"].to_numpy(dtype=bool) if "proxy_above_float_only" in settled
+                      else np.zeros(len(settled), bool))
+        out["market_cap_first_binning"] = {
+            "residual_share": share(alt), "upper_share": share(alt + unknown),
+            "unfillable_only_share": share(alt_unfill),
+            "pass": bool((alt + unknown) / slots <= UNFILLABLE_SHARE_LIMIT),
+            "pass_unfillable_only": bool(alt_unfill / slots <= UNFILLABLE_SHARE_LIMIT),
+            "residual_name_weeks_difference": round(residual - alt, 2),
+            "float_only_name_weeks": int(float_only.sum()),
+            "float_only_est_top250": {"either_one_binning": round(float(settled.loc[float_only, "p_top250"].sum()), 2),
+                                      "market_cap_first_binning": round(float(settled.loc[float_only,
+                                                                                          "p_top250_mcap_first"].sum()), 2)}}
     return out
 
 
@@ -2666,6 +2929,17 @@ def main(argv: list[str] | None = None) -> int:
         log(f"SEC submissions: {sec_fetch['requests_or_cache_reads']} files fetched, failed {sec_fetch['failed']}")
     log("investment companies from the cached SEC submissions")
     terminal = read_csv_text(TERMINAL)
+    # Owner convention (2026-10-02): a 1:1 reorganisation continues the security, so the successor's
+    # dollar-volume windows read the predecessor's rows before the handover (the closes stay its own).
+    links = successor_links(master, spans, metrics["first_row"], terminal)
+    metrics = canonical_metrics(panel, sessions, week_pos, prev_pos, links=links)
+    crossed = {s: f for s, f in metrics["successor_windows"].items() if f.get("predecessor_rows_in_first_window")}
+    from_step11 = links[links["link_source"] == LINK_SOURCES[1]]
+    log(f"successor links {len(links)} ({links['link_source'].value_counts().to_dict()}; step 11's: "
+        f"{', '.join(a + '->' + b for a, b in zip(from_step11['predecessor_id'], from_step11['successor_id']))}): "
+        f"continuing {int(links['continuing'].sum())} "
+        f"({links['continuing_basis'].value_counts().to_dict()}), 1:1 by step 11 {int(links['one_to_one'].sum())}, "
+        f"windows run across {len(crossed)} ({', '.join(sorted(crossed))})")
     ends = listing_ends(spans, master, terminal)
     investment, ic_issuers, ic_facts = investment_companies(master, listed_ids, sic_history, ends=ends)
     log(f"issuers with investment-company evidence {len(ic_issuers)}, securities with spans {len(investment)}; "
@@ -2675,7 +2949,8 @@ def main(argv: list[str] | None = None) -> int:
         f"digest {ic_facts['digest'][:12]}; spans carried to a delisting (merger tail): {ic_facts['merger_tail_ciks']}")
 
     listed = weekly_listed(spans, weeks, foreign, shells, investment)
-    newness = new_listing_evidence(spans, master, sessions, ic_facts.get("prospectus"))
+    newness = new_listing_evidence(spans, master, sessions, ic_facts.get("prospectus"), links=links,
+                                   first_row=metrics["first_row"])
     listed = attach_new_listing(listed, spans, newness, sessions, week_pos)
     log(f"first listing runs by new-listing basis: {newness['new_listing_basis'].value_counts().to_dict()}")
     info = master.set_index("security_id")
@@ -2733,6 +3008,14 @@ def main(argv: list[str] | None = None) -> int:
     listed["p_top250_uncapped"] = 0.0      # not written out: the class cap's effect, for the summary
     listed.loc[miss_index, "p_top250_uncapped"] = expected_top250(
         listed.loc[miss_index].drop(columns="proxy_class_capped"), rates)
+    # Not written out either: the expected count with the plan's market-cap-first proxy binning, beside check 6.
+    alt = listed[CALIBRATION_COLUMNS].assign(proxy_ratio=proxy_ratio_mcap_first(listed, cut))
+    listed["p_top250_mcap_first"] = 0.0
+    listed.loc[miss_index, "p_top250_mcap_first"] = expected_top250(alt.loc[miss_index], calibrate(alt))
+    del alt
+    log(f"proxy binning: expected top-250 {listed['p_top250'].sum():.1f} by the either-one ratio, "
+        f"{listed['p_top250_mcap_first'].sum():.1f} by the market-cap-first ratio; float-only proxy_above "
+        f"name-weeks {int((listed['missing'] & listed['proxy_above_float_only']).sum())}")
     log(f"class cap: {int(listed['proxy_class_capped'].sum())} proxy-only name-weeks of a class whose own dv50 "
         f"within {CLASS_DV_WEEKS} weeks is under {CLASS_DV_CAP_RATIO} of the cut; expected top-250 "
         f"{listed['p_top250_uncapped'].sum():.1f} -> {listed['p_top250'].sum():.1f}")
@@ -2825,7 +3108,8 @@ def main(argv: list[str] | None = None) -> int:
                         "evidence": "a missing name-week's evidence of its top-250 status: price_lt_10 (step 6's "
                                     "raw close under $10), dv (step-6 dv50, or for names step 6 has no row for the "
                                     "stored-file dv50, against the canonical rank-250 cut), proxy (market cap or "
-                                    "float against the median of canonical ranks 200-250), unknown (none: never "
+                                    "float against the median of canonical ranks 200-250; the proxy ratio is the "
+                                    "larger of the two, the either-one reading of proxy_above), unknown (none: never "
                                     "taken as small). In the expected count a class of a multi-class company with "
                                     f"only a proxy whose own dv50 within {CLASS_DV_WEEKS} weeks is under "
                                     f"{CLASS_DV_CAP_RATIO} of the cut takes the dv rule's lowest bin "
@@ -2844,7 +3128,14 @@ def main(argv: list[str] | None = None) -> int:
                         "investment_company": investment_company_definition(),
                         "check_6": "plan 3.3 check 6 on the residual of every non-pending reason, unknown name-weeks "
                                    "counted as top-250 name-weeks (pass = upper share <= 2% of slots); the "
-                                   "unfillable-only share is kept beside it",
+                                   "unfillable-only share is kept beside it. The expected count (p_top250) bins a "
+                                   "proxy-only name-week by the larger of market cap / band median market cap and "
+                                   "float / band median float, so a float-only week (proxy_above by its float alone, "
+                                   "n_missing_proxy_above_float_only) sits in the bin of its float, as proxy_above "
+                                   "reads it; check_6.market_cap_first_binning gives each year's shares with the "
+                                   "plan's market-cap-first binning and the float-only name-weeks' expected count "
+                                   "under both (completeness_by_year.csv: residual_mcap_first)",
+                        "successor_link": successor_link_definition(),
                         "earnings_nearest_d0_offset": "D0 session minus the week-end session: positive = D0 after "
                                                       "the week end"},
         "inputs_sha256": {str(p): common.sha256_file(p) for p in (
@@ -2902,6 +3193,7 @@ def main(argv: list[str] | None = None) -> int:
                           f"{WINDOW_END} (a Form 25)"} for sid in shells_like_ending},
         "pending_per_week": pending_facts,
         "young": young_summary(listed, sessions, week_pos),
+        "successor_links": successor_link_summary(listed, links, metrics["successor_windows"]),
         "proxy_class_cap": class_cap_summary(listed),
         "share_classes": "every class is kept (owner decision); after_pending_ex_sibling_classes shows the view with "
                          "missing classes whose sibling class ranks set aside",
@@ -2980,7 +3272,8 @@ def completeness_table(years: dict) -> pd.DataFrame:
                      "residual_low": six["lower_share_bin0_zero"], "residual": six["residual_share"],
                      "unknown_nw": six["unknown_name_weeks"], "upper": six["upper_share"],
                      "check_6_pass": six["pass"], "pass_known_only": six["pass_known_evidence_only"],
-                     "unfillable_only": six["unfillable_only_share"]})
+                     "unfillable_only": six["unfillable_only_share"],
+                     "residual_mcap_first": (six.get("market_cap_first_binning") or {}).get("residual_share", np.nan)})
     return pd.DataFrame(rows)
 
 
@@ -3055,12 +3348,17 @@ def young_definition() -> str:
     return ("not missing: a new listing still short of the dv50's minimum rows, by any of three rules. "
             f"(canonical) a canonical close without a dv50 within {YOUNG_DAYS} days of the first canonical row of its "
             "segment (the last relist junction on or before the week, where the dv20 / dv50 windows restart, else the "
-            f"security's first canonical row). With no dv50 from step 6 either: (new_listing) the security's first listing run, in its first "
+            "security's first canonical row), only where the segment starts at a relist junction or the security is a "
+            f"new listing (ipo_rule, prospectus, snapshot_gap) whose canonical series starts within "
+            f"{SERIES_START_SESSIONS} sessions of its earliest start; a series that starts at a transfer from another "
+            "exchange (older_issuer), at a successor link (successor_link) or later than that stays missing. "
+            f"With no dv50 from step 6 either: (new_listing) the security's first listing run, in its first "
             f"{minimum - 1} or fewer XNAS sessions counted from the earliest day it can have begun trading, and only when "
             "the run's start is a real new listing: the IPO rule's first price (ipo_rule), or a snapshot start counted "
             f"from {PROSPECTUS_LEAD_SESSIONS} sessions before a final IPO prospectus ({' / '.join(sorted(PROSPECTUS_FORMS))}) "
             f"filed from {PROSPECTUS_SLACK_DAYS} days before the last snapshot without it to the start (prospectus), "
-            "else from the first session after the last snapshot without it (snapshot_gap), whichever is later; an "
+            "else from the first session after the last snapshot without it (snapshot_gap), whichever is later; a "
+            "security that continues another through a successor link (successor_link, see successor_link), an "
             "issuer that filed "
             f"a 10-K / 10-Q more than {YOUNG_ISSUER_DAYS} days before the start (older_issuer: a transfer from another "
             "exchange, a reclassified tracking stock), or one with another security listed on Nasdaq up to "
@@ -3068,8 +3366,32 @@ def young_definition() -> str:
             "(no_earlier_snapshot) is not a new listing, and its weeks stay missing; (short_series) step 6 holding "
             f"1 to {minimum - 1} dollar-volume rows in the {window}-session window of a series it first holds no more "
             f"than {YOUNG_DAYS} days before the week end and no more than {YOUNG_DAYS} days after the listing run "
-            "started, for an issuer that was not public before (not older_issuer / issuer_listed_before). A name "
-            "step 6 holds no row for (n50 = 0) is not young")
+            "started, for an issuer that was not public before (not successor_link / older_issuer / "
+            "issuer_listed_before). A name step 6 holds no row for (n50 = 0) is not young")
+
+
+def successor_link_definition() -> str:
+    """The summary's definition of the successor-link treatment (``successor_links``)."""
+    kind, subtype, shares = ONE_TO_ONE
+    return ("owner convention of 2026-10-02 (CRSP keeps one PERMNO): a successor link is a master link (the "
+            "predecessor's successor_security_id / successor_date; link_source security_master) or, for a predecessor "
+            f"the master links to nothing, step 11's booking of its end as {kind} / {subtype} of {shares:g} successor "
+            "share per share with acquirer_security_id a listed security no master link names as a successor "
+            "(link_source step11, successor date step 11's end_date: Express Scripts Holding 2012, Marvell 2021). A "
+            "link continues the security when the successor's first listing starts "
+            f"within {SUCCESSOR_LINK_DAYS} days of the successor date, its first canonical row does, or its listing "
+            f"starts within {SUCCESSOR_LINK_DAYS} days of the predecessor's last listed day, and the predecessor's "
+            f"listing run (renames joined) ends no more than {PREDECESSOR_OVERLAP_DAYS} days after the successor's "
+            "listing starts (a predecessor listed on for longer continues itself and the successor is a new "
+            "security, continuing_basis predecessor_listed_on: new IAC 2020, old IAC listed on as MTCH): the "
+            "successor is no new listing (new_listing_basis successor_link; no young rule applies, so a week without "
+            "a dv50 is missing). "
+            f"When step 11 books the predecessor's end as {kind} / {subtype} of {shares:g} successor share per share "
+            "(a 1:1 holding-company reorganisation or redomicile: Alphabet 2015, APA 2021), the successor's dv20 / dv50 "
+            "windows run across the link: on the sessions before the successor's first listed day they read the "
+            "predecessor's rows (the successor's own rows there only where the predecessor has none), from that day "
+            "on only its own; one row per session, so no day is counted twice. Closes, first and last rows stay each "
+            "security's own")
 
 
 def investment_company_definition() -> str:
@@ -3185,11 +3507,25 @@ def class_cap_summary(listed: pd.DataFrame) -> dict:
                             for sid, r in by_security.head(40).iterrows()]}
 
 
+def _column(frame: pd.DataFrame, name: str, default) -> pd.Series:
+    """``frame[name]``, or ``default`` on every row when the frame lacks the column."""
+    return frame[name] if name in frame else pd.Series(default, index=frame.index)
+
+
+def _counts(values: pd.Series) -> dict:
+    return {str(k): int(v) for k, v in values.value_counts().items()}
+
+
 def young_summary(listed: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np.ndarray) -> dict:
     """The young name-weeks by rule, the rule-1 (``new_listing``) weeks whose market-cap proxy reaches the
     band median (``proxy_above``: they would block the week if they were missing), and the first-run weeks
     the snapshot start alone would have called young (fewer than 25 sessions since the run's first snapshot,
-    no dv50 anywhere) that rule 1 now leaves missing, by ``new_listing_basis`` (round-7 review)."""
+    no dv50 anywhere) that rule 1 now leaves missing, by ``new_listing_basis`` (round-7 review); the
+    canonical-rule weeks by basis, by predecessor link (``predecessor_security_id``: a continuing master
+    successor link) and by ``proxy_above``, and the weeks with a canonical close and no dv50 within
+    YOUNG_DAYS of their segment's first row that the canonical rule no longer calls young (a transfer such as
+    KDP or HST, a successor link, a series that starts after the listing could have begun), with what they
+    do to the week (round-8 review)."""
     base = listed[listed["eligible"]]
     young = base[base["young"]]
     rule1 = young[young["young_rule"] == "new_listing"]
@@ -3202,15 +3538,59 @@ def young_summary(listed: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np
                   & ~base["young"].to_numpy(dtype=bool)]
     names = lambda rows: {f"{s}:{t}": int(n) for (s, t), n in rows.groupby(["security_id", "ticker"]).size()
                           .sort_values(ascending=False).head(40).items()}
+    linked = lambda rows: _column(rows, "predecessor_security_id", "").fillna("").astype(str).ne("").to_numpy()
+    first = "segment_first_row" if "segment_first_row" in base else "first_row"
+    if first in base:
+        days = (base["week_end"] - pd.to_datetime(base[first].replace("", None))).dt.days
+        within = (days <= YOUNG_DAYS).fillna(False).to_numpy(dtype=bool)
+    else:
+        within = np.zeros(len(base), bool)
+    could = base["close"].notna().to_numpy() & base["dv50"].isna().to_numpy() & within
+    canonical = young[young["young_rule"] == "canonical"]
+    left = base[could & ~base["young"].to_numpy(dtype=bool)]
+    left_missing = left[left["missing"].to_numpy(dtype=bool)]
+    blocking = (blocks_week(left_missing).to_numpy(dtype=bool)
+                if len(left_missing) and {"pf_ge_cut250", "pf_dv_ok", "pf_price_low", "evidence"} <= set(left.columns)
+                else np.zeros(len(left_missing), bool))
+    canonical_above = canonical[canonical["proxy_above"].to_numpy(dtype=bool)]
+    left_above = left[left["proxy_above"].to_numpy(dtype=bool)]
     return {"name_weeks": int(len(young)),
             "by_rule": {k: int(v) for k, v in young["young_rule"].value_counts().items()},
             "without_canonical_close": int(young["close"].isna().sum()),
             "securities_without_canonical_close": sorted(set(young.loc[young["close"].isna(), "ticker"]))[:60],
             "by_rule_proxy_above": {k: int(v) for k, v in young.loc[young["proxy_above"], "young_rule"].value_counts().items()},
+            "with_predecessor_link": {"name_weeks": int(linked(young).sum()),
+                                      "by_rule": _counts(young.loc[linked(young), "young_rule"])},
             "new_listing_rule": {"name_weeks": int(len(rule1)), "securities": int(rule1["security_id"].nunique()),
                                  "by_basis": {k: int(v) for k, v in rule1["new_listing_basis"].value_counts().items()},
                                  "proxy_above_name_weeks": int(len(above)),
                                  "proxy_above_securities": names(above)},
+            "canonical_rule": {
+                "name_weeks": int(len(canonical)), "securities": int(canonical["security_id"].nunique()),
+                "by_basis": _counts(_column(canonical, "new_listing_basis", "")),
+                "at_relist_junction": int(_column(canonical, "segment_junction", False).astype(bool).sum()),
+                "with_predecessor_link": int(linked(canonical).sum()),
+                "proxy_above_name_weeks": int(len(canonical_above)),
+                "proxy_above_by_basis": _counts(_column(canonical_above, "new_listing_basis", "")),
+                "proxy_above_with_predecessor_link": int(linked(canonical_above).sum()),
+                "proxy_above_securities": names(canonical_above)},
+            "canonical_rule_not_applied": {
+                "name_weeks": int(len(left)), "securities": int(left["security_id"].nunique()),
+                "by_basis": _counts(_column(left, "new_listing_basis", "")),
+                "with_predecessor_link": int(linked(left).sum()),
+                "missing_name_weeks": int(len(left_missing)),
+                "missing_blocking_name_weeks": int(blocking.sum()),
+                "proxy_above_name_weeks": int(len(left_above)),
+                "proxy_above_by_basis": _counts(_column(left_above, "new_listing_basis", "")),
+                "proxy_above_with_predecessor_link": int(linked(left_above).sum()),
+                "dv_ge_cut250_name_weeks": int(_column(left, "pf_ge_cut250", False).astype(bool).sum()),
+                "blocking_securities": names(left_missing[blocking]),
+                "note": "weeks with a canonical close and no dv50 within the young window of the segment's first "
+                        "row that the canonical rule leaves to the other rules: the segment starts at no relist "
+                        "junction and the security is no new listing whose series starts within "
+                        f"{SERIES_START_SESSIONS} sessions of its earliest start (a transfer from NYSE whose rows "
+                        "start at the Nasdaq start, a successor link, a late series); missing unless rule 1 or "
+                        "short_series calls them young, so the proxy or step-6 evidence speaks for the week"},
             "first_run_weeks_not_young": {
                 "name_weeks": int(len(before)),
                 "by_basis": {k: int(v) for k, v in before["new_listing_basis"].value_counts().items()},
@@ -3219,9 +3599,64 @@ def young_summary(listed: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np
                 "proxy_above_securities": names(before[before["proxy_above"]]),
                 "note": "first-run weeks within 25 sessions of the run's first snapshot with no dv50 anywhere, "
                         "that rule 1 does not call young: the issuer was public before (older_issuer, "
-                        "issuer_listed_before), no snapshot dates the start (no_earlier_snapshot), or the "
-                        "earliest start the IPO prospectus or the snapshot gap gives is 25 or more sessions back "
-                        "(prospectus, snapshot_gap)"}}
+                        "issuer_listed_before), the security continues another (successor_link), no snapshot "
+                        "dates the start (no_earlier_snapshot), or the earliest start the IPO prospectus or the "
+                        "snapshot gap gives is 25 or more sessions back (prospectus, snapshot_gap)"}}
+
+
+def successor_link_summary(listed: pd.DataFrame, links: pd.DataFrame, windows: dict, weeks_after: int = 5) -> dict:
+    """The successor links (master and step 11, ``link_source``) and what they do here: continuing (the
+    successor is no new listing), one_to_one by step 11, the windows run across (with the predecessor rows in
+    the successor's first 50-session window), and the successor's first ``weeks_after`` listed weeks: base,
+    ranked, missing (and blocking), young (round-8 review: Alphabet 2015-10 was young for 5 weeks while ranked
+    6th and 7th; round-9 review: Express Scripts Holding 2012-04 and Marvell 2021-04, 1:1 reorganisations the
+    master does not link, were young while ranked 12th-13th and 63rd-66th)."""
+    if links is None or not len(links):
+        return {"links": 0}
+    rows = listed[listed["security_id"].isin(set(links["successor_id"]))].sort_values(["security_id", "week_index"])
+    head = rows.groupby("security_id", sort=False).head(weeks_after)
+    blocking = pd.Series(False, index=head.index)
+    miss = head["missing"].to_numpy(dtype=bool)
+    if miss.any():
+        blocking.loc[head.index[miss]] = blocks_week(head[miss]).to_numpy(dtype=bool)
+    first = head.groupby("security_id")
+    by_link = []
+    for row in links.itertuples(index=False):
+        sid = row.successor_id
+        entry = {k: (bool(v) if isinstance(v, (bool, np.bool_)) else v) for k, v in row._asdict().items()}
+        if sid in first.groups:
+            g = head.loc[first.groups[sid]]
+            entry.update({"ticker": str(g["ticker"].iloc[0]), "first_week": g["week_end"].min().strftime("%Y-%m-%d"),
+                          f"first_{weeks_after}_weeks": {
+                              "base": int(g["eligible"].sum()), "ranked_dv50": int(g["dv50_rank_any_price"].notna().sum()),
+                              "best_dv50_rank": (int(g["dv50_rank"].min()) if g["dv50_rank"].notna().any() else None),
+                              "missing": int(g["missing"].sum()), "missing_blocking": int(blocking.loc[g.index].sum()),
+                              "young": int(g["young"].sum())}})
+        entry.update(windows.get(sid, {}))
+        by_link.append(entry)
+    crossed = sum(1 for f in windows.values() if f.get("predecessor_rows_in_first_window"))
+    source = links["link_source"] if "link_source" in links else pd.Series(index=links.index, dtype=object)
+    source = source.fillna(LINK_SOURCES[0])
+    by_source = {}
+    for name, g in links.groupby(source, sort=True):
+        by_source[str(name)] = {"links": int(len(g)), "continuing": int(g["continuing"].sum()),
+                                "windows_cross": int(g["windows_cross"].sum()),
+                                "continuing_by_basis": _counts(g["continuing_basis"])}
+    return {"links": int(len(links)), "continuing": int(links["continuing"].sum()),
+            "continuing_by_basis": _counts(links["continuing_basis"]),
+            "one_to_one": int(links["one_to_one"].sum()), "windows_cross": int(links["windows_cross"].sum()),
+            "windows_cross_with_predecessor_rows": crossed, "by_source": by_source,
+            "rule": ("a successor link (a master link, or step 11's 1:1 stock_merger / reorganization for a "
+                     "predecessor the master links to nothing, link_source step11) continues the security (no "
+                     "young rule; basis successor_link) when the successor's first listing starts within "
+                     f"{SUCCESSOR_LINK_DAYS} days of the successor date, its first canonical row does, or its listing "
+                     f"starts within {SUCCESSOR_LINK_DAYS} days of the predecessor's last listed day, and the "
+                     f"predecessor's listing run ends no more than {PREDECESSOR_OVERLAP_DAYS} days after the "
+                     "successor's start (else predecessor_listed_on: a new security); its dv20 / dv50 windows run "
+                     "across (the predecessor's rows before the successor's first listed day, one row per session) "
+                     "when step 11 books the predecessor's end as a stock_merger / reorganization of one successor "
+                     "share per share"),
+            "by_link": by_link}
 
 
 def pf_only_reasons(listed: pd.DataFrame) -> dict:

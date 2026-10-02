@@ -868,7 +868,8 @@ def test_ensure_disk_refuses_to_write_below_the_free_space_limit(tmp_path):
 # the old shares' own end, the compare headline, the break-day guide, R9 always queued
 
 def test_relist_junction_entries_were_read_and_carry_their_dates():
-    assert set(rc.RELIST_JUNCTIONS) == {"1486159", "1839341", "105319", "1456772", "1556739"}
+    assert set(rc.RELIST_JUNCTIONS) == {"1486159", "1839341", "105319", "1456772", "1556739", "20520", "1580864",
+                                        "1009759"}
     for sid, entry in rc.RELIST_JUNCTIONS.items():
         assert entry["read"] is True and entry["read_on"], sid  # every document named was read by hand
         assert entry["url"].startswith(rc._SEC_ARCHIVE) and entry["nasdaq_end_url"].startswith(rc._SEC_ARCHIVE), sid
@@ -1095,3 +1096,464 @@ def test_a_listing_start_measured_against_a_zero_volume_quote_has_no_return():
     row = kept["canonical"][kept["canonical"]["date"] == day].iloc[0]
     assert np.isfinite(row["tr"]) and "listing_start_after_quote" not in row["flags"].split(";")
     assert "listing_starts_after_quote" not in kept["summary"]
+
+
+# ------------------------------------------------------------------ round 9: gaps, successor links, closing special
+# dividends, the listing-start quote rule, mechanical R1 classification, relistings under a new ticker, superseded files
+
+def test_no_return_across_a_gap_of_more_than_ten_sessions():
+    """Plan R9 (Frontier 2018-03-01: 213 sessions with a 1:15 reverse split in them): a gap of more than
+    GAP_RETURN_MAX sessions leaves tr blank; a gap of exactly ten keeps its return."""
+    close = _walk(60)
+    for missing, blank in ((11, True), (10, False)):
+        keep = [k for k in range(60) if not 20 <= k < 20 + missing]
+        frame = _frame(close)
+        frame = frame.iloc[keep].reset_index(drop=True)
+        result = rc.reconcile_security("X", {"yahoo": frame}, _ctx())
+        day = str(SESSIONS[20 + missing].date())
+        row = result["canonical"][result["canonical"]["date"] == day].iloc[0]
+        assert np.isnan(row["tr"]) == blank, missing
+        assert ("gap_return_blank" in row["flags"].split(";")) == blank, missing
+        assert f"gap_before:{missing}" in row["flags"].split(";")
+        if blank:
+            assert result["summary"]["gap_returns_blank"] == [f"{day} (gap {missing})"]
+            assert row["n_sources"] == 0
+            assert not [m for m in result["moves"] if m["event_date"] == day and m["rule"].startswith("R1")]
+
+
+def _link_bundles(pred_close, succ_yahoo):
+    """A predecessor P with WIKI rows 0..29 (rows 20..29 are the successor's, which the ticker map gave P), a Tiingo
+    file fetched for P with a filler row after its last session (21CF), and a successor S whose Yahoo file carries
+    the ticker's whole history, 0..39."""
+    wiki = _frame(pred_close[:30]).assign(security_id="P", file="wiki/T.csv.gz")
+    tiingo = _frame(pred_close[:21]).assign(security_id="P", file="tiingo_run/P.csv")
+    tiingo.loc[20, ["close", "volume"]] = [pred_close[19], 65.0]
+    yahoo = _frame(succ_yahoo).assign(security_id="S", file="yahoo/S.csv.gz")
+    return {"wiki": {"P": wiki}, "tiingo_new": {"P": tiingo}, "tiingo_old": {}, "yahoo_new": {"S": yahoo},
+            "yahoo_old": {}, "stored": {}}
+
+
+@pytest.mark.parametrize("continues", [True, False])
+def test_a_successor_link_cuts_the_predecessor_and_a_continuing_one_measures_the_first_return_from_its_close(
+        monkeypatch, continues):
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "T", "last_session": cut,
+                                                  "continues": continues, "basis": "test", "url": "u"})
+    bundles = _link_bundles(close, close)
+    frames, facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P")
+    assert facts["own_rows_dropped"] == 20  # the successor's Yahoo rows up to the cut are the predecessor's
+    # the ticker-mapped WIKI rows after the cut always go over; the predecessor's own Tiingo file only when it continues
+    assert facts["predecessor_rows_added"] == (11 if continues else 10)
+    assert ("tiingo" in frames) == continues
+    assert facts["anchor_sources"] == (["wiki", "tiingo", "yahoo"] if continues else [])
+    ctx = {**_ctx(), "link_cut": cut, "link_continues": continues, "link_predecessor": "P"}
+    result = rc.reconcile_security("S", frames, ctx)
+    canonical = result["canonical"]
+    first = canonical.iloc[0]
+    assert first["date"] == str(SESSIONS[20].date()) and cut not in set(canonical["date"])  # no day in both series
+    if continues:
+        assert first["tr"] == pytest.approx(close[20] / close[19] - 1)
+        assert "successor_link:P" in first["flags"].split(";") and first["n_sources"] >= 2
+        assert result["summary"]["successor_link"]["first_row_return"] == "measured"
+    else:
+        assert np.isnan(first["tr"]) and "successor_of:P" in first["flags"].split(";")
+        assert result["summary"]["successor_link"]["first_row_return"] == "blank"
+    assert canonical["tr"].iloc[1:].notna().all()
+
+
+ROUND10_CONTINUED = {"885721", "1058057", "1005201", "912752", "1602065", "1100441", "1334814", "1316631.B",
+                     "1560385.T-LMCA", "1560385.T-LMCK", "1355096.T-LINTA", "1355096.T-LINTB", "1355096.T-QVCA",
+                     "1355096.T-QVCB", "1355096.T-QRTEA", "1355096.T-QRTEB", "1038205"}
+
+
+def test_successor_links_cover_the_26_round_8_pairs_and_continue_only_one_for_one_reorganisations():
+    from scripts import reversal_data_terminal as terminal
+
+    assert len(rc.SUCCESSOR_LINKS) == 26 + 17 + 3  # round 8's pairs, round 10's 1:1 pairs and its three cuts
+    cut_only = {p for p, link in rc.SUCCESSOR_LINKS.items() if not link["continues"]}
+    assert cut_only == {"1308161.A", "1308161.B", "356213", "1491778", "929940",  # election, cash or other shares
+                        "1326807", "1620280", "1734342.B"}  # round 10: ISBC 2.55, UNIT 0.6029, AMTBB folded into A
+    assert ROUND10_CONTINUED <= {p for p, link in rc.SUCCESSOR_LINKS.items() if link["continues"]}
+    for pred, link in rc.SUCCESSOR_LINKS.items():
+        assert link["successor"] != pred and pd.Timestamp(link["last_session"]).dayofweek < 5, pred
+        assert link["url"].startswith("https://www.sec.gov/Archives/edgar/data/"), pred
+        review = terminal.REVIEWED.get(pred) or {}
+        if link["continues"] and review:
+            assert review.get("shares", 1.0) == 1.0 and review.get("cash") is None, pred
+            assert review.get("sub", "reorganization") in ("reorganization", "rename"), pred
+            assert review.get("acq") == link["successor"], pred
+            if review.get("limit"):  # the terminal step reads the same last session
+                assert review["limit"] == link["last_session"], pred
+    assert rc.SUCCESSOR_LINKS["1288776.A"]["last_session"] == "2015-10-02"  # Google's last old row
+    assert rc.SUCCESSOR_LINKS["1058057"]["last_session"] == "2021-04-20"  # Marvell: 4:01 p.m. ET Bermuda merger
+    assert rc.SUCCESSOR_LINKS["885721"]["last_session"] == "2012-03-30"  # ESRX: halted before the open on 04-02
+    assert rc.SUCCESSOR_LINKS["912752"]["last_session"] == "2023-05-31"  # Sinclair: 12:00 am on 2023-06-01
+    # a class folded into another existing class hands nothing over: Class A is no successor
+    assert rc.SUCCESSOR_LINKS["1734342.B"]["handover"] is False and "1734342.A" not in rc.successor_of()
+    assert len(set(rc.successor_of())) == len(rc.SUCCESSOR_LINKS) - 1  # one predecessor per successor
+
+
+def test_load_targets_prices_the_successor_of_a_continuing_target(tmp_path, monkeypatch):
+    candidates = tmp_path / "candidates.csv"
+    pd.DataFrame([{"security_id": "P", "reason": "A1_x", "planned_source": "wiki", "status": "done"}]).to_csv(
+        candidates, index=False)
+    weekly = tmp_path / "weekly.pkl"
+    pd.DataFrame({"security_id": ["P"], "week_end": [pd.Timestamp("2015-01-02")], "dv50_rank": [5], "dv20_rank": [5],
+                  "dv50": [1.0], "dv20": [1.0]}).to_pickle(weekly)
+    monkeypatch.setattr(rc, "CANDIDATES", candidates)
+    monkeypatch.setattr(rc, "WEEKLY_METRICS", weekly)
+    monkeypatch.setattr(rc, "SUCCESSOR_LINKS", {"P": {"successor": "S", "continues": True, "last_session": "2015-01-02"},
+                                                "Q": {"successor": "R", "continues": True, "last_session": "2015-01-02"}})
+    targets = rc.load_targets().set_index("security_id")
+    assert list(targets.index) == ["P", "S"]  # Q is no target, so neither is R
+    assert targets.loc["S", "successor_of_target"] and not targets.loc["P", "successor_of_target"]
+
+
+def test_a_closing_special_dividend_the_terminal_value_owns_is_not_booked_in_the_series():
+    """CHNG: Tiingo books the $2.00 special dividend on 2022-09-28, five days before its record date at the
+    closing; the last close still carries it, so the terminal value owns it and the series must not book it."""
+    close = _walk(40)
+    div = np.zeros(40)
+    div[25] = 2.0
+    div[10] = 0.5  # an ordinary dividend stays
+    frames = {"tiingo": _frame(close, div=div)}
+    record = str(SESSIONS[28].date())
+    ctx = {**_ctx(), "terminal_dividends": [{"amount": 2.0, "record": record, "url": "u"}]}
+    result = rc.reconcile_security("X", frames, ctx)
+    canonical = result["canonical"]
+    row = canonical[canonical["date"] == str(SESSIONS[25].date())].iloc[0]
+    assert row["div_cash"] == 0.0 and row["tr"] == pytest.approx(close[25] / close[24] - 1)
+    assert "div_in_terminal_value" in row["flags"].split(";")
+    assert result["summary"]["terminal_dividends_dropped"][0]["date"] == str(SESSIONS[25].date())
+    assert [d["ex_date"] for d in result["dividends"]] == [str(SESSIONS[10].date())]
+    plain = rc.reconcile_security("X", frames, _ctx())
+    assert [d["ex_date"] for d in plain["dividends"]] == [str(SESSIONS[10].date()), str(SESSIONS[25].date())]
+
+
+def test_terminal_owned_dividends_come_from_the_terminal_steps_reviewed_entries():
+    owned = rc.terminal_owned_dividends()
+    assert owned["1756497"] == [{"amount": 2.0, "record": "2022-10-03",
+                                 "url": "https://www.sec.gov/Archives/edgar/data/1756497/000119312522256246/d403452d8k.htm"}]
+    assert owned["1581164"][0]["amount"] == 1.75 and owned["1581164"][0]["record"] == "2021-06-15"
+    assert "1470215" not in owned  # paid before the last trade: the series keeps it
+
+
+def test_a_zero_volume_listing_start_keeps_its_return_and_the_first_trade_after_a_quote_is_blank():
+    """Round 8 review: the rule acts on the listing's first traded row. Yahoo files with volume 0 every day while the
+    close moves keep their returns; an IPO whose first row has volume 0 at a reference price has its first trade
+    blank, not the zero-volume row."""
+    close = _walk(40)
+    listed = lambda grid: np.arange(len(grid)) >= 20
+    moving = rc.reconcile_security("X", {"yahoo": _frame(close, volume=0.0)}, _ctx(listed))
+    row = moving["canonical"][moving["canonical"]["date"] == str(SESSIONS[20].date())].iloc[0]
+    assert np.isfinite(row["tr"]) and "listing_start_after_quote" not in row["flags"].split(";")
+    assert "listing_starts_after_quote" not in moving["summary"]
+    # the IPO: a zero-volume reference row on the first listed day, then the first trade
+    ipo = close.copy()
+    volume = np.full(40, 1000.0)
+    volume[20] = 0.0
+    frame = _frame(ipo, volume=volume).iloc[20:].reset_index(drop=True)
+    result = rc.reconcile_security("X", {"yahoo": frame}, _ctx(listed))
+    first_trade = str(SESSIONS[21].date())
+    row = result["canonical"][result["canonical"]["date"] == first_trade].iloc[0]
+    assert np.isnan(row["tr"]) and "listing_start_after_quote" in row["flags"].split(";")
+    assert result["summary"]["listing_starts_after_quote"] == [first_trade]
+    # a listing older than the grid (every session listed) shows no listing start: thin zero-volume days stay
+    thin = np.full(40, 1000.0)
+    thin[:5] = 0.0
+    flat = close.copy()
+    flat[:6] = flat[0]
+    old = rc.reconcile_security("X", {"yahoo": _frame(flat, volume=thin)}, _ctx())
+    assert "listing_starts_after_quote" not in old["summary"]
+
+
+def test_r1_entries_two_sources_confirm_are_classified_mechanically_and_the_rest_stay_unreviewed(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "OUT", tmp_path)
+    monkeypatch.setattr(rc, "REVIEWED_FORMAT", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "relevant_spans", lambda dv_weeks: {"1": [("2015-01-01", "2015-12-31")]})
+    base = {"ticker": "T", "classification": "unreviewed", "source_url": "", "verified_at": "", "security_id": "1",
+            "listed": True}
+    moves = [{**base, "event_date": "2015-02-02", "rule": "R1", "sources_agreeing": "yahoo+stored",
+              "notes": "[R1] move of 2.40x; 2 source(s) agree within 0.5%"},
+             {**base, "event_date": "2015-02-03", "rule": "R1", "sources_agreeing": "wiki+tiingo",
+              "notes": "[R1] move of 0.40x; 2 source(s) agree within 0.5%"},
+             {**base, "event_date": "2015-02-04", "rule": "R1", "sources_agreeing": "wiki",
+              "notes": "[R1] move of 2.10x; 1 source(s) agree within 0.5%"},
+             {**base, "event_date": "2015-02-05", "rule": "R1b", "sources_agreeing": "yahoo+stored",
+              "notes": "[R1b] move of +45% confirmed by no second source"},
+             {**base, "event_date": "2015-02-06", "rule": "R1/R2", "sources_agreeing": "yahoo+stored",
+              "notes": "[R1/R2] price ratio 2.00x with no split in any source"}]
+    queue, facts = rc.build_move_queue({"1": {"moves": moves}}, {})
+    by_day = queue.set_index("event_date")
+    assert by_day.loc["2015-02-02", "classification"] == by_day.loc["2015-02-03", "classification"] == \
+        rc.R1_MECHANICAL_CLASS
+    assert "stored file counts as a second source" in by_day.loc["2015-02-02", "notes"]
+    assert "stored file" not in by_day.loc["2015-02-03", "notes"] and by_day.loc["2015-02-03", "verified_at"]
+    assert (by_day.loc[["2015-02-04", "2015-02-05", "2015-02-06"], "classification"] == "unreviewed").all()
+    mech = facts["classified_mechanically"]
+    assert (mech["rows"], mech["with_two_vendors"], mech["vendor_and_stored"]) == (2, 1, 1)
+    assert facts["unreviewed"] == 3
+
+
+def test_a_form25_followed_by_a_listing_under_a_new_ticker_is_a_relisting():
+    """Frontier: FTR delisted by a 2020 Form 25, FYBR listed from 2021-05-04; the master's delist date is the 2026
+    Form 25 (Verizon), so the after_cut rule cannot see the 2020 one."""
+    mapping = pd.DataFrame([{"security_id": "20520", "ticker": "FTR", "list_start": "2012-01-25", "list_end": "2020-05-09"},
+                            {"security_id": "20520", "ticker": "FYBR", "list_start": "2021-05-04", "list_end": "2026-01-30"},
+                            {"security_id": "7", "ticker": "SEV", "list_start": "2012-01-03", "list_end": "2019-06-01"},
+                            {"security_id": "7", "ticker": "SEVN", "list_start": "2019-07-01", "list_end": "2026-08-31"}])
+    master = pd.DataFrame({"security_id": ["20520", "7"], "cik": ["20520", "7"], "delist_date": ["2026-01-30", ""]})
+    form25 = pd.DataFrame([
+        {"subject_cik": "0000020520", "effective_date": "2020-05-09", "filing_date": "2020-04-29",
+         "classification": "common_delisting"},
+        {"subject_cik": "0000020520", "effective_date": "2026-01-30", "filing_date": "2026-01-20",
+         "classification": "common_delisting"},
+        {"subject_cik": "7", "effective_date": "2019-06-15", "filing_date": "2019-06-05", "classification": "transfer"}])
+    found = rc.form25_relistings(mapping, master, form25)
+    assert found == {"20520": [("2020-05-09", "2021-05-04", "2026-01-30")]}  # a transfer Form 25 is no relisting
+    assert rc.form25_relistings(mapping, master, None) == {}
+
+
+def test_series_ends_measures_a_relisting_that_was_delisted_again_against_its_later_delisting(tmp_path, monkeypatch):
+    candidates = tmp_path / "candidates.csv"
+    pd.DataFrame(columns=["security_id", "planned_source", "ticker_for_source"]).to_csv(candidates, index=False)
+    monkeypatch.setattr(rc, "CANDIDATES", candidates)
+    monkeypatch.setattr(rc, "TIINGO_STATUS", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "TERMINAL_FILES", [])
+    monkeypatch.setattr(rc, "TERMINAL_2012_2026", tmp_path / "missing_terminal.csv")
+    monkeypatch.setattr(rc, "UNFILLABLE", tmp_path / "missing_unfillable.csv")
+    sessions = rc.pf.xnas_sessions("2020-01-02", rc.WINDOW_END)
+    master = pd.DataFrame([{"security_id": "F", "name": "F", "delist_date": "2026-01-30", "last_listed": "2026-01-01",
+                            "successor_security_id": "", "transfer_date": ""}])
+    identity = {"master": master, "ticker_map": rc.pf.TickerMap(pd.DataFrame(
+        [{"security_id": "F", "ticker": "F", "list_start": "2020-01-02", "list_end": "2026-01-30"}])),
+        "relisted": {"F": [("2020-05-09", "2021-05-04", "2026-01-30")]}}
+    states = {"F": {"summary": {"rows": 100, "last_date": "2026-01-16", "ticker_last": "FYBR"}}}
+    targets = pd.DataFrame({"security_id": ["F"], "weeks_rank300": [99], "in_candidates": [True]})
+    row = rc.series_ends(states, targets, identity, sessions).iloc[0]
+    assert (row["category"], row["delist_date"]) == ("ends_before_delist", "2026-01-30")
+
+
+def test_rebuild_moves_price_files_of_non_targets_aside_and_never_deletes_them(tmp_path, monkeypatch):
+    prices, out = tmp_path / "prices", tmp_path / "reconcile"
+    prices.mkdir()
+    for name in ("1.csv", "817473.csv", "daily_panel.csv.gz"):
+        (prices / name).write_text("x")
+    monkeypatch.setattr(rc, "PRICES_DIR", prices)
+    monkeypatch.setattr(rc, "OUT", out)
+    moved = rc.supersede_non_targets(["1"])
+    assert [m["security_id"] for m in moved] == ["817473"]
+    assert sorted(p.name for p in prices.iterdir()) == ["1.csv", "daily_panel.csv.gz"]
+    target = rc.superseded_dir() / "817473.csv"
+    assert target.exists() and target.parent.parent == out
+    (prices / "817473.csv").write_text("y")  # a second run the same day keeps both copies
+    rc.supersede_non_targets(["1"])
+    assert sorted(p.name for p in rc.superseded_dir().iterdir()) == ["817473.1.csv", "817473.csv"]
+    # an emptied series is moved aside too, not deleted
+    monkeypatch.setattr(rc, "STATE_DIR", tmp_path / "state")
+    rc.save_result("1", {"canonical": pd.DataFrame(columns=rc.PRICE_COLUMNS), "summary": {"rows": 0}}, "sig")
+    assert not (prices / "1.csv").exists() and (rc.superseded_dir() / "1.csv").exists()
+
+
+def test_dividend_and_successor_link_tables(monkeypatch):
+    states = {"1": {"dividends": [{"ex_date": "2015-02-02", "cash_as_paid": 0.5, "sources": "tiingo+yahoo",
+                                   "ticker": "A", "src_primary": "tiingo", "other_amounts": "", "special": ""}],
+                    "summary": {"rows": 10}},
+              "P": {"summary": {"rows": 10, "last_date": "2015-01-30", "successor_link_rows":
+                                {"rows_after_last_session_cut": 3}}},
+              "S": {"summary": {"rows": 10, "first_date": "2015-02-02",
+                                "successor_link": {"first_row": "2015-02-02", "first_row_return": "measured",
+                                                   "sessions_between": 0, "anchor_sources": ["wiki"]},
+                                "successor_link_rows": {"own_rows_dropped": 5, "predecessor_rows_added": 3}}}}
+    frame, facts = rc.dividend_table(states)
+    assert list(frame.columns[:4]) == ["security_id", "ex_date", "cash_as_paid", "sources"]
+    assert (facts["rows"], facts["rows_one_source"]) == (1, 0)
+    monkeypatch.setattr(rc, "SUCCESSOR_LINKS", {"P": {"successor": "S", "ticker": "T", "last_session": "2015-01-30",
+                                                      "continues": True, "basis": "b", "url": "u", "note": ""}})
+    links, link_facts = rc.successor_link_table(states)
+    row = links.iloc[0]
+    assert (row["status"], row["predecessor_rows_cut"], row["anchor_sources"]) == ("continued", 3, "wiki")
+    assert link_facts["by_status"] == {"continued": 1}
+
+
+# ------------------------------------------------------------------ round 10: successor links
+
+def test_a_thin_predecessor_is_anchored_on_its_last_row_before_the_cut(monkeypatch):
+    # LBTYB: no trade on the last session itself (2013-06-07); the anchor is the last row before it
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "T", "last_session": cut,
+                                                  "continues": True, "basis": "test", "url": "u"})
+    wiki = pd.concat([_frame(close[:18]), _frame(close[20:30], start=20)]).assign(security_id="P", file="wiki/T.csv.gz")
+    bundles = {"wiki": {"P": wiki}, "tiingo_new": {}, "tiingo_old": {}, "yahoo_new": {}, "yahoo_old": {}, "stored": {}}
+    frames, facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P", SESSIONS)
+    assert facts["anchor_sources"] == ["wiki"] and frames["wiki"]["date"].min() == SESSIONS[17]
+    ctx = {**_ctx(), "link_cut": cut, "link_continues": True, "link_predecessor": "P"}
+    result = rc.reconcile_security("S", frames, ctx)
+    first = result["canonical"].iloc[0]
+    assert first["date"] == str(SESSIONS[20].date())
+    assert first["tr"] == pytest.approx(close[20] / close[17] - 1)  # over the two sessions without a row
+    assert {"successor_link:P", "gap_before:2"} <= set(first["flags"].split(";"))
+    assert result["summary"]["successor_link"]["sessions_between"] == 2
+
+
+def test_step7_trim_mark_on_the_successors_first_yahoo_row_is_cleared_after_handed_over_rows(monkeypatch):
+    # MRVL: the predecessor's rows run to 2021-04-26 under the ticker, the successor's own Yahoo file starts
+    # 2021-04-27 with step 7's trim mark; without clearing it the 04-26 -> 04-27 return would be lost
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "T", "last_session": cut,
+                                                  "continues": True, "basis": "test", "url": "u"})
+    old_yahoo = _frame(close[:25]).assign(security_id="P", file="holdout/T.json")
+    own = _frame(close[25:], start=25, rowflag=["yahoo_junction"] + [""] * 14).assign(security_id="S",
+                                                                                        file="yahoo/S.csv.gz")
+    bundles = {"wiki": {}, "tiingo_new": {}, "tiingo_old": {}, "yahoo_new": {"S": own}, "yahoo_old": {"P": old_yahoo},
+               "stored": {}}
+    frames, facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P", SESSIONS)
+    assert facts["yahoo_junction_cleared"] == str(SESSIONS[25].date())
+    ctx = {**_ctx(), "link_cut": cut, "link_continues": True, "link_predecessor": "P"}
+    canonical = rc.reconcile_security("S", frames, ctx)["canonical"]
+    assert canonical["date"].iloc[0] == str(SESSIONS[20].date())
+    assert canonical["tr"].notna().all()  # every row from the first one on, 25 included
+    day25 = canonical.loc[canonical["date"] == str(SESSIONS[25].date())].iloc[0]
+    assert day25["tr"] == pytest.approx(close[25] / close[24] - 1) and "yahoo_junction" not in day25["flags"]
+
+
+def test_a_shared_first_session_and_the_raw_chart_fill_start_the_successor_on_its_real_first_day(monkeypatch):
+    # 21CF -> Fox: Fox trades from 2019-03-19, the day 21CF traded as TFCFA; step 7 cut Fox's file at 2019-05-06
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    link = {"successor": "S", "ticker": "T", "last_session": cut, "continues": False, "basis": "test", "url": "u",
+            "successor_first_session": cut, "raw_yahoo_fill": "T"}
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", link)
+    own_tiingo = _frame(close[:20] * 1.3).assign(security_id="P", file="tiingo_run/P.csv")  # the predecessor's own
+    stored = _frame(close[12:30], start=12).assign(security_id="P", file="t.csv")  # ticker-mapped: the successor's
+    own_yahoo = _frame(close[25:], start=25, rowflag=["yahoo_junction"] + [""] * 14).assign(security_id="S",
+                                                                                              file="yahoo/S.csv.gz")
+    raw = _frame(close[10:30], start=10).assign(security_id="", file="raw_yahoo/T__x.json.gz")
+    monkeypatch.setattr(rc, "raw_yahoo_rows", lambda ticker: raw if ticker == "T" else rc._empty_rows())
+    bundles = {"wiki": {}, "tiingo_new": {"P": own_tiingo}, "tiingo_old": {}, "yahoo_new": {"S": own_yahoo},
+               "yahoo_old": {}, "stored": {"P": stored}}
+    # the predecessor keeps its own file's row on the shared day, not the ticker's (the successor's)
+    pred, pred_facts = rc.predecessor_frames(rc.frames_for("P", bundles), link)
+    assert pred["tiingo"]["date"].max() == SESSIONS[19] and pred["stored"]["date"].max() == SESSIONS[18]
+    assert pred_facts["ticker_rows_on_shared_day_given_to_successor"] == 1
+    frames, facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P", SESSIONS)
+    assert facts["raw_yahoo_fill_rows"] == 6 and facts["first_session"] == cut  # rows 19..24 from the raw chart
+    assert "tiingo" not in frames and frames["stored"]["date"].min() == SESSIONS[19]
+    assert facts["yahoo_junction_cleared"] == str(SESSIONS[25].date())
+    ctx = {**_ctx(), "link_cut": rc.previous_session_of(cut, SESSIONS), "link_continues": False,
+           "link_predecessor": "P"}
+    canonical = rc.reconcile_security("S", frames, ctx)["canonical"]
+    first = canonical.iloc[0]
+    assert first["date"] == cut and np.isnan(first["tr"])  # a new series: no return on its first row
+    assert {"raw_yahoo_fill", "successor_of:P"} <= set(first["flags"].split(";"))
+    assert canonical["tr"].iloc[1:].notna().all()  # 2019-05-06 included: the trim mark is cleared
+
+
+def test_a_class_folded_into_another_class_hands_nothing_over(monkeypatch):
+    monkeypatch.setattr(rc, "SUCCESSOR_LINKS", {"B": {"successor": "A", "ticker": "TB", "last_session": "2015-01-30",
+                                                      "continues": False, "handover": False, "basis": "b", "url": "u"},
+                                                "P": {"successor": "S", "ticker": "T", "last_session": "2015-01-30",
+                                                      "continues": True, "basis": "b", "url": "u"}})
+    assert rc.successor_of() == {"S": "P"}
+    days = rc.pf.xnas_sessions("2015-01-02", "2015-02-27")
+    as_int = lambda d: d.values.astype("datetime64[D]").astype(np.int32)
+    states = {"B": {"summary": {"rows": 19, "last_date": "2015-01-30"}, "dates": as_int(days[:19])},
+              "A": {"summary": {"rows": 38, "first_date": "2015-01-02", "last_date": "2015-02-27"},
+                    "dates": as_int(days)},
+              "P": {"summary": {"rows": 19, "last_date": "2015-01-30"}, "dates": as_int(days[:19])},
+              "S": {"summary": {"rows": 19, "first_date": "2015-02-02", "last_date": "2015-02-27",
+                                "successor_link": {"first_row": "2015-02-02", "first_row_return": "measured"},
+                                "successor_link_rows": {"first_session": "2015-02-02"}}, "dates": as_int(days[19:])}}
+    master = pd.DataFrame({"security_id": ["A", "S"], "last_listed": ["2026-08-01", "2026-08-01"]})
+    links, facts = rc.successor_link_table(states, master)
+    links = links.set_index("predecessor_id")
+    assert links.loc["B", "status"] == "cut_class_kept" and links.loc["B", "overlap_days"] == ""
+    assert links.loc["P", "status"] == "continued" and links.loc["P", "overlap_days"] == 0
+    # S ends in 2015 while listed to 2026: a short series after the continuation, listed in the summary
+    assert bool(links.loc["P", "short_after_continuation"]) and not bool(links.loc["B", "short_after_continuation"])
+    assert [p["successor"] for p in facts["short_after_continuation"]["pairs"]] == ["S"]
+    assert facts["overlap_days_total"] == 0
+
+
+def test_load_targets_follows_a_chain_of_continuing_links(tmp_path, monkeypatch):
+    candidates = tmp_path / "candidates.csv"
+    pd.DataFrame([{"security_id": "P", "reason": "A1_x", "planned_source": "wiki", "status": "done"}]).to_csv(
+        candidates, index=False)
+    weekly = tmp_path / "weekly.pkl"
+    pd.DataFrame({"security_id": ["P"], "week_end": [pd.Timestamp("2015-01-02")], "dv50_rank": [5], "dv20_rank": [5],
+                  "dv50": [1.0], "dv20": [1.0]}).to_pickle(weekly)
+    monkeypatch.setattr(rc, "CANDIDATES", candidates)
+    monkeypatch.setattr(rc, "WEEKLY_METRICS", weekly)
+    monkeypatch.setattr(rc, "SUCCESSOR_LINKS", {"P": {"successor": "S", "continues": True, "last_session": "2015-01-02"},
+                                                "S": {"successor": "T", "continues": True, "last_session": "2016-01-04"},
+                                                "T": {"successor": "U", "continues": False, "last_session": "2017-01-03"}})
+    targets = rc.load_targets().set_index("security_id")
+    assert list(targets.index) == ["P", "S", "T"]  # LINTA -> QVCA -> QRTEA: the whole chain; U is a cut, not added
+
+
+def test_a_target_without_a_listing_interval_gets_no_series(tmp_path, monkeypatch):
+    # Ford 37996: step 4 removed its only Nasdaq interval; its ticker's vendor rows are not a series
+    monkeypatch.setattr(rc, "PRICES_DIR", tmp_path / "prices")
+    monkeypatch.setattr(rc, "STATE_DIR", tmp_path / "state")
+    (tmp_path / "prices").mkdir()
+    (tmp_path / "state").mkdir()
+    monkeypatch.setattr(rc, "MIN_FREE_MB", 0)
+    monkeypatch.setattr(rc, "SUCCESSOR_LINKS", {})
+    bundles = {"wiki": {"F": _frame(_walk(30)).assign(security_id="F", file="wiki/F.csv.gz")}, "tiingo_new": {},
+               "tiingo_old": {}, "yahoo_new": {}, "yahoo_old": {}, "stored": {}}
+    identity = {"mapping": pd.DataFrame(columns=["security_id", "ticker", "list_start", "list_end"]),
+                "master": pd.DataFrame({"security_id": ["F"], "first_ticker": ["F"]}), "relisted": {}}
+    states = rc.run_securities(["F"], bundles, identity, {}, SESSIONS)
+    assert states["F"]["summary"]["rows"] == 0 and states["F"]["summary"]["no_listing_interval"]
+    assert not (tmp_path / "prices" / "F.csv").exists()
+    targets = pd.DataFrame([{"security_id": "F", "candidate_reasons": "Y_active_all", "planned_sources": "",
+                             "candidate_status": "done", "weeks_rank300": 0, "best_dv50": np.nan}])
+    monkeypatch.setattr(rc, "tiingo_waiting", lambda: pd.DataFrame(columns=["security_id"]))
+    monkeypatch.setattr(rc, "UNFILLABLE", tmp_path / "none.csv")
+    assert rc.no_series_table(states, targets)["reason"].tolist() == ["no_listing_interval"]
+
+
+def test_a_continuing_predecessor_gets_back_the_successors_rows_of_its_tail_gap(monkeypatch):
+    # Zillow: its own rows stop at 2014-11-20, Zillow Group's Yahoo file has the days to the cut (2015-02-17)
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    link = {"successor": "S", "ticker": "T", "last_session": cut, "continues": True, "basis": "test", "url": "u"}
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", link)
+    wiki = _frame(close[:15]).assign(security_id="P", file="wiki/T.csv.gz")
+    yahoo = _frame(close).assign(security_id="S", file="yahoo/S.csv.gz")
+    bundles = {"wiki": {"P": wiki}, "tiingo_new": {}, "tiingo_old": {}, "yahoo_new": {"S": yahoo}, "yahoo_old": {},
+               "stored": {}}
+    pred, facts = rc.predecessor_frames(rc.frames_for("P", bundles), link, rc.frames_for("S", bundles), "P")
+    assert facts["successor_rows_given_back"] == 5  # rows 15..19 only: the earlier history keeps its own source
+    assert pred["yahoo"]["date"].tolist() == list(SESSIONS[15:20]) and (pred["yahoo"]["security_id"] == "P").all()
+    frames, link_facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P", SESSIONS)
+    # the anchor: the successor's own row on the last session (WIKI's last row, 14, is older and not used)
+    assert "yahoo" in link_facts["anchor_sources"] and frames["yahoo"]["date"].min() == SESSIONS[19]
+    ctx = {**_ctx(), "link_cut": cut, "link_continues": True, "link_predecessor": "P"}
+    first = rc.reconcile_security("S", frames, ctx)["canonical"].iloc[0]
+    assert first["date"] == str(SESSIONS[20].date()) and first["tr"] == pytest.approx(close[20] / close[19] - 1)
+
+
+def test_a_cut_successors_first_row_books_no_conversion_event(monkeypatch):
+    # UNIT -> New Uniti: Yahoo books the 0.6029 merger ratio as a split on New Uniti's first row (2025-08-04);
+    # the predecessor's terminal value holds it, the new series starts without it
+    close = _walk(40)
+    cut = str(SESSIONS[19].date())
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "T", "last_session": cut,
+                                                  "continues": False, "basis": "test", "url": "u",
+                                                  "handover_files": True})
+    split = np.ones(40)
+    split[20] = 0.602
+    yahoo = _frame(close, split=split).assign(security_id="P", file="yahoo/P.csv.gz")
+    bundles = {"wiki": {}, "tiingo_new": {}, "tiingo_old": {}, "yahoo_new": {"P": yahoo}, "yahoo_old": {}, "stored": {}}
+    frames, facts = rc.link_frames("S", rc.frames_for("S", bundles), bundles, "P", SESSIONS)
+    assert facts["predecessor_rows_added"] == 20  # handover_files: the predecessor's own file runs on in S
+    ctx = {**_ctx(), "link_cut": cut, "link_continues": False, "link_predecessor": "P"}
+    result = rc.reconcile_security("S", frames, ctx)
+    first = result["canonical"].iloc[0]
+    assert first["date"] == str(SESSIONS[20].date()) and np.isnan(first["tr"]) and first["split_factor"] == 1.0
+    assert "distribution_factor" not in first["flags"] and not [e for e in result["events"] if e["ex_date"] == first["date"]]
+    assert result["summary"]["link_first_row_event_dropped"]["split"] == pytest.approx(0.602)
