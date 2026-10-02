@@ -51,12 +51,20 @@ def test_the_validator_has_no_dynamic_import_and_no_network_call():
     tree = ast.parse(text)
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
              and n.func.attr == "update_manifest"]
-    assert len(calls) == 1  # only the final step builds the manifest
+    assert not calls  # the manifest is built in memory and written once, by write_outputs
+    writers = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            n = sum(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "atomic_write"
+                    for c in ast.walk(node))
+            if n:
+                writers[node.name] = n
+    assert writers == {"write_outputs": 2, "write_validation_summary": 1}
 
 
 def test_every_check_is_one_function_named_like_its_result():
     names = [va.check_name(f) for f in va.CHECKS]
-    assert len(names) == len(set(names)) == 33
+    assert len(names) == len(set(names)) == 35
     text = SCRIPT.read_text(encoding="utf-8")
     for name in names:
         assert f'name, dataset, plan = "{name}"' in text
@@ -317,9 +325,28 @@ def test_universe_build_is_no_input_without_the_step12_files(ctx):
     assert out["status"] == "no_input" and not out["passed"] and len(out["details"]["missing_inputs"]) == 4
 
 
+def test_universe_build_fails_when_the_universe_was_built_from_other_inputs(ctx):
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "u"}]))
+    upstream = _write(ctx.cache / "reconcile" / "no_series.csv", pd.DataFrame([{"security_id": "1"}]))
+    recorded = {"inputs_sha256": {str(common.INPUTS / "unfillable.csv"): common.sha256_file(ctx.inputs / "unfillable.csv"),
+                                  str(common.CACHE / "reconcile" / "no_series.csv"): common.sha256_file(upstream),
+                                  "tiingo_status (x)": "0" * 64}}
+    (ctx.cache / "universe").mkdir(parents=True, exist_ok=True)
+    (ctx.cache / "universe" / "universe_summary.json").write_text(json.dumps(recorded))
+    assert va._universe_stale_inputs(ctx) == []
+    _write(upstream, pd.DataFrame([{"security_id": "2"}]))          # the upstream step ran again after the build
+    stale = va._universe_stale_inputs(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert stale == [{"file": "research_cache/reversal_2012_2026/reconcile/no_series.csv",
+                      "state": "changed since the universe build"}]
+    _universe(ctx, [{"week_end": "2015-01-09", "security_id": "1", "dv50_rank": 10}])
+    out = va.check_universe_build(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert not out["passed"] and out["numbers"]["built_from_inputs_on_disk"] is False
+
+
 def test_unfillable_impact_is_judged_per_year_against_250_slots(ctx, monkeypatch):
     weeks = ctx.week_ends[ctx.week_ends.year == 2013]
-    frame = pd.DataFrame({"security_id": "u", "week_end": weeks, "vendor": False, "above": True, "outside": False})
+    frame = pd.DataFrame({"security_id": "u", "week_end": weeks, "vendor": False, "above": True, "outside": False,
+                          "proxy_known": True, "dv_above": False, "unknown_size": False})
     monkeypatch.setattr(va, "_proxy_table", lambda c: (frame, "test"))
     _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "u", "needed_start": "2012-01-01",
                                                           "needed_end": "2014-12-31", "est_weeks_in_top250": "52"}]))
@@ -332,6 +359,234 @@ def test_unfillable_impact_is_judged_per_year_against_250_slots(ctx, monkeypatch
                                                          for i in range(6)]))
     out = va.check_universe_unfillable(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
     assert not out["passed"] and out["numbers"]["years_over_2pct"] == [2013]
+
+
+def test_universe_name_days_run_four_weeks_and_ignore_an_end_before_a_later_listing(ctx):
+    _universe(ctx, [{"week_end": "2015-01-09", "security_id": "1", "dv50_rank": 10},
+                    {"week_end": "2015-01-09", "security_id": "2", "dv50_rank": 20}])
+    _master(ctx, [{"security_id": "1", "delist_date": "2015-01-13"}, {"security_id": "2", "delist_date": "2015-01-13"}])
+    _write(ctx.inputs / "ticker_intervals.csv", pd.DataFrame([
+        {"security_id": "1", "ticker": "A", "start": "2010-01-04", "end": "2015-01-13", "exchange": "NASDAQ"},
+        {"security_id": "2", "ticker": "B", "start": "2010-01-04", "end": "2015-01-13", "exchange": "NASDAQ"},
+        {"security_id": "2", "ticker": "B", "start": "2016-03-01", "end": "2020-01-02", "exchange": "NASDAQ"}]))
+    days = va._universe_name_days(ctx)
+    dates = {sid: list(ctx.sessions[g["pos"].values].strftime("%Y-%m-%d")) for sid, g in days.groupby("security_id")}
+    assert dates["1"][-1] == "2015-01-13"                          # cut at the delisting
+    assert dates["2"][0] == "2015-01-05" and dates["2"][-1] == "2015-02-06"   # listed again later: 4 weeks after the week
+    assert len(dates["2"]) == 5 * 5 - 1                            # 2015-01-19 is a holiday
+    one = va._universe_name_days(ctx, hold_weeks=1)
+    assert one.groupby("security_id").size().to_dict() == {"1": 7, "2": 10}
+
+
+def _proxy_fixture(ctx, extra_rows, week="2015-01-09"):
+    """Week ``week``: 51 priced names ranked 200-250 (market cap 1e9) and the unpriced ``extra_rows``."""
+    band = [{"week_end": week, "security_id": f"b{i}", "dv50_rank": 200 + i, "mcap": 1e9, "float_usd": np.nan,
+             "dv50": 1e7} for i in range(51)]
+    rows = band + [{"week_end": week, "dv50_rank": np.nan, "dv50": np.nan, **r} for r in extra_rows]
+    listed = pd.DataFrame(rows)
+    listed["eligible"] = True
+    listed["outside_trading"] = False
+    listed["missing_reason"] = np.where(listed["security_id"].str.startswith("b"), "", "not_candidate")
+    if "evidence" in listed:
+        listed["evidence"] = listed["evidence"].fillna("")
+    listed["pf_ge_cut250"] = listed.pop("pf_ge_cut250") if "pf_ge_cut250" in listed else False
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz",
+           listed.drop(columns=["mcap", "float_usd", "dv50"]).assign(pf_ge_cut250=listed["pf_ge_cut250"].fillna(False)))
+    for column in ("mcap", "float_usd", "dv50"):
+        listed[column] = pd.to_numeric(listed[column])
+    weekly = listed[["week_end", "security_id", "mcap", "float_usd", "dv50"]].assign(
+        week_end=pd.to_datetime(listed["week_end"]))
+    (ctx.cache / "prefilter").mkdir(parents=True, exist_ok=True)
+    weekly.to_pickle(ctx.cache / "prefilter" / "weekly_metrics.pkl")
+    _universe(ctx, [{"week_end": week, "security_id": f"b{i}", "dv50_rank": 200 + i} for i in range(51)])
+    _panel(ctx, [{"security_id": f"b{i}", "date": week} for i in range(51)])
+
+
+def test_proxy_margin_fails_on_an_unpriced_name_of_unknown_size(ctx):
+    small = {"security_id": "s", "mcap": 1e6, "float_usd": np.nan}
+    by_dv = {"security_id": "d", "mcap": np.nan, "float_usd": np.nan, "dv50": 1e3}
+    unknown = {"security_id": "u", "mcap": np.nan, "float_usd": np.nan}
+    _proxy_fixture(ctx, [small, by_dv, unknown])
+    out = va.check_universe_proxy_margin(ctx)
+    n = out["numbers"]
+    assert n["plan_rule_met"] and n["max_in_a_week"] == 0       # the plan's count alone would pass
+    assert not out["passed"] and n["unpriced_name_weeks_unknown_size"] == 1 and n["unpriced_name_weeks_no_proxy"] == 2
+    assert out["details"]["unknown_size"]["names"][0]["security_id"] == "u"
+    _write(ctx.inputs / "listing_snapshots_index.csv", pd.DataFrame(columns=["snapshot_date", "source", "as_of_session",
+                                                                            "snapshot_file"]))
+    _master(ctx, [{"security_id": "s"}])
+    _write(ctx.inputs / "ticker_intervals.csv", pd.DataFrame([{"security_id": "s", "ticker": "S", "start": "2010-01-04",
+                                                                "end": "2020-01-02", "exchange": "NASDAQ"}]))
+    weekly = va.check_universe_capture_coverage(ctx)["numbers"]["weekly_mcap_weighted"]
+    assert weekly["unpriced_name_weeks_unknown_size"] == 1 and weekly["unpriced_name_weeks_without_weight"] == 2
+    _proxy_fixture(ctx, [small, by_dv])
+    out = va.check_universe_proxy_margin(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert out["passed"] and out["numbers"]["unpriced_name_weeks_unknown_size"] == 0
+    _proxy_fixture(ctx, [small, {**by_dv, "dv50": 5e7, "pf_ge_cut250": True}])   # no proxy, step-6 dv at the cut
+    out = va.check_universe_proxy_margin(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert not out["passed"] and out["numbers"]["unpriced_name_weeks_no_proxy_dv_at_or_above_cut250"] == 1
+
+
+def test_proxy_margin_takes_step12_evidence_classes(ctx):
+    rows = [{"security_id": "st", "mcap": np.nan, "float_usd": np.nan, "evidence": "dv"},        # stored-file dv
+            {"security_id": "lo", "mcap": np.nan, "float_usd": np.nan, "evidence": "price_lt_10"},
+            {"security_id": "uk", "mcap": 1e6, "float_usd": np.nan, "evidence": "unknown"}]      # step 12 says unknown
+    _proxy_fixture(ctx, rows)
+    out = va.check_universe_proxy_margin(ctx)
+    assert not out["passed"] and out["numbers"]["unpriced_name_weeks_unknown_size"] == 1
+    assert out["details"]["unknown_size"]["names"][0]["security_id"] == "uk"
+
+
+def test_proxy_margin_reads_the_step12_unknown_counts(ctx):
+    _proxy_fixture(ctx, [{"security_id": "s", "mcap": 1e6, "float_usd": np.nan}])
+    summary = pd.DataFrame({"week_end": ["2015-01-09"], "n_missing_unknown_size": [2], "n_unknown_foreign_flag": [5]})
+    _write(ctx.inputs / "weekly_universe_summary.csv", summary)
+    out = va.check_universe_proxy_margin(ctx)
+    assert not out["passed"] and out["numbers"]["step12_unknown_counts"] == {
+        "n_missing_unknown_size": {"name_weeks": 2, "weeks_above_zero": 1}}
+
+
+def test_unfillable_impact_fails_on_weeks_of_unknown_size(ctx):
+    _proxy_fixture(ctx, [{"security_id": "u", "mcap": np.nan, "float_usd": np.nan}])
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "u", "needed_start": "2015-01-01",
+                                                          "needed_end": "2015-12-31", "est_weeks_in_top250": "1",
+                                                          "proxy": "none"}]))
+    out = va.check_universe_unfillable(ctx)
+    assert not out["passed"] and out["numbers"]["unknown_size_name_weeks"] == 1
+    assert out["numbers"]["years_over_2pct"] == [] and out["numbers"]["rows_with_proxy_none"] == 1
+
+
+def test_listed_gaps_fail_on_series_gaps_and_unknown_reasons_only(ctx):
+    weeks = ["2020-04-03", "2020-04-09", "2020-04-17"]
+    rows = [{"week_end": w, "security_id": "smci", "ticker": "SMCI", "missing_reason": "series_gap"} for w in weeks]
+    rows += [{"week_end": w, "security_id": "tiny", "ticker": "TINY", "missing_reason": "not_candidate"} for w in weeks]
+    rows += [{"week_end": "2020-04-03", "security_id": "x", "ticker": "X", "missing_reason": ""}]
+    listed = pd.DataFrame(rows).assign(eligible=True, pf_ge_cut250=False)
+    listed.loc[0, "pf_ge_cut250"] = True
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    out = va.check_universe_listed_gaps(ctx)
+    assert not out["passed"] and out["numbers"]["blocking_name_weeks"] == 3
+    span = out["details"]["blocking_spans_by_reason"]["series_gap"][0]
+    assert (span["security_id"], span["first"], span["last"], span["weeks"]) == ("smci", "2020-04-03", "2020-04-17", 3)
+    assert span["weeks_step6_dv_at_or_above_cut250"] == 1
+    listed["missing_reason"] = listed["missing_reason"].replace({"series_gap": "not_candidate"})
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    assert va.check_universe_listed_gaps(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["passed"]
+    listed.loc[1, "missing_reason"] = "something_new"
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    out = va.check_universe_listed_gaps(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert not out["passed"] and out["numbers"]["unknown_reasons"] == ["something_new"]
+
+
+def _fetch_fixture(ctx, fetched: dict, ranks: dict):
+    """Candidates b (B-B), c (B-C sample), r (B-C rest); ``fetched`` maps id -> fetch status, ``ranks`` id -> dv50 rank."""
+    _write(ctx.inputs / "candidate_fetch_list.csv", pd.DataFrame([
+        {"security_id": "b", "ticker_for_source": "BB", "reason": va.TIER_BB, "status": "pending", "planned_source": "tiingo"},
+        {"security_id": "c", "ticker_for_source": "CC", "reason": va.TIER_BC_SAMPLE, "status": "pending",
+         "planned_source": "tiingo"},
+        {"security_id": "r", "ticker_for_source": "RR", "reason": va.TIER_BC_REST, "status": "conditional_tier_c",
+         "planned_source": "tiingo"}]))
+    _write(ctx.cache / "tiingo" / "fetch_status.csv", pd.DataFrame(
+        [{"security_id": k, "reason": "x", "status": v, "prices_path": "", "raw_path": ""} for k, v in fetched.items()]
+        or [{"security_id": "", "reason": "", "status": "", "prices_path": "", "raw_path": ""}]))
+    _panel(ctx, [{"security_id": k, "date": "2019-01-04", "src_primary": "tiingo"} for k, v in fetched.items()
+                 if v == "done"] + [{"security_id": "z", "date": "2019-01-04"}])
+    _universe(ctx, [{"week_end": "2019-01-04", "security_id": k, "dv50_rank": v} for k, v in ranks.items()]
+              or [{"week_end": "2019-01-04", "security_id": "z", "dv50_rank": 1}])
+
+
+def test_fetch_margin_waits_until_the_b_b_and_b_c_sample_names_are_fetched_and_in_the_panel(ctx):
+    _fetch_fixture(ctx, {}, {})
+    out = va.check_universe_fetch_margin(ctx)
+    assert out["status"] == "no_input" and not out["passed"] and out["numbers"]["required_pending"] == 2
+    _fetch_fixture(ctx, {"b": "done", "c": "done"}, {})
+    (ctx.cache / "prices" / "daily_panel.csv.gz").unlink()
+    _panel(ctx, [{"security_id": "b", "date": "2019-01-04", "src_primary": "tiingo"}])   # c fetched, step 9 not rerun
+    out = va.check_universe_fetch_margin(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert out["status"] == "no_input" and out["details"]["pending"] == [
+        {"security_id": "c", "ticker_for_source": "CC", "reason": va.TIER_BC_SAMPLE, "state": "fetched_not_in_panel"}]
+
+
+def test_fetch_margin_flags_a_tight_screen_and_the_tier_c_rule(ctx):
+    _fetch_fixture(ctx, {"b": "done", "c": "done"}, {"b": 240, "c": 280})
+    out = va.check_universe_fetch_margin(ctx)
+    n = out["numbers"]
+    assert out["status"] == "fail" and n["tier_b_b_or_b_c_names_in_top250"] == 1
+    assert n["tier_c_rule_triggered"] and n["tier_c_rest_open"] == 1
+    assert "lower the screen" in out["details"]["action"] and "tier C" in out["details"]["action"]
+    _fetch_fixture(ctx, {"b": "done", "c": "no_data"}, {"b": 270})
+    out = va.check_universe_fetch_margin(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert out["passed"] and not out["numbers"]["tier_c_rule_triggered"]
+
+
+def _stored_fixture(ctx, flags_b):
+    rows = [{"security_id": "1", "date": "2025-06-24", "flags": "stored_excluded"},
+            {"security_id": "2", "date": "2025-06-24", "flags": flags_b},
+            {"security_id": "1", "date": "2024-03-01", "div_cash": 0.5, "flags": "stored_excluded"},
+            {"security_id": "1", "date": "2016-03-01", "div_cash": 0.5}]
+    _panel(ctx, rows)
+    _write(ctx.inputs / "ticker_intervals.csv", pd.DataFrame([
+        {"security_id": "1", "ticker": "AAA", "start": "2010-01-04", "end": "2026-08-31", "exchange": "NASDAQ"},
+        {"security_id": "2", "ticker": "BBB", "start": "2010-01-04", "end": "2026-08-31", "exchange": "NASDAQ"},
+        {"security_id": "3", "ticker": "CCC", "start": "2010-01-04", "end": "2026-08-31", "exchange": "NASDAQ"}]))
+    split = _splits(1, 1).iloc[:1].assign(security_id="1", ticker="AAA", ex_date="2025-06-24", event_type="unit_break")
+    _write(ctx.inputs / "split_events.csv", split)
+    (ctx.cache / "prefilter").mkdir(parents=True, exist_ok=True)
+    (ctx.cache / "prefilter" / "prefilter_summary.json").write_text(
+        json.dumps({"stored_break_files_2025_06_24": ["AAA", "bbb", "CCC", "ZZZ"]}))
+
+
+def test_stored_comparison_needs_every_priced_break_file_excluded_or_a_unit_break(ctx):
+    _stored_fixture(ctx, "")
+    out = va.check_stored_comparison(ctx)
+    n = out["numbers"]
+    assert not out["passed"] and n["break_list_priced"] == 2 and n["break_list_priced_exceptions"] == 1
+    assert out["details"]["exceptions"][0]["security_id"] == "2"
+    assert n["break_list_not_priced_that_day"] == 1 and n["break_list_unmapped"] == 1   # CCC has no row; ZZZ no holder
+    _stored_fixture(ctx, "stored_excluded")
+    out = va.check_stored_comparison(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert out["passed"] and out["details"]["priced_without_unit_break_row"] == [{"security_id": "2", "files": ["bbb"]}]
+
+
+def _plan_value(name, column):
+    values = va.PLAN_VALUES.get((name, column))
+    if values:
+        return sorted(values[0])[0]
+    prefixes = va.PLAN_VALUE_PREFIXES.get((name, column))
+    return prefixes[0][0] + "x" if prefixes else "v"
+
+
+def _plan_files(ctx):
+    for name, columns in va.PLAN_INPUTS.items():
+        _write(ctx.inputs / name, pd.DataFrame([{c: _plan_value(name, c) for c in columns}]))
+    for relative, columns in {**va.PLAN_CACHE, **va.PLAN_CACHE_INFRA}.items():
+        frame = pd.DataFrame([{c: "1" for c in columns if (relative, c) not in va.PLAN_COLUMN_MAPPINGS}])
+        _write(ctx.cache / relative, frame)
+    _write(ctx.cache / "prices" / "1.csv", pd.DataFrame([{c: "1" for c in va.PRICE_COLUMNS}]))
+
+
+def test_plan_files_need_every_planned_file_column_and_value(ctx):
+    _plan_files(ctx)
+    out = va.check_plan_files(ctx)
+    assert out["passed"], out["details"]
+    assert {(m["file"], m["column"]) for m in out["details"]["documented_mappings"]} >= {
+        ("research_cache/reversal_2012_2026/raw_index.csv.gz", "path")}
+    (ctx.inputs / "exchange_moves.csv").unlink()
+    events = pd.read_csv(ctx.inputs / "earnings_events.csv").drop(columns=["first_in_fiscal_quarter"])
+    _write(ctx.inputs / "earnings_events.csv", events)
+    _write(ctx.inputs / "unfillable.csv", pd.read_csv(ctx.inputs / "unfillable.csv").assign(proxy="none"))
+    (ctx.cache / "dividends.csv").unlink()
+    _write(ctx.cache / "prices" / "2.csv", pd.DataFrame([{"date": "2015-01-02", "close_raw": 1}]))
+    out = va.check_plan_files(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    d = out["details"]
+    assert not out["passed"]
+    assert d["files_missing"] == ["exchange_moves.csv", "research_cache/reversal_2012_2026/dividends.csv"]
+    assert d["columns_missing"] == [{"file": "earnings_events.csv", "column": "first_in_fiscal_quarter"}]
+    assert d["values_outside_plan"] == [{"file": "unfillable.csv", "column": "proxy", "value": "none", "rows": 1}]
+    assert d["price_files_missing_columns"] == ["2.csv"]
+    coverage = va.check_manifest_coverage(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert not coverage["passed"] and coverage["status"] == "fail"
+    assert {"exchange_moves.csv", "research_cache/reversal_2012_2026/dividends.csv"} <= set(coverage["details"]["missing"])
 
 
 # ------------------------------------------------------------------ the run, the summary and the manifest
@@ -347,34 +602,72 @@ def test_a_check_that_raises_is_reported_as_an_error_and_the_run_goes_on(ctx, mo
     assert "boom" in results[0]["details"]["error"] and not results[0]["passed"]
 
 
-def test_summary_and_manifest_hash_every_file_and_hold_no_key(ctx, monkeypatch, tmp_path):
+def _manifest_fixture(ctx):
     _write(ctx.inputs / "split_events.csv", _splits(1, 1))
-    for name in ("daily_panel.csv.gz",):
-        _write(ctx.cache / "prices" / name, pd.DataFrame({"security_id": ["1"], "date": ["2015-01-02"]}))
+    _write(ctx.cache / "prices" / "daily_panel.csv.gz", pd.DataFrame({"security_id": ["1"], "date": ["2015-01-02"]}))
     _write(ctx.cache / "factors" / "ff5_2x3_daily.csv", _factor_rows(["2015-01-02"], ["RF"]))
     (ctx.cache / "raw" / "kf" / "a.zip").write_bytes(b"zip")
     index_line = "2026-10-01T00:00:00+00:00,yahoo,https://query1.finance.yahoo.com/v8/finance/chart/AAA,200,10,ab,x\n"
     (ctx.cache / "raw_index.csv.gz").write_bytes(gzip.compress(
         ("fetched_utc,source,url_redacted,http_status,bytes,sha256,cache_path\n" + index_line).encode()))
-    monkeypatch.setattr(common, "INPUTS", ctx.inputs)
+
+
+def test_summary_and_manifest_hash_every_file_with_relative_keys_and_hold_no_key(ctx, monkeypatch):
+    _manifest_fixture(ctx)
     monkeypatch.setattr(va, "secret_values", lambda: ["sk_fake_secret_value_123"])
-    summary = va.write_validation_summary(ctx, [va.check_review_queue(ctx)])
-    assert (ctx.inputs / "validation_summary.json").exists() and summary["counts"] == {"no_input": 1}
-    manifest = va.build_manifest(ctx, summary)
-    files = manifest["files"]
+    results = [va.check_review_queue(ctx), va.check_split_agreement(ctx)]
+    summary, manifest = va.write_outputs(ctx, results)
+    assert summary["counts"] == {"no_input": 2}
+    on_disk = json.loads((ctx.inputs / "manifest.json").read_text())
+    assert on_disk == json.loads(json.dumps(manifest))
+    files = on_disk["files"]
     assert files["split_events.csv"]["sha256"] == common.sha256_file(ctx.inputs / "split_events.csv")
     assert files["validation_summary.json"]["sha256"] == common.sha256_file(ctx.inputs / "validation_summary.json")
-    assert str(ctx.cache / "prices" / "daily_panel.csv.gz") in files and str(ctx.cache / "raw" / "kf" / "a.zip") in files
+    panel_key = "research_cache/reversal_2012_2026/prices/daily_panel.csv.gz"
+    assert panel_key in files and "research_cache/reversal_2012_2026/raw/kf/a.zip" in files
+    assert not any(k.startswith("/") for k in files)                           # relative keys only (plan 1.1)
+    assert on_disk["sha256"] == {k: v["sha256"] for k, v in files.items()}     # the plan's sha256{relative_path} map
     assert "manifest.json" not in files
-    on_disk = json.loads((ctx.inputs / "manifest.json").read_text())
-    for key in ("generated_utc", "scripts_git_commit", "scripts", "sources", "raw_index_sha256", "files", "validation"):
+    for key in va.MANIFEST_PLAN_KEYS + ("scripts", "files", "validation", "validation_inputs"):
         assert key in on_disk
     assert on_disk["sources"]["yahoo"]["requests"] == 1 and on_disk["sources"]["yahoo"]["endpoint_template"]
+    assert on_disk["raw_index_sha256"] == common.sha256_file(ctx.cache / "raw_index.csv.gz")
     assert any("weekly_listed.csv.gz" in m for m in on_disk["files_missing"])   # the universe files are not in the fixture
-    monkeypatch.setattr(va, "secret_values", lambda: ["yahoo.com/v8"])           # a "key" that does appear
+    assert "split_events.csv" in summary["inputs_read"]                         # what the checks read, with its hash
+    # a key value that would appear: nothing is written, the earlier files stay as they were
+    before = {n: (ctx.inputs / n).read_bytes() for n in ("manifest.json", "validation_summary.json")}
+    monkeypatch.setattr(va, "secret_values", lambda: ["yahoo.com/v8"])
     with pytest.raises(RuntimeError):
-        va.build_manifest(ctx, summary)
-    assert json.loads((ctx.inputs / "manifest.json").read_text())["files"]    # the earlier manifest is left as it was
+        va.write_outputs(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main), results)
+    assert before == {n: (ctx.inputs / n).read_bytes() for n in before}
+
+
+def test_an_input_that_changes_during_the_run_blocks_both_files_and_a_live_file_does_not(ctx, monkeypatch):
+    _manifest_fixture(ctx)
+    monkeypatch.setattr(va, "secret_values", lambda: [])
+    for path in va.files_for_test(ctx):          # as main does: hash the test's files before the checks
+        if path.exists():
+            ctx.sha(path)
+    results = [va.check_split_agreement(ctx)]
+    va.source_facts(ctx)                         # reads the live raw_index once
+    with gzip.open(ctx.cache / "raw_index.csv.gz", "at") as handle:   # the Tiingo run logs another request
+        handle.write("2026-10-02T00:00:00+00:00,tiingo,https://api.tiingo.com/x,200,5,cd,y\n")
+    summary, _ = va.write_outputs(ctx, results)
+    assert [c["file"] for c in summary["live_inputs_moved_on"]] == ["research_cache/reversal_2012_2026/raw_index.csv.gz"]
+    written = {n: (ctx.inputs / n).read_bytes() for n in ("manifest.json", "validation_summary.json")}
+    fresh = va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main)
+    for path in va.files_for_test(fresh):
+        if path.exists() and path.name != "validation_summary.json":
+            fresh.sha(path)
+    results = [va.check_split_agreement(fresh)]
+    _write(ctx.inputs / "split_events.csv", _splits(1, 2))        # an upstream step rewrites a file the check read
+    with pytest.raises(va.InputsChanged):
+        va.write_outputs(fresh, results)
+    assert written == {n: (ctx.inputs / n).read_bytes() for n in written}
+    again = va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main)
+    again.sha(ctx.cache / "factors" / "ff5_2x3_daily.csv")              # read by no check, hashed at the start
+    _write(ctx.cache / "factors" / "ff5_2x3_daily.csv", _factor_rows(["2015-01-05"], ["RF"]))
+    assert again.input_changes()["blocking"]
 
 
 # ------------------------------------------------------------------ the built outputs (skipped until built)
@@ -392,16 +685,24 @@ def test_built_summary_reports_every_check_with_its_threshold_and_numbers():
         assert check["status"] in ("pass", "fail", "no_input", "error") and check["threshold"]
         assert check["passed"] == (check["status"] == "pass")
     assert set(summary["passed"]) | set(summary["failed"]) == set(names)
+    assert summary["inputs_read"] and all(len(v) == 64 for v in summary["inputs_read"].values())
 
 
 @pytest.mark.skipif(not BUILT_MANIFEST.exists(), reason="manifest.json not built yet")
 def test_built_manifest_lists_every_input_file_and_the_test_files_from_the_cache():
     manifest = json.loads(BUILT_MANIFEST.read_text())
-    inputs = {p.name for p in common.INPUTS.glob("*") if p.is_file() and p.name != "manifest.json"}
+    inputs = {p.name for p in common.INPUTS.glob("*") if p.is_file() and p.name not in ("manifest.json",)
+              and not p.name.endswith(".tmp")}
     assert inputs <= set(manifest["files"])
-    assert str(common.CACHE / "prices" / "daily_panel.csv.gz") in manifest["files"]
+    assert va.CACHE_KEY_PREFIX + "prices/daily_panel.csv.gz" in manifest["files"]
     for name in va.FACTOR_FILES:
-        assert str(common.CACHE / "factors" / name) in manifest["files"]
+        assert va.CACHE_KEY_PREFIX + "factors/" + name in manifest["files"]
+    assert not any(k.startswith("/") for k in manifest["files"])
+    assert manifest["sha256"] == {k: v["sha256"] for k, v in manifest["files"].items()}
     assert manifest["scripts_git_commit"] and manifest["raw_index_sha256"]
+    summary = json.loads(BUILT_SUMMARY.read_text())
+    assert manifest["files"]["validation_summary.json"]["sha256"] == common.sha256_file(BUILT_SUMMARY)
+    for key, digest in summary["inputs_read"].items():   # the same hash wherever a file appears
+        assert manifest["sha256"].get(key, manifest["validation_inputs"].get(key)) == digest
     text = BUILT_MANIFEST.read_text()
     assert "api_key=" not in text.replace("api_key=REDACTED", "")

@@ -51,7 +51,12 @@ Rules (plan section 3.2):
 - V: a stratified 50-name verification sample of active names (Tiingo next to Yahoo), each
   category keeping 8 slots (special dividends included), under the Yahoo ticker;
 - Y: active names ranked <= 300 in any week whose listed interval no vendor raw series
-  covers (plan step 7, Yahoo).
+  covers (plan step 7, Yahoo);
+- Y_active_all: every name listed now (an open interval at the latest snapshot, common stock in
+  the last week, not a SPAC shell; nor a blank-check shell ``spac_shells`` misses, ``spac_like_now``)
+  with a universe (non-foreign) week that no vendor raw series
+  covers, whatever its dollar volume or size (round 5: SMCI, CHRD, CORZ and SIGA were listed but
+  never ranked here, because their later listings after a Form 25 were cut to one day). Yahoo.
 
 Routing (plan section 3.2): 2011-06..2018-03-27 -> WIKI when it has the security
 and the entity check passes; delisted names after that -> Tiingo only when one
@@ -92,6 +97,8 @@ Outputs:
   CACHE/prefilter/weekly_coverage.csv   per week: how many of ranks 1-300 have vendor raw
   CACHE/prefilter/security_facts.csv.gz, event_flags.csv, spans/lists/files/entity.csv.gz
   CACHE/prefilter/supported_tickers_{date}.zip   Tiingo's public ticker list (no key)
+  CACHE/prefilter/unknown_size_delisted.csv  delisted names whose universe weeks have neither a series
+                                        (vendor, stored, or fetched since) nor a size proxy; counts only
   CACHE/prefilter/prefilter_summary.json counts, checks, budget
 
 Usage::
@@ -221,8 +228,11 @@ def listing_spans(intervals: pd.DataFrame, master: pd.DataFrame, window_end: str
 
     ``list_start`` is the first snapshot that shows it; ``list_end`` reaches to the day before
     the next full-list snapshot without it (``end_next_absent``) or, when no later snapshot
-    misses it, to ``window_end``; a Form 25 delist date earlier than that cuts it. The IPO
-    rule (prices between two snapshots) is applied later, in ``extend_starts``.
+    misses it, to ``window_end``; a Form 25 delist date earlier than that cuts it. An interval
+    that starts on or after the delist date is a later listing and is not cut (``after_cut``, as
+    in step 12: SMCI relisted 2020-02 after its 2019-03 Form 25, Oasis/Chord 2020-11, Core
+    Scientific 2024-03; cut to one day, step 6 never saw their later weeks). The IPO rule
+    (prices between two snapshots) is applied later, in ``extend_starts``.
     """
     delist = dict(zip(master["security_id"], master["delist_date"]))
     rows = []
@@ -230,11 +240,12 @@ def listing_spans(intervals: pd.DataFrame, master: pd.DataFrame, window_end: str
         end = _day_before(row.end_next_absent) if row.end_next_absent else window_end
         end = max(end, row.end)
         cut = delist.get(row.security_id, "")
-        if cut and cut < end:
+        after = bool(cut) and cut <= row.start
+        if cut and not after and cut < end:
             end = max(cut, row.start)
         rows.append({"security_id": row.security_id, "ticker": row.ticker, "list_start": row.start,
                      "list_end": end, "start_prev_absent": row.start_prev_absent, "obs_end": row.end,
-                     "name": row.name_in_source, "share_class": row.share_class})
+                     "name": row.name_in_source, "share_class": row.share_class, "after_cut": after})
     return pd.DataFrame(rows)
 
 
@@ -388,6 +399,34 @@ def spac_shells(master: pd.DataFrame, intervals: pd.DataFrame, sic_path: Path = 
             out[sid] = "sic_6770_never_operating_one_ticker"
         elif named:
             out[sid] = "sic_6770_spac_name"
+    return out
+
+
+# Roman numerals past X (Churchill Capital Corp XI), for the narrower test of a shell listed now.
+SPAC_NAME_NOW = re.compile(SPAC_NAME.pattern.replace("(?:I|II|III|IV|V|VI|VII|VIII|IX|X|",
+                                                     "(?:I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XX|"),
+                           re.IGNORECASE)
+
+
+def spac_like_now(master: pd.DataFrame, intervals: pd.DataFrame, listed_now, sic_path: Path = SIC_HISTORY) -> set[str]:
+    """Securities listed now that are still blank-check shells, which ``spac_shells`` misses because their
+    SIC is not 6770 or their name is not SPAC-like (round 5: Dynamix Corp, SIC 6770 with three tickers;
+    Iron Horse Acquisition II, Churchill Capital Corp XI and Research Alliance Corp III, SIC 7389 /
+    3569 / 2834): SIC 6770 with no operating SIC after it, or a SPAC-like master name whose every listed
+    name is SPAC-like too (never renamed to an operating company). Used by rule Y_active_all only; the
+    universe base (``spac_shells``) is unchanged."""
+    sic = read_csv_text(sic_path) if Path(sic_path).exists() else pd.DataFrame(
+        columns=["cik", "operating_sic_after_6770"])
+    operating = set(sic.loc[sic["operating_sic_after_6770"] != "", "cik"])
+    names = intervals.groupby("security_id")["name_in_source"].apply(list).to_dict()
+    now = set(listed_now)
+    out = set()
+    for row in master[master["security_id"].isin(now)].itertuples(index=False):
+        blank = row.sic == "6770" and row.cik not in operating
+        named = bool(SPAC_NAME_NOW.search(row.name)) and all(SPAC_NAME_NOW.search(str(n))
+                                                              for n in names.get(row.security_id, []))
+        if blank or named:
+            out.add(row.security_id)
     return out
 
 
@@ -1284,6 +1323,10 @@ def security_facts(weekly: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFra
         "last_ticker": by_security["ticker"].last(),
         "tickers": by_security["ticker"].apply(lambda t: " ".join(dict.fromkeys(reversed(list(t))))),
     }), how="outer")
+    # The ticker of the interval open at the latest snapshot (AGEN, not AGEND: the reverse-split
+    # ticker of 2011-10-07 starts after AGEN's open interval does, so it is ``last_ticker``).
+    open_spans = spans[spans["list_end"] == WINDOW_END].sort_values("list_start")
+    facts["open_ticker"] = open_spans.groupby("security_id")["ticker"].last().reindex(facts.index).fillna("")
     last_held = spans.groupby(["security_id", "ticker"])["list_end"].max().reset_index()
     facts["ticker_last_held"] = last_held.groupby("security_id").apply(
         lambda g: " ".join(f"{t}:{e}" for t, e in zip(g["ticker"], g["list_end"])), include_groups=False)
@@ -1302,6 +1345,20 @@ def security_facts(weekly: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFra
     facts = facts.join(floats, on="delist_form25_accession")
     facts["public_float_usd"] = pd.to_numeric(facts["public_float_usd"], errors="coerce")
     facts["active_nasdaq"] = facts["last_listed"].eq(WINDOW_END)
+    # Listed now (rule Y_active_all): an open interval at the latest snapshot that is common stock in the
+    # last week (not a SPAC shell or a non-common name); ``foreign_now`` is reported, the rule itself
+    # counts only universe (non-foreign) weeks.
+    last = weekly[weekly["week_end"] == weekly["week_end"].max()]
+    facts["listed_now"] = facts["active_nasdaq"] & facts.index.isin(set(last.loc[~last["non_common"], "security_id"]))
+    facts["foreign_now"] = facts.index.isin(set(last.loc[last["foreign"], "security_id"]))
+    # Listed again after a Form 25 (``listing_spans`` after_cut): where the later listing starts, and the
+    # last day of the listing before the cut (``relisted_parts`` splits the need there).
+    after = (spans["after_cut"].astype(str).eq("True") if "after_cut" in spans
+             else pd.Series(False, index=spans.index))
+    relist = spans[after].groupby("security_id")["list_start"].min()
+    before_cut = spans[~after].groupby("security_id")["list_end"].max()
+    facts["listed_before_cut"] = before_cut.reindex(facts.index).where(facts.index.isin(relist.index)).fillna("")
+    facts["relisted_from"] = relist.reindex(facts.index).where(facts["listed_now"] & (facts["listed_before_cut"] != "")).fillna("")
     current = {r.security_id: sec_current_tickers(r) for r in master.itertuples(index=False)}
     facts["yahoo_tickers"] = [" ".join(current.get(s, [])) for s in facts.index]
     facts["active"] = facts["active_nasdaq"] | ((facts["delist_date"].fillna("") == "") & (facts["yahoo_tickers"] != ""))
@@ -1442,7 +1499,7 @@ def stored_break_names(day: str = BREAK_DATE, directory: Path = STORED_DIR) -> l
 REASON_PRIORITY = ["B_A_float_ge_1B", "A1_wiki_dv_rank300", "A2_mcap_rank400", "A3_float_ge_1B_2012_2018",
                    "B_B_float_500M_1B", "C_late_start", "S_stored_only_delisted_rank300",
                    "S_float_delisted_after_2024_06", "B_C_sample_300M_500M", "V_verify_sample",
-                   "Y_active_rank300", "B_C_rest_300M_500M"]
+                   "Y_active_rank300", "B_C_rest_300M_500M", "Y_active_all"]
 MONTH_2_REASONS = {"B_C_rest_300M_500M"}
 S_FLOAT_TIERS = {"B_A", "B_B"}
 
@@ -1523,6 +1580,10 @@ def rule_hits(facts: pd.DataFrame, ranks: pd.DataFrame, floats: pd.DataFrame) ->
         if ((row.active or row.via_successor) and pd.notna(row.best_rank_uncovered)
                 and row.best_rank_uncovered <= FETCH_RANK):
             hits[sid]["Y_active_rank300"] = ("dv_rank_min_uncovered_weeks", int(row.best_rank_uncovered))
+        # Every name listed now whose universe weeks a vendor raw series does not cover, whatever its
+        # dollar volume or size (round 5: SMCI, CHRD, CORZ, SIGA were listed but never ranked here).
+        if bool(getattr(row, "listed_now", False)) and not bool(getattr(row, "spac_like_now", False)):
+            hits[sid]["Y_active_all"] = ("uncovered_universe_weeks", int(row.uncovered_weeks))
         if (not row.active and not row.via_successor and str(row.last_listed)[:10] > S_AFTER
                 and pd.notna(row.best_rank_uncovered)
                 and row.best_rank_uncovered <= FETCH_RANK):
@@ -1552,12 +1613,16 @@ V_RESERVE = {"stored_break_2025_06_24": 8, "split_after_2023": 8, "special_divid
 
 
 def verification_sample(facts: pd.DataFrame, weekly: pd.DataFrame, events: pd.DataFrame,
-                        breaks: list[str], usable=None) -> dict[str, str]:
+                        breaks: list[str], usable=None, keep: dict[str, str] | None = None) -> dict[str, str]:
     """security -> V category for 50 active names: the plan's named break names and named events, then up to
     V_RESERVE names of each category (the stored files' 2025-06-24 break names, splits after 2023,
     special dividends above 10%, odd split factors; each by best dv rank), then the categories in
     turn until 50, then a seeded draw from active names ranked <= 300 in the last year, in three rank
-    buckets. ``usable(sid)``: whether Tiingo serves a row for the name (others are skipped)."""
+    buckets. ``usable(sid)``: whether Tiingo serves a row for the name (others are skipped).
+    ``keep``: the sample already drawn (security -> category, from the candidate list on disk). Its
+    names stay, with their categories, while they are still active and usable, so that a later run (new
+    active names, shifted ranks: SMCI's relisting in round 5) does not redraw a sample Tiingo is already
+    fetching; only freed slots are filled by the rules above."""
     # Active names that are in the universe (non-foreign common stock) in the last year.
     recent_start = pd.Timestamp(LAST_WEEK) - pd.DateOffset(years=1)
     active = facts[facts["active"] & (facts["last_universe_week"] >= recent_start)]
@@ -1571,6 +1636,9 @@ def verification_sample(facts: pd.DataFrame, weekly: pd.DataFrame, events: pd.Da
             by_ticker.setdefault(ticker, sid)
     order = active["best_rank"].fillna(1e9)
     chosen: dict[str, str] = {}
+    for sid, kind in sorted((keep or {}).items()):
+        if sid in active.index and len(chosen) < V_SAMPLE:
+            chosen[sid] = kind
 
     def ranked(sids):
         return [s for s in sorted(set(sids), key=lambda s: (order.get(s, 1e9), s)) if s not in chosen]
@@ -1626,7 +1694,9 @@ UNFILLABLE_COLUMNS = ["security_id", "ticker", "needed_start", "needed_end", "so
 
 def yahoo_ticker(row) -> str:
     current = str(row.yahoo_tickers).split()
-    if row.active_nasdaq or not current:
+    if row.active_nasdaq:
+        return str(getattr(row, "open_ticker", "") or "") or row.last_ticker
+    if not current:
         return row.last_ticker
     return row.last_ticker if row.last_ticker in current else current[0]
 
@@ -1791,6 +1861,39 @@ def match_note(match: dict) -> str:
     return ""
 
 
+def _join_notes(*notes: str) -> str:
+    return "; ".join(n for n in notes if n)
+
+
+def relisted_parts(row, reasons: list[str], hits: dict) -> list[tuple[list[str], object, str, str, str]]:
+    """The candidate rows of a security as (reasons, facts row, need start, need end, note).
+
+    Usually one row: every reason, the security's own facts and ``needed_window``. A security listed
+    again after a Form 25 (``relisted_from``: SMCI 2020-02, Oasis/Chord 2020-11, Core Scientific 2024-03
+    after its bankruptcy, WW 2025) is listed now, but Yahoo serves the current ticker's history, which
+    may start at the relisting (new equity out of a bankruptcy). So when it has uncovered weeks before
+    the relisting and another rule than Y holds, that rule's row keeps the delisted routing (WIKI / Tiingo,
+    the security taken as delisted on ``listed_before_cut``) for the need up to that day, and a Y row
+    (Y_active_rank300, else Y_active_all) asks Yahoo for the need from the relisting on."""
+    if not reasons:
+        return []
+    start, end = needed_window(row)
+    relist = str(getattr(row, "relisted_from", "") or "")
+    early = [r for r in reasons if not r.startswith("Y_")]
+    late = [r for r in reasons if r.startswith("Y_")]
+    if not (bool(row.active) and relist and str(getattr(row, "listed_before_cut", "") or "")
+            and early and late and pd.Timestamp(row.first_uncovered) < pd.Timestamp(relist)):
+        return [(reasons, row, start, end, "")]
+    cut_end = str(row.listed_before_cut)[:10]
+    pre = row.copy()
+    pre["active"], pre["active_nasdaq"], pre["via_successor"] = False, False, ""
+    pre["last_listed"] = cut_end
+    post_start = max(start, (pd.Timestamp(relist) - pd.Timedelta(days=WARMUP_DAYS)).strftime("%Y-%m-%d"))
+    note_pre = f"the need before the {row.delist_date} Form 25; listed again from {relist} (Yahoo row {late[0]})"
+    note_post = f"listed again from {relist} after the {row.delist_date} Form 25; the need before it is the {early[0]} row"
+    return [(early, pre, start, min(end, cut_end), note_pre), (late, row, post_start, end, note_post)]
+
+
 def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd.DataFrame,
           holders: dict[str, set[str]] | None = None, fetched: dict | None = None) -> pd.DataFrame:
     holders, fetched = holders or {}, fetched or {}
@@ -1815,7 +1918,7 @@ def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd
                     "tiingo_row_end": match["row_end"], "tiingo_coverage": match["coverage"],
                     "tiingo_flags": " ".join(flags), "ticker_for_source": match["ticker"]}
 
-        def best_match(candidates: list, start: str, end: str) -> dict:
+        def best_match(candidates: list, start: str, end: str, info: dict = info) -> dict:
             """The range match, with the fetcher's verdicts on answers it holds: a ticker whose answer failed
             the entity check for this security is passed over (and reported, ``fetched_wrong_entity``,
             when nothing else serves the need); a hidden or newer-company row whose answer passed it counts."""
@@ -1836,23 +1939,23 @@ def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd
                     return failed
             return match
 
-        if reasons:
-            primary = reasons[0]
+        for part_reasons, part, start, end, part_note in relisted_parts(row, reasons, hits.get(sid, {})):
+            primary = part_reasons[0]
             metric = hits[sid][primary]
-            start, end = needed_window(row)
             if primary == "C_late_start" and len(metric) > 2:
                 start = min(start, metric[2][0])
             out = {**base, "needed_start": start, "needed_end": end, "reason": primary,
-                   "reasons_all": " ".join(reasons), "priority": REASON_PRIORITY.index(primary) + 1,
-                   "prefilter_metric": metric[0], "prefilter_value": metric[1]}
+                   "reasons_all": " ".join(part_reasons), "priority": REASON_PRIORITY.index(primary) + 1,
+                   "prefilter_metric": metric[0], "prefilter_value": metric[1],
+                   "active": "Y" if part.active else ("successor" if part.via_successor else "N"), "note": part_note}
             month = MONTH_2 if primary in MONTH_2_REASONS else MONTH_1
-            alternative = "" if row.active else wiki_alternative(sid, row, start, end, lists)
-            if row.active:
+            alternative = "" if part.active else wiki_alternative(sid, part, start, end, lists)
+            if part.active:
                 out.update(planned_source="yahoo", ticker_for_source=yahoo_ticker(row), status="pending",
                            fetch_month=MONTH_1)
-            elif row.via_successor:
-                heir = facts.loc[row.via_successor]
-                note = f"history under successor {row.via_successor} (step-4 link)"
+            elif part.via_successor:
+                heir = facts.loc[part.via_successor]
+                note = f"history under successor {part.via_successor} (step-4 link)"
                 if heir.foreign_filer in ("Y", "MIXED"):
                     note += (f"; the successor is a foreign filer ({heir.foreign_filer}): use the series only for "
                              f"this security's own window {start}..{end}")
@@ -1860,9 +1963,10 @@ def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd
                            fetch_month=MONTH_1, note=note)
             elif alternative and end <= WIKI_END:
                 out.update(planned_source="wiki", ticker_for_source=alternative, status="cached", fetch_month="",
-                           note="WIKI file under a current SEC ticker of the CIK; LastSale level check passed")
+                           note=_join_notes(part_note, "WIKI file under a current SEC ticker of the CIK; LastSale level "
+                                                       "check passed"))
             else:
-                match = best_match(tiingo_tickers(row, start, sid, qmap), start, end)
+                match = best_match(tiingo_tickers(part, start, sid, qmap), start, end, security_info(part))
                 out.update(tiingo_fields(match, start))
                 if useful_partial(match, start):
                     status = ("conditional_tier_c" if primary == "B_C_rest_300M_500M"
@@ -1872,7 +1976,7 @@ def route(facts: pd.DataFrame, hits: dict, vsample: dict, index: dict, lists: pd
                     newer = match["match"] in ("wrong_entity", "hidden", "newer_company", "fetched_wrong_entity") or (
                         match["match"] == "partial" and _days(match["row_start"], start) < -TIINGO_START_SLACK_DAYS)
                     out.update(planned_source="unfillable", fetch_month="", status="wrong_entity" if newer else "no_data",
-                               note=match_note(match))
+                               note=_join_notes(part_note, match_note(match)))
             rows.append(out)
         if sid in vsample:
             start = max(WINDOW_START, str(row.first_listed)[:10])
@@ -1902,16 +2006,21 @@ def seeded_order(ids: list[str], seed: int = SEED) -> list[str]:
     return rng.choice(ids, size=len(ids), replace=False).tolist() if ids else []
 
 
-def refill_tier_c_sample(frame: pd.DataFrame, n: int = TIER_C_SAMPLE) -> tuple[pd.DataFrame, dict]:
+def refill_tier_c_sample(frame: pd.DataFrame, n: int = TIER_C_SAMPLE,
+                         keep: set[str] | frozenset = frozenset()) -> tuple[pd.DataFrame, dict]:
     """The tier-C sample as the first ``n`` names, in the seeded order of the whole tier-C pool (rows
     whose primary reason is the sample or the rest), that some planned request can price: a sampled
     name no free source has cannot show whether tier C reaches rank 300 (round 1: 5 of 20). The
-    others become ``B_C_rest`` (conditional on the sample, or unfillable as before)."""
+    others become ``B_C_rest`` (conditional on the sample, or unfillable as before). ``keep``: the sample
+    already drawn (from the candidate list on disk); its names stay first while they are in the pool and
+    fetchable, and only freed places are filled in the seeded order."""
     frame = frame.copy()
     reasons = ("B_C_sample_300M_500M", "B_C_rest_300M_500M")
     pool = frame[frame["reason"].isin(reasons)]
     fetchable = set(pool.loc[pool["planned_source"].isin(["tiingo", "wiki"]), "security_id"])
-    chosen = [sid for sid in seeded_order(list(pool["security_id"])) if sid in fetchable][:n]
+    order = [sid for sid in seeded_order(list(pool["security_id"])) if sid in fetchable]
+    kept = [sid for sid in order if sid in set(keep)][:n]
+    chosen = kept + [sid for sid in order if sid not in set(kept)][:n - len(kept)]
     swapped = 0
     for k in pool.index:
         sid, was = frame.at[k, "security_id"], frame.at[k, "reason"]
@@ -1926,7 +2035,8 @@ def refill_tier_c_sample(frame: pd.DataFrame, n: int = TIER_C_SAMPLE) -> tuple[p
             status, month = ("pending", MONTH_1) if now == reasons[0] else ("conditional_tier_c", MONTH_2)
             frame.at[k, "status"], frame.at[k, "fetch_month"] = status, month
     unfetchable = sorted(set(pool["security_id"]) - fetchable)
-    return frame, {"pool": int(pool["security_id"].nunique()), "sample": len(chosen), "rows_swapped": swapped,
+    return frame, {"pool": int(pool["security_id"].nunique()), "sample": len(chosen), "kept_from_previous": len(kept),
+                   "rows_swapped": swapped,
                    "pool_unfetchable": len(unfetchable), "seed": SEED}
 
 
@@ -2103,6 +2213,106 @@ def weekly_coverage(weekly: pd.DataFrame, above: pd.Series, candidates: pd.DataF
     return table.reset_index()
 
 
+# ------------------------------------------------------------------ delisted names with no evidence
+
+UNKNOWN_SIZE = OUT / "unknown_size_delisted.csv"
+CANONICAL_DIR = common.CACHE / "prices"
+YAHOO_SERIES_DIR = common.CACHE / "yahoo"
+UNKNOWN_SIZE_COLUMNS = ["security_id", "tickers", "name", "cik", "delist_date", "last_listed", "unknown_weeks",
+                        "first_unknown_week", "last_unknown_week", "unknown_weeks_by_year", "candidate_reasons",
+                        "planned_source", "candidate_status", "fetch_month", "tiingo_answers", "next_step"]
+
+
+def fetched_dates(sids, fetch_status_path: Path = FETCH_STATUS, canonical_dir: Path = CANONICAL_DIR,
+                  yahoo_dir: Path = YAHOO_SERIES_DIR) -> dict[str, np.ndarray]:
+    """security -> sorted dates of the vendor series fetched or reconciled since step 6 read its files:
+    the canonical panel file (step 9), the Yahoo series (step 7) and the Tiingo answers the fetcher
+    kept for the security (step 8, ``done``/``done_review``/``partial``). Only the ``date`` column is read."""
+    sids = set(sids)
+    paths = defaultdict(list)
+    for sid in sids:
+        paths[sid] += [p for p in (Path(canonical_dir) / f"{sid}.csv", Path(yahoo_dir) / f"{sid}.csv.gz") if p.exists()]
+    if Path(fetch_status_path).exists():
+        status = read_csv_text(fetch_status_path)
+        status = status[status["security_id"].isin(sids) & status["status"].isin(FETCHED_OK) & (status["prices_path"] != "")]
+        for row in status.itertuples(index=False):
+            if Path(row.prices_path).exists():
+                paths[row.security_id].append(Path(row.prices_path))
+    out = {}
+    for sid, files in paths.items():
+        dates = [pd.read_csv(p, usecols=["date"], dtype=str)["date"] for p in files]
+        if dates:
+            out[sid] = np.unique(pd.to_datetime(pd.concat(dates)).values.astype("datetime64[D]"))
+    return out
+
+
+def unknown_size_delisted(weekly: pd.DataFrame, facts: pd.DataFrame, candidates: pd.DataFrame,
+                          fetched: dict | None = None, dates: dict | None = None) -> pd.DataFrame:
+    """Delisted names (no open interval at the latest snapshot) with universe weeks that have neither a
+    series nor a size proxy: no vendor raw cover and no step-6 dollar volume from any source (the stored
+    files included), no market cap or XBRL float within 12 months, and no row of a series fetched since
+    (``dates``, from ``fetched_dates``) in the week's last 5 sessions. Weeks before the first / after the
+    last trade and weeks with a vendor close under $10 are left out (as in step 12). One row per security;
+    ``next_step`` says what could still fill it (a later Tiingo month, or a proxy)."""
+    fetched = fetched or {}
+    gone = set(facts.index[~facts["active_nasdaq"].astype(bool)])
+    w = weekly[weekly["universe"] & weekly["security_id"].isin(gone) & ~weekly["vendor_ok"].astype(bool)
+               & ~weekly["outside_trading"].astype(bool)]
+    has_dv = w["dv50"].notna() & w["price_ge_10"].isin(["Y", "U"])
+    w = w[~has_dv & w["mcap"].isna() & w["float_usd"].isna() & (w["price_ge_10"] != "N")]
+    if dates is None:
+        dates = fetched_dates(w["security_id"].unique())
+    if len(w) and dates:
+        week = w["week_end"].values.astype("datetime64[D]")
+        seen = np.zeros(len(w), dtype=bool)
+        for sid, index in w.groupby("security_id").indices.items():
+            mine = dates.get(sid)
+            if mine is None or not len(mine):
+                continue
+            # a row in the week's last 5 sessions (7 calendar days back from the week end)
+            hi = np.searchsorted(mine, week[index], "right")
+            lo = np.searchsorted(mine, week[index] - np.timedelta64(6, "D"), "left")
+            seen[index] = hi > lo
+        w = w[~seen]
+    cand = candidates.fillna("")
+    by_sid = {s: g for s, g in cand[cand["reason"] != "V_verify_sample"].groupby("security_id")}
+    answers = defaultdict(list)
+    for (sid, ticker), seen in fetched.items():
+        answers[sid].append(f"{ticker}:{seen['status']}")
+    rows = []
+    for sid, g in w.groupby("security_id"):
+        info = facts.loc[sid]
+        mine = by_sid.get(sid)
+        reasons = " ".join(sorted(set(mine["reason"]))) if mine is not None else ""
+        source = " ".join(sorted(set(mine["planned_source"]))) if mine is not None else ""
+        status = " ".join(sorted(set(mine["status"]))) if mine is not None else ""
+        month = " ".join(sorted(set(m for m in mine["fetch_month"] if m))) if mine is not None else ""
+        told = sorted(answers.get(sid, []))
+        if mine is None:
+            step = "not_a_candidate: needs a proxy or a later Tiingo month"
+        elif "tiingo" in source and MONTH_1 in month and "pending" in status.split():
+            step = "tiingo_month1_pending"
+        elif "tiingo" in source:
+            step = "tiingo_later_month"
+        elif "yahoo" in source:
+            step = "yahoo_pending (successor)"
+        elif told:
+            step = "tiingo_answered_still_unknown: needs a proxy"
+        else:
+            step = "no_free_source: needs a proxy"
+        years = g["week_end"].dt.year.value_counts().sort_index()
+        rows.append({"security_id": sid, "tickers": info.get("tickers", ""), "name": info.get("name", ""),
+                     "cik": info.get("cik", ""), "delist_date": info.get("delist_date", "") or "",
+                     "last_listed": str(info.get("last_listed", ""))[:10], "unknown_weeks": int(len(g)),
+                     "first_unknown_week": g["week_end"].min().strftime("%Y-%m-%d"),
+                     "last_unknown_week": g["week_end"].max().strftime("%Y-%m-%d"),
+                     "unknown_weeks_by_year": " ".join(f"{y}:{n}" for y, n in years.items()),
+                     "candidate_reasons": reasons, "planned_source": source, "candidate_status": status,
+                     "fetch_month": month, "tiingo_answers": " ".join(told), "next_step": step})
+    frame = pd.DataFrame(rows, columns=UNKNOWN_SIZE_COLUMNS)
+    return frame.sort_values(["unknown_weeks", "security_id"], ascending=[False, True]).reset_index(drop=True)
+
+
 # ------------------------------------------------------------------ main
 
 def coverage_by_year(table: pd.DataFrame) -> dict:
@@ -2187,6 +2397,29 @@ def tiingo_queue(candidates: pd.DataFrame) -> dict:
                                         if f.startswith("alias:")))}
 
 
+Y_NAMED = {"1375365": "SMCI", "1486159": "CHRD", "1839341": "CORZ", "1010086": "SIGA"}  # round 5 defect names
+
+
+def y_active_all_facts(candidates: pd.DataFrame, facts: pd.DataFrame, before: pd.DataFrame | None) -> dict:
+    """What rule Y_active_all adds: securities it holds for, those for which it is the only rule, the Yahoo
+    symbols, and those that the previous candidate list did not ask Yahoo for."""
+    hit = candidates[candidates["reasons_all"].fillna("").str.split().apply(lambda r: "Y_active_all" in r)]
+    only = candidates[candidates["reason"] == "Y_active_all"]
+    yahoo = set(candidates.loc[candidates["planned_source"] == "yahoo", "ticker_for_source"])
+    old = set(before.loc[before["planned_source"] == "yahoo", "ticker_for_source"]) if before is not None else set()
+    listed_now = facts[facts["listed_now"].astype(bool)]
+    return {"listed_now_securities": int(len(listed_now)),
+            "listed_now_uncovered": int((listed_now["uncovered_weeks"] > 0).sum()),
+            "listed_now_foreign_now_uncovered": int(((listed_now["uncovered_weeks"] > 0) & listed_now["foreign_now"]).sum()),
+            "listed_now_blank_check_shells_left_out": sorted(listed_now.index[listed_now["spac_like_now"].astype(bool)]),
+            "securities_hit": int(hit["security_id"].nunique()), "securities_only_this_rule": int(only["security_id"].nunique()),
+            "yahoo_symbols": len(yahoo), "yahoo_symbols_new_vs_previous_list": len(yahoo - old),
+            "yahoo_symbols_dropped_vs_previous_list": sorted(old - yahoo),
+            "named": {t: " ".join(f"{r.reason}/{r.planned_source}/{r.ticker_for_source}/{r.needed_start}..{r.needed_end}"
+                                  for r in candidates[candidates["security_id"] == s].itertuples()) or "not a candidate"
+                      for s, t in Y_NAMED.items()}}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="never download (the Tiingo list must be cached)")
@@ -2194,6 +2427,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tiingo-already-used", type=int, default=None,
                         help="unique Tiingo symbols used this month that the quota ledger does not show (the account "
                              "page's count minus the ledger's); without it the budget counts them as 0 and says so")
+    parser.add_argument("--redraw-samples", action="store_true",
+                        help="draw the V and tier-C samples afresh instead of keeping those of the list on disk")
+    parser.add_argument("--unfillable-to-cache", action="store_true",
+                        help="write the unfillable list to CACHE/prefilter/unfillable_rebuilt.csv and leave "
+                             "INPUTS/unfillable.csv as it is (when another owner holds that file)")
     args = parser.parse_args(argv)
     started = time.time()
     master, intervals = load_master(), load_intervals()
@@ -2226,6 +2464,9 @@ def main(argv: list[str] | None = None) -> int:
     log("stage 4: security facts and rules")
     facts = security_facts(weekly, stage["spans"], master, stage["best"], form25)
     facts["ends_foreign"] = [is_foreign_on(foreign.get(s), str(d)[:10]) for s, d in zip(facts.index, facts["last_listed"])]
+    facts["spac_like_now"] = facts.index.isin(spac_like_now(master, intervals, facts.index[facts["listed_now"]]))
+    log(f"listed now: {int(facts['listed_now'].sum())}; still blank-check shells (no Y_active_all): "
+        f"{sorted(facts.index[facts['spac_like_now']])}")
     hits = rule_hits(facts, ranks, floats)
     log(f"rule hits: {len(hits)} securities")
     supported = load_supported_tickers(offline=args.offline)
@@ -2240,10 +2481,17 @@ def main(argv: list[str] | None = None) -> int:
         match = tiingo_range_match([(yahoo_ticker(row), "own")], start, WINDOW_END, index, security_info(row))
         return match["match"] in ("Y", "partial") and match["coverage"] >= MIN_PARTIAL_COVERAGE
 
-    vsample = verification_sample(facts, weekly, events, breaks, v_usable)
+    keep_v, keep_c = {}, set()
+    if before is not None and not args.redraw_samples:
+        previous_v = before[before["reason"] == "V_verify_sample"]
+        keep_v = dict(zip(previous_v["security_id"], previous_v["v_category"]))
+        keep_c = set(before.loc[before["reason"] == "B_C_sample_300M_500M", "security_id"])
+    vsample = verification_sample(facts, weekly, events, breaks, v_usable, keep=keep_v)
+    log(f"V sample: {len(vsample)} names, {len(set(vsample) & set(keep_v))} kept from the list on disk")
     log("stage 5: routing")
-    candidates = route(facts, hits, vsample, index, stage["lists"], sec_ticker_holders(master), fetched_outcomes())
-    candidates, sample_facts = refill_tier_c_sample(candidates)
+    fetched = fetched_outcomes()
+    candidates = route(facts, hits, vsample, index, stage["lists"], sec_ticker_holders(master), fetched)
+    candidates, sample_facts = refill_tier_c_sample(candidates, keep=keep_c)
     log(f"tier-C sample: {sample_facts}")
     candidates = assign_fetch_order(candidates)
     used = common.quota_used("tiingo", MONTH_1, unique_symbols=True)
@@ -2251,8 +2499,14 @@ def main(argv: list[str] | None = None) -> int:
     candidates = candidates.sort_values(["priority", "security_id", "planned_source"]).reset_index(drop=True)
     unfillable = unfillable_rows(candidates, facts, weekly, above, ranks)
     coverage = weekly_coverage(weekly, above, candidates)
+    unknown = unknown_size_delisted(weekly, facts, candidates, fetched)
+    log(f"delisted names with neither a series nor a size proxy: {len(unknown)} securities, "
+        f"{int(unknown['unknown_weeks'].sum())} name-weeks")
     common.atomic_write(CANDIDATES, candidates.to_csv(index=False).encode())
-    common.atomic_write(UNFILLABLE, unfillable.to_csv(index=False).encode())
+    common.atomic_write(UNKNOWN_SIZE, unknown.to_csv(index=False).encode())
+    unfillable_path = OUT / "unfillable_rebuilt.csv" if args.unfillable_to_cache else UNFILLABLE
+    common.atomic_write(unfillable_path, unfillable.to_csv(index=False).encode())
+    log(f"unfillable list written to {unfillable_path}")
     common.atomic_write(OUT / "weekly_coverage.csv", coverage.to_csv(index=False).encode())
     common.atomic_write(OUT / "security_facts.csv.gz",
                         gzip.compress(facts.reset_index().rename(columns={"index": "security_id"}).to_csv(index=False).encode(), mtime=0))
@@ -2267,6 +2521,15 @@ def main(argv: list[str] | None = None) -> int:
              "tiingo_queue": tiingo_queue(candidates), "tier_c_sample": sample_facts,
              "uncovered_universe_securities": int((facts["uncovered_weeks"] > 0).sum()),
              "uncovered_not_candidates": int(((facts["uncovered_weeks"] > 0) & ~facts.index.isin(list(hits))).sum()),
+             "y_active_all": y_active_all_facts(candidates, facts, before),
+             "later_listings_after_a_form25_cut": {
+                 "intervals": int(stage["spans"]["after_cut"].astype(str).eq("True").sum()),
+                 "securities": int(stage["spans"].loc[stage["spans"]["after_cut"].astype(str).eq("True"), "security_id"].nunique())},
+             "unknown_size_delisted": {"securities": int(len(unknown)), "name_weeks": int(unknown["unknown_weeks"].sum()),
+                                       "by_next_step": dict(Counter(unknown["next_step"])),
+                                       "name_weeks_by_next_step": {k: int(v) for k, v in
+                                                                   unknown.groupby("next_step")["unknown_weeks"].sum().items()},
+                                       "file": str(UNKNOWN_SIZE)},
              "seed": SEED, "runtime_s": round(time.time() - started, 1)}
     summary = summarise(candidates, unfillable, budget, coverage, facts, hits, stage["facts"], extra)
     common.atomic_write(OUT / "prefilter_summary.json", (json.dumps(summary, indent=1, default=str) + "\n").encode())

@@ -43,6 +43,27 @@ def test_listing_span_ends_before_the_next_absent_snapshot_or_at_the_delisting()
     assert spans.loc["3", "list_end"] == "2013-06-10"
 
 
+def test_a_later_listing_after_a_form25_cut_is_kept_whole():
+    # SMCI: Form 25 effective 2019-03-22, back on Nasdaq from 2020-02-25 (round 5: cut to one day).
+    intervals = pd.DataFrame([
+        {"security_id": "1375365", "ticker": "SMCI", "start": "2010-12-31", "end": "2018-08-22",
+         "end_next_absent": "2018-09-07", "start_prev_absent": "", "name_in_source": "Super Micro - Common Stock",
+         "share_class": "COMMON"},
+        {"security_id": "1375365", "ticker": "SMCI", "start": "2020-02-25", "end": "2026-08-01", "end_next_absent": "",
+         "start_prev_absent": "2019-12-27", "name_in_source": "Super Micro Common Stock", "share_class": "COMMON"},
+        {"security_id": "9", "ticker": "NINE", "start": "2012-01-25", "end": "2026-07-01", "end_next_absent": "",
+         "start_prev_absent": "", "name_in_source": "Nine Inc - Common Stock", "share_class": "COMMON"},
+    ])
+    master = pd.DataFrame({"security_id": ["1375365", "9"], "delist_date": ["2019-03-22", "2015-05-01"]})
+    spans = pf.listing_spans(intervals, master)
+    smci = spans[spans["security_id"] == "1375365"].sort_values("list_start")
+    assert smci["list_end"].tolist() == ["2018-09-06", pf.WINDOW_END]
+    assert smci["after_cut"].tolist() == [False, True]
+    # a delisting inside an interval still cuts it
+    nine = spans[spans["security_id"] == "9"].iloc[0]
+    assert nine["list_end"] == "2015-05-01" and not nine["after_cut"]
+
+
 def test_spac_names_are_not_common_but_adrs_are_left_to_the_foreign_flag():
     assert pf.non_common_interval("Silver Run Acquisition Corporation II - Class A Common Stock", "A")
     assert not pf.non_common_interval("Shire plc - American Depositary Shares, each representing three Ordinary Shares",
@@ -319,6 +340,153 @@ def test_flags_mark_ambiguous_matches_and_shared_tickers():
     assert marked.loc["c", "tiingo_reused_ticker"] == "" and "confirms the entity" in marked.loc["b", "note"]
 
 
+# ------------------------------------------------------------------ rule Y_active_all
+
+def _fact_rows(rows: dict) -> pd.DataFrame:
+    base = {"uncovered_weeks": 0, "delist_date": "", "best_rank_a1_effective": np.nan, "best_rank_a1": np.nan,
+            "public_float_usd": np.nan, "float_check_flag": "", "implied_float_per_share": "", "first_price": pd.NaT,
+            "first_listed": "2015-01-02", "last_listed": pf.WINDOW_END, "cik": "1", "active": True, "via_successor": "",
+            "best_rank_uncovered": np.nan, "uncovered_unpriced_weeks": 0, "listed_now": True,
+            "spac_like_now": False}
+    return pd.DataFrame([{**base, **r} for r in rows.values()], index=list(rows))
+
+
+def test_y_active_all_takes_every_uncovered_name_listed_now_whatever_its_rank():
+    facts = _fact_rows({
+        "quiet": {"uncovered_weeks": 40, "uncovered_unpriced_weeks": 40},       # no dollar volume, no rank
+        "liquid": {"uncovered_weeks": 300, "best_rank_uncovered": 12},           # SMCI-like
+        "covered": {"uncovered_weeks": 0},                                       # vendor series covers it
+        "gone": {"uncovered_weeks": 30, "listed_now": False, "active": False, "last_listed": "2020-05-01"},
+        "shell_now": {"uncovered_weeks": 5, "listed_now": False},                # open interval, not common now
+        "blank_check": {"uncovered_weeks": 9, "spac_like_now": True},            # Churchill Capital Corp XI
+    })
+    ranks = pd.DataFrame(columns=["security_id", "snapshot_date", "mcap_rank"])
+    floats = pd.DataFrame(columns=["cik", "end", "val"])
+    hits = pf.rule_hits(facts, ranks, floats)
+    assert hits["quiet"] == {"Y_active_all": ("uncovered_universe_weeks", 40)}
+    assert set(hits["liquid"]) == {"Y_active_rank300", "Y_active_all"}
+    assert "covered" not in hits and "shell_now" not in hits and "blank_check" not in hits
+    assert "Y_active_all" not in hits.get("gone", {})
+    # the rule comes last, so a name another rule fetches keeps that rule as its reason
+    assert pf.REASON_PRIORITY[-1] == "Y_active_all"
+    assert sorted(hits["liquid"], key=pf.REASON_PRIORITY.index)[0] == "Y_active_rank300"
+
+
+def test_a_relisted_name_keeps_the_delisted_route_before_its_form25_and_yahoo_after():
+    # Core Scientific: Form 25 2023-04-22 in its bankruptcy, new equity listed again from 2024-03-28.
+    row = pd.Series({"first_listed": "2021-04-05", "first_uncovered": pd.Timestamp("2021-04-09"),
+                     "last_uncovered": pd.Timestamp("2026-07-17"), "last_universe_week": pd.Timestamp("2026-07-17"),
+                     "last_listed": pf.WINDOW_END, "transfer_date": "", "active": True, "active_nasdaq": True,
+                     "via_successor": "", "delist_date": "2023-04-22", "relisted_from": "2024-03-28",
+                     "listed_before_cut": "2023-04-22"})
+    hits = {"B_C_tier": ("form25_max_float_3y_usd", 4e8), "Y_active_all": ("uncovered_universe_weeks", 200)}
+    parts = pf.relisted_parts(row, ["B_C_rest_300M_500M", "Y_active_all"], hits)
+    (early, pre, s1, e1, _), (late, post, s2, e2, _) = parts
+    assert early == ["B_C_rest_300M_500M"] and not pre.active and pre.last_listed == "2023-04-22"
+    assert (s1, e1) == ("2021-04-05", "2023-04-22")
+    assert late == ["Y_active_all"] and post.active and (s2, e2) == ("2024-01-13", pf.WINDOW_END)
+    # without a rule other than Y, or with a need that starts after the relisting, one row as before
+    assert len(pf.relisted_parts(row, ["Y_active_all"], hits)) == 1
+    row["first_uncovered"] = pd.Timestamp("2024-06-07")
+    assert len(pf.relisted_parts(row, ["B_C_rest_300M_500M", "Y_active_all"], hits)) == 1
+
+
+def test_the_samples_on_disk_are_kept_and_only_freed_places_are_redrawn():
+    ids = [f"s{k:02d}" for k in range(30)]
+    order = pf.seeded_order(ids)
+    frame = pd.DataFrame({"security_id": ids, "reason": ["B_C_rest_300M_500M"] * 30, "priority": [12] * 30,
+                          "reasons_all": ["B_C_rest_300M_500M"] * 30, "planned_source": ["tiingo"] * 30,
+                          "status": ["conditional_tier_c"] * 30, "fetch_month": [pf.MONTH_2] * 30})
+    keep = set(order[10:15])            # an earlier draw (another pool), one of its names no longer fetchable
+    frame.loc[frame["security_id"] == order[10], "planned_source"] = "unfillable"
+    out, facts = pf.refill_tier_c_sample(frame, n=5, keep=keep)
+    sample = set(out.loc[out["reason"] == "B_C_sample_300M_500M", "security_id"])
+    assert sample == set(order[11:15]) | {order[0]} and facts["kept_from_previous"] == 4
+
+
+def test_yahoo_ticker_of_a_name_listed_now_is_the_open_interval_ticker():
+    # Agenus: AGEND (the reverse-split ticker of 2011-10-07) starts after AGEN's open interval does.
+    row = pd.Series({"active_nasdaq": True, "open_ticker": "AGEN", "last_ticker": "AGEND", "yahoo_tickers": "AGEN"})
+    assert pf.yahoo_ticker(row) == "AGEN"
+    moved = pd.Series({"active_nasdaq": False, "open_ticker": "", "last_ticker": "CREE", "yahoo_tickers": "WOLF"})
+    assert pf.yahoo_ticker(moved) == "WOLF"
+
+
+def test_blank_check_shells_listed_now_are_found_without_sic_6770(tmp_path):
+    master = pd.DataFrame({"security_id": ["a", "b", "c", "d"], "cik": ["1", "2", "3", "4"],
+                           "name": ["Churchill Capital Corp XI", "Dynamix Corp", "Rocket Lab Corp", "Gores Holdings IX"],
+                           "sic": ["3569", "6770", "3760", "6770"]})
+    intervals = pd.DataFrame({"security_id": ["a", "b", "c", "c", "d"],
+                              "name_in_source": ["Churchill Capital Corp XI - Class A", "Dynamix Corporation - Class A",
+                                                 "Vector Acquisition Corporation - Class A", "Rocket Lab Corp Common Stock",
+                                                 "Gores Holdings IX - Class A"]})
+    sic = tmp_path / "sic.csv"
+    pd.DataFrame({"cik": ["4"], "operating_sic_after_6770": ["3714"]}).to_csv(sic, index=False)
+    # c merged (an operating listed name); d has an operating SIC after 6770, but its names are SPAC-like
+    assert pf.spac_like_now(master, intervals, ["a", "b", "c", "d"], sic) == {"a", "b", "d"}
+    assert pf.spac_like_now(master, intervals, ["c"], sic) == set()
+
+
+def test_listed_now_needs_an_open_common_interval_in_the_last_week(monkeypatch, tmp_path):
+    monkeypatch.setattr(pf, "PRICE_FILE_OWNERS", tmp_path / "none.csv")
+    weeks = pd.to_datetime(["2026-07-10", "2026-07-17"])
+    rows = []
+    for sid, non_common, foreign in (("open", False, False), ("shell", True, False), ("gone", False, False),
+                                     ("foreign", False, True)):
+        for k, week in enumerate(weeks):
+            if sid == "gone" and k == 1:
+                continue
+            rows.append({"security_id": sid, "week_end": week, "non_common": non_common, "foreign": foreign,
+                         "universe": not (non_common or foreign), "vendor_ok": False, "outside_trading": False,
+                         "dv50_rank": np.nan, "dv20_rank": np.nan, "dv50": np.nan, "src": "stored"})
+    weekly = pd.DataFrame(rows)
+    spans = pd.DataFrame({"security_id": ["open", "shell", "gone", "foreign"], "ticker": ["OPN", "SHL", "GON", "FOR"],
+                          "list_start": ["2026-01-02"] * 4,
+                          "list_end": [pf.WINDOW_END, pf.WINDOW_END, "2026-07-13", pf.WINDOW_END]})
+    master = pd.DataFrame({"security_id": ["open", "shell", "gone", "foreign"], "cik": ["1", "2", "3", "4"],
+                           "name": ["O", "S", "G", "F"], "share_class": ["COMMON"] * 4, "delist_date": ["", "", "2026-07-13", ""],
+                           "delist_form25_accession": [""] * 4, "foreign_filer": ["N", "N", "N", "Y"],
+                           "transfer_date": [""] * 4, "tickers_sec_current": ["OPN", "SHL", "", "FOR"],
+                           "exchanges_sec_current": ["Nasdaq", "Nasdaq", "", "Nasdaq"], "successor_security_id": [""] * 4})
+    best = pd.DataFrame({"security_id": ["open"], "date": pd.to_datetime(["2026-07-10"]), "src": ["stored"], "file": ["opn.csv"]})
+    form25 = pd.DataFrame(columns=["accession", "public_float_usd", "float_check_flag", "implied_float_per_share",
+                                   "classification"])
+    facts = pf.security_facts(weekly, spans, master, best, form25)
+    assert facts["listed_now"].to_dict() == {"foreign": True, "gone": False, "open": True, "shell": False}
+    assert facts.loc["foreign", "foreign_now"] and not facts.loc["open", "foreign_now"]
+    # the foreign one has no universe week, so the rule never holds for it
+    assert facts.loc["foreign", "uncovered_weeks"] == 0 and facts.loc["open", "uncovered_weeks"] == 2
+
+
+def test_unknown_size_delisted_lists_weeks_with_neither_a_series_nor_a_proxy():
+    weeks = pd.to_datetime(["2020-01-03", "2020-01-10", "2020-01-17", "2020-01-24"])
+    rows = []
+    for sid in ("gone", "gone_fetched", "gone_proxy", "listed"):
+        for week in weeks:
+            rows.append({"security_id": sid, "week_end": week, "universe": True, "vendor_ok": False,
+                         "outside_trading": False, "dv50": np.nan, "price_ge_10": "",
+                         "mcap": 5e9 if sid == "gone_proxy" else np.nan, "float_usd": np.nan})
+    weekly = pd.DataFrame(rows)
+    weekly.loc[(weekly["security_id"] == "gone") & (weekly["week_end"] == weeks[0]), ["dv50", "price_ge_10"]] = [1e6, "U"]
+    weekly.loc[(weekly["security_id"] == "gone") & (weekly["week_end"] == weeks[3]), "outside_trading"] = True
+    facts = pd.DataFrame({"active_nasdaq": [False, False, False, True], "tickers": ["GON", "GF", "GP", "LST"],
+                          "name": ["G", "GF", "GP", "L"], "cik": ["1", "2", "3", "4"],
+                          "delist_date": ["2020-02-01"] * 3 + [""], "last_listed": ["2020-02-01"] * 3 + [pf.WINDOW_END]},
+                         index=["gone", "gone_fetched", "gone_proxy", "listed"])
+    candidates = pd.DataFrame({"security_id": ["gone_fetched"], "reason": ["B_B_float_500M_1B"],
+                               "planned_source": ["tiingo"], "status": ["pending"], "fetch_month": [pf.MONTH_1]})
+    # a fetched series with a row in the weeks of 2020-01-10 and 2020-01-17 only
+    dates = {"gone_fetched": np.array(["2020-01-08", "2020-01-16"], dtype="datetime64[D]")}
+    out = pf.unknown_size_delisted(weekly, facts, candidates, fetched={}, dates=dates).set_index("security_id")
+    assert list(out.index) == ["gone", "gone_fetched"]
+    assert out.loc["gone", "unknown_weeks"] == 2            # one week has stored dv, one is after the last trade
+    assert (out.loc["gone", "first_unknown_week"], out.loc["gone", "last_unknown_week"]) == ("2020-01-10", "2020-01-17")
+    assert out.loc["gone", "next_step"].startswith("not_a_candidate")
+    assert out.loc["gone_fetched", "unknown_weeks"] == 2    # 2020-01-03 and 2020-01-24
+    assert out.loc["gone_fetched", "next_step"] == "tiingo_month1_pending"
+    assert list(out.columns) == pf.UNKNOWN_SIZE_COLUMNS[1:]
+
+
 # ------------------------------------------------------------------ windows and budget
 
 def test_needed_window_runs_to_the_listing_end_when_the_gap_does():
@@ -442,3 +610,27 @@ def test_built_coverage_has_every_week_and_ranks_300_names():
     assert (coverage["top300_vendor_raw"] <= 300).all()
     assert (coverage["top300_vendor_raw"] + coverage["top300_stored_only"] <= 300).all()
     assert (coverage["top300_vendor_after_plan"] >= coverage["top300_vendor_raw"]).all()
+
+
+@pytest.mark.skipif(not all(Path(p).exists() for p in BUILT + [pf.OUT / "security_facts.csv.gz", pf.UNKNOWN_SIZE]),
+                    reason="step 6 outputs not built")
+def test_built_list_sends_every_uncovered_name_listed_now_to_yahoo():
+    candidates = pd.read_csv(pf.CANDIDATES, dtype=str, keep_default_na=False)
+    facts = pd.read_csv(pf.OUT / "security_facts.csv.gz", dtype=str, keep_default_na=False).set_index("security_id")
+    listed = facts[(facts["listed_now"] == "True") & (facts["uncovered_weeks"].astype(int) > 0)]
+    shells = facts.index[facts["spac_like_now"] == "True"]
+    yahoo = candidates[candidates["planned_source"] == "yahoo"]
+    assert set(listed.index) - set(shells) <= set(yahoo["security_id"])
+    assert not candidates.loc[candidates["reason"] == "Y_active_all", "security_id"].isin(shells).any()
+    # round 5: listed, never ranked by step 6 before later listings after a Form 25 were kept
+    for sid, ticker in pf.Y_NAMED.items():
+        rows = yahoo[yahoo["security_id"] == sid]
+        assert (rows["ticker_for_source"] == ticker).any() and rows["reason"].str.startswith("Y_active").any(), ticker
+    # foreign filers (Y) and SPAC shells never get the rule
+    y_rows = candidates[candidates["reason"] == "Y_active_all"]
+    assert not y_rows["security_id"].map(facts["foreign_filer"]).eq("Y").any()
+    unknown = pd.read_csv(pf.UNKNOWN_SIZE, dtype=str, keep_default_na=False)
+    assert list(unknown.columns) == pf.UNKNOWN_SIZE_COLUMNS
+    assert not unknown["security_id"].isin(listed.index).any()
+    for column in ("close", "dv50", "market_cap", "float_usd"):
+        assert column not in unknown.columns

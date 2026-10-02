@@ -15,6 +15,12 @@ only after two full-list snapshots without the symbol, so the one-missing-snapsh
   (``start_prev_absent``) and before the first one that does, the interval starts at that price; not when
   that price is on the first session after ``start_prev_absent``, where step 9 starts every ticker's rows
   (a cut series: a transfer from NYSE, or another company's rows under a reused ticker; ``ipo_boundary``);
+  where the security's own stored file under that ticker starts later, between the two snapshots and more
+  than 5 sessions after the canonical first row, the canonical rows before it are another company's (TRUE:
+  WIKI rows from 2014-03-26, TrueCar's IPO 2014-05-16): they are dropped before any median is taken, and
+  the IPO rule then starts the listing at the stored file's first day (``boundary_trims``); the other
+  boundary intervals keep their rows (AMD, CSX: their own NYSE history), and their name-weeks whose
+  50-session window reaches before the interval start are flagged (``dv_window_before_listing``);
 - a Nasdaq Form 25 (``security_master.delist_date``, the effective date) or a transfer away from Nasdaq
   (``transfer_date``) removes it from that date on (listed while t is before it); an interval that starts
   on or after such a date is a later listing and is kept (counted as ``after_cut``);
@@ -42,31 +48,43 @@ earliest, flagged ``earliest_header``; a CIK with no header takes ``security_mas
 Earnings: ``earnings_event_within_3_sessions`` = Y when an Item 2.02 event of the CIK
 (``earnings_events.csv`` ``d0_session``, every row) has D0 within 3 XNAS sessions of t, before or
 after; ``results_release_within_3_sessions`` uses only ``event_kind`` = results_release;
-``earnings_nearest_d0_offset`` is the signed session distance of the nearest D0 within 10 sessions.
+``earnings_nearest_d0_offset`` is the signed session distance of the nearest D0 within 10 sessions,
+D0's session minus the week end's: positive means D0 comes after the week end (a tie takes the earlier).
 
 Completeness checks (plan 3.3, no returns):
 - per week, how many of ranks 1-250 and 1-300 have a canonical close in the week / on t;
 - ``missing``: universe-base names listed that week with no canonical rank (no series, or the series
   does not cover the week), outside the weeks before the first / after the last trade (``outside_trading``:
   the listing starts or ends within 30 days of the series, or step 6 marked it so) and not a new listing
-  that is still short of 25 sessions. Each missing name-week gets evidence of top-250 membership:
-  step 6's dollar volume (``weekly_metrics.pkl``: any source, the stored files included) against this
-  week's canonical rank-250 cut, else a market-cap proxy (Wayback market cap, or XBRL public float, carried
-  up to 12 months, from step 6) against the median proxy of canonical ranks 200-250 (plan 3.3 check 1).
+  that is still short of 25 sessions. Each missing name-week gets evidence of top-250 membership
+  (``evidence``): step 6's dollar volume (``weekly_metrics.pkl``: any source, the stored files included)
+  against this week's canonical rank-250 cut (``dv``), else a market-cap proxy (Wayback market cap, or XBRL
+  public float, carried up to 12 months, from step 6) against the median proxy of canonical ranks 200-250
+  (plan 3.3 check 1; ``proxy``); a raw close under $10 in step 6 settles it (``price_lt_10``). A listed
+  name step 6 has no row for (later listings after a Form 25 cut, such as SMCI, CHRD and CORZ in the
+  first round-5 step-6 build) takes the same evidence directly: the dollar volume of the stored files the master
+  names for it, on its listed days only (``stored_direct``), and the market cap / float as step 6 attaches
+  them. A name-week with none of these is ``unknown``: it gets no estimate, is counted apart, counts as a
+  top-250 name-week in the upper bounds and makes its week incomplete (never taken as small).
   The expected count (``p_top250``) uses each rule's hit rate by year and by distance to the cut
   (value / cut in bins): the dollar-volume rule measured on canonical names step 6 priced from a stored
   file only (like most missing names); the proxy rule, separately for single-class securities and for
   classes of a multi-class company (whose market cap and float are the company's), measured on every
   universe-base name-week whose top-250 status dollar volume settles (canonical ranks, or step 6's
   dollar volume for the missing ones), not on the canonical names alone, which were picked for
-  liquidity; names with no evidence at all take the rate of step-6-settled names without a proxy;
+  liquidity; names with no evidence at all are unknown (above), with no rate;
 - the reason a name is missing (per week): ``tiingo_pending`` (a Tiingo request the running fetch has
-  not answered), ``fetched_pending_reconcile`` (inside a Tiingo answer newer than the panel: step 9 has
-  to be rerun), ``unfillable`` (inside an ``unfillable.csv`` window, or the fetch found another company /
-  no data), ``no_vendor_source``, ``series_gap`` (a series that does not reach this week),
-  ``candidate_other``, ``not_candidate``. The residual survivorship estimate leaves out the two pending
+  not answered), ``yahoo_pending`` (planned for Yahoo, no Yahoo answer yet), ``fetched_pending_reconcile``
+  (inside a Tiingo or Yahoo answer newer than the panel: step 9 has to be rerun), ``answer_not_in_panel``
+  (inside an answer older than the panel that the panel still lacks: for step 9 to fix, not pending; SMCI
+  and CHRD after their Form 25 cuts), ``unfillable`` (inside an
+  ``unfillable.csv`` window, or every planned source answered without rows: Tiingo wrong_entity / no_data,
+  Yahoo no_rows / failed), ``no_vendor_source``, ``series_gap`` (a series that does not reach this week),
+  ``candidate_other``, ``not_candidate``. The residual survivorship estimate leaves out the three pending
   reasons; ``*_ex_siblings`` also leaves out missing classes whose sibling class ranks that week (owner
-  question 8.4: if only the most liquid class is kept, they do not matter);
+  question 8.4: if only the most liquid class is kept, they do not matter); ``*_upper`` adds the unknown
+  name-weeks as top-250 name-weeks; the report splits the residual by evidence and distance to the cut
+  and gives a lower bound with the proxy's lowest bin (under 25% of the band median) set to 0;
 - snapshot age (days since the latest snapshot of any source in ``listing_snapshots_index.csv``,
   flagged above 160 days); mcap-weighted coverage of the universe base (a multi-class company's value
   split among its listed classes): by a canonical close in the week, and (``*_known_dv``) by a canonical
@@ -74,14 +92,21 @@ Completeness checks (plan 3.3, no returns):
 - step 6 comparison: the canonical rank-250/300 dv50 cut against step 6's, and the overlap of the two
   top-250 sets (with the reasons for step 6 names not in the canonical top 250);
 - plan 3.3 checks 2 (company-list capture dates), 3 (Nasdaq-100 year-end members 2011-2019),
-  4 (Form 25 delistings with float >= $1B), 5 (fetch margin of the month-1 names) and 6 (unfillable
-  impact by year); check 7 (FINRA) needs requests and is not run.
+  4 (Form 25 delistings with float >= $1B), 5 (fetch margin of the month-1 names) and 6 (survivorship
+  by year: the residual of every reason but the pending ones, unknown name-weeks counted as top-250
+  name-weeks, at most 2% of slots; the plan's unfillable-only share is kept beside it); check 7 (FINRA)
+  needs requests and is not run.
 
 A week is ``complete_250`` when at least 250 names are ranked, all of ranks 1-250 have a canonical close
-in the week, and no missing name has step-6 dollar volume at or above the rank-250 cut;
-``complete_250_strict`` also needs no missing name without any step-6 dollar volume whose proxy reaches
-the band median; ``complete_250_after_pending`` is ``complete_250`` with the pending reasons set aside
-(what the week becomes once the running fetch and a step-9 rerun land, if they fill those names).
+in the week, no missing name has dollar-volume evidence at or above the rank-250 cut, none has only a
+proxy that reaches the band median, and none is unknown; ``complete_250_strict`` also needs fewer than
+one expected missing top-250 name (``est_missing_top250`` < 1, all reasons); ``complete_250_after_pending``
+applies the ``complete_250`` conditions with the pending reasons set aside (what the week becomes once
+the running fetches and a step-9 rerun land, if they fill those names).
+
+Universe-base names without an SEC SIC or with an investment entity type (BDCs such as ARCC, PSEC and
+ACAS, Altaba as a closed-end fund from 2017-06; OZK, a bank, also has none) are kept in the base and
+listed in the summary for owner question 8.
 
 Outputs:
   INPUTS/weekly_universe_top300.csv.gz  ranks, flags, FF49, earnings flags (no vendor values)
@@ -92,11 +117,14 @@ Outputs:
   CACHE/universe/missing_by_security.csv  missing name-weeks per security with their evidence
   CACHE/universe/month2_leads.csv       securities the checks point to for the month-2 fetch
   CACHE/universe/capture_coverage.csv, nasdaq100_check.csv, form25_check.csv
+  CACHE/universe/completeness_by_year.csv  the complete shares and check 6 by year (also printed)
   CACHE/universe/universe_summary.json  the checks by year, inputs' sha256, counts
 
-Usage::
+Usage (everything is read from local files; rerun after the Tiingo / Yahoo fetches and a step-9 rerun)::
 
     PYTHONPATH=. python scripts/reversal_data_universe.py
+    # into another directory, with a fixed copy of the running fetch's status, to compare two builds:
+    PYTHONPATH=. python scripts/reversal_data_universe.py --tiingo-status COPY.csv --out-dir DIR
 """
 from __future__ import annotations
 
@@ -106,6 +134,8 @@ from datetime import datetime, timezone
 import gzip
 import json
 from pathlib import Path
+import re
+import time
 
 import numpy as np
 import pandas as pd
@@ -113,7 +143,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.1"
+CODE_VERSION = "2026-10-02.2"
 MAIN = common.MAIN_CHECKOUT
 CACHE = common.CACHE
 INPUTS = common.INPUTS
@@ -135,7 +165,10 @@ WEEKLY_METRICS = CACHE / "prefilter" / "weekly_metrics.pkl"
 LISTS = CACHE / "prefilter" / "lists.csv.gz"
 NO_SERIES = CACHE / "reconcile" / "no_series.csv"
 TIINGO_STATUS = CACHE / "tiingo" / "fetch_status.csv"
+YAHOO_REPORT = CACHE / "yahoo" / "entity_report.csv"
+YAHOO_STATUS = CACHE / "yahoo" / "fetch_status.csv"
 TERMINAL_QUEUE = CACHE / "terminal" / "manual_review_queue.csv"
+STORED_DIR = pf.STORED_DIR
 NASDAQ100 = Path("output/research_only/holdout_2011_2019/inputs/nasdaq100_members_wikipedia_yearend.json")
 
 TOP300_FILE = INPUTS / "weekly_universe_top300.csv.gz"
@@ -159,16 +192,24 @@ UNFILLABLE_SHARE_LIMIT = 0.02  # plan 3.3 check 6
 SRC_CODES = {"wiki": 0, "tiingo": 1, "yahoo": 2}
 FETCH_FINAL = {"done", "done_review", "partial", "wrong_entity", "no_data"}
 FETCH_EMPTY = {"wrong_entity", "no_data"}
-MISSING_REASONS = ["tiingo_pending", "fetched_pending_reconcile", "unfillable", "no_vendor_source", "series_gap",
-                   "candidate_other", "not_candidate"]
-PENDING_REASONS = {"tiingo_pending", "fetched_pending_reconcile"}  # filled once the fetch and step 9 finish
+YAHOO_EMPTY = {"no_rows", "failed"}  # Yahoo entity-report verdicts with no usable rows in the need
+STRICT_EXPECTED_LIMIT = 1.0  # complete_250_strict: fewer than one expected missing top-250 name in the week
+EVIDENCE = ["price_lt_10", "dv", "proxy", "unknown"]  # a missing name-week's evidence of its top-250 status
+MISSING_REASONS = ["tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "answer_not_in_panel", "unfillable",
+                   "no_vendor_source", "series_gap", "candidate_other", "not_candidate"]
+# filled once the fetches and a step-9 rerun finish
+PENDING_REASONS = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile"}
+# An answer step 9 already had but left out of the panel says more than these (a second fetch of the same
+# history would be dropped the same way; SMCI: Tiingo answered 2011-06..2026-08, a Yahoo request is planned).
+IN_HAND_OVERRIDES = ["yahoo_pending", "series_gap", "no_vendor_source", "candidate_other", "not_candidate"]
 
 TOP300_COLUMNS = ["week_end", "security_id", "ticker", "dv50_rank", "dv20_rank", "price_ge_10", "ff49",
                   "earnings_event_within_3_sessions",
                   # extras (ranks, flags and SEC facts only)
                   "dv50_rank_any_price", "dv20_rank_any_price", "close_in_week", "close_on_week_end",
                   "close_lag_sessions", "ff49_name", "sic", "sic_basis", "results_release_within_3_sessions",
-                  "earnings_nearest_d0_offset", "cik", "foreign_filer", "multi_class_group"]
+                  "earnings_nearest_d0_offset", "cik", "foreign_filer", "multi_class_group",
+                  "dv_window_before_listing"]
 SUMMARY_COLUMNS = ["week_end", "n_listed_common", "n_with_vendor_prices", "n_price_ge_10",
                    "cutoff_rank250_dv_bucket", "n_unresolved_candidates", "mcap_weighted_coverage",
                    "snapshot_age_days",
@@ -179,9 +220,11 @@ SUMMARY_COLUMNS = ["week_end", "n_listed_common", "n_with_vendor_prices", "n_pri
                    "top300_close_on_week_end", "top250_zero_volume_close", "n_outside_trading", "n_young",
                    "n_missing", "n_missing_with_pf_dv", "n_missing_pf_dv_ge_cut250", "n_missing_pf_dv_ge_cut300",
                    "n_missing_pf_dv_ge_cut250_not_pending", "n_missing_proxy_above",
-                   "n_missing_proxy_above_single_class", "n_missing_proxy_above_no_pf_dv", "est_missing_top250",
+                   "n_missing_proxy_above_single_class", "n_missing_proxy_above_no_pf_dv",
+                   "n_missing_proxy_above_no_pf_dv_not_pending", "n_missing_dv_stored_direct",
+                   "n_missing_unknown", "n_missing_unknown_not_pending", "est_missing_top250",
                    "est_missing_top250_residual", "est_missing_top250_residual_ex_siblings",
-                   "n_unresolved_candidates_ge_cut300",
+                   "est_missing_top250_residual_upper", "n_unresolved_candidates_ge_cut300",
                    *[f"n_missing_{r}" for r in MISSING_REASONS],
                    "mcap_weighted_coverage_names", "mcap_weighted_coverage_known_dv", "snapshot_stale", "snapshot_source",
                    "pf_cut250_ratio", "pf_cut300_ratio", "top250_overlap_prefilter", "pf_top250_not_top250_here",
@@ -196,6 +239,22 @@ def log(message: str) -> None:
 
 def read_csv_text(path: Path, **kwargs) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, keep_default_na=False, **kwargs)
+
+
+def read_stable(path: Path, reader, tries: int = 6, wait: float = 10.0):
+    """``reader(path)`` once the file is the same (size and mtime) before and after the read: step 6 may
+    be rewriting its weekly table while this runs."""
+    for _ in range(tries):
+        before = (path.stat().st_size, path.stat().st_mtime_ns)
+        try:
+            data = reader(path)
+        except Exception:  # a half-written file
+            data = None
+        if data is not None and (path.stat().st_size, path.stat().st_mtime_ns) == before:
+            return data
+        log(f"{path.name} changed while it was read; reading it again in {wait:g} s")
+        time.sleep(wait)
+    raise RuntimeError(f"{path} kept changing while it was read")
 
 
 def day_before(day: str) -> str:
@@ -307,17 +366,19 @@ def weekly_listed(spans: pd.DataFrame, weeks: pd.DatetimeIndex, foreign: dict,
     which = np.repeat(np.arange(len(spans)), count)
     k = (np.concatenate([np.arange(a, b) for a, b in zip(low, high) if b > a]) if count.sum()
          else np.array([], dtype=int))
+    boundary = spans["ipo_boundary"].values if "ipo_boundary" in spans else np.zeros(len(spans), dtype=bool)
     frame = pd.DataFrame({"security_id": spans["security_id"].values[which], "week_index": k.astype(int),
-                          "ticker": spans["ticker"].values[which], "list_start": spans["list_start"].values[which],
+                          "ticker": spans["ticker"].values[which], "interval_start": spans["list_start"].values[which],
+                          "ipo_boundary": boundary[which].astype(bool),
                           "non_common": spans["non_common"].values[which].astype(bool)})
-    frame = frame.sort_values(["security_id", "week_index", "list_start"], kind="stable")
+    frame = frame.sort_values(["security_id", "week_index", "interval_start"], kind="stable")
     frame = frame.drop_duplicates(["security_id", "week_index"], keep="last").reset_index(drop=True)
     frame["week_end"] = weeks[frame["week_index"].values]
     days = frame["week_end"].dt.strftime("%Y-%m-%d").values
     frame["spac_shell"] = frame["security_id"].isin(set(shells))
     frame["foreign"] = foreign_mask(frame["security_id"].values, days, foreign)
     frame["eligible"] = ~(frame["non_common"] | frame["spac_shell"] | frame["foreign"])
-    return frame.drop(columns=["list_start"]).sort_values(["week_index", "security_id"]).reset_index(drop=True)
+    return frame.sort_values(["week_index", "security_id"]).reset_index(drop=True)
 
 
 # ------------------------------------------------------------------ canonical metrics
@@ -328,6 +389,130 @@ def load_panel(path: Path = PANEL) -> pd.DataFrame:
                         dtype={"security_id": str, "date": str, "src_primary": str})
     panel["date"] = pd.to_datetime(panel["date"])
     return panel
+
+
+# ------------------------------------------------------------------ stored files (named in the master)
+
+STORED_SOURCE = re.compile(r"stored:([^\[\s]+)\[([^\]]*)\]")
+STORED_FLOOR_FILES = 25  # a first date shared by this many stored files is the repo's coverage start, not a listing
+
+
+def stored_sources(text: str) -> list[tuple[str, str, str]]:
+    """(file, first date, last date) of each stored file a ``security_master.price_sources`` cell names."""
+    out = []
+    for match in STORED_SOURCE.finditer(text or ""):
+        first, _, last = match.group(2).partition("..")
+        out.append((match.group(1), first, last))
+    return out
+
+
+def stored_ticker(file: str) -> str:
+    """The ticker a stored file holds (``corz_pre2024.csv`` -> CORZ), as step 6 reads it."""
+    return Path(file).stem.upper().split("_")[0]
+
+
+def stored_floor_dates(master: pd.DataFrame) -> set[str]:
+    """First dates shared by STORED_FLOOR_FILES or more stored files (2023-01-03, 2004-01-02, ...)."""
+    starts = pd.Series([first for text in master["price_sources"] for _, first, _ in stored_sources(text) if first])
+    counts = starts.value_counts()
+    return set(counts.index[counts >= STORED_FLOOR_FILES])
+
+
+def first_rows(panel: pd.DataFrame, sessions: pd.DatetimeIndex) -> dict[str, str]:
+    """security -> its first canonical row on the session grid."""
+    on_grid = panel[panel["date"].isin(sessions)]
+    return on_grid.groupby("security_id")["date"].min().dt.strftime("%Y-%m-%d").to_dict()
+
+
+def boundary_trims(spans: pd.DataFrame, master: pd.DataFrame, first_row: dict, sessions: pd.DatetimeIndex,
+                   floor_dates: set = frozenset()) -> dict[str, str]:
+    """security -> the first day its canonical rows count, for a series that starts where step 9 cut it
+    (``ipo_boundary``) while the security's own stored file under that ticker starts later, after the
+    snapshot that did not show it, on or before the one that does, and more than 5 sessions after the
+    canonical first row. The canonical rows before are another company's under the reused ticker (TRUE:
+    WIKI rows from 2014-03-26, TrueCar's IPO and its stored file 2014-05-16), so they are dropped; the
+    IPO rule then starts the listing at the stored file's first day. A stored file that starts on the
+    repo's coverage start (``floor_dates``) says nothing about the listing."""
+    sources = dict(zip(master["security_id"], master["price_sources"]))
+    values = sessions.strftime("%Y-%m-%d").to_numpy(dtype=object)
+    out: dict[str, str] = {}
+    for row in spans[spans["ipo_boundary"]].itertuples(index=False):
+        first = first_row.get(row.security_id, "")
+        if not first:
+            continue
+        for file, start, _ in stored_sources(sources.get(row.security_id, "")):
+            if stored_ticker(file) != row.ticker or not start or start in floor_dates:
+                continue
+            if not (row.start_prev_absent < start <= row.snapshot_start):
+                continue
+            gap = int(np.searchsorted(values, start)) - int(np.searchsorted(values, first))
+            if gap > CLOSE_STALE_SESSIONS:
+                out[row.security_id] = min(out.get(row.security_id, start), start)
+    return out
+
+
+def trim_panel(panel: pd.DataFrame, trims: dict[str, str]) -> pd.DataFrame:
+    """``panel`` without each trimmed security's rows before its first counted day."""
+    if not trims:
+        return panel
+    start = pd.to_datetime(panel["security_id"].map(trims))
+    return panel[~(start.notna() & (panel["date"] < start))].reset_index(drop=True)
+
+
+def read_stored_file(path: Path) -> pd.DataFrame:
+    """date, raw dollar volume (stored close x volume; the close itself is split-adjusted) of a stored file."""
+    data = pd.read_csv(path, usecols=lambda c: c in ("date", "close", "volume"))
+    if not {"date", "close", "volume"} <= set(data.columns):
+        return pd.DataFrame(columns=["date", "dv"])
+    close = pd.to_numeric(data["close"], errors="coerce")
+    volume = pd.to_numeric(data["volume"], errors="coerce")
+    frame = pd.DataFrame({"date": pd.to_datetime(data["date"]).dt.normalize(), "dv": close * volume})
+    return frame[(close > 0).values & volume.notna().values].drop_duplicates("date", keep="last")
+
+
+def stored_direct_dv(listed: pd.DataFrame, spans: pd.DataFrame, master: pd.DataFrame, sessions: pd.DatetimeIndex,
+                     week_pos: np.ndarray, directory: Path = STORED_DIR) -> pd.DataFrame:
+    """dv20 / dv50 (``sd_dv20``, ``sd_dv50``, aligned with ``listed``) for universe-base name-weeks without
+    a canonical rank that step 6 has no row for (``in_pf`` False: later listings after a Form 25 cut, such
+    as SMCI from 2020-01, CHRD, CORZ), from the stored files ``security_master.price_sources`` names for the
+    security. A file's rows count only on days the security was listed under that file's ticker, so
+    neither another company's rows under a reused ticker nor rows before the listing start enter the
+    medians (same windows and minimum rows as the canonical ones)."""
+    out = pd.DataFrame({"sd_dv20": np.nan, "sd_dv50": np.nan}, index=listed.index)
+    target = (listed["eligible"].to_numpy(dtype=bool) & ~listed["in_pf"].to_numpy(dtype=bool)
+              & listed["dv50_rank_any_price"].isna().to_numpy())
+    if not target.any():
+        return out
+    sources = dict(zip(master["security_id"], master["price_sources"]))
+    by_security = pd.Series(np.flatnonzero(target)).groupby(listed["security_id"].to_numpy(dtype=object)[target])
+    grid = sessions.values.astype("datetime64[D]")
+    for sid, positions in by_security:
+        mine = spans[spans["security_id"] == sid]
+        dv = np.full(len(sessions), np.nan)
+        for file, _, _ in stored_sources(sources.get(sid, "")):
+            path = directory / file
+            own = mine[mine["ticker"] == stored_ticker(file)]
+            if own.empty or not path.exists():
+                continue
+            rows = read_stored_file(path)
+            days = rows["date"].values.astype("datetime64[D]")
+            listed_day = np.zeros(len(rows), dtype=bool)
+            for a, b in zip(own["list_start"], own["list_end"]):
+                listed_day |= (days >= np.datetime64(a)) & (days <= np.datetime64(b))
+            pos = np.searchsorted(grid, days)
+            on_grid = (pos < len(grid)) & (grid[np.minimum(pos, len(grid) - 1)] == days) & listed_day
+            free = on_grid.copy()
+            free[on_grid] = np.isnan(dv[pos[on_grid]])  # the first file named keeps a day
+            dv[pos[free]] = rows["dv"].values[free]
+        if np.isnan(dv).all():
+            continue
+        series = pd.Series(dv)
+        index = positions.to_numpy()
+        session_of_row = week_pos[listed["week_index"].to_numpy()[index]]
+        for window, minimum in DV_WINDOWS.items():
+            median = series.rolling(window, min_periods=minimum).median().to_numpy()
+            out.iloc[index, out.columns.get_loc(f"sd_dv{window}")] = median[session_of_row]
+    return out
 
 
 def canonical_metrics(panel: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np.ndarray,
@@ -432,6 +617,36 @@ def join_prefilter(listed: pd.DataFrame, weekly_metrics: pd.DataFrame) -> pd.Dat
     return out
 
 
+def apply_stored_direct(listed: pd.DataFrame, direct: pd.DataFrame) -> pd.DataFrame:
+    """Use the stored-file medians of ``stored_direct_dv`` as the dollar-volume evidence (``pf_dv*``) of
+    the name-weeks step 6 has no row for: source ``stored_direct``, price test unknown (``U``: the stored
+    close is split-adjusted). Changes ``listed`` in place."""
+    has = (direct["sd_dv50"].notna() | direct["sd_dv20"].notna()).to_numpy()
+    listed["dv_stored_direct"] = has
+    for window in DV_WINDOWS:
+        listed.loc[has, f"pf_dv{window}"] = direct.loc[has, f"sd_dv{window}"].to_numpy()
+    listed.loc[has, "pf_price"] = "U"
+    listed.loc[has, "pf_src"] = "stored_direct"
+    return listed
+
+
+def direct_proxies(listed: pd.DataFrame, master: pd.DataFrame, lists: pd.DataFrame, floats: pd.DataFrame) -> pd.DataFrame:
+    """Market cap (company lists, carried up to 12 months) and XBRL float (the CIK's, within 12 months)
+    for the universe-base name-weeks step 6 has no row for, attached as step 6 attaches them
+    (``pf.attach_proxies``; ``floats`` already without step 6's unit errors). Changes ``listed`` in place."""
+    rows = listed.index[listed["eligible"].to_numpy(dtype=bool) & ~listed["in_pf"].to_numpy(dtype=bool)]
+    listed["proxy_direct"] = False
+    if not len(rows) or floats is None:
+        return listed
+    caps = lists.loc[lists["market_cap"] > 0, ["security_id", "snapshot_date", "market_cap"]]
+    got = pf.attach_proxies(listed.loc[rows, ["security_id", "week_end"]].reset_index(drop=True), master, caps, floats)
+    for column in ("mcap", "float_usd"):
+        listed.loc[rows, column] = got[column].to_numpy(dtype=float)
+    listed.loc[rows, "proxy_direct"] = (got["mcap"].notna() | got["float_usd"].notna()).to_numpy()
+    listed["proxy"] = listed["mcap"].where(listed["mcap"].notna(), listed["float_usd"])
+    return listed
+
+
 def trading_bounds(listed: pd.DataFrame, spans: pd.DataFrame) -> pd.Series:
     """Listed weeks after the last canonical row when the listing ends within 30 days of it (the last
     trade before the Form 25 takes effect), or before the first row when the listing starts within 30
@@ -449,24 +664,66 @@ def trading_bounds(listed: pd.DataFrame, spans: pd.DataFrame) -> pd.Series:
     return own | (~listed["has_series"] & stepsix)
 
 
+FETCH_STATUS_COLUMNS = ["security_id", "status", "first_date", "last_date", "fetched_utc", "updated_utc"]
+
+
+def yahoo_answers(report: pd.DataFrame | None, status: pd.DataFrame | None) -> pd.DataFrame:
+    """The Yahoo run's answers in the shape of the Tiingo fetch status (FETCH_STATUS_COLUMNS): ``done``
+    for a usable verdict (ok, review, partial), ``no_data`` for no_rows / failed, with the answer's first
+    and last row and the time its symbol was fetched; so a Yahoo answer newer than the panel makes its
+    missing weeks ``fetched_pending_reconcile`` as a Tiingo answer does."""
+    if report is None or not len(report):
+        return pd.DataFrame(columns=FETCH_STATUS_COLUMNS)
+    fetched = {}
+    if status is not None and len(status):
+        latest = status.sort_values("fetched_utc", kind="stable").drop_duplicates("symbol", keep="last")
+        fetched = dict(zip(latest["symbol"], latest["fetched_utc"]))
+    when = report["symbol"].map(fetched).fillna("")
+    out = pd.DataFrame({"security_id": report["security_id"].values,
+                        "status": np.where(report["verdict"].isin(YAHOO_EMPTY), "no_data", "done"),
+                        "first_date": report["first_row"].values, "last_date": report["last_row"].values,
+                        "fetched_utc": when.values})
+    out["updated_utc"] = out["fetched_utc"]
+    return out
+
+
+def yahoo_empty_ids(report: pd.DataFrame | None) -> set[str]:
+    """Securities whose Yahoo answer had no usable rows in the need (entity-report verdict no_rows or
+    failed, e.g. WOLF: Yahoo's history starts at the 2025 reorganisation)."""
+    if report is None or not len(report) or "verdict" not in report:
+        return set()
+    empty = report["verdict"].isin(YAHOO_EMPTY).groupby(report["security_id"]).all()
+    return set(empty.index[empty.to_numpy()])
+
+
 def security_reasons(master: pd.DataFrame, candidates: pd.DataFrame, unfillable: pd.DataFrame,
-                     no_series: pd.DataFrame, fetch_status: pd.DataFrame, series_ids: set) -> dict[str, str]:
-    """security -> why a listed week of it may lack a canonical rank (see MISSING_REASONS)."""
+                     no_series: pd.DataFrame, fetch_status: pd.DataFrame, series_ids: set,
+                     yahoo_report: pd.DataFrame | None = None) -> dict[str, str]:
+    """security -> why a listed week of it may lack a canonical rank (see MISSING_REASONS). A name whose
+    planned sources all answered without rows (Tiingo wrong_entity / no_data, Yahoo no_rows / failed) is
+    ``unfillable`` even when part of it has a series (Wolfspeed, CREE, has WIKI rows to 2018-03 only). A
+    name planned for Yahoo that the Yahoo run has not answered (no entity-report row) is ``yahoo_pending``."""
     status = {}
     if len(fetch_status):
         latest = fetch_status.sort_values("updated_utc", kind="stable").drop_duplicates("security_id", keep="last")
         status = dict(zip(latest["security_id"], latest["status"]))
     tiingo = set(candidates.loc[candidates["planned_source"] == "tiingo", "security_id"])
+    yahoo = set(candidates.loc[candidates["planned_source"] == "yahoo", "security_id"])
+    answered = set(yahoo_report["security_id"]) if yahoo_report is not None and len(yahoo_report) else set()
     candidate = set(candidates["security_id"])
     unfill = set(unfillable["security_id"])
+    yahoo_empty = yahoo_empty_ids(yahoo_report)
     no_series_reason = dict(zip(no_series["security_id"], no_series["reason"])) if len(no_series) else {}
     out = {}
     for sid in master["security_id"]:
         fetched = status.get(sid, "")
         if sid in tiingo and fetched not in FETCH_FINAL and sid not in unfill:
             out[sid] = "tiingo_pending"
-        elif sid in unfill or fetched in FETCH_EMPTY or no_series_reason.get(sid) == "unfillable":
+        elif (sid in unfill or fetched in FETCH_EMPTY or no_series_reason.get(sid) == "unfillable"
+              or sid in yahoo_empty):
             out[sid] = "unfillable"
+        elif sid in yahoo and sid not in answered:
+            out[sid] = "yahoo_pending"
         elif sid in series_ids:
             out[sid] = "series_gap"
         elif no_series_reason.get(sid) == "no_vendor_source":
@@ -497,23 +754,38 @@ def week_cutoffs(listed: pd.DataFrame) -> pd.DataFrame:
     return cut
 
 
-def proxy_above(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
-    """Market cap at or above the week's band median, or, without one, float at or above it."""
+def proxy_ratio_of(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
+    """Market cap / the week's band median market cap, or, without both, float / the band median float."""
     c = cut.reindex(frame["week_index"].values)
-    mcap, flt = frame["mcap"].values, frame["float_usd"].values
+    mcap = frame["mcap"].to_numpy(dtype=float)
+    flt = frame["float_usd"].to_numpy(dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        by_mcap = mcap / c["cut_mcap"].to_numpy(dtype=float)
+        by_float = flt / c["cut_float"].to_numpy(dtype=float)
+    return np.where(~np.isnan(by_mcap), by_mcap, by_float)
+
+
+def proxy_above(frame: pd.DataFrame, cut: pd.DataFrame) -> np.ndarray:
+    """Market cap at or above the week's band median, or, without one (or without a band median of
+    market caps), float at or above the band median float."""
+    ratio = proxy_ratio_of(frame, cut)
     with np.errstate(invalid="ignore"):
-        above = np.where(~np.isnan(mcap), mcap >= c["cut_mcap"].values, flt >= c["cut_float"].values)
-    return np.nan_to_num(above.astype(float)).astype(bool)
+        return ~np.isnan(ratio) & (ratio >= 1.0)
 
 
-def pending_reconcile(listed: pd.DataFrame, fetch_status: pd.DataFrame | None, panel_built: str) -> np.ndarray:
-    """Missing weeks inside a Tiingo answer (done / done_review / partial) fetched after the canonical
-    panel was built: step 9 has not read it yet, so the week is pending, not lost."""
+def pending_reconcile(listed: pd.DataFrame, fetch_status: pd.DataFrame | None, panel_built: str,
+                      newer: bool = True) -> np.ndarray:
+    """Missing weeks inside a Tiingo or Yahoo answer (done / done_review / partial) fetched after the
+    canonical panel was built: step 9 has not read it yet, so the week is pending, not lost. With
+    ``newer`` False: inside an answer fetched before the panel was built, which step 9 read but did not
+    put in the panel (``answer_not_in_panel``: SMCI and CHRD after their Form 25 cuts)."""
     mask = np.zeros(len(listed), dtype=bool)
     if fetch_status is None or not len(fetch_status) or not panel_built:
         return mask
+    when = fetch_status["fetched_utc"].fillna("").astype(str)
+    timing = (when > panel_built) if newer else ((when != "") & (when <= panel_built))
     ok = fetch_status[fetch_status["status"].isin(FETCH_FINAL - FETCH_EMPTY)
-                      & (fetch_status["fetched_utc"] > panel_built) & (fetch_status["first_date"] != "")]
+                      & timing & (fetch_status["first_date"] != "")]
     if ok.empty:
         return mask
     ranges = ok.groupby("security_id").agg(first=("first_date", "min"), last=("last_date", "max"))
@@ -558,6 +830,9 @@ def mark_missing(listed: pd.DataFrame, spans: pd.DataFrame, reasons: dict, cut: 
     out["missing_reason"] = np.where(out["missing"], out["security_id"].map(reasons).fillna("not_candidate"), "")
     out.loc[in_windows(out, unfillable_windows) & out["missing"], "missing_reason"] = "unfillable"
     out.loc[pending_reconcile(out, fetch_status, panel_built), "missing_reason"] = "fetched_pending_reconcile"
+    in_hand = (pending_reconcile(out, fetch_status, panel_built, newer=False)
+               & out["missing_reason"].isin(IN_HAND_OVERRIDES).to_numpy())
+    out.loc[in_hand, "missing_reason"] = "answer_not_in_panel"
     c = cut.reindex(out["week_index"].values)
     pf_ok = ~np.isnan(out["pf_dv50"].values) & out["pf_price"].isin(["Y", "U"]).values
     with np.errstate(invalid="ignore"):
@@ -567,6 +842,7 @@ def mark_missing(listed: pd.DataFrame, spans: pd.DataFrame, reasons: dict, cut: 
     out["pf_price_low"] = (out["pf_price"] == "N").to_numpy()
     out["proxy_above"] = proxy_above(out, cut)
     out["dv_ratio"], out["proxy_ratio"] = evidence_ratios(out, cut)
+    out["evidence"] = np.where(out["missing"].to_numpy(dtype=bool), evidence_class(out), "")
     out["sibling_priced"] = sibling_priced(out)
     return out
 
@@ -640,12 +916,21 @@ def binned_rates(bins: np.ndarray, actual: np.ndarray, years: np.ndarray,
 
 
 def evidence_ratios(frame: pd.DataFrame, cut: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """(step-6 dv50 / canonical rank-250 cut where step 6 has a usable dv50, proxy / band median)."""
+    """(step-6 or stored-direct dv50 / canonical rank-250 cut where that dv50 is usable, proxy / band
+    median)."""
     c = cut.reindex(frame["week_index"].values)
     dv = np.where(frame["pf_dv_ok"].values, frame["pf_dv50"].values / c["cut250"].values, np.nan)
-    mcap, flt = frame["mcap"].values, frame["float_usd"].values
-    proxy = np.where(~np.isnan(mcap), mcap / c["cut_mcap"].values, flt / c["cut_float"].values)
-    return dv, proxy
+    return dv, proxy_ratio_of(frame, cut)
+
+
+def evidence_class(frame: pd.DataFrame) -> np.ndarray:
+    """A missing name-week's evidence (EVIDENCE): ``price_lt_10`` (step 6's raw close under $10),
+    ``dv`` (usable step-6 or stored-direct dv50), ``proxy`` (a market cap or float with a band median to
+    compare it to), else ``unknown``: no series and no size proxy, so its top-250 status is not known and
+    is never taken as small."""
+    proxy = ~np.isnan(frame["proxy_ratio"].to_numpy(dtype=float))
+    return np.select([frame["pf_price_low"].to_numpy(dtype=bool), frame["pf_dv_ok"].to_numpy(dtype=bool), proxy],
+                     EVIDENCE[:3], default=EVIDENCE[3])
 
 
 def known_status(listed: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
@@ -675,8 +960,8 @@ def calibrate(listed: pd.DataFrame) -> dict:
     - proxy rule: on every universe-base name-week whose status dollar volume settles (``known_status``),
       separately for single-class securities and for classes of a multi-class company (whose market cap
       and float are the company's, not the class's);
-    - no evidence: name-weeks of that population without a proxy whose status comes from step 6 (missing
-      here too, so like the missing names without any evidence; canonical names were picked for liquidity).
+    - no evidence: name-weeks of that population without a proxy whose status comes from step 6, reported
+      only: a missing name-week without any evidence is ``unknown`` and gets no rate (``expected_top250``).
     Threshold views (ratio >= 1) are reported next to the bins."""
     ranked = listed[listed["eligible"] & listed["dv50_rank_any_price"].notna()]
     actual = (ranked["dv50_rank"] <= TOP_N).fillna(False).to_numpy(dtype=bool)
@@ -712,19 +997,23 @@ def calibrate(listed: pd.DataFrame) -> dict:
                 "proxy_rule_multi_class": rule_rates(known[multi_rows], above[multi_rows], status[multi_rows])}}
 
 
-def expected_top250(missing: pd.DataFrame, rates: dict) -> np.ndarray:
-    """Probability that each missing name-week is a top-250 name-week, from the evidence it has: step 6's
-    dollar volume where usable, else the proxy (single- or multi-class table), else the no-evidence rate;
-    0 where step 6 saw a raw close under $10."""
+def expected_top250(missing: pd.DataFrame, rates: dict, proxy_bin0: float | None = None) -> np.ndarray:
+    """Probability that each missing name-week is a top-250 name-week, from the evidence it has: the
+    step-6 or stored-direct dollar volume where usable, else the proxy (single- or multi-class table);
+    0 where step 6 saw a raw close under $10; NaN with no evidence at all (``unknown``: the status is not
+    known, so no small rate is put on it; the summaries count these name-weeks apart). ``proxy_bin0``
+    replaces the proxy rate of the lowest bin (proxy under 25% of the band median), for a sensitivity."""
     year_index = np.clip(missing["week_end"].dt.year.values - YEARS[0], 0, len(YEARS) - 1)
     dv_bins = ratio_bins(missing["dv_ratio"].values)
     proxy_bins = ratio_bins(missing["proxy_ratio"].values)
     multi = missing["multi_class"].to_numpy(dtype=bool) if "multi_class" in missing else np.zeros(len(missing), bool)
-    p = np.full(len(missing), rates["no_evidence"]["p"])
+    p = np.full(len(missing), np.nan)
     for rows, table in ((~multi, rates["proxy_rule"]["table"]), (multi, rates.get("proxy_rule_multi_class",
                                                                                      rates["proxy_rule"])["table"])):
         use = rows & (proxy_bins >= 0)
         p[use] = table[year_index[use], proxy_bins[use]]
+        if proxy_bin0 is not None:
+            p[use & (proxy_bins == 0)] = proxy_bin0
     has_dv = dv_bins >= 0
     p[has_dv] = rates["dv_rule"]["table"][year_index[has_dv], dv_bins[has_dv]]
     p[missing["pf_price_low"].to_numpy(dtype=bool)] = 0.0
@@ -851,6 +1140,20 @@ def dv_bucket(value: float) -> str:
     return f"{label(low)}-{label(high)}"
 
 
+def window_before_listing(rows: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np.ndarray) -> np.ndarray:
+    """Name-weeks of an interval whose series starts where step 9 cut it (``ipo_boundary``: a transfer
+    from another exchange such as AMD or CSX, or rows step 9 kept before the listing) whose 50-session
+    window still holds canonical rows from before the interval's start."""
+    if "interval_start" not in rows or "ipo_boundary" not in rows:
+        return np.zeros(len(rows), dtype=bool)
+    start = rows["interval_start"].astype(str)
+    start_pos = sessions.searchsorted(pd.to_datetime(start))
+    window_first = week_pos[rows["week_index"].to_numpy()] - (max(DV_WINDOWS) - 1)
+    first = rows["first_row"].astype(str)
+    return (rows["ipo_boundary"].to_numpy(dtype=bool) & (start_pos > window_first)
+            & (first != "").to_numpy() & (first < start).to_numpy())
+
+
 def top300_table(listed: pd.DataFrame, master: pd.DataFrame, sic_history: pd.DataFrame, maps: pd.DataFrame,
                  events: pd.DataFrame, sessions: pd.DatetimeIndex, week_pos: np.ndarray) -> pd.DataFrame:
     ranks = listed[[f"dv{w}_rank{s}" for w in DV_WINDOWS for s in ("", "_any_price")]]
@@ -869,6 +1172,7 @@ def top300_table(listed: pd.DataFrame, master: pd.DataFrame, sic_history: pd.Dat
     top["earnings_nearest_d0_offset"] = pd.array(np.where(np.isnan(offset), np.nan, offset), dtype="Int64")
     top["earnings_event_within_3_sessions"] = yes_no(np.abs(np.nan_to_num(offset, nan=99)) <= EARNINGS_WINDOW)
     top["results_release_within_3_sessions"] = yes_no(np.abs(np.nan_to_num(release, nan=99)) <= EARNINGS_WINDOW)
+    top["dv_window_before_listing"] = yes_no(window_before_listing(top, sessions, week_pos))
     top["close_in_week"] = yes_no(top["in_week"])
     top["close_on_week_end"] = yes_no(top["on_week_end"])
     top["close_lag_sessions"] = pd.array(top["lag"].values, dtype="Int64")
@@ -939,6 +1243,14 @@ def weekly_summary(listed: pd.DataFrame, cut: pd.DataFrame, weeks: pd.DatetimeIn
     s["n_missing_pf_dv_ge_cut250_not_pending"] = settled["pf_ge_cut250"].groupby(settled["week_index"]).sum()
     no_dv = miss[~miss["pf_dv_ok"] & ~miss["pf_price_low"]]
     s["n_missing_proxy_above_no_pf_dv"] = no_dv["proxy_above"].groupby(no_dv["week_index"]).sum()
+    no_dv_settled = no_dv[~no_dv["missing_reason"].isin(PENDING_REASONS)]
+    s["n_missing_proxy_above_no_pf_dv_not_pending"] = no_dv_settled["proxy_above"].groupby(no_dv_settled["week_index"]).sum()
+    direct = miss["dv_stored_direct"] if "dv_stored_direct" in miss else pd.Series(False, index=miss.index)
+    s["n_missing_dv_stored_direct"] = (direct & miss["pf_dv_ok"]).groupby(miss["week_index"]).sum()
+    unknown = miss["evidence"] == "unknown"
+    s["n_missing_unknown"] = unknown.groupby(miss["week_index"]).sum()
+    s["n_missing_unknown_not_pending"] = (unknown & ~miss["missing_reason"].isin(PENDING_REASONS)).groupby(
+        miss["week_index"]).sum()
     s["est_missing_top250"] = m["p_top250"].sum().round(2)
     residual = miss[~miss["missing_reason"].isin(PENDING_REASONS)]
     s["est_missing_top250_residual"] = residual.groupby("week_index")["p_top250"].sum().round(2)
@@ -980,11 +1292,15 @@ def weekly_summary(listed: pd.DataFrame, cut: pd.DataFrame, weeks: pd.DatetimeIn
         s[col] = s[col].fillna(0).astype(int)
     for col in ("est_missing_top250", "est_missing_top250_residual", "est_missing_top250_residual_ex_siblings"):
         s[col] = s[col].fillna(0.0)
-    s["complete_250"] = yes_no((s["n_ranked_dv50"] >= TOP_N) & (s["top250_close_in_week"] == TOP_N)
-                               & (s["n_missing_pf_dv_ge_cut250"] == 0))
-    s["complete_250_strict"] = yes_no((s["complete_250"] == "Y") & (s["n_missing_proxy_above_no_pf_dv"] == 0))
-    s["complete_250_after_pending"] = yes_no((s["n_ranked_dv50"] >= TOP_N) & (s["top250_close_in_week"] == TOP_N)
-                                             & (s["n_missing_pf_dv_ge_cut250_not_pending"] == 0))
+    # Unknown name-weeks count as top-250 name-weeks in the upper bound (never as small).
+    s["est_missing_top250_residual_upper"] = (s["est_missing_top250_residual"] + s["n_missing_unknown_not_pending"]).round(2)
+    ranked_and_closed = (s["n_ranked_dv50"] >= TOP_N) & (s["top250_close_in_week"] == TOP_N)
+    s["complete_250"] = yes_no(ranked_and_closed & (s["n_missing_pf_dv_ge_cut250"] == 0)
+                               & (s["n_missing_proxy_above_no_pf_dv"] == 0) & (s["n_missing_unknown"] == 0))
+    s["complete_250_strict"] = yes_no((s["complete_250"] == "Y") & (s["est_missing_top250"] < STRICT_EXPECTED_LIMIT))
+    s["complete_250_after_pending"] = yes_no(ranked_and_closed & (s["n_missing_pf_dv_ge_cut250_not_pending"] == 0)
+                                             & (s["n_missing_proxy_above_no_pf_dv_not_pending"] == 0)
+                                             & (s["n_missing_unknown_not_pending"] == 0))
     return s.reset_index(drop=True)[SUMMARY_COLUMNS]
 
 
@@ -1210,25 +1526,96 @@ def fetch_margin(candidates: pd.DataFrame, listed: pd.DataFrame) -> dict:
 
 # ------------------------------------------------------------------ reports
 
+EVIDENCE_BINS = ["dv_ge_cut", "dv_below_cut", "proxy_ge_0_5", "proxy_0_25_to_0_5", "proxy_lt_0_25", "price_lt_10",
+                 "unknown"]
+
+
+def evidence_bins(frame: pd.DataFrame) -> np.ndarray:
+    """Missing name-weeks by evidence and its distance to the cut (EVIDENCE_BINS)."""
+    ev = frame["evidence"].to_numpy(dtype=object)
+    dv, proxy = frame["dv_ratio"].to_numpy(dtype=float), frame["proxy_ratio"].to_numpy(dtype=float)
+    with np.errstate(invalid="ignore"):
+        conditions = [(ev == "dv") & (dv >= 1.0), ev == "dv", (ev == "proxy") & (proxy >= 0.5),
+                      (ev == "proxy") & (proxy >= 0.25), ev == "proxy", ev == "price_lt_10"]
+    return np.select(conditions, EVIDENCE_BINS[:6], default="unknown")
+
+
+def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
+    """Plan 3.3 check 6 over every missing reason except the pending ones: the expected top-250 name-weeks
+    held by missing names (the model, on known evidence), plus the unknown name-weeks counted as top-250
+    name-weeks (``upper``: they are never taken as small); ``lower`` puts 0 on the proxy's lowest bin
+    (the bin-0 base rate is measured on known-status names and probably overstates); the plan's own
+    population (``unfillable`` only) is kept beside it."""
+    residual = float(settled["p_top250"].sum())
+    low = float(settled["p_top250_low"].sum()) if "p_top250_low" in settled else residual
+    unknown = int((settled["evidence"] == "unknown").sum())
+    unfill_rows = my[my["missing_reason"] == "unfillable"]
+    unfill = float(unfill_rows["p_top250"].sum())
+    unfill_unknown = int((unfill_rows["evidence"] == "unknown").sum())
+    share = lambda value: round(value / slots, 5)
+    return {"limit_share_of_slots": UNFILLABLE_SHARE_LIMIT,
+            "residual_share": share(residual), "unknown_name_weeks": unknown, "unknown_share": share(unknown),
+            "upper_share": share(residual + unknown), "lower_share_bin0_zero": share(low),
+            "range_share": [share(low), share(residual), share(residual + unknown)],
+            "unfillable_only_share": share(unfill), "unfillable_only_upper_share": share(unfill + unfill_unknown),
+            "pass": bool((residual + unknown) / slots <= UNFILLABLE_SHARE_LIMIT),
+            "pass_known_evidence_only": bool(residual / slots <= UNFILLABLE_SHARE_LIMIT),
+            "pass_unfillable_only": bool(unfill / slots <= UNFILLABLE_SHARE_LIMIT)}
+
+
+def blocks_week(rows: pd.DataFrame) -> pd.Series:
+    """Missing name-weeks that make a week incomplete: dollar-volume evidence at or above the rank-250
+    cut, only a proxy that reaches the band median, or no evidence at all (unknown)."""
+    proxy_only = rows["proxy_above"] & ~rows["pf_dv_ok"] & ~rows["pf_price_low"]
+    return rows["pf_ge_cut250"] | proxy_only | (rows["evidence"] == "unknown")
+
+
+def after_pending_ex_siblings(summary: pd.DataFrame, listed: pd.DataFrame) -> pd.Series:
+    """``complete_250_after_pending`` with missing classes whose sibling class ranks that week also set
+    aside (owner question 8.4: if only the most liquid class is kept), per summary row."""
+    miss = listed[listed["missing"] & ~listed["missing_reason"].isin(PENDING_REASONS) & ~listed["sibling_priced"]]
+    blocked = blocks_week(miss).groupby(miss["week_index"]).any().reindex(range(len(summary)), fill_value=False)
+    ranked_and_closed = (summary["n_ranked_dv50"] >= TOP_N) & (summary["top250_close_in_week"] == TOP_N)
+    return pd.Series(ranked_and_closed.to_numpy() & ~blocked.to_numpy(dtype=bool), index=summary.index)
+
+
 def by_year(summary: pd.DataFrame, listed: pd.DataFrame, top: pd.DataFrame) -> dict:
-    s = summary.assign(year=summary["week_end"].str[:4].astype(int))
+    s = summary.assign(year=summary["week_end"].str[:4].astype(int),
+                       ex_siblings=after_pending_ex_siblings(summary, listed))
     miss = listed[listed["missing"]]
     out = {}
     for year, g in s.groupby("year"):
         slots = TOP_N * len(g)
         my = miss[miss["week_end"].dt.year == year]
         est = float(my["p_top250"].sum())
-        residual = float(my.loc[~my["missing_reason"].isin(PENDING_REASONS), "p_top250"].sum())
-        unfill = float(my.loc[my["missing_reason"] == "unfillable", "p_top250"].sum())
         settled = my[~my["missing_reason"].isin(PENDING_REASONS)]
+        residual = float(settled["p_top250"].sum())
+        unfill = float(my.loc[my["missing_reason"] == "unfillable", "p_top250"].sum())
         lone = float(settled.loc[~settled["sibling_priced"], "p_top250"].sum())
         blind = settled[~settled["pf_dv_ok"] & ~settled["pf_price_low"]]
+        bins = pd.Series(evidence_bins(settled), index=settled.index)
+        six = check_6(settled, my, slots)
+        blockers = settled[blocks_week(settled)]
+        blockers = (blockers.groupby(["ticker", "missing_reason", "evidence"]).size().sort_values(ascending=False)
+                    .head(12))
         t = top[(top["week_end"].str[:4].astype(int) == year) & (top["dv50_rank"] <= TOP_N)]
         out[int(year)] = {
             "weeks": int(len(g)),
             "complete_250_share": round(float((g["complete_250"] == "Y").mean()), 4),
             "complete_250_strict_share": round(float((g["complete_250_strict"] == "Y").mean()), 4),
             "complete_250_after_pending_share": round(float((g["complete_250_after_pending"] == "Y").mean()), 4),
+            "complete_250_after_pending_ex_sibling_classes_share": round(float(g["ex_siblings"].mean()), 4),
+            "weeks_blocked_by": {  # a week can be blocked by several conditions
+                "complete_250": {"ranked_lt_250": int((g["n_ranked_dv50"] < TOP_N).sum()),
+                                 "top250_not_all_closed": int((g["top250_close_in_week"] < TOP_N).sum()),
+                                 "dv_ge_cut250": int((g["n_missing_pf_dv_ge_cut250"] > 0).sum()),
+                                 "proxy_only_ge_band_median": int((g["n_missing_proxy_above_no_pf_dv"] > 0).sum()),
+                                 "unknown": int((g["n_missing_unknown"] > 0).sum())},
+                "complete_250_after_pending": {
+                    "dv_ge_cut250": int((g["n_missing_pf_dv_ge_cut250_not_pending"] > 0).sum()),
+                    "proxy_only_ge_band_median": int((g["n_missing_proxy_above_no_pf_dv_not_pending"] > 0).sum()),
+                    "unknown": int((g["n_missing_unknown_not_pending"] > 0).sum())}},
+            "after_pending_blockers_name_weeks": {f"{t}:{r}:{e}": int(n) for (t, r, e), n in blockers.items()},
             "weeks_ranked_lt_250": int((g["n_ranked_dv50"] < TOP_N).sum()),
             "top250_close_in_week_min": int(g["top250_close_in_week"].min()),
             "top250_close_in_week_share": round(float(g["top250_close_in_week"].sum() / slots), 5),
@@ -1253,15 +1640,25 @@ def by_year(summary: pd.DataFrame, listed: pd.DataFrame, top: pd.DataFrame) -> d
             "residual_survivorship_share_of_slots": round(residual / slots, 5),
             "residual_ex_sibling_classes_name_weeks": round(lone, 1),
             "residual_ex_sibling_classes_share_of_slots": round(lone / slots, 5),
+            "residual_upper_name_weeks": round(residual + six["unknown_name_weeks"], 1),
             "residual_by_reason": {r: round(float(v), 1) for r, v in settled.groupby("missing_reason")["p_top250"].sum().items()},
+            "unknown_name_weeks_by_reason": {r: int(v) for r, v in
+                                             settled.loc[settled["evidence"] == "unknown", "missing_reason"].value_counts().items()},
+            "residual_by_evidence": {b: {"name_weeks": int((bins == b).sum()),
+                                         "est_top250_name_weeks": (round(float(settled.loc[bins == b, "p_top250"].sum()), 1)
+                                                                   if b != "unknown" else None)}
+                                     for b in EVIDENCE_BINS},
             "no_step6_dv": {"name_weeks": int(len(blind)),
                             "proxy_ratio_ge_0_5": int((blind["proxy_ratio"] >= 0.5).sum()),
                             "proxy_ratio_ge_1": int((blind["proxy_ratio"] >= 1.0).sum()),
                             "no_proxy": int(blind["proxy_ratio"].isna().sum()),
                             "est_top250_name_weeks": round(float(blind["p_top250"].sum()), 1)},
+            "unknown_name_weeks_all_reasons": int((my["evidence"] == "unknown").sum()),
+            "dv_stored_direct_name_weeks": int((my["dv_stored_direct"] & my["pf_dv_ok"]).sum()) if "dv_stored_direct" in my else 0,
             "unfillable_est_name_weeks": round(unfill, 1),
             "unfillable_share_of_slots": round(unfill / slots, 5),
-            "check_6_pass": bool(unfill / slots <= UNFILLABLE_SHARE_LIMIT),
+            "check_6": six,
+            "check_6_pass": six["pass"],
             "mcap_weighted_coverage_min": float(g["mcap_weighted_coverage"].min()),
             "mcap_weighted_coverage_median": float(g["mcap_weighted_coverage"].median()),
             "mcap_weighted_coverage_known_dv_min": float(g["mcap_weighted_coverage_known_dv"].min()),
@@ -1283,7 +1680,10 @@ def missing_by_security(listed: pd.DataFrame, master: pd.DataFrame, spans: pd.Da
     """One row per security with missing name-weeks: when, why, and the evidence of top-250 membership."""
     miss = listed[listed["missing"]].assign(
         no_pf_dv=lambda f: ~f["pf_dv_ok"] & ~f["pf_price_low"],
-        no_pf_dv_half=lambda f: ~f["pf_dv_ok"] & ~f["pf_price_low"] & (f["proxy_ratio"] >= 0.5))
+        no_pf_dv_half=lambda f: ~f["pf_dv_ok"] & ~f["pf_price_low"] & (f["proxy_ratio"] >= 0.5),
+        unknown=lambda f: f["evidence"] == "unknown",
+        stored_direct=lambda f: (f["dv_stored_direct"] if "dv_stored_direct" in f else False) & f["pf_dv_ok"],
+        not_in_step6=lambda f: ~f["in_pf"])
     g = miss.groupby("security_id")
     table = pd.DataFrame({
         "ticker": g["ticker"].last(),
@@ -1295,7 +1695,10 @@ def missing_by_security(listed: pd.DataFrame, master: pd.DataFrame, spans: pd.Da
         "weeks_with_pf_dv": g["pf_dv_ok"].sum(), "weeks_no_pf_dv": g["no_pf_dv"].sum(),
         "weeks_no_pf_dv_proxy_ge_half": g["no_pf_dv_half"].sum(), "weeks_proxy_above": g["proxy_above"].sum(),
         "weeks_sibling_priced": g["sibling_priced"].sum(),
+        "weeks_unknown": g["unknown"].sum(), "weeks_dv_stored_direct": g["stored_direct"].sum(),
+        "weeks_not_in_step6": g["not_in_step6"].sum(),
         "best_pf_dv50_rank": g["pf_dv50_rank"].min(), "max_proxy_ratio": g["proxy_ratio"].max().round(3),
+        "max_dv_ratio": g["dv_ratio"].max().round(3),
         "est_top250_weeks": g["p_top250"].sum().round(2), "has_series": g["has_series"].any(),
     })
     last_listed = spans.groupby("security_id")["list_end"].max()
@@ -1309,10 +1712,15 @@ def missing_by_security(listed: pd.DataFrame, master: pd.DataFrame, spans: pd.Da
 def month2_leads(missing: pd.DataFrame, candidates: pd.DataFrame, fetch_status: pd.DataFrame) -> pd.DataFrame:
     """Securities the checks point to (plan step 12's list for month 2): missing weeks with step-6 dollar
     volume at the rank-300 cut, or with no step-6 dollar volume and a proxy at half the band median or more
-    in 4+ weeks, or a proxy above it; with what the fetch lists already say and the source that would
-    serve them (Yahoo for a name still listed, which costs no Tiingo symbol)."""
-    leads = missing[(missing["weeks_pf_dv_ge_cut300"] > 0) | (missing["weeks_no_pf_dv_proxy_ge_half"] >= 4)
-                    | ((missing["weeks_no_pf_dv"] > 0) & (missing["weeks_proxy_above"] > 0))].copy()
+    in 4+ weeks, or a proxy above it, or a name still listed with 4+ unknown weeks (no series and no size
+    proxy; Yahoo serves it without a Tiingo symbol); with what the fetch lists already say and the source
+    that would serve them (Yahoo for a name still listed, which costs no Tiingo symbol). Unknown names no
+    longer listed are counted in the summary, not listed here (each would cost a Tiingo symbol)."""
+    dv = missing["weeks_pf_dv_ge_cut300"] > 0
+    proxy = (missing["weeks_no_pf_dv_proxy_ge_half"] >= 4) | ((missing["weeks_no_pf_dv"] > 0) & (missing["weeks_proxy_above"] > 0))
+    unknown = (missing["weeks_unknown"] >= 4) & missing["active_now"] if "weeks_unknown" in missing else False
+    leads = missing[dv | proxy | unknown].copy()
+    leads["lead_rule"] = np.select([dv[leads.index], proxy[leads.index]], ["dv_ge_cut300", "proxy"], default="unknown_active")
     planned = candidates.drop_duplicates("security_id").set_index("security_id")
     leads["in_candidates"] = leads["security_id"].isin(planned.index)
     leads["planned_source"] = leads["security_id"].map(planned["planned_source"]).fillna("")
@@ -1320,8 +1728,9 @@ def month2_leads(missing: pd.DataFrame, candidates: pd.DataFrame, fetch_status: 
     status = (fetch_status.sort_values("updated_utc", kind="stable").drop_duplicates("security_id", keep="last")
               .set_index("security_id")["status"] if len(fetch_status) else pd.Series(dtype=str))
     leads["tiingo_status"] = leads["security_id"].map(status).fillna("")
-    leads["suggested_source"] = np.where(leads["missing_reason"].isin(PENDING_REASONS), "pending",
-                                         np.where(leads["active_now"], "yahoo", "tiingo"))
+    leads["suggested_source"] = np.select(
+        [leads["missing_reason"].isin(PENDING_REASONS), leads["missing_reason"] == "answer_not_in_panel",
+         leads["active_now"].astype(bool)], ["pending", "step9_has_it", "yahoo"], default="tiingo")
     return leads
 
 
@@ -1351,9 +1760,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tiingo-status", type=Path, default=TIINGO_STATUS,
                         help="the Tiingo fetch status file to read (default: the running fetch's own); a fixed "
                              "copy makes two runs comparable while the fetch is still writing")
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="write every output (the two INPUTS files included) under this directory instead of "
+                             "the published locations, e.g. to compare a rerun with the published build")
     args = parser.parse_args(argv)
     started = datetime.now(timezone.utc)
-    OUT.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out_dir) if args.out_dir else OUT
+    top300_file = out_dir / TOP300_FILE.name if args.out_dir else TOP300_FILE
+    summary_file = out_dir / SUMMARY_FILE.name if args.out_dir else SUMMARY_FILE
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     log("calendar")
     sessions, weeks, week_pos, prev_pos = calendar()
@@ -1367,6 +1782,14 @@ def main(argv: list[str] | None = None) -> int:
     panel = load_panel()
     panel_sha = common.sha256_file(PANEL)
     log(f"panel rows {len(panel)}, securities {panel['security_id'].nunique()}")
+    # Rows step 9 kept before a listing that belong to another company under the reused ticker (TRUE).
+    untrimmed_first = first_rows(panel, sessions)
+    spans_raw = listing_spans(intervals, master, untrimmed_first, sessions=sessions)
+    trims = boundary_trims(spans_raw, master, untrimmed_first, sessions, stored_floor_dates(master))
+    rows_before = len(panel)
+    panel = trim_panel(panel, trims)
+    log(f"mapping-boundary trims {len(trims)} ({', '.join(f'{s}>={d}' for s, d in sorted(trims.items()))}): "
+        f"{rows_before - len(panel)} canonical rows not used")
     metrics = canonical_metrics(panel, sessions, week_pos, prev_pos)
     log("canonical medians and week closes done")
 
@@ -1388,8 +1811,19 @@ def main(argv: list[str] | None = None) -> int:
     log(f"ranked dv50 name-weeks {int(listed['dv50_rank'].notna().sum())}")
 
     log("step-6 weekly metrics")
-    weekly_metrics = pd.read_pickle(WEEKLY_METRICS)
+    weekly_metrics = read_stable(WEEKLY_METRICS, pd.read_pickle)
     listed = join_prefilter(listed, weekly_metrics)
+    # Listed names step 6 never saw (later listings after a Form 25 cut): dollar volume from the stored
+    # files the master names for them, and market cap / XBRL float as step 6 attaches them.
+    direct = stored_direct_dv(listed, spans, master, sessions, week_pos)
+    listed = apply_stored_direct(listed, direct)
+    lists = read_csv_text(LISTS)
+    lists["market_cap"] = pd.to_numeric(lists["market_cap"], errors="coerce")
+    floats, float_drops = pf.float_price_check(pf.float_facts(offline=True), weekly_metrics, master)
+    listed = direct_proxies(listed, master, lists, floats)
+    not_in_pf = listed["eligible"] & ~listed["in_pf"]
+    log(f"name-weeks step 6 has no row for {int(not_in_pf.sum())}: stored-direct dv50 "
+        f"{int((not_in_pf & listed['pf_dv50'].notna()).sum())}, proxy {int(listed['proxy_direct'].sum())}")
     candidates = read_csv_text(CANDIDATES)
     unfillable = read_csv_text(UNFILLABLE)
     no_series = read_csv_text(NO_SERIES) if NO_SERIES.exists() else pd.DataFrame(columns=["security_id", "reason"])
@@ -1397,18 +1831,29 @@ def main(argv: list[str] | None = None) -> int:
     fetch_status = read_csv_text(status_path) if status_path.exists() else pd.DataFrame(
         columns=["security_id", "status", "updated_utc", "first_date", "last_date", "fetched_utc"])
     status_sha = common.sha256_file(status_path) if status_path.exists() else ""
+    yahoo_report = read_csv_text(YAHOO_REPORT) if YAHOO_REPORT.exists() else None
+    yahoo_status = read_csv_text(YAHOO_STATUS) if YAHOO_STATUS.exists() else None
+    # Answers newer than the panel, Tiingo's and Yahoo's: step 9 has to be rerun to read them.
+    answers = pd.concat([fetch_status.reindex(columns=FETCH_STATUS_COLUMNS).fillna(""),
+                         yahoo_answers(yahoo_report, yahoo_status)], ignore_index=True)
     # Per security without unfillable.csv (its windows are applied per week in mark_missing); the
     # security-level view, with it, serves the checks.
-    week_reasons = security_reasons(master, candidates, unfillable.iloc[0:0], no_series, fetch_status, set(metrics["ids"]))
-    reasons = security_reasons(master, candidates, unfillable, no_series, fetch_status, set(metrics["ids"]))
+    series_ids = set(metrics["ids"])
+    week_reasons = security_reasons(master, candidates, unfillable.iloc[0:0], no_series, fetch_status, series_ids,
+                                    yahoo_report)
+    reasons = security_reasons(master, candidates, unfillable, no_series, fetch_status, series_ids, yahoo_report)
     cut = week_cutoffs(listed)
     panel_built = datetime.fromtimestamp(PANEL.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
-    listed = mark_missing(listed, spans, week_reasons, cut, fetch_status, panel_built, windows_of(unfillable))
+    listed = mark_missing(listed, spans, week_reasons, cut, answers, panel_built, windows_of(unfillable))
     rates = calibrate(listed)
     listed["p_top250"] = 0.0
+    listed["p_top250_low"] = 0.0
     miss_index = listed.index[listed["missing"]]
     listed.loc[miss_index, "p_top250"] = expected_top250(listed.loc[miss_index], rates)
-    log(f"missing name-weeks {len(miss_index)}, expected top-250 among them {listed['p_top250'].sum():.1f}")
+    listed.loc[miss_index, "p_top250_low"] = expected_top250(listed.loc[miss_index], rates, proxy_bin0=0.0)
+    evidence_counts = listed.loc[miss_index, "evidence"].value_counts().to_dict()
+    log(f"missing name-weeks {len(miss_index)} by evidence {evidence_counts}; expected top-250 among those with "
+        f"evidence {listed['p_top250'].sum():.1f}")
 
     # Series that end within 4 weeks after a top-250 week, and whether a terminal value is settled.
     terminal = read_csv_text(TERMINAL)
@@ -1431,10 +1876,8 @@ def main(argv: list[str] | None = None) -> int:
     years = by_year(summary, listed, top)
 
     log("plan 3.3 checks 2-5")
-    lists = read_csv_text(LISTS)
-    lists["market_cap"] = pd.to_numeric(lists["market_cap"], errors="coerce")
     unfillable_ids = set(unfillable["security_id"]) | {s for s, r in reasons.items() if r == "unfillable"}
-    recent = recent_fetches(fetch_status, panel_built)
+    recent = recent_fetches(answers, panel_built)
     capture = capture_coverage(lists, spans, foreign, shells, panel, sessions, unfillable_ids, master, reasons, recent,
                                listed[["security_id", "week_end", "pf_src"]])
     members = json.loads(NASDAQ100.read_text()) if NASDAQ100.exists() else {}
@@ -1446,28 +1889,30 @@ def main(argv: list[str] | None = None) -> int:
     margin = fetch_margin(candidates, listed)
 
     log("writing outputs")
-    write_csv(TOP300_FILE, top[TOP300_COLUMNS], compress=True)
-    write_csv(SUMMARY_FILE, summary)
+    write_csv(top300_file, top[TOP300_COLUMNS], compress=True)
+    write_csv(summary_file, summary)
     keep = ["week_end", "security_id", "ticker", "eligible", "non_common", "spac_shell", "foreign", "foreign_filer",
             "has_series", "in_week", "on_week_end", "lag", "price_ge_10", "dv50_rank", "dv20_rank",
             "dv50_rank_any_price", "dv20_rank_any_price", "outside_trading", "young", "missing", "missing_reason",
-            "pf_universe", "pf_dv50_rank", "pf_price", "pf_src", "pf_ge_cut250", "pf_ge_cut300", "proxy_above",
-            "p_top250"]
+            "evidence", "in_pf", "pf_universe", "pf_dv50_rank", "pf_price", "pf_src", "pf_ge_cut250", "pf_ge_cut300",
+            "proxy_above", "p_top250"]
     out_listed = listed[keep].assign(week_end=listed["week_end"].dt.strftime("%Y-%m-%d"))
-    write_csv(OUT / "weekly_listed.csv.gz", out_listed, compress=True)
+    write_csv(out_dir / "weekly_listed.csv.gz", out_listed, compress=True)
     liquid = listed[listed["has_series"] & (listed["dv50"].notna() | listed["close"].notna())]
-    write_csv(OUT / "weekly_liquidity.csv.gz",
+    write_csv(out_dir / "weekly_liquidity.csv.gz",
               liquid[["week_end", "security_id", "ticker", "dv20", "dv50", "close", "lag", "dv50_rank", "dv20_rank"]]
               .assign(week_end=liquid["week_end"].dt.strftime("%Y-%m-%d")), compress=True)
     cut_out = cut.reindex(pd.RangeIndex(len(weeks))).assign(week_end=weeks.strftime("%Y-%m-%d"))
-    write_csv(OUT / "cutoffs.csv", cut_out.reset_index(drop=True))
+    write_csv(out_dir / "cutoffs.csv", cut_out.reset_index(drop=True))
     missing = missing_by_security(listed, master, spans)
-    write_csv(OUT / "missing_by_security.csv", missing)
+    write_csv(out_dir / "missing_by_security.csv", missing)
     leads = month2_leads(missing, candidates, fetch_status)
-    write_csv(OUT / "month2_leads.csv", leads)
-    write_csv(OUT / "capture_coverage.csv", capture)
-    write_csv(OUT / "nasdaq100_check.csv", n100)
-    write_csv(OUT / "form25_check.csv", f25)
+    write_csv(out_dir / "month2_leads.csv", leads)
+    write_csv(out_dir / "capture_coverage.csv", capture)
+    write_csv(out_dir / "nasdaq100_check.csv", n100)
+    write_csv(out_dir / "form25_check.csv", f25)
+    completeness = completeness_table(years)
+    write_csv(out_dir / "completeness_by_year.csv", completeness)
 
     payload = {
         "built_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1479,26 +1924,45 @@ def main(argv: list[str] | None = None) -> int:
                         "dv_windows": DV_WINDOWS, "close_stale_sessions": CLOSE_STALE_SESSIONS,
                         "min_price": MIN_PRICE, "top_n": TOP_N, "price_rank": PRICE_RANK, "proxy_band": BAND,
                         "earnings_window_sessions": EARNINGS_WINDOW, "stale_snapshot_days": STALE_SNAPSHOT_DAYS,
+                        "evidence": "a missing name-week's evidence of its top-250 status: price_lt_10 (step 6's "
+                                    "raw close under $10), dv (step-6 dv50, or for names step 6 has no row for the "
+                                    "stored-file dv50, against the canonical rank-250 cut), proxy (market cap or "
+                                    "float against the median of canonical ranks 200-250), unknown (none: never "
+                                    "taken as small)",
                         "complete_250": "n_ranked_dv50 >= 250, all ranks 1-250 have a canonical close in the "
-                                        "week, no missing name with step-6 dv50 >= the canonical rank-250 cut",
-                        "complete_250_strict": "complete_250 and no missing name without step-6 dv whose proxy "
-                                               "reaches the median proxy of canonical ranks 200-250",
+                                        "week, and no missing name with dv50 evidence >= the canonical rank-250 cut, "
+                                        "none with only a proxy that reaches the band median, none unknown",
+                        "complete_250_strict": f"complete_250 and est_missing_top250 < {STRICT_EXPECTED_LIMIT} "
+                                               "(fewer than one expected missing top-250 name, all reasons)",
+                        "complete_250_after_pending": "the complete_250 conditions with the tiingo_pending and "
+                                                      "fetched_pending_reconcile names set aside",
                         "residual_survivorship": "expected top-250 name-weeks held by missing names other than "
                                                  "tiingo_pending and fetched_pending_reconcile, from the evidence "
-                                                 "rules' hit rates by year"},
+                                                 "rules' hit rates by year; unknown name-weeks are not in it and "
+                                                 "are added as top-250 name-weeks in *_upper",
+                        "check_6": "plan 3.3 check 6 on the residual of every non-pending reason, unknown name-weeks "
+                                   "counted as top-250 name-weeks (pass = upper share <= 2% of slots); the "
+                                   "unfillable-only share is kept beside it",
+                        "earnings_nearest_d0_offset": "D0 session minus the week-end session: positive = D0 after "
+                                                      "the week end"},
         "inputs_sha256": {str(p): common.sha256_file(p) for p in (
             MASTER, INTERVALS, PERIODIC_HISTORY, SNAPSHOT_INDEX, FORM25, CANDIDATES, UNFILLABLE, EARNINGS,
-            SIC_HISTORY, FF_MAPS, TERMINAL, WEEKLY_METRICS, LISTS, NO_SERIES) if Path(p).exists()}
+            SIC_HISTORY, FF_MAPS, TERMINAL, WEEKLY_METRICS, LISTS, NO_SERIES, YAHOO_REPORT, YAHOO_STATUS)
+            if Path(p).exists()}
         | {str(PANEL): panel_sha, f"tiingo_status ({status_path})": status_sha},
         "panel_built_utc": panel_built,
-        "outputs_sha256": {str(TOP300_FILE): common.sha256_file(TOP300_FILE),
-                           str(SUMMARY_FILE): common.sha256_file(SUMMARY_FILE)},
+        "outputs_sha256": {str(top300_file): common.sha256_file(top300_file),
+                           str(summary_file): common.sha256_file(summary_file)},
         "panel": {"rows": int(len(panel)), "securities": int(panel["security_id"].nunique()),
                   "rows_by_source": {k: int(v) for k, v in panel["src_primary"].value_counts().items()}},
         "listing": {"intervals": int(len(spans)), "ipo_rule_starts": int(spans["ipo_start"].sum()),
                     "ipo_rule_not_applied_at_mapping_boundary": int(spans["ipo_boundary"].sum()),
                     "mapping_boundary_starts_to_check": [f"{r.security_id}:{r.ticker}:{r.snapshot_start}" for r in
                                                          spans[spans["ipo_boundary"]].itertuples(index=False)],
+                    "mapping_boundary_trims": {s: {"rows_from": d, "untrimmed_first_row": untrimmed_first.get(s, "")}
+                                               for s, d in sorted(trims.items())},
+                    "mapping_boundary_trimmed_rows": int(rows_before - len(panel)),
+                    "top300_rows_dv_window_before_listing": int((top["dv_window_before_listing"] == "Y").sum()),
                     "cut_by_form25": int((spans["cut"] == "form25").sum()),
                     "cut_by_transfer": int((spans["cut"] == "transfer").sum()),
                     "intervals_after_a_cut": int(spans["after_cut"].sum()),
@@ -1511,7 +1975,13 @@ def main(argv: list[str] | None = None) -> int:
             "base_here_not_listed_step6": int((listed["eligible"] & ~listed["in_pf"]).sum()),
             "step6_universe_not_base_here": int(len(weekly_metrics[weekly_metrics["universe"]])
                                                 - (listed["eligible"] & listed["pf_universe"]).sum()),
-            "ranked_here_not_step6_universe": int((listed["dv50_rank"].notna() & ~listed["pf_universe"]).sum())},
+            "ranked_here_not_step6_universe": int((listed["dv50_rank"].notna() & ~listed["pf_universe"]).sum()),
+            "missing_not_in_step6": not_in_step6_facts(listed),
+            "note": "listed names step 6 has no row for (the first round-5 step-6 build dropped later listings "
+                    "after a Form 25 cut: SMCI relisted 2020-01, CHRD/Oasis 2020-11, CORZ 2024-01) take stored-file "
+                    "dv and proxies here; a fetched answer step 9 left out of the panel is answer_not_in_panel"},
+        "float_price_check_dropped": len(float_drops),
+        "no_sic_or_investment_entity_in_top250": investment_companies(top, master),
         "calibration": rates_for_json(rates),
         "by_year": years,
         "overall": {
@@ -1523,6 +1993,10 @@ def main(argv: list[str] | None = None) -> int:
             "residual_survivorship_name_weeks": round(float(listed.loc[~listed["missing_reason"].isin(PENDING_REASONS),
                                                                        "p_top250"].sum()), 1),
             "residual_ex_sibling_classes_name_weeks": round(float(summary["est_missing_top250_residual_ex_siblings"].sum()), 1),
+            "unknown_name_weeks": int(summary["n_missing_unknown"].sum()),
+            "unknown_name_weeks_not_pending": int(summary["n_missing_unknown_not_pending"].sum()),
+            "residual_upper_name_weeks": round(float(summary["est_missing_top250_residual_upper"].sum()), 1),
+            "missing_by_evidence": {k: int(v) for k, v in evidence_counts.items()},
             "proxy_check_1_share_weeks_zero": round(float((summary["n_missing_proxy_above"] == 0).mean()), 4),
             "proxy_check_1_max": int(summary["n_missing_proxy_above"].max()),
             "top250_vendor_rows_share": round(float(listed.loc[listed["dv50_rank"] <= TOP_N, "src"].notna().mean()), 6),
@@ -1549,22 +2023,65 @@ def main(argv: list[str] | None = None) -> int:
         "month2_leads": {"securities": int(len(leads)), "not_in_candidates": int((~leads["in_candidates"]).sum()),
                          "by_reason": {k: int(v) for k, v in leads["missing_reason"].value_counts().items()},
                          "by_suggested_source": {k: int(v) for k, v in leads["suggested_source"].value_counts().items()},
+                         "by_lead_rule": {k: int(v) for k, v in leads["lead_rule"].value_counts().items()},
                          "est_top250_weeks_by_suggested_source": {
-                             k: round(float(v), 1) for k, v in leads.groupby("suggested_source")["est_top250_weeks"].sum().items()}},
+                             k: round(float(v), 1) for k, v in leads.groupby("suggested_source")["est_top250_weeks"].sum().items()},
+                         "unknown_not_listed_now": {
+                             "securities": int(((missing["weeks_unknown"] > 0) & ~missing["active_now"]).sum()),
+                             "unknown_name_weeks": int(missing.loc[~missing["active_now"], "weeks_unknown"].sum()),
+                             "note": "names with unknown weeks that are no longer listed: Tiingo would serve them "
+                                     "(one symbol each); not in month2_leads.csv"}},
         "missing_securities": {"securities": int(len(missing)),
-                               "by_reason": {k: int(v) for k, v in missing["missing_reason"].value_counts().items()}},
+                               "by_reason": {k: int(v) for k, v in missing["missing_reason"].value_counts().items()},
+                               "with_unknown_weeks": int((missing["weeks_unknown"] > 0).sum())},
     }
-    write_json(OUT / "universe_summary.json", payload)
-    log("by year: complete_250 share, residual survivorship share of slots")
-    for year, facts in years.items():
-        log(f"  {year}: weeks {facts['weeks']}, complete {facts['complete_250_share']:.3f} "
-            f"(strict {facts['complete_250_strict_share']:.3f}, after pending {facts['complete_250_after_pending_share']:.3f}), "
-            f"top250 closed {facts['top250_close_in_week_share']:.4f}, "
-            f"est missing {facts['est_missing_top250_name_weeks']} ({facts['est_missing_top250_share_of_slots']:.4f}), "
-            f"residual {facts['residual_survivorship_name_weeks']} ({facts['residual_survivorship_share_of_slots']:.4f}), "
-            f"ex sibling classes {facts['residual_ex_sibling_classes_share_of_slots']:.4f}")
-    log(f"done in {payload['runtime_seconds']} s")
+    write_json(out_dir / "universe_summary.json", payload)
+    log("by year (complete shares of weeks; residual, unknown and upper as shares of top-250 slots):")
+    for line in completeness.to_string(index=False).splitlines():
+        log("  " + line)
+    log(f"done in {payload['runtime_seconds']} s; outputs in {out_dir} ({top300_file.name}, {summary_file.name})")
     return 0
+
+
+def completeness_table(years: dict) -> pd.DataFrame:
+    """Per year: the three complete flags' share of weeks and check 6's residual, unknown and upper shares
+    of top-250 slots (written to completeness_by_year.csv and printed at the end of a run)."""
+    rows = []
+    for year, f in years.items():
+        six = f["check_6"]
+        rows.append({"year": year, "weeks": f["weeks"], "complete_250": f["complete_250_share"],
+                     "strict": f["complete_250_strict_share"], "after_pending": f["complete_250_after_pending_share"],
+                     "after_pending_ex_sib": f["complete_250_after_pending_ex_sibling_classes_share"],
+                     "top250_closed": f["top250_close_in_week_share"],
+                     "residual_low": six["lower_share_bin0_zero"], "residual": six["residual_share"],
+                     "unknown_nw": six["unknown_name_weeks"], "upper": six["upper_share"],
+                     "check_6_pass": six["pass"], "pass_known_only": six["pass_known_evidence_only"],
+                     "unfillable_only": six["unfillable_only_share"]})
+    return pd.DataFrame(rows)
+
+
+def not_in_step6_facts(listed: pd.DataFrame) -> dict:
+    """Missing universe-base name-weeks with no step-6 row, by the evidence this build found for them."""
+    rows = listed[listed["missing"] & ~listed["in_pf"]]
+    return {"name_weeks": int(len(rows)), "securities": int(rows["security_id"].nunique()),
+            "by_evidence": {k: int(v) for k, v in rows["evidence"].value_counts().items()},
+            "stored_direct_dv_ge_cut250_name_weeks": int(rows["pf_ge_cut250"].sum()),
+            "by_security": {f"{s}:{t}": int(n) for (s, t), n in rows.groupby(["security_id", "ticker"]).size()
+                            .sort_values(ascending=False).head(40).items()}}
+
+
+def investment_companies(top: pd.DataFrame, master: pd.DataFrame) -> dict:
+    """Top-250 name-weeks of securities with no SEC SIC (BDCs and closed-end funds such as ARCC, PSEC,
+    ACAS and Altaba from 2017-06) or an investment entity type: they are in the common-stock base; whether
+    to keep them is owner question 8."""
+    info = master.set_index("security_id")
+    t = top[top["dv50_rank"] <= TOP_N]
+    sic = t["security_id"].map(info["sic"]).fillna("")
+    kind = t["security_id"].map(info["entity_type"]).fillna("")
+    hit = t[(sic == "") | (kind == "investment")]
+    return {"name_weeks": int(len(hit)),
+            "securities": {f"{s}:{t_}": int(n) for (s, t_), n in hit.groupby(["security_id", "ticker"]).size()
+                           .sort_values(ascending=False).items()}}
 
 
 def pf_only_reasons(listed: pd.DataFrame) -> dict:

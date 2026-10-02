@@ -823,6 +823,8 @@ class References:
         for row in self.files.get(sid, pd.DataFrame(columns=["src"])).itertuples(index=False):
             if row.src != src:
                 continue
+            if str(getattr(row, "entity_check_failed", "")) == "True":
+                continue  # step 6 dropped this file as another company's (22701's SUNE.csv.gz is SunEdison)
             path = (self.wiki_dir if src == "wiki" else self.stored_dir) / row.file
             if not path.exists():
                 continue
@@ -1183,7 +1185,8 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         if checks["verdict"] in ACCEPTED and len(window):
             yahoo_weeks.setdefault(sid, set()).update(window["date"].dt.to_period("W-SUN"))
         event_frames.append(flagged.assign(security_id=sid, symbol=symbol, verdict=checks["verdict"]))
-        frame = window.assign(date=window["date"].dt.strftime("%Y-%m-%d"), symbol=symbol, junction="")
+        # (an empty body, AGEND's ECNQUOTE answer, has an untyped date column)
+        frame = window.assign(date=pd.to_datetime(window["date"]).dt.strftime("%Y-%m-%d"), symbol=symbol, junction="")
         if junction and len(frame):
             frame.iloc[0, frame.columns.get_loc("junction")] = "Y"
         (accepted if checks["verdict"] in ACCEPTED else rejected).setdefault(sid, []).append(frame)

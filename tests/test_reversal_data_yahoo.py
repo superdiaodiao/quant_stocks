@@ -423,6 +423,21 @@ def test_symbol_overrides_replace_the_candidate_ticker_and_say_why():
     assert "symbol OLDT -> NEWT" in rows.loc[0, "note"]
 
 
+def test_y_active_all_rows_are_requested_and_a_relisted_name_asks_yahoo_only_after_its_form25():
+    # SMCI (round 5): the need before the 2019 Form 25 is a Tiingo row, the later listing a Yahoo row.
+    candidates = pd.DataFrame([
+        {"security_id": "1375365", "ticker_for_source": "SMCI", "needed_start": "2018-01-21", "needed_end": "2018-09-06",
+         "reason": "B_A_float_ge_1B", "planned_source": "tiingo", "active": "N", "note": "the need before"},
+        {"security_id": "1375365", "ticker_for_source": "SMCI", "needed_start": "2019-11-01", "needed_end": "2026-08-31",
+         "reason": "Y_active_rank300", "planned_source": "yahoo", "active": "Y", "note": "listed again"},
+        {"security_id": "9", "ticker_for_source": "QUIET", "needed_start": "2015-01-02", "needed_end": "2026-08-31",
+         "reason": "Y_active_all", "planned_source": "yahoo", "active": "Y", "note": ""}])
+    rows = yh.request_rows(candidates, overrides={}, segments={}).set_index("security_id")
+    assert rows.loc["1375365", "symbol"] == "SMCI" and rows.loc["1375365", "needed_start"] == "2019-11-01"
+    assert rows.loc["1375365", "reasons"] == "Y_active_rank300"
+    assert rows.loc["9", "symbol"] == "QUIET" and rows.loc["9", "reasons"] == "Y_active_all"
+
+
 def test_a_reused_ticker_is_trimmed_to_the_security_own_span():
     spans = pd.DataFrame([
         {"security_id": "old", "ticker": "TEST", "list_start": "2015-12-03", "list_end": "2020-07-11",
@@ -708,6 +723,42 @@ def test_build_cuts_claimed_rows_flags_the_junction_and_rejects_a_series_outside
     # Rows, but none in the need (post-bankruptcy equity under the old ticker): no_rows, rejected.
     assert report.loc[7, "verdict"] == "no_rows" and report.loc[7, "verdict_reasons"].startswith("no rows in the need")
     assert (out / "rejected" / "7.csv.gz").exists() and not (out / "7.csv.gz").exists()
+
+
+def test_a_wiki_file_step6_found_to_be_another_company_is_no_reference(tmp_path):
+    # 22701 (SUNation, ex Communications Systems) maps SunEdison's SUNE.csv.gz by continuity; step 6 dropped it.
+    wiki = tmp_path / "wiki"
+    wiki.mkdir()
+    pd.DataFrame({"ticker": ["SUNE", "SUNE"], "date": ["2015-01-02", "2015-01-05"], "close": [20.0, 21.0],
+                  "volume": [1e6, 1e6]}).to_csv(wiki / "SUNE.csv.gz", index=False)
+    files = pd.DataFrame([{"security_id": "22701", "src": "wiki", "file": "SUNE.csv.gz", "first": "2011-06-01",
+                           "last": "2016-04-21", "rows": "2", "direct": "0.0", "entity_check_failed": "True"}])
+    refs = yh.References(pd.DataFrame([{**MASTER_ROW, "security_id": "22701"}]),
+                         pd.DataFrame(columns=["security_id", "name_in_source"]),
+                         pd.DataFrame(columns=["security_id", "as_of_session", "last_sale", "as_of_check"]),
+                         files, wiki_dir=wiki, stored_dir=tmp_path)
+    assert refs.wiki("22701").empty
+    files["entity_check_failed"] = "False"
+    refs.files = {sid: g for sid, g in files.groupby("security_id")}
+    assert len(refs.wiki("22701")) == 2
+
+
+def test_an_empty_body_is_a_failed_series_not_a_crash(tmp_path):
+    # AGEND (round 5): Yahoo answered a reverse-split ticker with an ECNQUOTE body and no bars.
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    raw.mkdir()
+    payload = _payload([], [], [], meta={"symbol": "AGEND", "instrumentType": "ECNQUOTE", "dataGranularity": "1d"})
+    (raw / "AGEND__20261002T010203Z.json.gz").write_bytes(gzip.compress(json.dumps(payload).encode()))
+    refs = _Refs([MASTER_ROW])
+    requests = pd.DataFrame([{"security_id": "9", "symbol": "AGEND", "needed_start": "2018-01-21",
+                              "needed_end": "2026-08-31", "reasons": "Y_active_all", "active": "Y",
+                              "successor_routed": "", "note": ""}])
+    sessions = pd.DatetimeIndex(pd.bdate_range("2011-06-01", "2026-08-31"))
+    summary = yh.build(requests, refs=refs, raw_dir=raw, out_dir=out, sessions=sessions,
+                       metrics_path=tmp_path / "absent.pkl")
+    assert summary["fetch_status"] == {"empty": 1}
+    report = pd.read_csv(out / "entity_report.csv", keep_default_na=False)
+    assert report.loc[0, "verdict"] not in yh.ACCEPTED and not (out / "9.csv.gz").exists()
 
 
 def test_series_files_keep_small_factors_and_integer_volumes(tmp_path):
