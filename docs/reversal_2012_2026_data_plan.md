@@ -20,6 +20,11 @@ Status of this document: nothing has been fetched for it. It is built from the f
 | D3 | Prices are needed through 2026-08-31, covering the last signal on 2026-07-17 plus a hold of up to 4 weeks. | Fetch end date. The cost per symbol does not change. |
 | D4 | Foreign filers (6-K, no Item 2.02): either take earnings dates from a tested free source, or exclude them from the universe (see §5.1). | About 11% of names have no earnings flag. |
 | D5 | A delisting with no terminal value found books −100%, which is what `stock_returns_with_delisting_penalty` does today. | This is a long-side risk for a reversal strategy. |
+| D6 | Investment companies are not common stock: closed-end funds and business development companies leave the universe base from the first week the issuer is one (SEC evidence: N-54A, N-2, N-CSR/N-CSRS, N-PX or SIC 6726). This follows the CRSP common-stock convention (share codes 10/11). Banks stay. | Most size-unknown names in 2018–2024 are small BDCs and closed-end funds. |
+
+Owner decisions so far, all made before any returns were seen:
+- 2026-10-01: D2 is Ken French 49 industries; D4 excludes foreign filers from the universe.
+- 2026-10-02: D6 as written above.
 
 ---
 
