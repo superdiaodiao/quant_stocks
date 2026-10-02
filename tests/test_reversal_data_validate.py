@@ -478,6 +478,151 @@ def test_listed_gaps_fail_on_series_gaps_and_unknown_reasons_only(ctx):
     assert not out["passed"] and out["numbers"]["unknown_reasons"] == ["something_new"]
 
 
+def test_the_validator_knows_every_missing_reason_step12_emits():
+    from scripts import reversal_data_universe as un
+    assert set(un.MISSING_REASONS) <= va.KNOWN_MISSING
+    assert {"answer_not_in_panel", "series_gap", "fetched_pending_reconcile"} <= va.BLOCKING_MISSING
+    assert set(va.PENDING_SOURCES) | {"fetched_pending_reconcile"} == un.PENDING_REASONS
+
+
+def _gap_fixture(ctx, rows, terminal=(), candidates=(), master=()):
+    listed = pd.DataFrame(rows).assign(eligible=True, pf_ge_cut250=False)
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    _master(ctx, list(master) or [{"security_id": s} for s in sorted(set(listed["security_id"]))])
+    _write(ctx.inputs / "terminal_returns_2012_2026.csv", pd.DataFrame(
+        list(terminal), columns=["security_id", "ticker", "terminal_type", "status", "last_price_date"]))
+    _write(ctx.inputs / "candidate_fetch_list.csv", pd.DataFrame(
+        list(candidates), columns=["security_id", "ticker_for_source", "reason", "planned_source", "status",
+                                   "needed_start", "needed_end"]))
+    _panel(ctx, [{"security_id": "zz", "date": "2015-01-02"}])
+
+
+def test_listed_gaps_stop_at_a_merger_last_price_but_keep_a_blank_one_blocking(ctx):
+    rows = [{"week_end": "2024-07-26", "security_id": "hibb", "ticker": "HIBB", "missing_reason": "series_gap"},
+            {"week_end": "2024-08-02", "security_id": "hibb", "ticker": "HIBB", "missing_reason": "series_gap"},
+            {"week_end": "2024-08-02", "security_id": "amed", "ticker": "AMED", "missing_reason": "series_gap"}]
+    terminal = [{"security_id": "hibb", "ticker": "HIBB", "terminal_type": "cash_merger", "status": "computed",
+                 "last_price_date": "2024-07-24"},
+                {"security_id": "amed", "ticker": "AMED", "terminal_type": "cash_merger", "status": "computed",
+                 "last_price_date": ""}]
+    _gap_fixture(ctx, rows, terminal)
+    out = va.check_universe_listed_gaps(ctx)
+    n = out["numbers"]
+    # HIBB's week of its last price still blocks; the week after it does not; AMED (no last price) blocks.
+    assert n["blocking_name_weeks"] == 2 and n["after_series_end_not_blocking"] == 1
+    assert out["details"]["after_series_end"][0]["week_end"] == "2024-08-02"
+    assert {s["security_id"] for s in out["details"]["blocking_spans_by_reason"]["series_gap"]} == {"hibb", "amed"}
+
+
+def test_listed_gaps_block_pending_weeks_without_an_open_candidate_row_of_that_source(ctx):
+    weeks = ["2020-04-03", "2024-06-07"]
+    rows = [{"week_end": w, "security_id": "smci", "ticker": "SMCI", "missing_reason": "yahoo_pending"} for w in weeks]
+    rows += [{"week_end": "2024-06-07", "security_id": "corz", "ticker": "CORZ", "missing_reason": "yahoo_pending"}]
+    candidates = [{"security_id": "smci", "ticker_for_source": "SMCI", "reason": "B_A_float_ge_1B", "planned_source": "tiingo",
+                   "status": "done", "needed_start": "2018-01-21", "needed_end": "2020-02-25"},
+                  {"security_id": "corz", "ticker_for_source": "CORZ", "reason": "Y_active_rank300", "planned_source": "yahoo",
+                   "status": "pending", "needed_start": "2023-12-15", "needed_end": "2026-08-31"}]
+    _gap_fixture(ctx, rows, candidates=candidates)
+    out = va.check_universe_listed_gaps(ctx)
+    n = out["numbers"]
+    # SMCI has no Yahoo row at all (only a Tiingo row of 2018-2020): both weeks block; CORZ's Yahoo row is open.
+    assert not out["passed"] and n["pending_without_open_candidate"] == 2 and n["blocking_name_weeks"] == 2
+    assert set(out["details"]["blocking_spans_by_reason"]) == {"yahoo_pending_without_open_candidate"}
+    candidates.append({"security_id": "smci", "ticker_for_source": "SMCI", "reason": "Y_active_rank300",
+                       "planned_source": "yahoo", "status": "pending", "needed_start": "2019-11-01", "needed_end": "2026-08-31"})
+    _gap_fixture(ctx, rows, candidates=candidates)
+    assert va.check_universe_listed_gaps(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["passed"]
+
+
+def test_a_need_only_partly_in_unfillable_csv_stays_open_and_backs_its_pending_weeks(ctx):
+    rows = [{"week_end": "2022-04-01", "security_id": "hofv", "ticker": "HOFV", "missing_reason": "tiingo_pending"}]
+    candidates = [{"security_id": "hofv", "ticker_for_source": "HOFV", "reason": "S_stored_only_delisted_rank300",
+                   "planned_source": "tiingo", "status": "pending", "needed_start": "2020-04-18",
+                   "needed_end": "2025-06-30"}]
+    _gap_fixture(ctx, rows, candidates=candidates)
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "hofv", "needed_start": "2020-04-18",
+                                                          "needed_end": "2020-06-30"}]))
+    out = va.check_universe_listed_gaps(ctx)
+    assert out["passed"] and out["numbers"]["pending_without_open_candidate"] == 0
+    resolved = va.check_candidates_resolved(ctx)["numbers"]
+    assert resolved["open"] == 1 and resolved["documented_unfillable"] == 0
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "hofv", "needed_start": "2020-04-18",
+                                                          "needed_end": "2025-06-30"}]))
+    fresh = va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main)
+    assert va.check_candidates_resolved(fresh)["numbers"]["documented_unfillable"] == 1
+    assert not va.check_universe_listed_gaps(fresh)["passed"]     # a documented need backs no pending week
+
+
+def test_answer_not_in_panel_blocks_as_a_known_reason(ctx):
+    _gap_fixture(ctx, [{"week_end": "2021-06-04", "security_id": "chrd", "ticker": "CHRD",
+                        "missing_reason": "answer_not_in_panel"}])
+    out = va.check_universe_listed_gaps(ctx)
+    assert not out["passed"] and out["numbers"]["unknown_reasons"] == []
+    assert out["numbers"]["blocking_by_reason"] == {"answer_not_in_panel": 1}
+
+
+def test_a_stale_market_cap_does_not_outweigh_a_float_or_dollar_volume_at_the_cut(ctx):
+    stale = {"security_id": "ino", "mcap": 2.4e8, "float_usd": 4.2e9}            # band median float 4e9 (below)
+    lazr = {"security_id": "lazr", "mcap": 5e8, "float_usd": np.nan, "dv50": 5e7, "pf_ge_cut250": True}
+    rows = [stale, lazr]
+    week = "2015-01-09"
+    band = [{"week_end": week, "security_id": f"b{i}", "dv50_rank": 200 + i, "mcap": 1e9, "float_usd": 4e9,
+             "dv50": 1e7} for i in range(51)]
+    _proxy_fixture(ctx, [])
+    listed = pd.DataFrame(band + [{"week_end": week, "dv50_rank": np.nan, "dv50": np.nan, **r} for r in rows])
+    listed["eligible"], listed["outside_trading"] = True, False
+    listed["missing_reason"] = np.where(listed["security_id"].str.startswith("b"), "", "unfillable")
+    listed["pf_ge_cut250"] = listed["pf_ge_cut250"].fillna(False)
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed.drop(columns=["dv50"]))
+    out = va.check_universe_proxy_margin(ctx)
+    n = out["numbers"]
+    assert n["plan_definition"]["name_weeks"] == 0               # the plan's market-cap-first rule sees neither
+    assert n["name_weeks"] == 1 and n["name_weeks_float_at_median_mcap_below"] == 1      # INO by its float
+    assert n["unpriced_name_weeks_dv_at_or_above_cut250_proxy_below"] == 1 and not out["passed"]   # LAZR by dv
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": s, "needed_start": "2015-01-01",
+                                                          "needed_end": "2015-12-31", "est_weeks_in_top250": "0",
+                                                          "proxy": "mcap"} for s in ("ino", "lazr")]))
+    u = va.check_universe_unfillable(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["numbers"]
+    assert u["estimated_name_weeks"] == 2 and u["estimated_name_weeks_plan_proxy_rule"] == 0
+
+
+def test_a_universe_build_in_another_directory_is_read_and_the_summary_goes_to_out_dir(ctx, tmp_path):
+    build, out = tmp_path / "build", tmp_path / "out"
+    build.mkdir()
+    _write(build / "weekly_listed.csv.gz", pd.DataFrame([{"week_end": "2015-01-09", "security_id": "x", "eligible": True,
+                                                         "missing_reason": "series_gap", "ticker": "X"}]))
+    _write(build / "weekly_universe_top300.csv.gz", pd.DataFrame([{"week_end": "2015-01-09", "security_id": "x",
+                                                                  "ticker": "X", "dv50_rank": 1, "dv20_rank": 1,
+                                                                  "price_ge_10": "Y"}]))
+    _write(build / "investment_company_spans.csv", pd.DataFrame([{"security_id": "bdc", "cik": "1", "ticker": "B",
+                                                                 "start": "2004-01-01", "end": "2099-12-31"}]))
+    other = va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main, universe_dir=build, out_dir=out)
+    assert other.input_path("weekly_universe_top300.csv.gz") == build / "weekly_universe_top300.csv.gz"
+    assert other.input_path("security_master.csv") == ctx.inputs / "security_master.csv"
+    assert other.cache_path("universe/weekly_listed.csv.gz") == build / "weekly_listed.csv.gz"
+    assert "official" in other.universe[1] and other.listed[0]["security_id"].tolist() == ["x"]
+    assert other.investment_company_on("bdc", "2015-01-09") and not other.investment_company_on("x", "2015-01-09")
+    assert other.key(build / "weekly_listed.csv.gz") == va.CACHE_KEY_PREFIX + "universe/weekly_listed.csv.gz"
+    assert other.key(build / "weekly_universe_top300.csv.gz") == "weekly_universe_top300.csv.gz"
+    out.mkdir()
+    va.write_validation_summary(other, [va.result("x", "d", "p", "t", True)])
+    assert (out / "validation_summary.json").exists() and not (ctx.inputs / "validation_summary.json").exists()
+
+
+def test_a_candidate_whose_need_lies_in_an_investment_company_span_is_not_open(ctx):
+    _write(ctx.inputs / "candidate_fetch_list.csv", pd.DataFrame([
+        {"security_id": "acas", "ticker_for_source": "ACAS", "reason": "A1", "planned_source": "tiingo", "status": "pending",
+         "needed_start": "2012-01-01", "needed_end": "2016-12-31"},
+        {"security_id": "op", "ticker_for_source": "OP", "reason": "A1", "planned_source": "tiingo", "status": "pending",
+         "needed_start": "2012-01-01", "needed_end": "2016-12-31"}]))
+    _panel(ctx, [{"security_id": "zz", "date": "2015-01-02"}])
+    _write(ctx.cache / "universe" / "investment_company_spans.csv", pd.DataFrame([
+        {"security_id": "acas", "cik": "1", "ticker": "ACAS", "start": "1997-08-27", "end": "2017-01-02"}]))
+    out = va.check_candidates_resolved(ctx)
+    assert out["numbers"]["open"] == 1 and out["numbers"]["investment_company_need"] == 1
+    assert out["details"]["open"][0]["security_id"] == "op"
+
+
 def _fetch_fixture(ctx, fetched: dict, ranks: dict):
     """Candidates b (B-B), c (B-C sample), r (B-C rest); ``fetched`` maps id -> fetch status, ``ranks`` id -> dv50 rank."""
     _write(ctx.inputs / "candidate_fetch_list.csv", pd.DataFrame([

@@ -36,7 +36,8 @@ new shares per old on the ex-date, cash dividend D as paid on the ex-date):
   jump, and not on a stored-only unit change. That last one is decided against the vendors' own
   agreement, never against a default source: every vendor with a return agrees with every other,
   the stored file agrees with none and is off by an ordinary split ratio within 1%, and the
-  vendors' own move is not split-sized (a ``unit_break`` in ``split_events.csv``). A stored return
+  vendors' own move is not split-sized (a ``unit_break`` in ``split_events.csv``; on a known break day
+  any lasting factor beyond 2%, ordinary ratio or not: HON 2025-06-24, 1.896). A stored return
   that agrees with any vendor stays a vote (PTCT 2013-06-20..26: WIKI 10x too low, outvoted by
   Yahoo and the stored file). When the only vendor's own move is split-sized and the stored file
   does not show it, the day is a hidden split or a vendor error (``vendor_split_jump``, R2/R3;
@@ -51,7 +52,18 @@ Canonical record (``CACHE/prices/{security_id}.csv``): date, close_raw, volume_r
 div_cash, tr, src_primary, n_sources, max_src_diff, flags.
 - Rows are XNAS sessions inside the security's window: its listing spans (``pf.mapping_spans``) with
   75 calendar days before (the dv50 warm-up) and 28 after (plan 4.5 hold), within 2011-06-01 to
-  2026-08-31; rows outside the spans are kept and flagged ``outside_listing`` (R9).
+  2026-08-31; rows outside the spans are kept and flagged ``outside_listing`` (R9). A listing after a
+  Form 25 cut (``pf.listing_spans`` ``after_cut``: SMCI from 2020-01, CHRD) is a span like any other,
+  so the series runs on to 2026 (the OTC months between are ``outside_listing``).
+- Relist junctions (``RELIST_JUNCTIONS``, hand-reviewed from the SEC filings: CHRD/Oasis 2020-11-20,
+  CORZ 2024-01-24, WW 2025-06-27, OPI 2026-06-18): a bankruptcy plan cancelled or exchanged the old
+  shares and the new ones were listed again. Old and new shares are separate segments of the file:
+  the new shares' first row has no ``tr`` (``relist_junction``), any S or D a vendor records on it is
+  dropped (reported), and nothing is chained, voted, spliced, flat-run or queued across it; R5's
+  filler cut applies to each segment's end. The old shares end there with a terminal event
+  (``series_ends.csv`` ``old_shares_at_relist_junction``, for the terminal step). Other relistings
+  keep one series (the same shares: SMCI, removed for late filings), and a raw level change of 10x or
+  more around one with no split is queued (R9, ``relist_jump``) for a junction entry or a market move.
 - ``tr`` = (C_t x S_t + D_t) / C_{t-1} - 1 from one source's own rows (plan 4.1), so only returns
   are chained across sources, never levels (R8).
 - Precedence per day: WIKI, Tiingo, Yahoo to 2017-10-31; Tiingo, Yahoo, WIKI from 2017-11-01. Each
@@ -117,7 +129,8 @@ Tables:
   the only vendor's split-sized move that the stored file does not show, [R3] two vendors with no
   majority, a lasting stored shift, or a single vendor and the stored file more than 2% apart,
   [R4] a flat run no second source shows or zero volume, [R6]
-  listed sessions with no vendor row, [R7] a vendor level run 2%+ apart or 3+ sessions long. Only
+  listed sessions with no vendor row, [R7] a vendor level run 2%+ apart or 3+ sessions long, [R9] a
+  10x level change around an unreviewed relisting after a Form 25. Only
   listed days that can matter are queued: 10 weeks before to 5 weeks after a week ranked <= 300 by
   step 6, or whose canonical dollar volume reaches step 6's rank-300 cut; every entry, with that
   scope marked, is in ``CACHE/reconcile/moves_all.csv``.
@@ -126,16 +139,27 @@ Tables:
   stored vote and, separately, among vendors only and for the V sample's Tiingo-Yahoo days within
   1e-4, known-case checks), series_ends.csv (series that end before the delist date, or before the window end with
   none: the inputs for terminal values, with a likely cause), coverage_gaps.csv, no_series.csv,
-  securities.csv, source_pairs.csv, moves_all.csv; ``sources/`` holds the source bundles and
+  securities.csv, source_pairs.csv, moves_all.csv, relist_junctions.csv (every relisting after a Form
+  25 and every junction: dates, rows on each side, status), summary.json ``break_days`` (each known
+  break day's stored files that move 1.4x or more: ``unit_break``, or ``stored_moves_with_vendors`` for
+  a real move both show: EYEN/HYPD +65%, NKTR +156%, UPXI -60% on 2025-06-24, which step 6's
+  stored-only test lists as breaks) and ``run`` (timings, peak memory); ``sources/`` holds the source bundles and
   ``per_security/`` the state that makes a rerun redo only the securities whose inputs (or this
   file) changed. ``CACHE/prices/daily_panel.csv.gz`` is the long form of every canonical file.
+
+Offline: the step reads local files only, and any socket connection in the process is refused
+(``forbid_network``). Each phase logs its time and the peak resident memory; summary.json ``run`` and
+``reconcile/logs/run_*.json`` keep them.
 
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_reconcile.py                 # build (resumes)
     PYTHONPATH=. python scripts/reversal_data_reconcile.py --only 1065088  # one security, no tables
-    PYTHONPATH=. python scripts/reversal_data_reconcile.py --rebuild       # ignore the per-security state
+    PYTHONPATH=. python scripts/reversal_data_reconcile.py --rebuild       # everything from the raw files
     PYTHONPATH=. python scripts/reversal_data_reconcile.py --no-panel      # skip daily_panel.csv.gz
+    # the full rebuild into a scratch directory, compared with the current outputs (compare.json,
+    # compare_series.csv: securities, rows, changed series, table counts):
+    PYTHONPATH=. python scripts/reversal_data_reconcile.py --rebuild --out-dir /tmp/reconcile_dry --compare
 """
 from __future__ import annotations
 
@@ -157,7 +181,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.2"
+CODE_VERSION = "2026-10-02.3"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
 CODE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 MAIN = common.MAIN_CHECKOUT
@@ -168,6 +192,7 @@ OUT = CACHE / "reconcile"
 SOURCE_CACHE = OUT / "sources"
 STATE_DIR = OUT / "per_security"
 LOG_DIR = OUT / "logs"
+DEFAULT_SOURCE_CACHE = SOURCE_CACHE  # read (never written) by a build into another --out-dir, when its signature matches
 
 CANDIDATES = INPUTS / "candidate_fetch_list.csv"
 UNFILLABLE = INPUTS / "unfillable.csv"
@@ -239,6 +264,39 @@ KNOWN_SPINOFFS = {(t, d) for t, d, kind, _ in KNOWN_CASES if kind.startswith("sp
 # Plan 4.4 R3's known disagreements, checked in the summary.
 KNOWN_DISAGREEMENTS = [("NFLX", "2013-10-22"), ("KLAC", "2015-01-23"), ("MNST", "2015-03-12"), ("MNST", "2015-03-13")]
 
+# Listed again after a Form 25 with new shares: a bankruptcy plan cancelled the old shares and issued new
+# ones (or exchanged the old for new). The old and the new shares are separate series joined by a junction
+# on the first session of the new shares: no return is computed across it, and the old shares end there
+# with a terminal event (step 11 values it; series_ends.csv and relist_junctions.csv carry the dates).
+# Hand-reviewed from the SEC filings named (``read`` False: only the cached submissions index was seen,
+# the document itself was not read here). A relisting that keeps the same shares (SMCI 2020-01, removed
+# for late filings; SIGA, SCOR, MDXG) has no junction.
+_SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/"
+RELIST_JUNCTIONS = {
+    "1486159": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True,
+                "url": _SEC_ARCHIVE + "1486159/000148615920000115/oas-20201119.htm",
+                "note": "Oasis Petroleum's plan became effective on 2020-11-19 (the Effective Date): the existing common "
+                        "stock was cancelled and its holders received warrants for the new common stock, which trades "
+                        "on Nasdaq as OAS from 2020-11-20 (CHRD after the 2022 Whiting merger)"},
+    "1839341": {"first_new_session": "2024-01-24", "kind": "bankruptcy_share_exchange", "read": False,
+                "url": _SEC_ARCHIVE + "1839341/000119312524013078/d661343d8k.htm",
+                "note": "emergence 8-K filed 2024-01-23 (Items 1.01, 1.02, 2.03, 3.02, 3.03, 5.01, 5.02, 5.03; not read "
+                        "here); the new CORZ shares' first trade is 2024-01-24 (Yahoo); the old shares traded OTC as "
+                        "CORZQ"},
+    "105319": {"first_new_session": "2025-06-27", "kind": "bankruptcy_share_exchange", "read": True,
+               "url": _SEC_ARCHIVE + "105319/000119312525146171/d906370d8k.htm",
+               "note": "the plan became effective on 2025-06-24: the old common stock was cancelled, and 900,000 new "
+                       "shares went to the holders of existing equity interests (9,100,000 to the first-lien lenders); "
+                       "the new shares' first trade is 2025-06-27 (Yahoo)"},
+    "1456772": {"first_new_session": "2026-06-18", "kind": "bankruptcy_new_equity", "read": False,
+                "url": _SEC_ARCHIVE + "1456772/000110465926076652/tm2618043d2_8k.htm",
+                "note": "emergence 8-K filed 2026-06-23 (Items 1.01, 1.02, 1.03, 2.03, 3.02, 3.03, 5.01, 5.02, 5.03; not "
+                        "read here); Yahoo's first new-share row is 2026-06-18 (volume 0), its first traded row "
+                        "2026-06-22"},
+}
+RELIST_JUMP = 10.0          # unreviewed relisting: a raw level change this large (or 1/10) with no split is queued (R9)
+RELIST_SCREEN_BEFORE_DAYS, RELIST_SCREEN_AFTER_DAYS = 20, 60  # the screen's span: Form 25 - 20 days to relisting + 60
+
 PRICE_COLUMNS = ["date", "close_raw", "volume_raw", "split_factor", "div_cash", "tr", "src_primary",
                  "n_sources", "max_src_diff", "flags"]
 SPLIT_COLUMNS = ["security_id", "ticker", "ex_date", "split_factor", "event_type", "tiingo", "yahoo", "wiki",
@@ -252,6 +310,58 @@ MOVE_COLUMNS = ["ticker", "event_date", "classification", "source_url", "verifie
 
 def log(message: str) -> None:
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def configure_paths(out_dir: Path | None) -> None:
+    """Send every output under ``out_dir`` (``prices/``, ``reconcile/`` with its source bundles and
+    per-security state, and ``inputs/`` for the three tables) instead of CACHE and INPUTS. The inputs
+    (candidate list, caches, master) are still read from their usual places."""
+    global PRICES_DIR, OUT, SOURCE_CACHE, STATE_DIR, LOG_DIR, SPLIT_EVENTS, SPECIAL, REVIEWED_MOVES
+    if out_dir is None:
+        return
+    root = Path(out_dir).resolve()
+    PRICES_DIR, OUT = root / "prices", root / "reconcile"
+    SOURCE_CACHE, STATE_DIR, LOG_DIR = OUT / "sources", OUT / "per_security", OUT / "logs"
+    SPLIT_EVENTS, SPECIAL, REVIEWED_MOVES = (root / "inputs" / name for name in
+                                             ("split_events.csv", "special_distributions.csv", "reviewed_moves.csv"))
+
+
+MIN_FREE_MB = 500  # stop before the disk this step writes to has less free space (other runs share it)
+WRITE_SOURCE_CACHE = True  # --no-source-cache: source bundles are built in memory and not written
+
+
+def ensure_disk(path: Path, min_free_mb: float | None = None) -> None:
+    """Refuse to write when the disk holding ``path`` has less than MIN_FREE_MB free: a build must not
+    fill the disk that a running fetch (the Tiingo month-1 run) writes to."""
+    import shutil
+    target = Path(path)
+    while not target.exists() and target != target.parent:
+        target = target.parent
+    free = shutil.disk_usage(target).free / (1024 * 1024)
+    limit = MIN_FREE_MB if min_free_mb is None else min_free_mb
+    if free < limit:
+        raise RuntimeError(f"only {free:,.0f} MB free on the disk of {path} (the limit is {limit:,.0f} MB): stopped "
+                           "before writing; free space or pass --min-free-mb")
+
+
+def peak_rss_mb() -> float:
+    """The process's peak resident memory so far (ru_maxrss: bytes on macOS, kilobytes on Linux)."""
+    import resource
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return round(peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024, 1)
+
+
+def forbid_network() -> None:
+    """This step reads local files only (SEC candidates come from the cached submissions files): any
+    socket connection in this process is refused, so a build is offline by construction."""
+    import socket
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError("reversal_data_reconcile is offline: a network connection was attempted")
+
+    socket.socket.connect = refuse
+    socket.socket.connect_ex = refuse
+    socket.create_connection = refuse
 
 
 def now_utc() -> str:
@@ -310,12 +420,24 @@ def ratio_match(a: float, b: float, tolerance: float = TOL_RATIO) -> bool:
 # ------------------------------------------------------------------ identity: spans, tickers, targets
 
 def load_identity() -> dict:
-    master = pf.load_master()
-    intervals = pf.load_intervals()
+    identity = identity_from(pf.load_intervals(), pf.load_master())
+    identity["signature"] = file_signature([pf.MASTER, pf.INTERVALS])
+    return identity
+
+
+def identity_from(intervals: pd.DataFrame, master: pd.DataFrame) -> dict:
+    """Listing spans (``pf.listing_spans``: an interval that starts on or after the Form 25 delist date is
+    a later listing, ``after_cut``, and is not cut to the delist date, so SMCI 2020-01..2026 and CHRD
+    stay listed), the mapping spans that assign ticker-keyed rows, and per security its relistings:
+    (Form 25 delist date, first day of the later listing, last day of it)."""
     spans = pf.listing_spans(intervals, master)
     mapping = pf.mapping_spans(spans)
+    after = mapping["after_cut"].astype(str).eq("True") if "after_cut" in mapping else pd.Series(False, index=mapping.index)
+    delist = dict(zip(master["security_id"], master["delist_date"]))
+    relisted = {sid: [(delist.get(sid, ""), str(part["list_start"].min()), str(part["list_end"].max()))]
+                for sid, part in mapping[after].groupby("security_id")}
     return {"master": master, "spans": spans, "mapping": mapping, "ticker_map": pf.TickerMap(mapping),
-            "signature": file_signature([pf.MASTER, pf.INTERVALS])}
+            "relisted": relisted}
 
 
 def load_targets() -> pd.DataFrame:
@@ -661,26 +783,32 @@ def load_stored_rows(identity: dict, targets: set[str]) -> pd.DataFrame:
     return out
 
 
-def cached_bundle(name: str, signature: str, build) -> pd.DataFrame:
-    """A source bundle from ``SOURCE_CACHE/{name}.pkl`` when its signature matches, else rebuilt."""
+def cached_bundle(name: str, signature: str, build, rebuild: bool = False) -> pd.DataFrame:
+    """A source bundle from ``SOURCE_CACHE/{name}.pkl`` when its signature matches (and ``rebuild`` is
+    off), else rebuilt from the raw files."""
     path = SOURCE_CACHE / f"{name}.pkl"
-    if path.exists():
+    for candidate in dict.fromkeys([path, DEFAULT_SOURCE_CACHE / f"{name}.pkl"]):
+        if not candidate.exists() or rebuild:
+            continue
         try:
-            with path.open("rb") as handle:
+            with candidate.open("rb") as handle:
                 stored = pickle.load(handle)
             if stored.get("signature") == signature:
+                log(f"source {name}: cached bundle {candidate}")
                 return stored["rows"]
         except Exception:
             pass
     started = time.time()
     rows = build()
-    common.atomic_write(path, pickle.dumps({"signature": signature, "rows": rows}, protocol=pickle.HIGHEST_PROTOCOL))
+    if WRITE_SOURCE_CACHE:
+        ensure_disk(path)
+        common.atomic_write(path, pickle.dumps({"signature": signature, "rows": rows}, protocol=pickle.HIGHEST_PROTOCOL))
     log(f"source {name}: {len(rows):,} rows for {rows['security_id'].nunique() if len(rows) else 0} securities "
         f"({time.time() - started:.0f}s)")
     return rows
 
 
-def load_sources(identity: dict, targets: set[str], windows: dict) -> tuple[dict[str, pd.DataFrame], dict]:
+def load_sources(identity: dict, targets: set[str], windows: dict, rebuild: bool = False) -> tuple[dict[str, pd.DataFrame], dict]:
     base = identity["signature"] + hashlib.sha256(" ".join(sorted(targets)).encode()).hexdigest()
     wiki_sig = file_signature(list(WIKI_DIR.glob("*.csv.gz")) + [WIKI_ENTITY]) + base
     stored_sig = file_signature(list(STORED_DIR.glob("*.csv")) + [pf.PRICE_FILE_OWNERS]) + base
@@ -691,11 +819,12 @@ def load_sources(identity: dict, targets: set[str], windows: dict) -> tuple[dict
     old_yahoo_sig = file_signature([p for d in OLD_YAHOO_DIRS for p in d.glob("*.json")]) + base + \
         hashlib.sha256(" ".join(sorted(have_new)).encode()).hexdigest()
     sources = {
-        "wiki": cached_bundle("wiki", wiki_sig, lambda: load_wiki_rows(identity, targets)),
-        "stored": cached_bundle("stored", stored_sig, lambda: load_stored_rows(identity, targets)),
-        "tiingo_old": cached_bundle("tiingo_old", old_tiingo_sig, lambda: load_old_tiingo_rows(identity, targets)),
-        "yahoo_new": cached_bundle("yahoo_new", new_yahoo_sig, lambda: load_new_yahoo_rows(targets)),
-        "yahoo_old": cached_bundle("yahoo_old", old_yahoo_sig, lambda: load_old_yahoo_rows(identity, targets, have_new)),
+        "wiki": cached_bundle("wiki", wiki_sig, lambda: load_wiki_rows(identity, targets), rebuild),
+        "stored": cached_bundle("stored", stored_sig, lambda: load_stored_rows(identity, targets), rebuild),
+        "tiingo_old": cached_bundle("tiingo_old", old_tiingo_sig, lambda: load_old_tiingo_rows(identity, targets), rebuild),
+        "yahoo_new": cached_bundle("yahoo_new", new_yahoo_sig, lambda: load_new_yahoo_rows(targets), rebuild),
+        "yahoo_old": cached_bundle("yahoo_old", old_yahoo_sig, lambda: load_old_yahoo_rows(identity, targets, have_new),
+                                   rebuild),
     }
     tiingo_new, tiingo_facts = load_new_tiingo_rows(identity, targets, windows)
     sources["tiingo_new"] = tiingo_new
@@ -802,7 +931,7 @@ def cash_encoded_splits(C: np.ndarray, S: np.ndarray, D: np.ndarray, has: np.nda
 
 
 def stored_vote(r: np.ndarray, valid: np.ndarray, S: np.ndarray, has: np.ndarray, rank: np.ndarray,
-                junction: np.ndarray, C: np.ndarray) -> dict:
+                junction: np.ndarray, C: np.ndarray, break_day: np.ndarray | None = None) -> dict:
     """Which stored returns are not comparable with the vendors' (decided against the vendors' own
     agreement, not against a default source, so a vendor error is never booked as a stored unit
     change; PTCT 2013-06-26, CMCT 2025-01-06):
@@ -812,7 +941,9 @@ def stored_vote(r: np.ndarray, valid: np.ndarray, S: np.ndarray, has: np.ndarray
       it is off by an ordinary split ratio within 1%, the vendors' own move is not split-sized, and
       the stored/vendor level stays shifted over the next two sessions (more than 2% from where it
       was the day before; a level that comes back is a bad row, CGC 2023-06-30): a stored-only unit
-      change (``unit_break`` in split_events.csv; CBIO 2025-06-02, 0.2099 -> 20.20).
+      change (``unit_break`` in split_events.csv; CBIO 2025-06-02, 0.2099 -> 20.20). On a known break
+      day (``break_day``) any such lasting factor beyond 2% counts, ordinary ratio or not (HON
+      2025-06-24, 1.896: the file's later rows carry other adjustments too).
     Both tolerances widen by the vendor's own cent rounding, 0.005 / C_t + 0.005 / C_{t-1}, which
     matters only below a few dollars (CBIO's Yahoo closes 0.21 -> 0.20).
     A stored return that agrees with any vendor stays a vote. ``vendor_jump``: the only vendor's own
@@ -846,10 +977,17 @@ def stored_vote(r: np.ndarray, valid: np.ndarray, S: np.ndarray, has: np.ndarray
                           for i in range(3) if events[i, k])
     split_sized = np.array([near_split_factor(1.0 + v) is not None for v in ref_r])
     candidate = valid[ST] & ~stored_agrees
+    break_day = np.zeros(n, dtype=bool) if break_day is None else break_day
     unit = np.zeros(n, dtype=bool)
     for k in np.flatnonzero(candidate & vendors_agree & ~split_sized & ~raw_jump):
-        if near_split_factor(implied[k], TOL_UNIT + allowance[k]) is None or k < 1:
+        if k < 1:
             continue
+        if near_split_factor(implied[k], TOL_UNIT + allowance[k]) is None:
+            # on a known break day (plan 4.2: 2025-06-24, HON 2026-06-29) the stored file's own unit change
+            # need not be an ordinary ratio: its later rows may carry other adjustments compounded with it
+            # (HON 2025-06-24: 224.74 -> 425.80 while the vendors show -0.06%, a factor of 1.896)
+            if not (break_day[k] and np.isfinite(implied[k]) and abs(implied[k] - 1.0) > TOL_STORED_RATIO + allowance[k]):
+                continue
         i = ref_i[k]
         with np.errstate(divide="ignore", invalid="ignore"):
             level = lambda j: C[ST, j] / C[i, j] if 0 <= j < n and has[ST, j] and has[i, j] else np.nan
@@ -997,6 +1135,20 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         result["canonical"] = pd.DataFrame(columns=PRICE_COLUMNS)
         return result
 
+    # relist junctions (RELIST_JUNCTIONS, ``ctx["junctions"]``): segment s runs from its junction (the first
+    # session of the new shares) on. No return is computed across a junction, and an S or D a vendor
+    # records on it (another history's, or the exchange served as a split) is dropped and reported.
+    seg = np.zeros(n, dtype=int)
+    for day in sorted(ctx.get("junctions", ())):
+        start = int(grid.searchsorted(pd.Timestamp(day)))
+        if 0 < start < n:
+            seg[start:] += 1
+    seg_break = np.r_[False, seg[1:] != seg[:-1]] if n else np.zeros(0, dtype=bool)
+    junction_dropped = [f"{SRC[i]} {grid[k].date()} S={S[i, k]:.6g} D={D[i, k]:.6g}"
+                        for k in np.flatnonzero(seg_break) for i in range(3)
+                        if has[i, k] and (abs(S[i, k] - 1.0) > 1e-9 or D[i, k] > 0)]
+    S[:3, seg_break] = 1.0
+    D[:3, seg_break] = 0.0
     junction = np.array(["yahoo_junction" in f for f in RF[Y]])
     S[Y, junction] = 1.0
     D[Y, junction] = 0.0
@@ -1008,6 +1160,7 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     r = total_return(C, S, D, prev)
     r[Y, junction] = np.nan
     r[ST] = C[ST] / prev[ST] - 1.0  # stored: adjusted close, a vote only
+    r[:, seg_break] = np.nan  # no source's return across a relist junction
     stored_r = r[ST].copy()  # its own return, also where it is no vote
     valid = np.isfinite(r)
     early = grid < pd.Timestamp(WIKI_DIV_GAP_FROM)
@@ -1018,9 +1171,9 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
 
     # the stored vote: dropped on the known breaks, on ex-dates from 2023 (price-only), on a raw jump
     # of a vendor's split, and on a stored-only unit change; kept wherever it agrees with a vendor
-    vote = stored_vote(r, valid, S, has, rank, junction, C)
-    vendor_event = (np.abs(S[:3] - 1.0) > 1e-9).any(axis=0) | (D[:3] > 0).any(axis=0)
     break_day = np.isin(grid.strftime("%Y-%m-%d"), BREAK_DAYS)
+    vote = stored_vote(r, valid, S, has, rank, junction, C, break_day)
+    vendor_event = (np.abs(S[:3] - 1.0) > 1e-9).any(axis=0) | (D[:3] > 0).any(axis=0)
     stored_excluded = valid[ST] & (break_day | vote["raw_jump"] | vote["unit"] |
                                    (vendor_event & (grid >= pd.Timestamp(STORED_EX_FROM))))
     valid[ST] &= ~stored_excluded
@@ -1040,26 +1193,33 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # R5: cut filler after the last session with volume > 0 (a missing volume is not filler), then
     # trailing repeats of the last real close with volume below 1% of the 50-row median before them
     # (Tiingo's SPLK 2024-03-18..22: volumes 0, 90, 47, ...)
+    # (each segment's own end too: the old shares' last trade before a relist junction)
     keep = has_vendor & (primary >= 0)
-    traded = np.flatnonzero(keep & ~(Vp == 0))
-    filler_cut = 0
-    if len(traded):
-        tail = keep.copy()
-        tail[: traded[-1] + 1] = False
-        filler_cut = int(tail.sum())
-        keep &= ~tail
-    filler_tiny = tiny_volume_tail(Cp, Vp, keep)
-    keep[filler_tiny] = False
+    filler_cut, filler_tiny = 0, np.zeros(0, dtype=int)
+    for s in np.unique(seg[keep]):
+        part = keep & (seg == s)
+        traded = np.flatnonzero(part & ~(Vp == 0))
+        if len(traded):
+            tail = part.copy()
+            tail[: traded[-1] + 1] = False
+            filler_cut += int(tail.sum())
+            keep &= ~tail
+        tiny = tiny_volume_tail(Cp, Vp, keep & (seg == s))
+        keep[tiny] = False
+        filler_tiny = np.r_[filler_tiny, tiny]
     filler_cut += len(filler_tiny)
     idx = np.flatnonzero(keep)
     prev_idx = np.r_[-1, idx[:-1]]
     gap = np.where(prev_idx >= 0, idx - prev_idx - 1, 0)
+    # the first kept row of the new shares after kept rows of the old ones: no return across it
+    relist_first = np.zeros(n, dtype=bool)
+    relist_first[idx[(prev_idx >= 0) & (seg[idx] != seg[np.maximum(prev_idx, 0)])]] = True
     tr = np.full(n, np.nan)
     own = valid[p, cols]
     tr[own] = r[p, cols][own]
     cross = np.zeros(n, dtype=bool)
     for k, j in zip(idx, prev_idx):
-        if own[k] or j < 0 or (p[k] == Y and junction[k]):
+        if own[k] or j < 0 or (p[k] == Y and junction[k]) or seg[k] != seg[j]:
             continue
         if has[p[k], j]:  # the day's source has the previous canonical session itself (a gap before)
             tr[k] = total_return(Cp[k], Sp[k], Dp[k], C[p[k], j])
@@ -1096,10 +1256,31 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # 1.68, a 1:10 it lacks, while the stored file goes 4352.5 -> 4200)
     for k in np.flatnonzero(vendor_jump & no_split_any & move_2x):
         hidden[k] = strict_split_factor(implied[k], 0.025) is not None
+    # R9 screen of a relisting after a Form 25 that RELIST_JUNCTIONS does not cover (``ctx["relists"]``):
+    # a raw level change of 10x or more (or 1/10) with no split, from 20 days before the Form 25 to 60
+    # days after the later listing starts, may be new shares (a junction to review), or a market move
+    relist_jump = np.zeros(n, dtype=bool)
+    for cut, start, _end in ctx.get("relists", ()):
+        if not cut or not start:
+            continue
+        lo_day = pd.Timestamp(cut) - pd.Timedelta(days=RELIST_SCREEN_BEFORE_DAYS)
+        hi_day = pd.Timestamp(start) + pd.Timedelta(days=RELIST_SCREEN_AFTER_DAYS)
+        for k, j in zip(idx, prev_idx):
+            if j < 0 or seg[k] != seg[j] or not lo_day <= grid[k] <= hi_day:
+                continue
+            with np.errstate(divide="ignore", invalid="ignore"):
+                level_ratio = Cp[k] * Sp[k] / Cp[j]
+            if np.isfinite(level_ratio) and level_ratio > 0 and (level_ratio >= RELIST_JUMP or level_ratio <= 1 / RELIST_JUMP):
+                relist_jump[k] = True
+    # the known break days: the stored file, left out of the vote there, moving with the vendors anyway
+    # (EYEN/HYPD, NKTR and UPXI 2025-06-24: real moves of +65%, +156% and -60% that step 6's stored-only
+    # split-ratio test lists as breaks) or not (a unit break, HON)
+    with np.errstate(invalid="ignore"):
+        break_agree = break_day & has[ST] & np.isfinite(stored_r) & (np.abs(stored_r - tr) <= TOL_R)
     # R4
     flat = np.zeros(n, dtype=bool)
     if len(idx) >= FLAT_RUN:
-        same = np.r_[False, Cp[idx][1:] == Cp[idx][:-1]]
+        same = np.r_[False, (Cp[idx][1:] == Cp[idx][:-1]) & (seg[idx][1:] == seg[idx][:-1])]
         for s0, s1 in run_lengths(same):
             if s1 - s0 + 2 >= FLAT_RUN:
                 flat[idx[s0 - 1: s1 + 1]] = True
@@ -1107,8 +1288,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
 
     # splices (R8): a change of primary that lasts SPLICE_STAY rows
     splice_tokens = {}
+    seg_first = {s: int(np.flatnonzero(seg == s)[0]) for s in np.unique(seg)}
     for k, old, new in splice_points(primary[idx], idx):
-        window = slice(max(0, k - 60), k)
+        if relist_first[k]:
+            continue  # the new shares' own source from the junction on: nothing is chained, so no splice
+        window = slice(max(seg_first[seg[k]], k - 60), k)
         both = valid[old, window] & valid[new, window]
         n_overlap = int(both.sum())
         r_ok = (np.abs(r[old, window] - r[new, window])[both] <= 1e-4).mean() if n_overlap else 0.0
@@ -1175,6 +1359,10 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("tiingo_review")  # the fetcher kept this answer with a flag to review (fetch_status.csv)
         if k in splice_tokens:
             t.extend(splice_tokens[k])
+        if relist_first[k]:
+            t.append("relist_junction")  # the new shares' first row: tr is blank, nothing is chained across
+        if relist_jump[k]:
+            t.append("relist_jump")  # R9: a 10x level change around an unreviewed relisting
 
     canonical = pd.DataFrame({
         "date": grid[idx].strftime("%Y-%m-%d"), "close_raw": Cp[idx], "volume_raw": Vp[idx],
@@ -1185,7 +1373,9 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     ctx_local = {"grid": grid, "idx": idx, "C": C, "S": S, "D": D, "has": has, "r": r, "valid": valid, "tr": tr,
                  "Cp": Cp, "Sp": Sp, "Dp": Dp, "p": p, "implied": implied, "junction": junction, "listed": listed,
                  "agreeing": agreeing, "RF": RF, "keep": keep, "stored_unit": stored_unit, "stored_r": stored_r,
-                 "stored_excluded": stored_excluded, "cash_split": cash_split}
+                 "stored_excluded": stored_excluded, "cash_split": cash_split, "seg": seg,
+                 "relist_first": relist_first, "relist_jump": relist_jump, "break_agree": break_agree,
+                 "relists": ctx.get("relists", ())}
     result["events"] = split_events_of(sid, ctx_local, ticker_of)
     result["specials"] = specials_of(sid, ctx_local, ticker_of)
     # R1c: an ex-date whose ratio no second source confirms, with |tr| >= 10% resting on it (LGND 2022-11-02)
@@ -1215,6 +1405,38 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         "listed_sessions_without_row": int((listed & ~keep & (cols >= idx[0]) & (cols <= idx[-1])).sum()),
         "ticker_last": ticker_of(grid[idx[-1]]), "last_src": SRC[p[idx[-1]]],
     })
+    # each segment's kept rows (old shares, then the new shares from each relist junction)
+    segments = []
+    for s in np.unique(seg[idx]):
+        rows = idx[seg[idx] == s]
+        segments.append({"first": str(grid[rows[0]].date()), "last": str(grid[rows[-1]].date()), "rows": int(len(rows)),
+                         "first_src": SRC[p[rows[0]]], "last_src": SRC[p[rows[-1]]], "ticker": ticker_of(grid[rows[-1]]),
+                         "last_close": float(Cp[rows[-1]]), "first_close": float(Cp[rows[0]])})
+    if len(segments) > 1 or ctx.get("junctions"):
+        result["summary"]["segments"] = segments
+        result["summary"]["junctions"] = [str(pd.Timestamp(d).date()) for d in sorted(ctx.get("junctions", ()))]
+        result["summary"]["junction_dropped_events"] = junction_dropped
+    if relist_jump.any():
+        result["summary"]["relist_jumps"] = [str(grid[k].date()) for k in np.flatnonzero(relist_jump)]
+    # the known break days where the stored file moves 1.4x or more either way (step 6's list of break
+    # files) or changes units: ``unit_break`` (a row in split_events.csv), ``stored_moves_with_vendors``
+    # (a real move: no unit break), ``unit_change_on_vendor_event`` (the stored file's change is on a
+    # vendor's own split or distribution day, recorded with that event), ``stored_differs``
+    unit_days = {e["ex_date"] for e in result["events"] if e["event_type"] == "unit_break"}
+    breaks = []
+    for k in np.flatnonzero(break_day & has[ST] & keep):
+        stored_sized = np.isfinite(stored_r[k]) and stored_r[k] > -1 and \
+            abs(np.log1p(stored_r[k])) >= np.log(SPLIT_LIKE)
+        if not (stored_unit[k] or stored_sized):
+            continue
+        day = str(grid[k].date())
+        state = ("unit_break" if day in unit_days else "stored_moves_with_vendors" if break_agree[k] else
+                 "unit_change_on_vendor_event" if stored_unit[k] else "stored_differs")
+        breaks.append({"date": day, "state": state, "stored_r": round(float(stored_r[k]), 6),
+                       "tr": round(float(tr[k]), 6) if np.isfinite(tr[k]) else None,
+                       "stored_implied_k": round(float(implied[k]), 4) if np.isfinite(implied[k]) else None})
+    if breaks:
+        result["summary"]["break_days"] = breaks
     return result
 
 
@@ -1337,7 +1559,11 @@ def split_events_of(sid: str, x: dict, ticker_of) -> list[dict]:
                        "yahoo": values["yahoo"], "wiki": values["wiki"], "nasdaq": "",
                        "agree": "Y" if len(confirm) >= 2 else "N", "sec_url": "", "verified_at": "",
                        "notes": "stored-only unit change; vendors show no split" +
-                                ("; known 2025-06-24 break" if str(grid[k].date()) == BREAK_DAYS[0] else ""),
+                                ("; known 2025-06-24 break" if str(grid[k].date()) == BREAK_DAYS[0] else "") +
+                                ("; known 2026-06-29 break" if str(grid[k].date()) == BREAK_DAYS[1] else "") +
+                                ("" if near_split_factor(implied[k], TOL_UNIT) is not None else
+                                 "; the factor is no ordinary split ratio (the stored file's later rows carry other "
+                                 "adjustments too)"),
                        "tr_agree": "", "sources_confirming": "+".join(confirm),
                        "stored_implied_k": round(float(implied[k]), 4), "stored_state": "unit_change",
                        "in_canonical": False, "contra": "stored", "listed": bool(x["listed"][k])})
@@ -1413,7 +1639,9 @@ def specials_of(sid: str, x: dict, ticker_of) -> list[dict]:
 
 def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden, flat, zero_vol, level_off, gap,
              stored_kind, vendor_jump=None, single_ratio=None) -> list[dict]:
-    """Draft queue entries (plan 4.4): R1, R1/R2, R1b, R1c, R2/R3, R3, R4, R6, R7."""
+    """Draft queue entries (plan 4.4): R1, R1/R2, R1b, R1c, R2/R3, R3, R4, R6, R7, and R9 (a 10x level change
+    around a relisting that RELIST_JUNCTIONS does not cover). A relist junction row has no return, so no
+    rule fires on a move across it."""
     grid, idx, agreeing, valid, has, C = x["grid"], x["idx"], x["agreeing"], x["valid"], x["has"], x["C"]
     n = len(grid)
     vendor_jump = np.zeros(n, dtype=bool) if vendor_jump is None else vendor_jump
@@ -1431,10 +1659,14 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
     tr = x["tr"]
     stored_r = x.get("stored_r", x["r"][ST])
     queued_jump = np.zeros(n, dtype=bool)
+    break_agree = x.get("break_agree", np.zeros(n, dtype=bool))
     for k in idx:
         n_agree = int(agreeing[:, k].sum())
         stored_note = f"; the stored file moves {stored_r[k]:+.2%} (a split the vendor lacks, or a vendor error)" \
             if vendor_jump[k] else ""
+        if break_agree[k]:
+            stored_note += (f"; the stored file, left out of the vote on this known break day, moves the same "
+                            f"({stored_r[k]:+.2%}): no unit break")
         ratio_note = ""
         if k in single_ratio and np.isfinite(tr[k]) and abs(tr[k]) >= RATIO_QUEUE_TR:
             event = single_ratio[k]
@@ -1455,7 +1687,7 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
             entry(k, "R2/R3", f"the only vendor ({SRC[x['p'][k]]}) moves {tr[k]:+.2%}, split-sized{stored_note}")
             queued_jump[k] = True
         elif move_big[k] and n_agree < 2:
-            entry(k, "R1b", f"move of {tr[k]:+.0%} confirmed by no second source" +
+            entry(k, "R1b", f"move of {tr[k]:+.0%} confirmed by no second source" + stored_note +
                   (f"; it rests on a {ratio_note}" if ratio_note else ""))
         elif ratio_note:  # R1c: the R1 entries above carry the same note
             entry(k, "R1c", f"tr {tr[k]:+.2%} rests on a {ratio_note}; needs a document")
@@ -1468,6 +1700,15 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
                            f"or a stored adjustment): {values}")
     kept = np.zeros(len(grid), dtype=bool)
     kept[idx] = True
+    relist_jump = x.get("relist_jump", np.zeros(n, dtype=bool))
+    for k in np.flatnonzero(relist_jump & kept):
+        before = idx[np.searchsorted(idx, k) - 1]
+        cuts = ", ".join(f"Form 25 {cut}, listed again from {start}" for cut, start, _ in x.get("relists", ()))
+        entry(k, "R9", f"raw close {x['Cp'][before]:.4g} on {grid[before].date()} -> {x['Cp'][k]:.4g} "
+                       f"({x['Cp'][k] * x['Sp'][k] / x['Cp'][before]:.3g}x) with no split, around a relisting ({cuts}): "
+                       "new shares out of a bankruptcy or an exchange (add a RELIST_JUNCTIONS entry: no return across "
+                       "it) or a market move", "")
+        out[-1]["listed"] = True  # it concerns the listing itself (the jump may fall in the OTC months)
     # R3, single vendor vs stored: a one-day (glitch) or small lasting (disagrees) gap above 2%. The
     # vendor stands, but which row is bad is not known (HSIC 2019-02-08, SWBI 2020-08-25, CGC 2022-10-07)
     with np.errstate(invalid="ignore"):
@@ -1564,8 +1805,8 @@ def tiingo_self_check(sid: str, bundles) -> dict:
     return {"tiingo_run_vs_old_days": int(len(joined)), "tiingo_run_vs_old_diff_days": int(off.sum())}
 
 
-def signature_of(sid: str, frames: dict[str, pd.DataFrame], window, mapping: pd.DataFrame) -> str:
-    digest = hashlib.sha256(f"{CODE_VERSION}|{CODE_HASH}|{sid}|{window[0].date()}|{window[1].date()}".encode())
+def signature_of(sid: str, frames: dict[str, pd.DataFrame], window, mapping: pd.DataFrame, extra: str = "") -> str:
+    digest = hashlib.sha256(f"{CODE_VERSION}|{CODE_HASH}|{sid}|{window[0].date()}|{window[1].date()}|{extra}".encode())
     spans = mapping.loc[mapping["security_id"] == sid, ["ticker", "list_start", "list_end"]]
     digest.update(spans.to_csv(index=False).encode())
     for name in SRC:
@@ -1596,6 +1837,7 @@ def load_state(sid: str) -> dict | None:
 def save_result(sid: str, result: dict, signature: str) -> dict:
     canonical = result.pop("canonical")
     path = PRICES_DIR / f"{sid}.csv"
+    ensure_disk(path)
     if len(canonical):
         write_csv(path, canonical)
     elif path.exists():
@@ -1607,8 +1849,15 @@ def save_result(sid: str, result: dict, signature: str) -> dict:
     return state
 
 
+def junctions_of(sid: str) -> list[str]:
+    """The first sessions of new shares after a relisting (RELIST_JUNCTIONS)."""
+    entry = RELIST_JUNCTIONS.get(sid)
+    return [entry["first_new_session"]] if entry else []
+
+
 def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild: bool = False) -> dict[str, dict]:
     mapping, master = identity["mapping"], identity["master"]
+    relists = identity.get("relisted", {})
     first_ticker = dict(zip(master["security_id"], master["first_ticker"]))
     states, built, reused = {}, 0, 0
     started = time.time()
@@ -1621,7 +1870,7 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
                 window = (pd.Timestamp(WINDOW_START), pd.Timestamp(WINDOW_START))
             else:
                 window = (min(d.min() for d in dates), max(d.max() for d in dates))
-        signature = signature_of(sid, frames, window, mapping)
+        signature = signature_of(sid, frames, window, mapping, json.dumps([junctions_of(sid), relists.get(sid, [])]))
         state = None if rebuild else load_state(sid)
         if state is not None and state.get("signature") == signature and \
                 (state["summary"].get("rows", 0) == 0 or (PRICES_DIR / f"{sid}.csv").exists()):
@@ -1632,7 +1881,8 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
             fallback = first_ticker.get(sid, "")
             ctx = {"sessions": sessions, "window": window,
                    "listed": lambda grid, sid=sid: listed_mask(mapping, sid, grid),
-                   "ticker_of": (lambda day, lookup=lookup, fallback=fallback: lookup(day) or fallback)}
+                   "ticker_of": (lambda day, lookup=lookup, fallback=fallback: lookup(day) or fallback),
+                   "junctions": junctions_of(sid), "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, [])}
             result = reconcile_security(sid, frames, ctx)
             result["summary"].update(tiingo_self_check(sid, bundles))
             states[sid] = save_result(sid, result, signature)
@@ -1642,8 +1892,8 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
     return states
 
 
-def prepare(only: list[str] | None = None) -> dict:
-    """Identity, targets, windows, sessions and the source bundles (cached on disk)."""
+def prepare(only: list[str] | None = None, rebuild: bool = False) -> dict:
+    """Identity, targets, windows, sessions and the source bundles (cached on disk unless ``rebuild``)."""
     identity = load_identity()
     targets = load_targets()
     ids = set(targets["security_id"])
@@ -1651,7 +1901,7 @@ def prepare(only: list[str] | None = None) -> dict:
     sessions = pf.xnas_sessions(WINDOW_START, WINDOW_END)
     log(f"targets: {len(ids)} securities ({int(targets['in_candidates'].sum())} candidates, "
         f"{int(targets['rank300'].sum())} ranked <= 300)")
-    sources, facts = load_sources(identity, ids, windows)
+    sources, facts = load_sources(identity, ids, windows, rebuild)
     bundles = {name: split_by_security(rows if only is None else rows[rows["security_id"].isin(only)])
                for name, rows in sources.items()}
     return {"identity": identity, "targets": targets, "windows": windows, "sessions": sessions,
@@ -1897,13 +2147,29 @@ def tiingo_waiting() -> pd.DataFrame:
     answered = set(zip(status["security_id"], status["ticker_for_source"]))
     final = status[~status["status"].isin({"deferred_quota", "error"})]
     answered = set(zip(final["security_id"], final["ticker_for_source"]))
-    waiting = planned[[(s, t) not in answered for s, t in zip(planned["security_id"], planned["ticker_for_source"])]]
+    waiting = planned[np.array([(s, t) not in answered for s, t in zip(planned["security_id"], planned["ticker_for_source"])],
+                               dtype=bool)]
     return waiting
 
 
+TERMINAL_2012_2026 = INPUTS / "terminal_returns_2012_2026.csv"  # the terminal step's own table (by security_id)
+
+
 def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, sessions: pd.DatetimeIndex) -> pd.DataFrame:
-    """Series that end before the delist date, or before the window end without one (plan 4.5 inputs)."""
+    """Series that end before the delist date, or before the window end without one (plan 4.5 inputs).
+
+    A security listed again after its Form 25 (``identity["relisted"]``: SMCI, CHRD) is measured against
+    the end of its later listing, not the Form 25. The old shares before each relist junction end there
+    (``old_shares_at_relist_junction``): their last row, the junction (first session of the new shares)
+    and the terminal step's row for the Form 25, which values them (``terminal_2012_2026``)."""
     master = identity["master"].set_index("security_id")
+    relisted = identity.get("relisted", {})
+    terminal_now = {}
+    if TERMINAL_2012_2026.exists():
+        table = pd.read_csv(TERMINAL_2012_2026, dtype=str, keep_default_na=False)
+        for row in table.itertuples(index=False):
+            terminal_now[row.security_id] = (f"{row.terminal_type}/{row.status} last_price_date="
+                                             f"{row.last_price_date or '-'} end_date={row.end_date or '-'}")
     last_session = sessions[sessions <= pd.Timestamp(WINDOW_END)][-1]
     terminal = {}
     for path in TERMINAL_FILES:
@@ -1920,6 +2186,15 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
     position = {d: k for k, d in enumerate(sessions.strftime("%Y-%m-%d"))}
     target_info = targets.set_index("security_id")
     waiting = set(tiingo_waiting()["security_id"])
+    def common_fields(sid, info, summary, existing):
+        weeks300 = target_info.at[sid, "weeks_rank300"] if sid in target_info.index else 0
+        return {"name": info["name"] if info is not None else "",
+                "successor_security_id": info["successor_security_id"] if info is not None else "",
+                "transfer_date": info["transfer_date"] if info is not None else "",
+                "existing_terminal_rows": " ".join(existing), "terminal_2012_2026": terminal_now.get(sid, ""),
+                "in_candidates": bool(target_info.at[sid, "in_candidates"]) if sid in target_info.index else False,
+                "weeks_rank300": int(weeks300) if pd.notna(weeks300) else 0}
+
     for sid, state in states.items():
         summary = state["summary"]
         if not summary.get("rows"):
@@ -1928,7 +2203,28 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
         info = master.loc[sid] if sid in master.index else None
         delist = info["delist_date"] if info is not None else ""
         last_listed = info["last_listed"] if info is not None else ""
-        if delist:
+        existing = terminal.get(sid, [])
+        segments, junctions = summary.get("segments", []), summary.get("junctions", [])
+        for old, new in zip(segments, segments[1:]):  # the old shares end at the relist junction
+            junction = RELIST_JUNCTIONS.get(sid, {})
+            short = position[new["first"]] - position[old["last"]] - 1 if {old["last"], new["first"]} <= set(position) else ""
+            rows.append({"security_id": sid, "ticker_last": old.get("ticker", ""),
+                         "category": "old_shares_at_relist_junction", "last_date": old["last"], "delist_date": delist,
+                         "last_listed": last_listed, "sessions_after_last_row": short,
+                         "likely_cause": f"relist_junction:{junction.get('kind', '')}", "tiingo_pending": sid in waiting,
+                         "filler_cut": "", "last_src": old["last_src"],
+                         "existing_last_price_date_match": ("Y" if any(e.endswith(":" + old["last"]) for e in existing)
+                                                            else "N") if existing else "",
+                         "junction_date": new["first"], "junction_first_new_session": ",".join(junctions),
+                         "junction_url": junction.get("url", ""), **common_fields(sid, info, summary, existing)})
+        if sid in relisted:  # listed again after the Form 25: the later listing's end is the target
+            listing_end = min(max(end for _, _, end in relisted[sid]), WINDOW_END)
+            target = sessions[sessions <= pd.Timestamp(listing_end)][-1]
+            if pd.Timestamp(last) >= target - pd.Timedelta(days=7):
+                continue
+            category = "relisted_ends_before_listing_end"
+            target_day = str(target.date())
+        elif delist:
             category = "ends_before_delist" if last < delist else "reaches_delist"
             target_day = delist
         elif pd.Timestamp(last) < last_session - pd.Timedelta(days=7):
@@ -1938,7 +2234,6 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
             continue
         before = [d for d in position if d <= target_day]
         short = position[before[-1]] - position.get(last, position[before[-1]]) if before and last in position else ""
-        existing = terminal.get(sid, [])
         pending = sid in waiting
         if last == WIKI_END and target_day > WIKI_END:
             cause = "wiki_end_no_later_source" + ("_tiingo_pending" if pending else "")
@@ -1952,21 +2247,22 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
             cause = "last_trade_near_delist"
         else:
             cause = "ends_early"  # a halt, bankruptcy or merger whose last trade came well before the delisting
-        weeks300 = target_info.at[sid, "weeks_rank300"] if sid in target_info.index else 0
-        rows.append({"security_id": sid, "ticker_last": summary.get("ticker_last", ""),
-                     "name": info["name"] if info is not None else "", "category": category, "last_date": last,
-                     "delist_date": delist, "last_listed": last_listed,
-                     "successor_security_id": info["successor_security_id"] if info is not None else "",
-                     "transfer_date": info["transfer_date"] if info is not None else "",
+        rows.append({"security_id": sid, "ticker_last": summary.get("ticker_last", ""), "category": category,
+                     "last_date": last, "delist_date": delist, "last_listed": last_listed,
                      "sessions_after_last_row": short, "likely_cause": cause, "tiingo_pending": pending,
-                     "filler_cut": summary.get("filler_cut", 0),
-                     "last_src": summary.get("last_src", ""), "existing_terminal_rows": " ".join(existing),
+                     "filler_cut": summary.get("filler_cut", 0), "last_src": summary.get("last_src", ""),
                      "existing_last_price_date_match": ("Y" if any(e.endswith(":" + last) for e in existing) else "N")
-                     if existing else "",
-                     "in_candidates": bool(target_info.at[sid, "in_candidates"]) if sid in target_info.index else False,
-                     "weeks_rank300": int(weeks300) if pd.notna(weeks300) else 0})
-    frame = pd.DataFrame(rows)
+                     if existing else "", "junction_date": "", "junction_first_new_session": ",".join(junctions),
+                     "junction_url": "", **common_fields(sid, info, summary, existing)})
+    frame = pd.DataFrame(rows, columns=SERIES_END_COLUMNS)
     return frame.sort_values(["category", "security_id"]) if len(frame) else frame
+
+
+SERIES_END_COLUMNS = ["security_id", "ticker_last", "name", "category", "last_date", "delist_date", "last_listed",
+                      "successor_security_id", "transfer_date", "sessions_after_last_row", "likely_cause",
+                      "tiingo_pending", "filler_cut", "last_src", "existing_terminal_rows",
+                      "existing_last_price_date_match", "in_candidates", "weeks_rank300", "terminal_2012_2026",
+                      "junction_date", "junction_first_new_session", "junction_url"]
 
 
 def dv_cutoffs() -> pd.DataFrame:
@@ -2015,8 +2311,10 @@ def scan_series(ids: list[str], cutoffs: pd.DataFrame) -> dict:
         multi["name_days_total"] += int(len(frame))
         dv = frame["close_raw"] * frame["volume_raw"]
         dates = pd.to_datetime(frame["date"]).values.astype("datetime64[D]")
-        dv50 = dv.rolling(50, min_periods=25).median().values
-        dv20 = dv.rolling(20, min_periods=10).median().values
+        # the windows restart at a relist junction: the new shares' dollar volume only
+        segment = frame["flags"].fillna("").str.contains(r"(?:^|;)relist_junction(?:;|$)", regex=True).cumsum()
+        dv50 = dv.groupby(segment).transform(lambda s: s.rolling(50, min_periods=25).median()).values
+        dv20 = dv.groupby(segment).transform(lambda s: s.rolling(20, min_periods=10).median()).values
         position = np.searchsorted(dates, week_index, side="right") - 1  # last row on or before each week end
         ok = position >= 0
         fresh = np.zeros(len(week_index), dtype=bool)
@@ -2107,6 +2405,7 @@ def write_panel(ids: list[str], states: dict[str, dict]) -> dict:
             part.insert(0, "security_id", sid)
             parts.append(part)
     panel = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["security_id"] + PRICE_COLUMNS)
+    ensure_disk(path, MIN_FREE_MB + 300)  # the gzip panel is a few hundred MB at most
     write_csv(path, panel, compress=True)
     common.atomic_write(marker, signature.encode())
     return {"panel_rows": int(len(panel)), "panel_securities": int(panel["security_id"].nunique()) if len(panel) else 0}
@@ -2130,6 +2429,73 @@ def no_series_table(states: dict[str, dict], targets: pd.DataFrame) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
+def relist_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataFrame, dict]:
+    """``CACHE/reconcile/relist_junctions.csv``: every target listed again after a Form 25 (``after_cut``
+    spans) and every RELIST_JUNCTIONS entry: the later listing, the rows the canonical series has before
+    and inside it, and the junction (old shares' last row, new shares' first row, their level ratio) or
+    the R9 screen's hits. ``status``: ``junction`` (new shares: separate series), ``same_shares`` (the
+    series runs through: SMCI), ``screen_hit`` (a 10x level change to review), ``no_rows_in_later_listing``
+    (LLEX, PBIO: snapshot rows with no price), ``no_series``."""
+    relisted = identity.get("relisted", {})
+    ids = sorted((set(relisted) | set(RELIST_JUNCTIONS)) & set(states))
+    rows = []
+    for sid in ids:
+        state = states[sid]
+        summary = state["summary"]
+        days = state.get("dates", np.zeros(0, dtype=np.int32)).astype("datetime64[D]")
+        cut, start, end = (relisted.get(sid) or [("", "", "")])[0]
+        entry = RELIST_JUNCTIONS.get(sid, {})
+        segments = summary.get("segments", [])
+        inside = int(((days >= np.datetime64(start)) & (days <= np.datetime64(end))).sum()) if start else 0
+        before = int((days < np.datetime64(start)).sum()) if start else 0
+        old, new = (segments[-2], segments[-1]) if len(segments) > 1 else ({}, {})
+        if not summary.get("rows"):
+            status = "no_series"
+        elif len(segments) > 1:
+            status = "junction"
+        elif summary.get("relist_jumps"):
+            status = "screen_hit"
+        elif start and not inside:
+            status = "no_rows_in_later_listing"
+        elif entry:
+            status = "junction_no_old_rows"  # the reviewed junction, but the series holds only one side of it yet
+        else:
+            status = "same_shares"
+        rows.append({"security_id": sid, "ticker_last": summary.get("ticker_last", ""), "form25_delist_date": cut,
+                     "later_listing_start": start, "later_listing_end": end, "status": status,
+                     "series_first": summary.get("first_date", ""), "series_last": summary.get("last_date", ""),
+                     "rows_before_later_listing": before, "rows_in_later_listing": inside,
+                     "first_new_session": entry.get("first_new_session", ""), "kind": entry.get("kind", ""),
+                     "document_read": ("Y" if entry.get("read") else "N") if entry else "",
+                     "url": entry.get("url", ""), "old_last_date": old.get("last", ""), "old_last_src": old.get("last_src", ""),
+                     "new_first_date": new.get("first", ""), "new_first_src": new.get("first_src", ""),
+                     "level_ratio_new_first_to_old_last": round(new["first_close"] / old["last_close"], 4)
+                     if old and old.get("last_close") else "",
+                     "junction_dropped_events": " | ".join(summary.get("junction_dropped_events", [])),
+                     "relist_jumps": " ".join(summary.get("relist_jumps", [])), "note": entry.get("note", "")})
+    frame = pd.DataFrame(rows)
+    facts = {"securities": int(len(frame)),
+             "by_status": {k: int(v) for k, v in frame["status"].value_counts().items()} if len(frame) else {},
+             "junctions": {r.security_id: f"{r.old_last_date} -> {r.new_first_date}" for r in frame.itertuples()
+                           if r.status == "junction"} if len(frame) else {},
+             "rule": "RELIST_JUNCTIONS entries split the series at the new shares' first session: no return across it, "
+                     "the old shares end there (series_ends.csv old_shares_at_relist_junction); other relistings keep "
+                     f"one series, and a raw level change of {RELIST_JUMP:g}x around them is queued (R9)"}
+    return frame, facts
+
+
+def break_day_table(states: dict[str, dict]) -> dict:
+    """The known break days: where the stored file moves by a split-sized factor or is a unit break, what
+    the vendors show (``unit_break``: the stored file alone changes units; ``stored_moves_with_vendors``: a
+    real move both show, so no unit break, EYEN/HYPD, NKTR, UPXI 2025-06-24)."""
+    out = defaultdict(dict)
+    for sid, state in sorted(states.items()):
+        for item in state["summary"].get("break_days", []):
+            out[item["date"]][sid] = {k: v for k, v in item.items() if k != "date"}
+    return {day: {"by_state": dict(Counter(v["state"] for v in items.values())), "securities": items}
+            for day, items in sorted(out.items())}
+
+
 def summarize_tables(states, prep, ids, args) -> dict:
     identity, targets, sessions = prep["identity"], prep["targets"], prep["sessions"]
     split_table, split_facts = build_split_table(states, identity)
@@ -2149,7 +2515,10 @@ def summarize_tables(states, prep, ids, args) -> dict:
     write_csv(OUT / "no_series.csv", missing)
     pairs = pd.DataFrame([p for s in states.values() for p in s["pairs"]])
     write_csv(OUT / "source_pairs.csv", pairs)
-    securities = pd.DataFrame([{**{k: v for k, v in s["summary"].items() if not isinstance(v, dict)},
+    relists, relist_facts = relist_table(states, identity)
+    write_csv(OUT / "relist_junctions.csv", relists)
+    securities = pd.DataFrame([{**{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in s["summary"].items()
+                                   if not isinstance(v, dict)},
                                 "rows_by_primary": json.dumps(s["summary"].get("rows_by_primary", {}), sort_keys=True),
                                 "flag_counts": json.dumps(s["summary"].get("flag_counts", {}), sort_keys=True)}
                                for s in states.values()])
@@ -2168,8 +2537,11 @@ def summarize_tables(states, prep, ids, args) -> dict:
                   "stored_vote_excluded": f"unit breaks {list(BREAK_DAYS)}, ex-dates from {STORED_EX_FROM}, the raw "
                                           "jump of a vendor's split, and a stored-only unit change (every vendor "
                                           f"agrees, the stored file agrees with none and is off by an ordinary "
-                                          f"split ratio within {TOL_UNIT:.0%}, the vendors' own move is not "
-                                          "split-sized); a stored return that agrees with any vendor stays a vote",
+                                          f"split ratio within {TOL_UNIT:.0%}, or on a known break day by any "
+                                          f"lasting factor beyond {TOL_STORED_RATIO:.0%}, the vendors' own move is "
+                                          "not split-sized); a stored return that agrees with any vendor stays a "
+                                          "vote, except on the break days",
+                  "relist_jump": RELIST_JUMP,
                   "stored_queue_diff": STORED_QUEUE_DIFF, "ratio_queue_tr": RATIO_QUEUE_TR,
                   "filler_volume_share": FILLER_VOLUME_SHARE, "tol_cash_split": TOL_CASH_SPLIT},
         "targets": {"securities": int(len(targets)), "candidates": int(targets["in_candidates"].sum()),
@@ -2196,10 +2568,13 @@ def summarize_tables(states, prep, ids, args) -> dict:
                                              Counter())),
         "tiingo_identity_rows": int(sum(s["summary"].get("tiingo_identity_rows", 0) for s in states.values())),
         "tiingo_run_vs_old_diff_days": int(sum(s["summary"].get("tiingo_run_vs_old_diff_days", 0) for s in states.values())),
+        "relistings": relist_facts,
+        "break_days": break_day_table(states),
         "checks": checks,
         "files": {"prices": str(PRICES_DIR), "split_events": str(SPLIT_EVENTS), "special_distributions": str(SPECIAL),
                   "reviewed_moves": str(REVIEWED_MOVES), "series_ends": str(OUT / "series_ends.csv"),
-                  "coverage_gaps": str(OUT / "coverage_gaps.csv"), "no_series": str(OUT / "no_series.csv")},
+                  "coverage_gaps": str(OUT / "coverage_gaps.csv"), "no_series": str(OUT / "no_series.csv"),
+                  "relist_junctions": str(OUT / "relist_junctions.csv")},
         "no_returns_aggregated": "tr is per security and day; this summary holds counts only",
     }
     if not args.no_panel:
@@ -2244,19 +2619,149 @@ def git_commit() -> str:
         return ""
 
 
+COMPARE_NUMERIC = {"close_raw": 1e-9, "volume_raw": 1e-9, "split_factor": 1e-12, "div_cash": 1e-12, "tr": 1e-9}
+
+
+def compare_series(old: pd.DataFrame, new: pd.DataFrame) -> dict:
+    """Row-level differences between two canonical files of one security: dates added and removed, and on
+    common dates the rows whose close, volume, S, D or tr changed (relative 1e-9; a blank against a value
+    counts), whose primary source changed, or whose flags changed. Counts of rows only."""
+    o, w = old.set_index("date"), new.set_index("date")
+    common = o.index.intersection(w.index)
+    out = {"old_rows": int(len(o)), "new_rows": int(len(w)), "old_first": o.index.min() if len(o) else "",
+           "old_last": o.index.max() if len(o) else "", "new_first": w.index.min() if len(w) else "",
+           "new_last": w.index.max() if len(w) else "", "rows_added": int(len(w.index.difference(o.index))),
+           "rows_removed": int(len(o.index.difference(w.index)))}
+    for column, tolerance in COMPARE_NUMERIC.items():
+        a = pd.to_numeric(o.loc[common, column], errors="coerce").to_numpy(float)
+        b = pd.to_numeric(w.loc[common, column], errors="coerce").to_numpy(float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            same = (np.isnan(a) & np.isnan(b)) | (np.abs(a - b) <= tolerance * np.maximum(np.abs(a), 1.0))
+        out[f"{column}_changed"] = int((~same).sum())
+    for column in ("src_primary", "flags"):
+        a = o.loc[common, column].fillna("").astype(str).to_numpy()
+        b = w.loc[common, column].fillna("").astype(str).to_numpy()
+        out[f"{column}_changed"] = int((a != b).sum())
+    values = sum(out[f"{c}_changed"] for c in list(COMPARE_NUMERIC) + ["src_primary"])
+    out["kind"] = ("dates" if out["rows_added"] or out["rows_removed"] else
+                   "values" if values else "flags_only" if out["flags_changed"] else "unchanged")
+    return out
+
+
+def compare_outputs(defaults: dict) -> dict:
+    """The build in --out-dir against the default outputs (``defaults``: CACHE/prices, CACHE/reconcile and the
+    INPUTS tables): securities with a canonical file, rows, which series changed and how, and the tables'
+    row counts. Writes reconcile/compare.json and reconcile/compare_series.csv (one row per security)."""
+    read = dict(dtype={"date": str, "flags": str, "src_primary": str}, keep_default_na=False, na_values=[""])
+    old_ids = {p.stem for p in Path(defaults["prices"]).glob("*.csv")}
+    new_ids = {p.stem for p in PRICES_DIR.glob("*.csv")}
+    rows = []
+    for sid in sorted(old_ids | new_ids):
+        old_path, new_path = Path(defaults["prices"]) / f"{sid}.csv", PRICES_DIR / f"{sid}.csv"
+        if sid not in new_ids:
+            old = pd.read_csv(old_path, **read)
+            rows.append({"security_id": sid, "kind": "removed", "old_rows": len(old), "new_rows": 0,
+                         "old_first": old["date"].min(), "old_last": old["date"].max()})
+        elif sid not in old_ids:
+            new = pd.read_csv(new_path, **read)
+            rows.append({"security_id": sid, "kind": "added", "old_rows": 0, "new_rows": len(new),
+                         "new_first": new["date"].min(), "new_last": new["date"].max()})
+        else:
+            rows.append({"security_id": sid, **compare_series(pd.read_csv(old_path, **read), pd.read_csv(new_path, **read))})
+    frame = pd.DataFrame(rows)
+    write_csv(OUT / "compare_series.csv", frame)
+
+    def table_rows(path: Path, column: str | None = None) -> dict:
+        if not Path(path).exists():
+            return {"rows": None}
+        data = pd.read_csv(path, dtype=str, keep_default_na=False)
+        out = {"rows": int(len(data))}
+        if column and column in data:
+            out["by"] = {k: int(v) for k, v in data[column].value_counts().items()}
+        return out
+
+    def summary_of(directory: Path) -> dict:
+        path = Path(directory) / "summary.json"
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    old_summary, new_summary = summary_of(defaults["reconcile"]), summary_of(OUT)
+    rule = lambda path: (pd.read_csv(path, dtype=str, keep_default_na=False)["notes"].str.extract(r"^\[([^\]]+)\]")[0]
+                         .value_counts().to_dict() if Path(path).exists() else {})
+    kinds = frame["kind"].value_counts().to_dict() if len(frame) else {}
+    headline = {"securities_old": len(old_ids), "securities_new": len(new_ids),
+                "securities_added": len(new_ids - old_ids), "securities_removed": len(old_ids - new_ids),
+                "rows_old": int(frame["old_rows"].fillna(0).sum()) if len(frame) else 0,
+                "rows_new": int(frame["new_rows"].fillna(0).sum()) if len(frame) else 0,
+                "series_by_kind": {k: int(v) for k, v in kinds.items()}}
+    changed = frame[frame["kind"] != "unchanged"].copy() if len(frame) else frame
+    if len(changed):
+        changed["row_change"] = changed["new_rows"].fillna(0) - changed["old_rows"].fillna(0)
+    out = {
+        "built_utc": now_utc(), "old": {k: str(v) for k, v in defaults.items()},
+        "new": {"prices": str(PRICES_DIR), "reconcile": str(OUT), "tables": str(SPLIT_EVENTS.parent)},
+        "headline": headline,
+        "largest_row_changes": changed.reindex(changed["row_change"].abs().sort_values(ascending=False).index)
+        .head(40)[["security_id", "kind", "old_rows", "new_rows", "old_first", "old_last", "new_first", "new_last"]]
+        .fillna("").to_dict("records") if len(changed) else [],
+        "tables": {"split_events": {"old": table_rows(defaults["split_events"], "event_type"),
+                                    "new": table_rows(SPLIT_EVENTS, "event_type")},
+                   "special_distributions": {"old": table_rows(defaults["special"]), "new": table_rows(SPECIAL)},
+                   "reviewed_moves": {"old": {"rows": table_rows(defaults["reviewed_moves"])["rows"],
+                                              "by_rule": rule(defaults["reviewed_moves"])},
+                                      "new": {"rows": table_rows(REVIEWED_MOVES)["rows"], "by_rule": rule(REVIEWED_MOVES)}}},
+        "summary": {key: {"old": old_summary.get(key), "new": new_summary.get(key)}
+                    for key in ("targets", "tiingo_waiting_rows", "series_ends")},
+        "coverage_dv50_rank_1_300": {"old": (old_summary.get("coverage_ranked") or {}).get("dv50_rank_1_300", {}).get("all"),
+                                     "new": (new_summary.get("coverage_ranked") or {}).get("dv50_rank_1_300", {}).get("all")},
+        "note": "row and series counts only; tr is compared row by row for equality, never aggregated",
+    }
+    write_json(OUT / "compare.json", out)
+    return out
+
+
 def main(argv=None) -> int:
+    global MIN_FREE_MB, WRITE_SOURCE_CACHE
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--only", default="", help="comma-separated security ids: build these, write no tables")
-    parser.add_argument("--rebuild", action="store_true", help="ignore the per-security state")
-    parser.add_argument("--no-panel", action="store_true", help="skip CACHE/prices/daily_panel.csv.gz")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="ignore every cache of this step (source bundles and per-security state): rebuild from the raw files")
+    parser.add_argument("--no-panel", action="store_true", help="skip prices/daily_panel.csv.gz")
+    parser.add_argument("--out-dir", default="",
+                        help="write prices/, reconcile/ and inputs/ (the three tables) under this directory instead of "
+                             "CACHE and INPUTS")
+    parser.add_argument("--no-source-cache", action="store_true",
+                        help="build the source bundles in memory and do not write them (saves about 0.7 GB of disk)")
+    parser.add_argument("--min-free-mb", type=float, default=MIN_FREE_MB,
+                        help="stop before writing when the output disk has less free space than this")
+    parser.add_argument("--compare", action="store_true",
+                        help="with --out-dir: compare the build with the default outputs (securities, rows, changed "
+                             "series, tables) into reconcile/compare.json and compare_series.csv")
     args = parser.parse_args(argv)
-    for directory in (PRICES_DIR, OUT, SOURCE_CACHE, STATE_DIR, LOG_DIR):
+    MIN_FREE_MB, WRITE_SOURCE_CACHE = args.min_free_mb, not args.no_source_cache
+    forbid_network()
+    defaults = {"prices": PRICES_DIR, "reconcile": OUT, "split_events": SPLIT_EVENTS, "special": SPECIAL,
+                "reviewed_moves": REVIEWED_MOVES}
+    configure_paths(Path(args.out_dir) if args.out_dir else None)
+    for directory in (PRICES_DIR, OUT, SOURCE_CACHE, STATE_DIR, LOG_DIR, SPLIT_EVENTS.parent):
         directory.mkdir(parents=True, exist_ok=True)
+    log(f"outputs: prices {PRICES_DIR}, reconcile {OUT}, tables {SPLIT_EVENTS.parent}; rebuild {args.rebuild}; "
+        "network refused")
     only = [s.strip() for s in args.only.split(",") if s.strip()] or None
     started = time.time()
-    prep = prepare(only)
+    timings = {}
+
+    def phase(name: str, since: float) -> float:
+        now = time.time()
+        timings[name] = round(now - since, 1)
+        log(f"phase {name}: {timings[name]:.1f}s (peak RSS so far {peak_rss_mb():,.0f} MB)")
+        return now
+
+    mark = time.time()
+    prep = prepare(only, args.rebuild)
+    mark = phase("prepare_sources", mark)
     ids = sorted(set(prep["targets"]["security_id"]) if only is None else set(only))
     states = run_securities(ids, prep["bundles"], prep["identity"], prep["windows"], prep["sessions"], args.rebuild)
+    mark = phase("securities", mark)
     if only is not None:
         for sid in ids:
             summary = states[sid]["summary"]
@@ -2264,10 +2769,25 @@ def main(argv=None) -> int:
                 f"{summary.get('rows_by_primary')} flags {summary.get('flag_counts')}")
             log(f"  events {len(states[sid]['events'])}, specials {len(states[sid]['specials'])}, "
                 f"queue {Counter(m['rule'] for m in states[sid]['moves'])}")
+            for key in ("segments", "junctions", "relist_jumps", "break_days"):
+                if summary.get(key):
+                    log(f"  {key}: {summary[key]}")
         return 0
     summary = summarize_tables(states, prep, ids, args)
+    mark = phase("tables_and_panel", mark)
     log(f"coverage dv50 1-300: {summary['coverage_ranked']['dv50_rank_1_300']['all']}")
-    log(f"done in {time.time() - started:.0f}s; summary {OUT / 'summary.json'}")
+    if args.compare and args.out_dir:
+        compare = compare_outputs(defaults)
+        mark = phase("compare", mark)
+        log(f"compare with the default outputs: {json.dumps(compare['headline'])}")
+    run = {"argv": sys.argv[1:] if argv is None else list(argv), "out_dir": str(Path(args.out_dir).resolve()) if args.out_dir else "",
+           "rebuild": bool(args.rebuild), "source_cache_written": WRITE_SOURCE_CACHE,
+           "network": "refused (forbid_network)", "timings_s": timings,
+           "total_s": round(time.time() - started, 1), "peak_rss_mb": peak_rss_mb(), "finished_utc": now_utc()}
+    summary["run"] = run
+    write_json(OUT / "summary.json", summary)
+    write_json(LOG_DIR / f"run_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json", run)
+    log(f"done in {run['total_s']:.0f}s, peak RSS {run['peak_rss_mb']:,.0f} MB; summary {OUT / 'summary.json'}")
     return 0
 
 

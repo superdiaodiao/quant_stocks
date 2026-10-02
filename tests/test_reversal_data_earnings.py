@@ -338,26 +338,79 @@ def test_filing_table_joins_recent_and_pages_once_per_accession():
 
 # ------------------------------------------------------------------ scope, header files, SIC
 
-def test_scope_is_top300_or_candidates_and_drops_foreign_filers():
-    weekly = pd.DataFrame({
-        "security_id": ["10", "10", "20", "30", "40"], "cik": pd.array([10, 10, 20, 30, 40], dtype="Int64"),
-        "week_end": pd.to_datetime(["2012-01-06", "2012-01-13", "2012-01-06", "2012-01-06", "2012-01-06"]),
-        "universe": [True, True, True, True, True],
-        "dv50_rank": [250.0, 320.0, 301.0, float("nan"), 5.0], "dv20_rank": [float("nan"), 290.0, 302.0, 10.0, 5.0]})
-    candidates = pd.DataFrame({"security_id": ["20", "50"], "cik": ["20", "50"]})
+def _top(rows):
+    """Rows of the weekly top-300 file: (security_id, cik, week_end)."""
+    return pd.DataFrame({"security_id": [r[0] for r in rows], "cik": pd.array([r[1] for r in rows], dtype="Int64"),
+                         "week_end": pd.to_datetime([r[2] for r in rows])})
+
+
+def _listed(rows, universe=None):
+    """Step-6 rows: (security_id, cik, week_end), all listed unless ``universe`` says otherwise."""
+    frame = _top(rows)
+    return frame.assign(universe=universe if universe is not None else [True] * len(frame))
+
+
+def test_scope_is_the_top300_file_or_candidates_and_drops_foreign_filers():
+    top = _top([("10", 10, "2012-01-06"), ("10", 10, "2012-01-13"), ("30", 30, "2012-01-06"), ("40", 40, "2012-01-06")])
+    weekly = _listed([("10", 10, "2012-01-06"), ("10", 10, "2012-01-13"), ("20", 20, "2012-01-06"),
+                      ("30", 30, "2012-01-06"), ("40", 40, "2012-01-06")])
+    candidates = pd.DataFrame({"security_id": ["20", "50"], "cik": ["20", "50"],
+                               "needed_start": ["2018-01-21", "2023-05-01"], "needed_end": ["2018-05-07", "2026-08-31"]})
     master = pd.DataFrame({"security_id": ["10", "20", "30", "40", "50"], "cik": ["10", "20", "30", "40", "50"],
                            "name": list("ABCDE"), "foreign_filer": ["N", "N", "MIXED", "Y", "N"]})
-    scope = er.build_scope(weekly, candidates, master).set_index("cik")
+    scope = er.build_scope(top, weekly, candidates, master).set_index("cik")
     # CIK 40 (Y) is foreign in every week, so its top-300 week does not bring it in
     assert scope.index.tolist() == [10, 20, 30, 50]
     assert scope.loc[10, "top300_weeks"] == 2 and scope.loc[10, "in_candidates"] == "N"
     assert scope.loc[20, "in_top300"] == "N" and scope.loc[20, "in_candidates"] == "Y"
     assert scope.loc[30, "excluded_foreign"] == "N"
     assert scope.loc[50, "listed_first_week"] == ""
+    # windows: the Monday of the first top-300 week (or needed_start) less 120 days, never before
+    # 2011-10-01, to the last top-300 week (or needed_end) plus 35 days, at least to its quarter's end
+    assert scope.loc[10, ["window_start", "window_end"]].tolist() == ["2011-10-01", "2012-03-31"]
+    assert scope.loc[20, ["window_start", "window_end"]].tolist() == ["2017-09-23", "2018-06-30"]
+    assert scope.loc[20, ["candidate_first_day", "candidate_last_day"]].tolist() == ["2018-01-21", "2018-05-07"]
     # named by a candidate row it is listed, and excluded
-    named = er.build_scope(weekly, pd.concat([candidates, pd.DataFrame({"security_id": ["40"], "cik": ["40"]})]), master)
-    named = named.set_index("cik")
+    named = er.build_scope(top, weekly, pd.concat([candidates, pd.DataFrame({"security_id": ["40"], "cik": ["40"]})]),
+                           master).set_index("cik")
     assert named.loc[40, ["excluded_foreign", "in_top300", "top300_weeks_foreign"]].tolist() == ["Y", "N", 1]
+    # a candidate without a needed window keeps the whole span from 2011-10-01
+    assert named.loc[40, ["window_start", "window_end"]].tolist() == ["2011-10-01", er.WINDOW_OPEN_END]
+
+
+def test_one_window_spans_both_the_top300_weeks_and_the_candidate_window():
+    top = _top([("7", 7, "2014-06-06"), ("7", 7, "2015-01-09")])
+    candidates = pd.DataFrame({"security_id": ["7.B"], "cik": ["7"], "needed_start": ["2020-03-01"],
+                               "needed_end": ["2021-02-28"]})
+    master = pd.DataFrame({"security_id": ["7", "7.B"], "cik": ["7", "7"], "name": ["S", "S"], "foreign_filer": ["N", "N"]})
+    scope = er.build_scope(top, _listed([("7", 7, "2014-06-06")]), candidates, master).iloc[0]
+    # 2021-02-28 + 35 days is past the quarter's end
+    assert (scope["window_start"], scope["window_end"]) == ("2014-01-31", "2021-04-04")
+    assert scope["security_ids"] == "7 7.B"
+
+
+def test_scope_weeks_are_the_top300_weeks_and_listed_weeks_inside_a_candidate_window():
+    top = _top([("1", 1, "2015-01-09")])
+    weekly = _listed([("1", 1, "2015-01-16"), ("2", 2, "2015-01-09"), ("2", 2, "2015-01-16"), ("2", 2, "2015-01-23"),
+                      ("2", 2, "2015-01-30"), ("3", 3, "2015-01-09")], universe=[True, True, True, False, True, True])
+    windows = er.candidate_windows(pd.DataFrame({"security_id": ["2", "3"], "cik": ["2", "3"],
+                                                 "needed_start": ["2015-01-12", "2015-01-12"],
+                                                 "needed_end": ["2015-01-30", "2015-01-30"]}))
+    flags = pd.Series({1: "N", 2: "N", 3: "Y"})
+    weeks = er.scope_weeks(top, weekly, windows, flags)
+    # CIK 1: its top-300 week only (2015-01-16 is listed but in no window); CIK 2: listed weeks in the
+    # window (2015-01-09 is before it, 2015-01-23 not listed); CIK 3 is foreign
+    assert list(zip(weeks["cik"], weeks["week_end"].dt.strftime("%Y-%m-%d"))) == [
+        (1, "2015-01-09"), (2, "2015-01-16"), (2, "2015-01-30")]
+
+
+def test_presence_counts_listed_and_in_scope_weeks_per_quarter():
+    weekly = _listed([("1", 1, d) for d in ("2015-01-09", "2015-02-06", "2015-03-06")] + [("2", 2, "2015-01-09")])
+    weeks = pd.DataFrame({"cik": [1, 1], "week_end": pd.to_datetime(["2015-02-06", "2015-04-03"])})
+    present = er.presence(weeks, weekly, {1}).set_index("quarter")
+    # 2015Q2 holds a scope week the step-6 table does not list: kept, with no listed week
+    assert present.loc["2015Q1", ["listed_weeks", "scope_weeks", "quarter_weeks"]].tolist() == [3, 1, 3]
+    assert present.loc["2015Q2", ["listed_weeks", "scope_weeks", "quarter_weeks"]].tolist() == [0, 1, 0]
 
 
 def _history(rows):
@@ -380,23 +433,24 @@ def test_foreign_regime_comes_from_the_flag_and_the_mixed_history():
 
 
 def test_scope_counts_only_domestic_top300_weeks_of_a_mixed_filer():
-    weekly = pd.DataFrame({
-        "security_id": ["3", "3", "3", "6", "6"], "cik": pd.array([3, 3, 3, 6, 6], dtype="Int64"),
-        "week_end": pd.to_datetime(["2022-10-28", "2022-11-04", "2022-11-11", "2020-01-03", "2022-11-11"]),
-        "universe": [True] * 5, "dv50_rank": [10.0, 11.0, 12.0, 50.0, 400.0], "dv20_rank": [float("nan")] * 5})
+    top = _top([("3", 3, "2022-10-28"), ("3", 3, "2022-11-04"), ("3", 3, "2022-11-11"), ("6", 6, "2020-01-03")])
+    weekly = _listed([("3", 3, "2022-10-28"), ("3", 3, "2022-11-04"), ("3", 3, "2022-11-11"), ("6", 6, "2020-01-03"),
+                      ("6", 6, "2022-11-11")])
     candidates = pd.DataFrame({"security_id": [], "cik": []})
     master = pd.DataFrame({"security_id": ["3", "6"], "cik": ["3", "6"], "name": ["T", "G"],
                            "foreign_filer": ["MIXED", "MIXED"]})
     history = _history([("3", "2022-08-19", "20-F", "F"), ("3", "2022-11-04", "10-Q", "D"),
                         ("6", "2019-03-01", "20-F", "F"), ("6", "2022-05-01", "10-Q", "D")])
-    scope = er.build_scope(weekly, candidates, master, history).set_index("cik")
+    scope = er.build_scope(top, weekly, candidates, master, history).set_index("cik")
     assert scope.loc[3, ["top300_weeks", "top300_weeks_foreign", "top300_first_week", "listed_first_week"]].tolist() == [
         2, 1, "2022-11-04", "2022-11-04"]
+    # the window starts from the first domestic top-300 week
+    assert scope.loc[3, "window_start"] == "2022-07-01"
     # CIK 6's only top-300 week is foreign: out of scope, and reported as such
     assert 6 not in scope.index
-    assert er.foreign_only_top300(weekly, scope.reset_index()) == [6]
+    assert er.foreign_only_top300(top, scope.reset_index()) == [6]
     # without the history table every week counts
-    assert er.build_scope(weekly, candidates, master).set_index("cik").loc[3, "top300_weeks"] == 3
+    assert er.build_scope(top, weekly, candidates, master).set_index("cik").loc[3, "top300_weeks"] == 3
 
 
 def test_header_cache_scan_reads_the_cache_not_the_log(tmp_path, monkeypatch):
@@ -470,7 +524,7 @@ def test_sic_week_coverage_uses_the_latest_header_on_or_before_the_week():
 
 def test_quarter_coverage_counts_events_by_d0_calendar_quarter():
     present = pd.DataFrame({"cik": [7, 7], "quarter": ["2012Q1", "2012Q2"], "listed_weeks": [13, 13],
-                            "top_weeks": [13, 0], "quarter_weeks": [13, 13]})
+                            "scope_weeks": [13, 0], "quarter_weeks": [13, 13]})
     events = pd.DataFrame({"cik": [7, 7], "d0_session": ["2012-01-26", "2012-03-30"],
                            "event_kind": ["results_release", "other"]})
     fallback = pd.DataFrame({"cik": [7], "d0_session": ["2012-05-08"], "usable_as_announcement": ["N"]})
@@ -478,13 +532,14 @@ def test_quarter_coverage_counts_events_by_d0_calendar_quarter():
     assert q.loc["2012Q1", ["n_item202", "n_results_release", "n_fallback"]].tolist() == [2, 1, 0]
     assert q.loc["2012Q2", ["n_fallback", "n_fallback_usable"]].tolist() == [1, 0]
     summary = er.coverage_summary(q.reset_index())
-    assert summary["company_quarters"] == 1 and summary["share_any"] == 1.0  # Q2 is not a top-300 quarter
+    assert summary["company_quarters"] == 1 and summary["share_any"] == 1.0  # Q2 is not an in-scope quarter
+    assert summary["share_usable_date"] == 1.0 and summary["by_year"]["2012"]["with_usable_date"] == 1
 
 
 
 def test_company_year_counts_quarterly_events_and_flags_full_years():
     q = pd.DataFrame({"cik": [7, 7, 7, 7, 8], "quarter": ["2012Q1", "2012Q2", "2012Q3", "2012Q4", "2012Q1"],
-                      "listed_weeks": [13, 13, 13, 13, 5], "top_weeks": [1, 0, 0, 0, 5], "quarter_weeks": [13] * 5,
+                      "listed_weeks": [13, 13, 13, 13, 5], "scope_weeks": [1, 0, 0, 0, 5], "quarter_weeks": [13] * 5,
                       "n_item202": [1, 1, 2, 1, 0], "n_results_release": [1, 1, 1, 1, 0], "n_fallback": [0, 0, 0, 0, 1],
                       "n_fallback_usable": [0, 0, 0, 0, 1]})
     years = er.company_year_table(q).set_index("cik")
@@ -607,3 +662,117 @@ def test_a_report_after_an_801_release_is_not_an_announcement_date():
     marked = er.mark_fallback(rows)
     assert marked["other_8k_between"].tolist() == ["2018-03-06:8.01,9.01", ""]
     assert marked["usable_as_announcement"].tolist() == ["N", "Y"]
+
+
+# ------------------------------------------------------------------ event windows and the SEC rate
+
+def _company(monkeypatch, table):
+    monkeypatch.setattr(er, "company_filings", lambda cik, offline=False: {
+        "cik": cik, "table": table, "pages_needed": 0, "pages_read": 0, "missing": "", "fiscal_year_end": ""})
+
+
+def test_only_filings_inside_the_window_get_a_header_job(monkeypatch):
+    table = _table([("q0", "2015-11-05", "2015-09-30", "10-Q", ""),
+                    ("e0", "2016-02-01", "2016-02-01", "8-K", "2.02,9.01"),
+                    ("k0", "2016-02-20", "2015-12-31", "10-K", ""),
+                    ("q1", "2016-05-05", "2016-03-31", "10-Q", ""),
+                    ("e1", "2016-04-26", "2016-04-26", "8-K", "2.02,9.01"),
+                    ("e2", "2016-04-27", "2016-04-27", "8-K", "2.02,9.01"),
+                    ("q2", "2016-08-04", "2016-06-30", "10-Q", "")])
+    _company(monkeypatch, table)
+    plan = er.plan_company(7, offline=True, window=("2016-04-27", "2016-12-31"))
+    # e1 is filed a day before the window but belongs to the fiscal quarter of e2, so it comes too
+    assert plan["events"].set_index("accessionNumber")["in_window"].to_dict() == {"e0": False, "e1": True, "e2": True}
+    assert plan["fallback"].set_index("accessionNumber")["in_window"].to_dict() == {"q0": False, "q2": True}
+    assert er.header_jobs({7: plan}) == [(7, "e1", "2016-04-26", "item202"), (7, "e2", "2016-04-27", "item202"),
+                                         (7, "q2", "2016-08-04", "periodic_fallback")]
+    # without a window everything from EVENTS_FROM counts
+    assert len(er.header_jobs({7: er.plan_company(7, offline=True)})) == 5
+
+
+def test_rows_outside_the_window_are_dropped_after_the_whole_sequence_is_classified(monkeypatch, tmp_path, calendar):
+    monkeypatch.setattr(er, "HEADER_DIR", tmp_path)   # no header cached: times come from the JSON
+    table = _table([("q1", "2016-05-05", "2016-03-31", "10-Q", ""),
+                    ("e1", "2016-04-26", "2016-04-26", "8-K", "2.02,9.01"),
+                    ("e2", "2016-04-27", "2016-04-27", "8-K", "2.02,9.01")])
+    _company(monkeypatch, pd.concat([table, _table([("k0", "2016-02-20", "2015-12-31", "10-K", "")])], ignore_index=True))
+    plan = er.plan_company(7, offline=True, window=("2016-04-27", "2016-12-31"))
+    plan["events"]["in_window"] = [False, True]   # as if the fiscal quarter were not brought in whole
+    scope = pd.DataFrame({"cik": [7], "security_ids": ["7"], "foreign_filer": ["N"]})
+    events, fallback = er.build_tables({7: plan}, scope, calendar)
+    # e1 (outside) is the release of the quarter; e2, the next day, is 'other', not a lone release
+    assert events["accession"].tolist() == ["e2"]
+    assert events[["event_kind", "n_item202_in_fiscal_quarter"]].iloc[0].tolist() == ["other", "2"]
+    assert fallback.empty   # k0 is filed before the window
+
+
+def test_sec_rate_is_capped_at_six_a_second():
+    er.set_sec_rate(5)
+    assert er.SEC_LIMITER.windows == {1: 5}
+    er.set_sec_rate(0.5)
+    assert er.SEC_LIMITER.windows == {2.0: 1}
+    with pytest.raises(ValueError):
+        er.set_sec_rate(7)
+    er.set_sec_rate(er.SEC_RATE_MAX)
+    assert er.SEC_LIMITER.windows == {1: 6} and er.SEC_LIMITER is not er.common.SEC_LIMITER
+
+
+def test_missing_quarters_are_in_scope_full_quarters_without_a_usable_date():
+    quarters = pd.DataFrame({"cik": [7, 7, 7, 8], "quarter": ["2016Q1", "2016Q2", "2016Q3", "2016Q1"],
+                             "listed_weeks": [13, 13, 13, 4], "scope_weeks": [13, 13, 0, 4], "quarter_weeks": [13] * 4,
+                             "n_item202": [1, 1, 0, 0], "n_item202_original": [1, 0, 0, 0], "n_results_release": [1, 0, 0, 0],
+                             "n_fallback": [0, 1, 0, 0], "n_fallback_usable": [0, 0, 0, 0]})
+    quarters["full_quarter"] = quarters["listed_weeks"] >= quarters["quarter_weeks"]
+    quarters["usable_date"] = (quarters["n_item202_original"] > 0) | (quarters["n_fallback_usable"] > 0)
+    scope = pd.DataFrame({"cik": [7, 8], "name": ["S", "T"], "security_ids": ["7", "8"], "in_top300": ["Y", "N"],
+                          "in_candidates": ["N", "Y"]})
+    # 2016Q2 has only an amendment and an unusable fallback; Q3 is out of scope; CIK 8 is not listed all quarter
+    assert er.missing_quarters(quarters, scope)[["cik", "quarter"]].values.tolist() == [[7, "2016Q2"]]
+    assert er.coverage_summary(quarters)["share_usable_date"] == 0.5
+
+
+# ------------------------------------------------------------------ hand sample
+
+INDEX_PAGE = """<div class="formGrouping"><div class="infoHead">Filing Date</div>
+<div class="info">2016-04-26</div><div class="infoHead">Accepted</div>
+<div class="info">2016-04-26 16:31:09</div></div>
+<div class="infoHead">Items</div><div class="info">Item 2.02: Results of Operations and Financial Condition<br>Item 9.01: Exhibits</div>
+<table class="tableFile" summary="Document Format Files">
+<tr><th>Seq</th><th>Description</th><th>Document</th><th>Type</th><th>Size</th></tr>
+<tr><td>1</td><td>FORM 8-K</td><td><a href="/ix?doc=/Archives/edgar/data/1/000000000116000001/a8k.htm">a8k.htm</a> &nbsp;iXBRL</td><td>8-K</td><td>1</td></tr>
+<tr class="blueRow"><td>2</td><td>EX-99.1</td><td><a href="/Archives/edgar/data/1/000000000116000001/ex991.htm">ex991.htm</a></td><td>EX-99.1</td><td>2</td></tr>
+</table>"""
+
+
+def test_filing_index_gives_accepted_time_items_and_documents():
+    parsed = er.parse_filing_index(INDEX_PAGE)
+    assert parsed["info"]["Accepted"] == "2016-04-26 16:31:09"
+    assert parsed["info"]["Items"].startswith("Item 2.02: Results of Operations")
+    assert [(d["type"], d["document"]) for d in parsed["documents"]] == [("8-K", "a8k.htm"), ("EX-99.1", "ex991.htm")]
+    assert parsed["documents"][0]["url"] == "https://www.sec.gov/Archives/edgar/data/1/000000000116000001/a8k.htm"
+
+
+def test_release_evidence_finds_the_results_sentence_session_and_call_time():
+    text = er.html_text(b"<p>ACME Reports Third Quarter Results</p><p>BOSTON, Oct. 20, 2015 -- ACME Corp. today "
+                        b"announced results for its third quarter ended September 30, 2015, after the market close.</p>"
+                        b"<p>The company will host a call at 5:00 p.m. ET today.</p>")
+    evidence = er.release_evidence(text)
+    assert "today announced results for its third quarter ended September 30" in evidence["results_sentence"]
+    assert "after the market close" in evidence["session_phrases"]
+    assert "5:00 p.m. ET" in evidence["call_times"]
+
+
+def test_hand_sample_draw_is_fixed_by_the_seed_and_takes_one_release_per_quarter():
+    events = pd.DataFrame({"cik": ["1", "1", "1", "2"], "accession": ["a", "b", "c", "d"],
+                           "event_kind": ["results_release", "results_release", "preannouncement", "results_release"],
+                           "d0_session": ["2016-01-05", "2016-03-30", "2016-01-02", "2016-04-28"],
+                           "acceptance_et": ["2016-01-04 16:05:00", "2016-03-30 07:00:00", "2016-01-02 08:00:00",
+                                             "2016-04-27 16:10:00"]})
+    quarters = pd.DataFrame({"cik": [1, 2, 2], "quarter": ["2016Q1", "2016Q2", "2016Q3"], "scope_weeks": [3, 1, 0],
+                             "full_quarter": [True, True, True]})
+    population = er.hand_sample_population(events, quarters)
+    assert population[["cik", "quarter", "accession"]].values.tolist() == [[1, "2016Q1", "a"], [2, "2016Q2", "d"]]
+    first, again = er.draw_hand_sample(population, seed=7, n=2), er.draw_hand_sample(population, seed=7, n=2)
+    assert first["accession"].tolist() == again["accession"].tolist()
+    assert sorted(first["accession"]) == ["a", "d"] and first["draw_order"].tolist() == [1, 2]
+    assert set(first["population"]) == {2}

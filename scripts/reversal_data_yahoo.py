@@ -13,6 +13,14 @@ One request per 2 seconds; the first 429 (or 401/403) stops the run, and a re-ru
 what is missing (raw bodies are cached under ``CACHE/raw/yahoo/{SYMBOL}__{fetched_utc}.json.gz``,
 404s as ``.404`` markers).
 
+Round 6: a candidate ticker whose answer is a 404, has no daily rows or covers under half of the
+need is asked again under the security's first SEC current ticker (``sec_alternates``; the last
+snapshot's LIXT, EVTV, ATLN ... are NMAD, AZIO, CIRC ... now), and the better answer is used
+(``resolve_alternates``). A relisting day the candidate list names (``junction_date``) is a junction
+in the series when it also holds rows before it (Oasis/Chord), and any other single-day move of more
+than 10x on a day without a split inside the need sends the series to review (``level_jumps``). The
+summary's ``requests`` block counts every Yahoo request of the quota ledger, this step's and others'.
+
 Only bodies of daily bars are used: Yahoo can answer with other bars (CRNX's range=max request
 came back as 1h bars), so a body whose ``meta.dataGranularity`` is not ``1d`` (or, without that
 field, with two bars on one New York date) is skipped.
@@ -102,6 +110,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import gzip
 import json
@@ -177,26 +186,56 @@ SEGMENTS: dict[str, list[tuple[str, str, str, str]]] = {
                                           "MTCH before that is the old Match Group, CIK 1575189")],
 }
 REQUEST_COLUMNS = ["security_id", "symbol", "candidate_symbol", "segment_start", "segment_end", "needed_start",
-                   "needed_end", "reasons", "active", "successor_routed", "note"]
+                   "needed_end", "reasons", "active", "successor_routed", "note", "alt_symbols", "junction_date"]
 
 
-def request_rows(candidates: pd.DataFrame, overrides: dict | None = None, segments: dict | None = None) -> pd.DataFrame:
+def sec_alternates(master: pd.DataFrame) -> dict[str, list[str]]:
+    """security -> its SEC current tickers on Nasdaq, NYSE or CBOE (warrants, units and rights dropped):
+    the symbols asked when the candidate ticker's answer is poor (round 6: the last Nasdaq snapshot's
+    LIXT, EVTV, ATLN, ALBT, LMFA, GREE, TBH, WGRX came back 404 while SEC lists NMAD, AZIO, CIRC, CHGA,
+    PWCM, VIP, HODO, MEDS). Only the first one, which SEC lists for the common stock (GREE's CIK also
+    has the notes GREEL). None for a tracking stock or a class of a multi-class company, whose CIK's
+    tickers can name another class."""
+    from scripts.reversal_data_prefilter import sec_current_tickers
+
+    out = {}
+    for row in master.fillna("").itertuples(index=False):
+        if ".T-" in row.security_id or str(getattr(row, "multi_class_group", "") or ""):
+            continue
+        tickers = sec_current_tickers(row)
+        if tickers:
+            out[row.security_id] = tickers[:1]
+    return out
+
+
+def request_rows(candidates: pd.DataFrame, overrides: dict | None = None, segments: dict | None = None,
+                 alternates: dict | None = None) -> pd.DataFrame:
     """One row per (security, symbol) to fetch: the Yahoo rows and the V sample. Columns:
     REQUEST_COLUMNS. ``overrides`` (default SYMBOL_OVERRIDES) replace the symbol; ``segments``
-    (default SEGMENTS) split a security over several symbols, each with its own date window."""
+    (default SEGMENTS) split a security over several symbols, each with its own date window;
+    ``alternates`` (security -> SEC current tickers, ``sec_alternates``) give ``alt_symbols``, asked
+    and used only when the candidate ticker's answer is poor (``resolve_alternates``) and the
+    candidate ticker is not one of them. ``junction_date``: a relisting day the candidate list
+    names (the Yahoo series joins two listings there)."""
     overrides = SYMBOL_OVERRIDES if overrides is None else overrides
     segments = SEGMENTS if segments is None else segments
+    alternates = alternates or {}
     frame = candidates.fillna("")
+    if "junction_date" not in frame:
+        frame["junction_date"] = ""
     wanted = frame[(frame["planned_source"] == "yahoo") | (frame["reason"] == "V_verify_sample")]
     rows = []
     for (sid, symbol), group in wanted.groupby(["security_id", "ticker_for_source"], sort=True):
         symbol = symbol.strip().upper()
         override, why = overrides.get(sid, (symbol, ""))
         notes = sorted(set(n for n in group["note"] if n)) + ([f"symbol {symbol} -> {override}: {why}"] if why else [])
+        alt = [t for t in alternates.get(sid, []) if t != override] if (
+            sid not in overrides and sid not in segments and override not in alternates.get(sid, [])) else []
         base = {"security_id": sid, "candidate_symbol": symbol,
                 "needed_start": group["needed_start"].min(), "needed_end": group["needed_end"].max(),
                 "reasons": " ".join(sorted(set(group["reason"]))), "active": group["active"].iloc[0],
-                "successor_routed": "Y" if (group["active"] == "successor").any() else ""}
+                "successor_routed": "Y" if (group["active"] == "successor").any() else "",
+                "alt_symbols": " ".join(alt), "junction_date": max(group["junction_date"])}
         if sid not in segments:
             rows.append({**base, "symbol": override, "segment_start": "", "segment_end": "", "note": " | ".join(notes)})
             continue
@@ -304,6 +343,67 @@ def fetch_symbols(symbols: list[str], *, period1: str = PERIOD1, period2: str | 
             log(f"yahoo: {k}/{len(todo)} fetched in {elapsed / 60:.1f} min, "
                 f"about {(len(todo) - k) * elapsed / k / 60:.1f} min left; {counts}")
     return outcome
+
+
+MIN_PARTIAL_COVERAGE = 0.5  # as the prefilter: a poorer answer is asked again under an SEC current ticker
+
+
+def cached_coverage(symbol: str, need_start: str, need_end: str, sessions: pd.DatetimeIndex,
+                    raw_dir: Path = RAW_DIR) -> tuple[str, float]:
+    """(state, share of the need's sessions with a daily row) of a symbol's cached answer: state ok,
+    empty (no daily rows), 404 or not_asked (coverage NaN)."""
+    path, state = cached_raw(symbol, raw_dir)
+    if state == "not_found":
+        return "404", 0.0
+    if state != "ok":
+        return "not_asked", np.nan
+    _, daily, _ = parse_chart(read_raw(best_raw(symbol, raw_dir)))
+    need = sessions[(sessions >= pd.Timestamp(need_start)) & (sessions <= pd.Timestamp(min(need_end, WINDOW_END)))]
+    if not len(daily):
+        return "empty", 0.0
+    if not len(need):
+        return "ok", 1.0
+    have = set(daily["date"])
+    return "ok", round(sum(d in have for d in need) / len(need), 4)
+
+
+def poor_answers(requests: pd.DataFrame, sessions: pd.DatetimeIndex, raw_dir: Path = RAW_DIR) -> dict:
+    """index -> (state, coverage) of the requests with ``alt_symbols`` whose candidate symbol's cached answer
+    is a 404, has no daily rows, or covers less than MIN_PARTIAL_COVERAGE of the need."""
+    out = {}
+    for k, row in requests.iterrows():
+        if not str(row.get("alt_symbols", "") or ""):
+            continue
+        state, coverage = cached_coverage(row["symbol"], row["needed_start"], row["needed_end"], sessions, raw_dir)
+        if state != "not_asked" and coverage < MIN_PARTIAL_COVERAGE:
+            out[k] = (state, coverage)
+    return out
+
+
+def resolve_alternates(requests: pd.DataFrame, sessions: pd.DatetimeIndex,
+                       raw_dir: Path = RAW_DIR) -> tuple[pd.DataFrame, dict]:
+    """``requests`` with the symbol of each poor answer (``poor_answers``) replaced by the SEC current ticker
+    whose cached answer covers most of the need, when it covers more. Returns (requests, {replaced symbol:
+    why}) for the status table."""
+    requests = requests.copy()
+    replaced = {}
+    for k, (state, coverage) in poor_answers(requests, sessions, raw_dir).items():
+        row = requests.loc[k]
+        tried = [(a, *cached_coverage(a, row["needed_start"], row["needed_end"], sessions, raw_dir))
+                 for a in str(row["alt_symbols"]).split()]
+        usable = [t for t in tried if t[1] == "ok"]
+        if not usable:
+            continue
+        symbol, _, best = max(usable, key=lambda t: t[2])
+        if not best > coverage:
+            continue
+        old = row["symbol"]
+        what = "404" if state == "404" else f"{state}, {coverage:.1%} of the need"
+        note = f"symbol {old} answered {what}; the SEC current ticker {symbol} covers {best:.1%} and is used"
+        requests.loc[k, "symbol"] = symbol
+        requests.loc[k, "note"] = " | ".join(filter(None, [str(row["note"] or ""), note]))
+        replaced[old] = f"replaced by {symbol} (SEC current ticker) for {row['security_id']}: {what}"
+    return requests, replaced
 
 
 # ------------------------------------------------------------------ parsing
@@ -1055,6 +1155,44 @@ def _fetched_utc(path: Path) -> str:
     return datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
+LEVEL_JUMP = 10.0  # a single-day close ratio beyond this (either way) on a day without a split is reported
+SPLIT_NEAR_DAYS = 3  # a split listed within this many days of the move explains it
+
+
+def level_jumps(window: pd.DataFrame, events: pd.DataFrame) -> list[tuple[pd.Timestamp, float]]:
+    """(date, close_raw / previous close_raw) of the rows whose raw close moves by more than LEVEL_JUMP
+    times from the previous row, on a day with no split (``split_factor`` 1 and no split event within
+    SPLIT_NEAR_DAYS): another equity joined on, or a split Yahoo did not list."""
+    if len(window) < 2:
+        return []
+    rows = window.sort_values("date")
+    ratio = (rows["close_raw"] / rows["close_raw"].shift(1)).to_numpy()
+    dates = pd.DatetimeIndex(rows["date"])
+    splits = pd.DatetimeIndex(events.loc[events["event_type"] != "dividend", "ex_date"]) if len(events) else pd.DatetimeIndex([])
+    out = []
+    for k in np.flatnonzero(np.abs(np.log(np.where(ratio > 0, ratio, 1.0))) > np.log(LEVEL_JUMP)):
+        day = dates[k]
+        if rows["split_factor"].iloc[k] != 1 or (len(splits) and np.min(np.abs((splits - day).days)) <= SPLIT_NEAR_DAYS):
+            continue
+        out.append((day, float(ratio[k])))
+    return out
+
+
+def relist_junction(window: pd.DataFrame, day: str) -> tuple[pd.Timestamp | None, str]:
+    """(first row on or after the relisting ``day``, review text) when the series also holds rows before
+    it; (None, '') otherwise (a series that starts with the new listing needs no junction: WW, OPI)."""
+    if not day or not len(window):
+        return None, ""
+    after = window[window["date"] >= pd.Timestamp(day)]
+    before = window[window["date"] < pd.Timestamp(day)]
+    if not len(after) or not len(before):
+        return None, ""
+    first, last = after.iloc[0], before.iloc[-1]
+    ratio = float(first["close_raw"] / last["close_raw"]) if last["close_raw"] > 0 else np.nan
+    return first["date"], (f"relist_junction:{first['date']:%Y-%m-%d} (listed again from {day}; raw close x{ratio:.4g} "
+                           f"from {last['date']:%Y-%m-%d}: no return across it)")
+
+
 def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References | None = None,
           raw_dir: Path = RAW_DIR, out_dir: Path = OUT, sessions: pd.DatetimeIndex | None = None,
           metrics_path: Path = WEEKLY_METRICS) -> dict:
@@ -1065,8 +1203,15 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
     refs = refs or References.load()
     sessions = sessions if sessions is not None else xnas_sessions(WINDOW_START, WINDOW_END)
     out_dir.mkdir(parents=True, exist_ok=True)
+    requests = requests.copy()
+    for column in ("alt_symbols", "junction_date", "candidate_symbol"):
+        if column not in requests:
+            requests[column] = "" if column != "candidate_symbol" else requests["symbol"]
+    requests, replaced = resolve_alternates(requests, sessions, raw_dir)
+    if replaced:
+        log(f"build: poor answers replaced by an SEC current ticker: {replaced}")
     parsed, status_rows = {}, []
-    for symbol in sorted(set(requests["symbol"])):
+    for symbol in sorted(set(requests["symbol"]) | set(replaced)):
         path, state = cached_raw(symbol, raw_dir)
         if state == "ok":
             path = best_raw(symbol, raw_dir)
@@ -1075,6 +1220,11 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
                 outcome.get(symbol, {}).get("http_status", ""), "raw_file": path.name if path else "",
                 "fetched_utc": _fetched_utc(path) if path else "", "rows_returned": 0,
                 "message": "" if state else outcome.get(symbol, {}).get("message", "")}
+        if symbol in replaced:
+            info["message"] = "; ".join(filter(None, [info["message"], replaced[symbol]]))
+            if symbol not in set(requests["symbol"]):
+                status_rows.append(info)
+                continue
         if state == "ok":
             meta, daily, events = parse_chart(read_raw(path))
             parsed[symbol] = (meta, daily, events, info["fetched_utc"][:10])
@@ -1164,6 +1314,23 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
             for e in flagged[on_junction].itertuples(index=False):
                 value = f"{e.ratio:.6g}" if e.event_type != "dividend" else f"{e.div_cash_raw:.6g}"
                 review.append(f"{junction}_event:{e.ex_date:%Y-%m-%d}:{e.event_type}:{value}")
+        # A relisting the candidate list names (round 6: Oasis/Chord's new equity of 2020-11-20 after the
+        # Form 25): when the series holds rows of the listing before it, its first row from that day on is a
+        # junction; the move into it is not a return.
+        relist_day, relist_text = relist_junction(window, str(request.get("junction_date", "") or ""))
+        if relist_day is not None:
+            on_relist = flagged["ex_date"] == relist_day
+            flagged.loc[on_relist, "flags"] = [" ".join(filter(None, [f, "relist_junction"]))
+                                               for f in flagged.loc[on_relist, "flags"]]
+            review.append(relist_text)
+        # Any other single-day level change of more than 10x on a day without a split (round 6: CHRD's
+        # $0.12 -> $34 joined two equities with no flag), inside the need, is sent to review.
+        jumps = level_jumps(window, flagged)
+        checks["level_jumps"] = " ".join(f"{d:%Y-%m-%d}:x{r:.4g}" for d, r in jumps)
+        in_need = [(d, r) for d, r in jumps if pd.Timestamp(request["needed_start"]) <= d <= pd.Timestamp(request["needed_end"])
+                   and d != relist_day]
+        if in_need:
+            review.append("level_jump_not_a_split:" + ",".join(f"{d:%Y-%m-%d}:x{r:.4g}" for d, r in in_need))
         # Odd-ratio events after the first row set the volume of the rows before them.
         affecting = flagged[(flagged["event_type"] != "dividend")
                             & (flagged["ex_date"] > (window["date"].iloc[0] if len(window) else pd.Timestamp.max))]
@@ -1189,6 +1356,8 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         frame = window.assign(date=pd.to_datetime(window["date"]).dt.strftime("%Y-%m-%d"), symbol=symbol, junction="")
         if junction and len(frame):
             frame.iloc[0, frame.columns.get_loc("junction")] = "Y"
+        if relist_day is not None:
+            frame.loc[frame["date"] == relist_day.strftime("%Y-%m-%d"), "junction"] = "Y"
         (accepted if checks["verdict"] in ACCEPTED else rejected).setdefault(sid, []).append(frame)
         if k % 100 == 0:
             log(f"build: {k}/{len(requests)} securities")
@@ -1225,7 +1394,7 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
         common.atomic_write(out_dir / "weekly_coverage_after_yahoo.csv",
                             weekly.assign(week_end=weekly["week_end"].dt.strftime("%Y-%m-%d"))
                             .to_csv(index=False).encode("utf-8"))
-    summary = summarize(requests, status, report, events)
+    summary = summarize(requests, status, report, events, outcome)
     summary["moved_to_not_requested"] = moved
     summary["top300_vendor_coverage_by_year"] = coverage_by_year(weekly)
     common.atomic_write(out_dir / "summary.json", (json.dumps(summary, indent=2, default=str) + "\n").encode("utf-8"))
@@ -1259,7 +1428,8 @@ def coverage_by_year(weekly: pd.DataFrame) -> dict:
                      "stored_only_after_max": int(g["stored_only_after"].max())} for y, g in years}
 
 
-def summarize(requests: pd.DataFrame, status: pd.DataFrame, report: pd.DataFrame, events: pd.DataFrame) -> dict:
+def summarize(requests: pd.DataFrame, status: pd.DataFrame, report: pd.DataFrame, events: pd.DataFrame,
+              outcome: dict | None = None) -> dict:
     flags = events["flags"].fillna("").astype(str)
     flagged = flags[flags != ""]
     reasons = report.get("verdict_reasons", pd.Series(dtype=str)).fillna("").astype(str)
@@ -1277,9 +1447,83 @@ def summarize(requests: pd.DataFrame, status: pd.DataFrame, report: pd.DataFrame
                    "flag_counts": flagged.str.split().explode().value_counts().to_dict() if len(flagged) else {}},
         "odd_ratio_volume_restore": odd_ratio_volume_summary(events),
         "claimed_rows_cut": {"series": int(cuts.astype(bool).sum()), "rows": int(cuts.sum())},
+        "level_jumps_not_a_split": {
+            "series": int(report.get("level_jumps", pd.Series(dtype=str)).fillna("").astype(str).ne("").sum()),
+            "in_need_sent_to_review": int(reasons.str.contains("level_jump_not_a_split").sum()),
+            "pairs": {f"{r.security_id}:{r.symbol}": r.level_jumps for r in report.itertuples(index=False)
+                      if str(getattr(r, "level_jumps", "") or "") not in ("", "nan")}},
+        "relist_junctions": [m for m in reasons.str.findall(r"relist_junction:\d{4}-\d{2}-\d{2}").sum()]
+                            if len(reasons) else [],
+        "symbols_replaced_by_sec_ticker": {r.symbol: r.message for r in status.itertuples(index=False)
+                                           if "replaced by" in str(r.message)},
         "stored_dv_check_note": "the stored files hold Yahoo's served volume, so stored_dv tests the entity, "
                                 "not the volume restore",
         "requests_logged": common.quota_used(SOURCE),
+        "requests": request_ledger(set(status["symbol"])),
+        "this_run": {"asked": int(len(outcome or {})),
+                     "by_status": dict(Counter(o["status"] for o in (outcome or {}).values()))},
+    }
+
+
+def request_ledger(requested: set[str], raw_dir: Path = RAW_DIR, ledger_path: Path = common.QUOTA_LEDGER,
+                   index_path: Path = common.RAW_INDEX) -> dict:
+    """Every Yahoo request the quota ledger holds (the count of record: one row per request, plain CSV),
+    split into this step's (a v8 chart whose answer is cached here, or whose 404 marker is) and other
+    steps' (step 11's terminal prices), with the raw index beside it (gzip, written at the same moment:
+    rows it lacks are listed) and the files on disk (round 6: the summary named "1,599 new tickers"
+    while the run had asked 1,600, AGEND and four shells left out later among them)."""
+    if not Path(ledger_path).exists():
+        return {"ledger": "missing"}
+    ledger = pd.read_csv(ledger_path, dtype=str, keep_default_na=False)
+    ledger = ledger[ledger["source"] == SOURCE].copy()
+    index = pd.read_csv(index_path, dtype=str, keep_default_na=False) if Path(index_path).exists() else pd.DataFrame(
+        columns=["fetched_utc", "source", "url_redacted", "http_status", "cache_path"])
+    index = index[index["source"] == SOURCE].copy()
+    index["symbol"] = index["url_redacted"].str.extract(r"/chart/([^?]+)\?", expand=False).fillna("")
+    raw_dir = Path(raw_dir)
+    bodies = {p.name.split("__")[0] for p in raw_dir.glob("*__*.json.gz")} if raw_dir.exists() else set()
+    markers = {p.name.split("__")[0] for p in raw_dir.glob("*__*.json.gz.404")} if raw_dir.exists() else set()
+    elsewhere = set(index.loc[index["cache_path"].ne("") & ~index["cache_path"].str.startswith(str(raw_dir)), "symbol"])
+    here_paths = index.loc[index["cache_path"].str.startswith(str(raw_dir)), ["fetched_utc", "symbol"]]
+    here_keys = set(zip(here_paths["fetched_utc"], here_paths["symbol"]))
+    other_keys = set(zip(index.loc[index["cache_path"].ne("") & ~index["cache_path"].str.startswith(str(raw_dir)),
+                                   "fetched_utc"],
+                         index.loc[index["cache_path"].ne("") & ~index["cache_path"].str.startswith(str(raw_dir)),
+                                   "symbol"]))
+    keys = list(zip(ledger["fetched_utc"], ledger["symbol"]))
+    mine = []
+    for (stamp, symbol), status in zip(keys, ledger["status"]):
+        if (stamp, symbol) in here_keys:
+            mine.append(True)
+        elif (stamp, symbol) in other_keys:
+            mine.append(False)
+        else:  # not in the index (a 404 or an error has no path; 31 rows of 2026-10-01 were lost from it)
+            mine.append(symbol in bodies or symbol in markers or symbol not in elsewhere)
+    ledger["this_step"] = mine
+    step = ledger[ledger["this_step"]]
+    counts = step["symbol"].value_counts()
+    first_asked = step.groupby("symbol")["fetched_utc"].min()
+    not_requested = sorted(set(step["symbol"]) - set(requested))
+    indexed = set(zip(index["fetched_utc"], index["symbol"]))
+    missing_index = [f"{s}@{t}" for t, s in keys if (t, s) not in indexed]
+    return {
+        "ledger_requests": int(len(ledger)), "ledger_by_month": dict(Counter(ledger["month"])),
+        "ledger_by_status": dict(Counter(ledger["status"])), "ledger_unique_symbols": int(ledger["symbol"].nunique()),
+        "this_step": {"requests": int(len(step)), "by_status": dict(Counter(step["status"])),
+                      "by_day_utc": dict(Counter(step["fetched_utc"].str[:10])),
+                      "unique_symbols": int(step["symbol"].nunique()),
+                      "symbols_asked_more_than_once": {s: int(n) for s, n in counts[counts > 1].items()},
+                      "symbols_asked_not_in_this_build": {s: first_asked[s] for s in not_requested},
+                      "raw_bodies_on_disk": len(bodies), "raw_404_markers_on_disk": len(markers),
+                      "symbols_in_this_build_never_asked": sorted(set(requested) - set(step["symbol"]))},
+        "other_steps": {"requests": int((~ledger["this_step"]).sum()),
+                        "by_cache_dir": dict(Counter(Path(p).parent.name for p in index.loc[
+                            index["cache_path"].ne("") & ~index["cache_path"].str.startswith(str(raw_dir)), "cache_path"])),
+                        "symbols": sorted(set(ledger.loc[~ledger["this_step"], "symbol"]))},
+        "raw_index_requests": int(len(index)),
+        "raw_index_rows_missing": {"count": len(missing_index), "rows": missing_index[:50]},
+        "checks": {"ledger_this_step_plus_other_equals_ledger": int(len(step)) + int((~ledger["this_step"]).sum()) == len(ledger),
+                   "raw_index_complete": not missing_index},
     }
 
 
@@ -1310,12 +1554,13 @@ def main(argv: list[str] | None = None) -> int:
                                                            "for --retry of a truncated answer)")
     args = parser.parse_args(argv)
     candidates = pd.read_csv(CANDIDATES, dtype=str, keep_default_na=False)
-    requests = request_rows(candidates)
+    requests = request_rows(candidates, alternates=sec_alternates(pd.read_csv(MASTER, dtype=str, keep_default_na=False)))
     symbols = sorted(set(requests["symbol"]))
-    if args.symbols:
-        chosen = {s.strip().upper() for s in args.symbols.split(",") if s.strip()}
+    chosen = {s.strip().upper() for s in args.symbols.split(",") if s.strip()}
+    if chosen:
         symbols = [s for s in symbols if s in chosen]
-    log(f"requests: {len(requests)} (security, symbol) pairs, {len(set(requests['symbol']))} symbols")
+    log(f"requests: {len(requests)} (security, symbol) pairs, {len(set(requests['symbol']))} symbols, "
+        f"{int((requests['alt_symbols'] != '').sum())} with an SEC current ticker to ask if their answer is poor")
     outcome = {}
     if args.retry:
         again = sorted({x.strip().upper() for x in args.retry.split(",") if x.strip()} & set(requests["symbol"]))
@@ -1323,6 +1568,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.fetch or args.fetch_only:
         outcome.update(fetch_symbols(symbols, limit=args.limit, period1=args.period1))
         stopped = [s for s, o in outcome.items() if o["status"] == "stopped"]
+        if not stopped:
+            # Second pass: the SEC current tickers of the requests whose answer is a 404, empty or short.
+            from scripts.reversal_data_prefilter import xnas_sessions
+
+            poor = poor_answers(requests, xnas_sessions(WINDOW_START, WINDOW_END))
+            alternates = sorted({a for k in poor for a in str(requests.at[k, "alt_symbols"]).split()}
+                                - set(symbols) - set(outcome))
+            if chosen:
+                alternates = [a for a in alternates if a in chosen or requests.loc[
+                    requests["alt_symbols"].str.split().apply(lambda x: a in x), "symbol"].isin(chosen).any()]
+            log(f"yahoo: {len(poor)} poor answers with an SEC current ticker; {len(alternates)} alternates to ask")
+            limit = None if args.limit is None else max(0, args.limit - len([o for o in outcome.values()]))
+            outcome.update(fetch_symbols(alternates, limit=limit, period1=args.period1))
+            stopped = [s for s, o in outcome.items() if o["status"] == "stopped"]
         if stopped:
             log(f"stopped by HTTP {outcome[stopped[0]]['http_status']} at {stopped[0]}; re-run to resume")
     if args.fetch_only:

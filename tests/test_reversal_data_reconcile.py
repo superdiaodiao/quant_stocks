@@ -623,3 +623,241 @@ def test_hidden_split_is_not_claimed_when_the_adjusted_stored_file_moves_too():
     result = rc.reconcile_security("X", {"yahoo": _frame(close), "stored": _frame(close)}, _ctx())
     flags = _flags(result["canonical"], str(SESSIONS[20].date()))
     assert "move_2x" in flags and "hidden_split" not in flags
+
+
+# ------------------------------------------------------------------ listings after a Form 25 cut, relist junctions
+
+def _smci_identity():
+    """SMCI (1375365): Form 25 on 2019-03-22 (removed for late filings), on Nasdaq again from 2020-01."""
+    intervals = pd.DataFrame([
+        {"security_id": "1375365", "ticker": "SMCI", "start": "2010-12-31", "end": "2018-08-22",
+         "end_next_absent": "2018-09-07", "start_prev_absent": "", "name_in_source": "Super Micro Computer",
+         "share_class": "COMMON"},
+        {"security_id": "1375365", "ticker": "SMCI", "start": "2019-12-28", "end": "2026-08-01",
+         "end_next_absent": "", "start_prev_absent": "2019-12-27", "name_in_source": "Super Micro Computer",
+         "share_class": "COMMON"}])
+    master = pd.DataFrame([{"security_id": "1375365", "delist_date": "2019-03-22"}])
+    return rc.identity_from(intervals, master)
+
+
+def test_smci_listing_after_its_form25_cut_survives_into_the_canonical_series():
+    identity = _smci_identity()
+    mapping = identity["mapping"]
+    later = mapping[mapping["list_start"] >= "2019-12-28"].iloc[0]
+    assert bool(later["after_cut"]) and later["list_end"] == rc.WINDOW_END  # not cut to the 2019 Form 25
+    assert identity["relisted"]["1375365"] == [("2019-03-22", "2019-12-28", rc.WINDOW_END)]
+    low, high = rc.security_windows(mapping, {"1375365"})["1375365"]
+    assert str(low.date()) == rc.WINDOW_START and str(high.date()) == rc.WINDOW_END
+    sessions = rc.pf.xnas_sessions("2018-06-01", "2024-12-31")
+    frame = _frame(_walk(len(sessions), step=0.01), sessions=sessions)  # one vendor file through the OTC months
+    ctx = {"sessions": sessions, "window": (sessions[0], sessions[-1]),
+           "listed": lambda grid: rc.listed_mask(mapping, "1375365", grid), "ticker_of": lambda day: "SMCI",
+           "relists": identity["relisted"]["1375365"]}
+    canonical = rc.reconcile_security("1375365", {"tiingo": frame}, ctx)["canonical"]
+    assert canonical["date"].iloc[-1] == str(sessions[-1].date())  # reaches 2024 (and 2026 in the real window)
+    outside = canonical["flags"].str.contains("outside_listing")
+    assert outside[(canonical["date"] > "2018-09-06") & (canonical["date"] < "2019-12-28")].all()  # the OTC months
+    assert not outside[canonical["date"] >= "2019-12-28"].any()
+    assert canonical["tr"].iloc[1:].notna().all()  # the same shares: one series, no junction
+
+
+def _relist_frames():
+    """Old shares to day 19 (0.12 at the end), new shares from day 20 (31.00): Yahoo carries both,
+    Tiingo only the new shares; the stored file is in its own units."""
+    n = 40
+    old = 0.12 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.01, 20))
+    new = _walk(20, start=31.0, seed=4)
+    close = np.r_[old, new]
+    frames = {"yahoo": _frame(close), "tiingo": _frame(new, start=20), "stored": _frame(close * 3.0)}
+    return n, close, frames
+
+
+def test_relist_junction_gives_no_return_across_the_old_and_new_shares():
+    n, close, frames = _relist_frames()
+    day = str(SESSIONS[20].date())
+    ctx = {**_ctx(), "junctions": [day]}
+    result = rc.reconcile_security("X", frames, ctx)
+    canonical = result["canonical"]
+    row = canonical[canonical["date"] == day].iloc[0]
+    assert np.isnan(row["tr"]) and "relist_junction" in row["flags"].split(";")
+    assert not {"move_2x", "move_40", "hidden_split"} & set(row["flags"].split(";"))
+    assert not [m for m in result["moves"] if m["event_date"] == day]  # nothing queued on a return across it
+    assert canonical["tr"].drop(index=[0, 20]).notna().all()  # both sides keep their own returns
+    segments = result["summary"]["segments"]
+    assert [(s["first"], s["last"]) for s in segments] == [(str(SESSIONS[0].date()), str(SESSIONS[19].date())),
+                                                          (day, str(SESSIONS[n - 1].date()))]
+    # without the junction the same data is a 258x move queued as R1
+    plain = rc.reconcile_security("X", frames, _ctx())
+    assert "move_2x" in _flags(plain["canonical"], day)
+    assert [m for m in plain["moves"] if m["event_date"] == day and m["rule"].startswith("R1")]
+
+
+def test_relist_junction_drops_an_exchange_a_vendor_serves_as_a_split():
+    n, close, frames = _relist_frames()
+    split = np.ones(n)
+    split[20] = 1 / 89.0  # a vendor chaining the old shares into the new ones
+    frames["yahoo"] = _frame(close, split=split)
+    day = str(SESSIONS[20].date())
+    result = rc.reconcile_security("X", frames, {**_ctx(), "junctions": [day]})
+    assert not [e for e in result["events"] if e["ex_date"] == day]
+    assert result["summary"]["junction_dropped_events"] and result["summary"]["junction_dropped_events"][0].startswith("yahoo")
+    assert result["canonical"].loc[result["canonical"]["date"] == day, "split_factor"].iloc[0] == 1.0
+
+
+def test_filler_before_a_relist_junction_is_cut_from_the_old_shares():
+    n, close, frames = _relist_frames()
+    volume = np.full(n, 1000.0)
+    close = close.copy()
+    close[16:20] = close[15]
+    volume[16:20] = 0.0  # the old shares stop trading four sessions before the new ones start
+    frames["yahoo"] = _frame(close, volume=volume)
+    result = rc.reconcile_security("X", frames, {**_ctx(), "junctions": [str(SESSIONS[20].date())]})
+    assert result["summary"]["segments"][0]["last"] == str(SESSIONS[15].date())
+    assert result["summary"]["filler_cut"] == 4
+
+
+def test_unreviewed_relisting_with_a_10x_level_change_is_queued_r9():
+    n, close, frames = _relist_frames()
+    day = str(SESSIONS[20].date())
+    relists = [(str(SESSIONS[10].date()), str(SESSIONS[18].date()), str(SESSIONS[-1].date()))]
+    result = rc.reconcile_security("X", frames, {**_ctx(), "relists": relists})
+    assert "relist_jump" in _flags(result["canonical"], day)
+    r9 = [m for m in result["moves"] if m["rule"] == "R9"]
+    assert len(r9) == 1 and r9[0]["event_date"] == day and r9[0]["listed"]
+    assert not [m for m in rc.reconcile_security("X", frames, _ctx())["moves"] if m["rule"] == "R9"]
+
+
+def test_series_ends_lists_the_old_shares_at_a_relist_junction(tmp_path, monkeypatch):
+    candidates = tmp_path / "candidates.csv"
+    pd.DataFrame(columns=["security_id", "planned_source", "ticker_for_source"]).to_csv(candidates, index=False)
+    monkeypatch.setattr(rc, "CANDIDATES", candidates)
+    monkeypatch.setattr(rc, "TIINGO_STATUS", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "TERMINAL_FILES", [])
+    terminal = tmp_path / "terminal.csv"
+    pd.DataFrame([{"security_id": "J", "terminal_type": "bankruptcy_otc", "status": "awaiting_d5", "last_price_date": "",
+                   "end_date": "2020-11-06"}]).to_csv(terminal, index=False)
+    monkeypatch.setattr(rc, "TERMINAL_2012_2026", terminal)
+    monkeypatch.setitem(rc.RELIST_JUNCTIONS, "J", {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity",
+                                                   "url": "u", "read": True, "note": ""})
+    sessions = rc.pf.xnas_sessions("2020-01-02", rc.WINDOW_END)
+    master = pd.DataFrame([{"security_id": sid, "name": sid, "delist_date": "2020-11-06", "last_listed": "2026-08-01",
+                            "successor_security_id": "", "transfer_date": ""} for sid in ("J", "S")])
+    identity = {"master": master, "ticker_map": rc.pf.TickerMap(pd.DataFrame(
+        [{"security_id": "J", "ticker": "J", "list_start": "2020-01-02", "list_end": rc.WINDOW_END}])),
+        "relisted": {"J": [("2020-11-06", "2020-11-20", rc.WINDOW_END)], "S": [("2020-11-06", "2021-01-04", rc.WINDOW_END)]}}
+    end = str(sessions[-1].date())
+    states = {"J": {"summary": {"rows": 100, "last_date": end, "ticker_last": "J", "junctions": ["2020-11-20"],
+                                "segments": [{"first": "2020-01-02", "last": "2020-11-19", "last_src": "yahoo", "ticker": "OAS"},
+                                             {"first": "2020-11-20", "last": end, "last_src": "tiingo"}]}},
+              "S": {"summary": {"rows": 100, "last_date": end, "ticker_last": "S"}}}
+    targets = pd.DataFrame({"security_id": ["J", "S"], "weeks_rank300": [10, 5], "in_candidates": [True, True]})
+    ends = rc.series_ends(states, targets, identity, sessions)
+    assert ends["security_id"].tolist() == ["J"]  # S, the same shares listed again, reaches the window end
+    row = ends.iloc[0]
+    assert row["category"] == "old_shares_at_relist_junction" and row["last_date"] == "2020-11-19"
+    assert row["junction_date"] == "2020-11-20" and row["ticker_last"] == "OAS"
+    assert row["terminal_2012_2026"].startswith("bankruptcy_otc/awaiting_d5")
+
+
+# ------------------------------------------------------------------ the known stored-file break days
+
+BREAK_SESSIONS = rc.pf.xnas_sessions("2025-06-02", "2025-07-15")
+
+
+def _break_ctx():
+    return {"sessions": BREAK_SESSIONS, "window": (BREAK_SESSIONS[0], BREAK_SESSIONS[-1]),
+            "listed": lambda grid: np.ones(len(grid), dtype=bool), "ticker_of": lambda day: "T"}
+
+
+def test_break_day_unit_change_by_a_non_ordinary_factor_is_a_unit_break():
+    """HON 2025-06-24: the stored file goes 224.74 -> 425.80 (x1.895) while Yahoo shows -0.06%."""
+    n = len(BREAK_SESSIONS)
+    k = int(BREAK_SESSIONS.get_loc(pd.Timestamp(rc.BREAK_DAYS[0])))
+    close = _walk(n, start=224.0)
+    stored = close.copy()
+    stored[k:] *= 1.895
+    result = rc.reconcile_security("X", {"yahoo": _frame(close, sessions=BREAK_SESSIONS),
+                                         "stored": _frame(stored, sessions=BREAK_SESSIONS)}, _break_ctx())
+    breaks = [e for e in result["events"] if e["event_type"] == "unit_break"]
+    assert len(breaks) == 1 and breaks[0]["ex_date"] == rc.BREAK_DAYS[0]
+    assert breaks[0]["stored_implied_k"] == pytest.approx(1 / 1.895, rel=0.01)
+    assert "no ordinary split ratio" in breaks[0]["notes"]
+    assert result["summary"]["break_days"][0]["state"] == "unit_break"
+    # an ordinary-ratio change keeps its note short (NFLX 2025-06-24, 10:1)
+    stored10 = close.copy()
+    stored10[k:] /= 10.0
+    ten = rc.reconcile_security("X", {"yahoo": _frame(close, sessions=BREAK_SESSIONS),
+                                      "stored": _frame(stored10, sessions=BREAK_SESSIONS)}, _break_ctx())
+    note = [e for e in ten["events"] if e["event_type"] == "unit_break"][0]["notes"]
+    assert "known 2025-06-24 break" in note and "no ordinary" not in note
+
+
+def test_break_day_market_move_both_show_is_no_unit_break():
+    """NKTR 2025-06-24: Yahoo and the stored file both go 9.54 -> 24.45 (+156%); step 6's stored-only
+    split-ratio test lists the file, but nothing broke."""
+    n = len(BREAK_SESSIONS)
+    k = int(BREAK_SESSIONS.get_loc(pd.Timestamp(rc.BREAK_DAYS[0])))
+    close = _walk(n, start=9.5)
+    close[k:] *= 2.563
+    result = rc.reconcile_security("X", {"yahoo": _frame(close, sessions=BREAK_SESSIONS),
+                                         "stored": _frame(close, sessions=BREAK_SESSIONS)}, _break_ctx())
+    assert not [e for e in result["events"] if e["event_type"] == "unit_break"]
+    assert "stored_excluded" in _flags(result["canonical"], rc.BREAK_DAYS[0])  # still left out of the vote
+    assert result["summary"]["break_days"][0]["state"] == "stored_moves_with_vendors"
+    entry = [m for m in result["moves"] if m["event_date"] == rc.BREAK_DAYS[0]][0]
+    assert entry["rule"] == "R1" and "moves the same" in entry["notes"]
+
+
+# ------------------------------------------------------------------ the offline rebuild: out-dir and comparison
+
+def test_configure_paths_sends_every_output_under_the_out_dir(tmp_path, monkeypatch):
+    for name in ("PRICES_DIR", "OUT", "SOURCE_CACHE", "STATE_DIR", "LOG_DIR", "SPLIT_EVENTS", "SPECIAL", "REVIEWED_MOVES"):
+        monkeypatch.setattr(rc, name, getattr(rc, name))  # restored after the test
+    default_cache = rc.DEFAULT_SOURCE_CACHE
+    rc.configure_paths(tmp_path)
+    root = tmp_path.resolve()
+    assert rc.PRICES_DIR == root / "prices" and rc.OUT == root / "reconcile"
+    assert rc.STATE_DIR == root / "reconcile" / "per_security" and rc.SOURCE_CACHE == root / "reconcile" / "sources"
+    assert {rc.SPLIT_EVENTS, rc.SPECIAL, rc.REVIEWED_MOVES} == {root / "inputs" / f for f in
+                                                               ("split_events.csv", "special_distributions.csv",
+                                                                "reviewed_moves.csv")}
+    assert rc.DEFAULT_SOURCE_CACHE == default_cache  # still read (never written) when its signature matches
+    assert rc.peak_rss_mb() > 0
+
+
+def test_compare_series_counts_added_rows_and_changed_values():
+    old = pd.DataFrame({"date": ["2020-01-02", "2020-01-03"], "close_raw": [10.0, 11.0], "volume_raw": [5.0, 5.0],
+                        "split_factor": [1.0, 1.0], "div_cash": [0.0, 0.0], "tr": [np.nan, 0.1],
+                        "src_primary": ["tiingo", "tiingo"], "flags": ["", ""]})
+    same = rc.compare_series(old, old.copy())
+    assert same["kind"] == "unchanged" and same["rows_added"] == 0
+    new = pd.concat([old, old.iloc[[1]].assign(date="2020-01-06")], ignore_index=True)
+    assert rc.compare_series(old, new)["kind"] == "dates" and rc.compare_series(old, new)["rows_added"] == 1
+    changed = old.copy()
+    changed.loc[1, "tr"] = np.nan  # a return blanked (a relist junction)
+    out = rc.compare_series(old, changed)
+    assert out["kind"] == "values" and out["tr_changed"] == 1 and out["close_raw_changed"] == 0
+    flagged = old.copy()
+    flagged.loc[0, "flags"] = "relist_junction"
+    assert rc.compare_series(old, flagged)["kind"] == "flags_only"
+
+
+def test_scan_series_restarts_the_dollar_volume_windows_at_a_relist_junction(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "PRICES_DIR", tmp_path)
+    sessions = rc.pf.xnas_sessions("2020-01-02", "2020-08-31")
+    n, k = len(sessions), 100
+    close = np.r_[np.full(k, 100.0), np.full(n - k, 1.0)]  # old shares: $100M a day; new shares: $1M
+    flags = [""] * n
+    flags[k] = "relist_junction"
+    pd.DataFrame({"date": sessions.strftime("%Y-%m-%d"), "close_raw": close, "volume_raw": 1_000_000.0,
+                  "flags": flags, "n_sources": 1, "max_src_diff": 0.0}).to_csv(tmp_path / "J.csv", index=False)
+    weeks = rc.pf.week_ends(sessions, "2020-01-03", "2020-08-28")
+    cutoffs = pd.DataFrame({"cut50": 50e6, "cut20": 50e6}, index=weeks)
+    dv_weeks = rc.scan_series(["J"], cutoffs)["dv_weeks"]["J"]
+    assert len(dv_weeks) and dv_weeks.max() < sessions[k]  # no new-share week borrows the old shares' volume
+
+
+def test_ensure_disk_refuses_to_write_below_the_free_space_limit(tmp_path):
+    rc.ensure_disk(tmp_path / "prices" / "X.csv", min_free_mb=0)  # a path that does not exist yet is fine
+    with pytest.raises(RuntimeError, match="free"):
+        rc.ensure_disk(tmp_path / "X.csv", min_free_mb=1e12)

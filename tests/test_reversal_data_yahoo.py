@@ -794,3 +794,114 @@ def test_need_sessions_missing_between_the_first_and_last_row_make_a_series_part
     result = _check(days=gappy)
     assert result["verdict"] == "partial" and result["missing_inside"] == 25
     assert "missing_inside:25 need sessions" in result["verdict_reasons"]
+
+
+# ------------------------------------------------------------------ round 6
+
+def test_request_rows_carry_sec_current_tickers_only_where_the_candidate_ticker_is_not_one():
+    master = pd.DataFrame([
+        {"security_id": "1335105", "tickers_sec_current": "NMAD", "exchanges_sec_current": "Nasdaq", "multi_class_group": ""},
+        {"security_id": "5", "tickers_sec_current": "SAME SAMEW SAMEL", "exchanges_sec_current": "Nasdaq Nasdaq Nasdaq",
+         "multi_class_group": ""},
+        {"security_id": "1560385.T-LLYVA", "tickers_sec_current": "FWONA FWONK", "exchanges_sec_current": "Nasdaq Nasdaq",
+         "multi_class_group": "1560385"}])
+    alternates = yh.sec_alternates(master)
+    assert alternates == {"1335105": ["NMAD"], "5": ["SAME"]}
+    candidates = pd.DataFrame([
+        {"security_id": "1335105", "ticker_for_source": "LIXT", "needed_start": "2020-11-25", "needed_end": "2026-08-31",
+         "reason": "Y_active_all", "planned_source": "yahoo", "active": "Y", "note": ""},
+        {"security_id": "5", "ticker_for_source": "SAME", "needed_start": "2020-11-25", "needed_end": "2026-08-31",
+         "reason": "Y_active_all", "planned_source": "yahoo", "active": "Y", "note": "",
+         "junction_date": "2021-01-04"}])
+    rows = yh.request_rows(candidates, overrides={}, segments={}, alternates=alternates).set_index("security_id")
+    assert rows.loc["1335105", "alt_symbols"] == "NMAD" and rows.loc["5", "alt_symbols"] == ""
+    assert rows.loc["5", "junction_date"] == "2021-01-04" and rows.loc["1335105", "junction_date"] == ""
+
+
+def test_a_404_snapshot_ticker_is_replaced_by_the_sec_current_ticker(tmp_path):
+    # Lixte (round 6): the last Nasdaq snapshot's LIXT came back 404; SEC lists NMAD, which Yahoo serves.
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    raw.mkdir()
+    (raw / "LIXT__20261001T010203Z.json.gz.404").write_bytes(b"")
+    days = list(pd.bdate_range("2020-11-25", "2026-08-31").strftime("%Y-%m-%d"))
+    (raw / "NMAD__20261002T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(days, [5.0] * len(days), [1000] * len(days))).encode()))
+    requests = pd.DataFrame([{"security_id": "9", "symbol": "LIXT", "candidate_symbol": "LIXT",
+                              "needed_start": "2020-11-25", "needed_end": "2026-08-31", "reasons": "Y_active_all",
+                              "active": "Y", "successor_routed": "", "note": "", "alt_symbols": "NMAD",
+                              "junction_date": ""}])
+    sessions = pd.DatetimeIndex(pd.bdate_range("2011-06-01", "2026-08-31"))
+    assert list(yh.poor_answers(requests, sessions, raw)) == [0]
+    summary = yh.build(requests, refs=_Refs([MASTER_ROW]), raw_dir=raw, out_dir=out, sessions=sessions,
+                       metrics_path=tmp_path / "absent.pkl")
+    report = pd.read_csv(out / "entity_report.csv", keep_default_na=False).iloc[0]
+    assert (report["symbol"], report["candidate_symbol"], report["verdict"]) == ("NMAD", "LIXT", "ok")
+    assert "symbol LIXT answered 404; the SEC current ticker NMAD" in report["note"]
+    status = pd.read_csv(out / "fetch_status.csv", keep_default_na=False).set_index("symbol")
+    assert status.loc["LIXT", "status"] == "not_found" and "replaced by NMAD" in status.loc["LIXT", "message"]
+    assert summary["symbols_replaced_by_sec_ticker"] == {"LIXT": status.loc["LIXT", "message"]}
+    # a good answer is kept even where an SEC ticker differs
+    (raw / "OKAY__20261001T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(days, [5.0] * len(days), [1000] * len(days))).encode()))
+    good = requests.assign(symbol="OKAY", candidate_symbol="OKAY")
+    assert yh.resolve_alternates(good, sessions, raw)[0].loc[0, "symbol"] == "OKAY"
+
+
+def test_a_relisting_is_a_junction_and_a_10x_move_on_no_split_day_is_reviewed(tmp_path):
+    # Oasis/Chord (round 6): Yahoo's CHRD joins old Oasis at $0.12 (to 2020-11-19) to the new equity at $34
+    # (from 2020-11-20) with no split; the candidate list names the relisting day.
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    raw.mkdir()
+    old = list(pd.bdate_range("2020-09-01", "2020-11-19").strftime("%Y-%m-%d"))
+    new = list(pd.bdate_range("2020-11-20", "2021-03-31").strftime("%Y-%m-%d"))
+    jump = ["2021-02-01"]  # and a later 20x print inside the need with no split
+    closes = [0.12] * len(old) + [34.0] * len(new)
+    closes[len(old) + new.index(jump[0])] = 700.0
+    (raw / "CHRD__20261001T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(old + new, closes, [1000] * len(closes))).encode()))
+    requests = pd.DataFrame([{"security_id": "9", "symbol": "CHRD", "candidate_symbol": "CHRD",
+                              "needed_start": "2020-11-20", "needed_end": "2021-03-31", "reasons": "Y_active_rank300",
+                              "active": "Y", "successor_routed": "", "note": "", "alt_symbols": "",
+                              "junction_date": "2020-11-20"}])
+    sessions = pd.DatetimeIndex(pd.bdate_range("2011-06-01", "2026-08-31"))
+    summary = yh.build(requests, refs=_Refs([MASTER_ROW]), raw_dir=raw, out_dir=out, sessions=sessions,
+                       metrics_path=tmp_path / "absent.pkl")
+    series = pd.read_csv(out / "9.csv.gz", keep_default_na=False)
+    assert list(series.loc[series["junction"] == "Y", "date"]) == ["2020-11-20"]
+    report = pd.read_csv(out / "entity_report.csv", keep_default_na=False).iloc[0]
+    assert report["verdict"] == "review"
+    assert "relist_junction:2020-11-20" in report["verdict_reasons"]
+    assert "level_jump_not_a_split:2021-02-01" in report["verdict_reasons"]
+    assert "2020-11-20" not in report["verdict_reasons"].split("level_jump_not_a_split:")[1]
+    assert report["level_jumps"].startswith("2020-11-20:x283.3")
+    assert summary["relist_junctions"] == ["relist_junction:2020-11-20"]
+    # a split day is no level jump
+    days = pd.to_datetime(["2021-01-04", "2021-01-05"])
+    window = pd.DataFrame({"date": days, "close_raw": [100.0, 5.0], "split_factor": [1.0, 0.05]})
+    assert yh.level_jumps(window, pd.DataFrame(columns=["event_type", "ex_date"])) == []
+
+
+def test_the_request_ledger_matches_the_quota_ledger(tmp_path):
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "AAA__20261001T010203Z.json.gz").write_bytes(b"x")
+    (raw / "GONE__20261001T010205Z.json.gz.404").write_bytes(b"")
+    (raw / "AGEND__20261002T002718Z.json.gz").write_bytes(b"x")
+    ledger = tmp_path / "ledger.csv"
+    pd.DataFrame([("2026-10-01T01:02:03+00:00", "yahoo", "2026-10", "AAA", "200"),
+                  ("2026-10-01T01:02:05+00:00", "yahoo", "2026-10", "GONE", "404"),
+                  ("2026-10-02T00:27:18+00:00", "yahoo", "2026-10", "AGEND", "200"),
+                  ("2026-10-02T00:30:00+00:00", "yahoo", "2026-10", "CVX", "200"),
+                  ("2026-10-02T00:31:00+00:00", "tiingo", "2026-10", "ZZZ", "200")],
+                 columns=["fetched_utc", "source", "month", "symbol", "status"]).to_csv(ledger, index=False)
+    index = tmp_path / "index.csv.gz"
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/{}?period1=1"
+    pd.DataFrame([("2026-10-01T01:02:03+00:00", "yahoo", url.format("AAA"), "200", str(raw / "AAA__x.json.gz")),
+                  ("2026-10-01T01:02:05+00:00", "yahoo", url.format("GONE"), "404", ""),
+                  ("2026-10-02T00:30:00+00:00", "yahoo", url.format("CVX"), "200", str(tmp_path / "terminal" / "CVX.json.gz"))],
+                 columns=["fetched_utc", "source", "url_redacted", "http_status", "cache_path"]).to_csv(index, index=False)
+    out = yh.request_ledger({"AAA", "GONE"}, raw, ledger, index)
+    assert out["ledger_requests"] == 4 and out["this_step"]["requests"] == 3 and out["other_steps"]["requests"] == 1
+    assert out["this_step"]["symbols_asked_not_in_this_build"] == {"AGEND": "2026-10-02T00:27:18+00:00"}
+    assert out["raw_index_rows_missing"]["rows"] == ["AGEND@2026-10-02T00:27:18+00:00"]
+    assert out["checks"]["ledger_this_step_plus_other_equals_ledger"] and not out["checks"]["raw_index_complete"]

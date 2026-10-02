@@ -32,11 +32,18 @@ time and keeps keys of earlier runs). Manifest keys are relative: INPUTS files b
 ``research_cache/reversal_2012_2026/...``; the other files the checks read are under
 ``validation_inputs`` with their sha256.
 
+Step 12's investment-company exclusion (closed-end funds and BDCs, from SEC filings) is read from the
+build's ``investment_company_spans.csv``: those name-weeks are outside the base (the listed file marks them
+not eligible), a Form 25 of one is documented, a candidate whose whole need lies in a span is not owed a
+series, and a 2011 Nasdaq-100 member that is one is not required.
+
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_validate.py                  # all checks, summary, manifest
     PYTHONPATH=. python scripts/reversal_data_validate.py --no-manifest    # all checks and the summary
     PYTHONPATH=. python scripts/reversal_data_validate.py --only factor_rows,listing_snapshots   # print only
+    # a universe build in a scratch directory, the summary and manifest written to another one:
+    PYTHONPATH=. python scripts/reversal_data_validate.py --universe-dir DIR --out-dir DIR2
 """
 from __future__ import annotations
 
@@ -58,7 +65,7 @@ import pandas as pd
 
 from scripts import reversal_data_common as common
 
-CODE_VERSION = "2026-10-02.2"
+CODE_VERSION = "2026-10-02.3"
 
 # ------------------------------------------------------------------ constants (plan sections 1, 3, 5, 6)
 
@@ -94,13 +101,19 @@ MCAP_COVER_BEFORE_2023, MCAP_COVER_FROM_2023 = 0.97, 0.99
 FORM25_FLOAT, FORM25_SESSIONS = 1e9, 5                  # plan 3.3 check 4
 UNFILLABLE_SLOT_SHARE = 0.02                            # plan 3.3 check 6
 LIST_LIMIT = 40
-# step 12's missing_reason values (reversal_data_universe.MISSING_REASONS); these block completeness by themselves
-KNOWN_MISSING = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "unfillable", "no_vendor_source",
-                 "series_gap", "candidate_other", "not_candidate", "not_in_step6"}
+# step 12's missing_reason values (reversal_data_universe.MISSING_REASONS, kept equal by a test; not_in_step6 is an
+# older build's); these block completeness by themselves
+KNOWN_MISSING = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "answer_not_in_panel", "unfillable",
+                 "no_vendor_source", "series_gap", "candidate_other", "not_candidate", "not_in_step6"}
 TIER_BB, TIER_BC_SAMPLE, TIER_BC_REST = "B_B_float_500M_1B", "B_C_sample_300M_500M", "B_C_rest_300M_500M"
 FETCH_DATA = {"done", "done_review", "partial"}         # a Tiingo answer with rows
 FETCH_EMPTY = {"wrong_entity", "no_data"}               # a Tiingo answer (or range check) with no usable rows
-BLOCKING_MISSING = {"series_gap", "fetched_pending_reconcile", "no_vendor_source", "not_in_step6"}
+# answer_not_in_panel: an answer step 9 read but left out of the panel (SMCI, CHRD after their Form 25 cuts)
+BLOCKING_MISSING = {"series_gap", "fetched_pending_reconcile", "answer_not_in_panel", "no_vendor_source", "not_in_step6"}
+# a pending reason is not blocking only in weeks an open candidate row of this planned source needs
+PENDING_SOURCES = {"tiingo_pending": "tiingo", "yahoo_pending": "yahoo"}
+NEED_WEEK_DAYS = 6          # a need window covers a week when it reaches into the week's seven days
+CANDIDATE_COVERED = 0.95    # candidates_resolved: a vendor series over 95% of the needed sessions
 BREAK_DAY = "2025-06-24"                                # plan 4.2 / 6: the stored files' unit break
 HOLD_WEEKS = 4                                          # plan D3: a hold of up to 4 weeks after the formation week
 CACHE_KEY_PREFIX = "research_cache/reversal_2012_2026/"  # manifest keys of cache files (plan 1.1: relative paths)
@@ -122,6 +135,7 @@ UNIVERSE_SUMMARY_COLUMNS = ["week_end", "n_listed_common", "n_with_vendor_prices
                             "cutoff_rank250_dv_bucket", "n_unresolved_candidates", "mcap_weighted_coverage",
                             "snapshot_age_days"]
 UNIVERSE_TOP_COLUMNS = ["week_end", "security_id", "ticker", "dv50_rank", "dv20_rank", "price_ge_10"]
+UNIVERSE_INPUT_FILES = ("weekly_universe_summary.csv", "weekly_universe_top300.csv.gz")   # step 12's INPUTS files
 FACTOR_FILES = ["ff5_2x3_daily.csv", "mom_daily.csv", "st_rev_daily.csv", "ind49_daily.csv.gz",
                 "qqq_joined.csv", "vix_daily.csv", "ff_industry_maps_full.csv"]
 
@@ -232,8 +246,15 @@ class Context:
     same copy; their later growth is reported, not blocking."""
 
     def __init__(self, inputs: Path | str = common.INPUTS, cache: Path | str = common.CACHE,
-                 main: Path | str = common.MAIN_CHECKOUT, repo: Path | str = "."):
+                 main: Path | str = common.MAIN_CHECKOUT, repo: Path | str = ".",
+                 universe_dir: Path | str | None = None, out_dir: Path | str | None = None):
         self.inputs, self.cache, self.main, self.repo = Path(inputs), Path(cache), Path(main), Path(repo)
+        # The step-12 build: its two committed files in INPUTS and the rest in CACHE/universe, or every file
+        # in one directory (a build written with reversal_data_universe.py --out-dir DIR).
+        self.universe_dir = Path(universe_dir) if universe_dir else None
+        self.universe_inputs = self.universe_dir or self.inputs
+        self.universe_cache = self.universe_dir or self.cache / "universe"
+        self.out_dir = Path(out_dir) if out_dir else self.inputs   # where the summary and the manifest go
         self._memo: dict = {}
         self.hashes: dict[str, str] = {}      # str(path) -> sha256 of the bytes this run read
         self.reread_changed: set[str] = set()  # read twice in this run with different bytes
@@ -286,10 +307,23 @@ class Context:
             return self.read_frame(path, dtype=str, keep_default_na=False, on_bad_lines="skip")
         return self.memo(("live", relative), build)
 
+    def input_path(self, name: str) -> Path:
+        """An INPUTS file by name; the step-12 files from the universe build being checked."""
+        return self.universe_inputs / name if name in UNIVERSE_INPUT_FILES else self.inputs / name
+
+    def cache_path(self, relative: str) -> Path:
+        """A cache file by its path under CACHE; universe/... from the universe build being checked."""
+        return self.universe_cache / relative[len("universe/"):] if relative.startswith("universe/") else self.cache / relative
+
     def key(self, path: Path | str) -> str:
         """The manifest key of a file: INPUTS files by name, cache files as research_cache/reversal_2012_2026/...,
-        other repo files relative to the checkout (plan 1.1: relative paths)."""
+        other repo files relative to the checkout (plan 1.1: relative paths); the files of a universe build in
+        another directory under the keys of their published places."""
         path = Path(path)
+        if self.universe_dir is not None and path.parent == self.universe_dir:
+            return path.name if path.name in UNIVERSE_INPUT_FILES else CACHE_KEY_PREFIX + "universe/" + path.name
+        if path.parent == self.out_dir and path.name in ("validation_summary.json", "manifest.json"):
+            return path.name
         for root, prefix in ((self.inputs, ""), (self.cache, CACHE_KEY_PREFIX), (self.main, "")):
             try:
                 return prefix + str(path.relative_to(root))
@@ -340,7 +374,7 @@ class Context:
     def csv(self, name: str) -> pd.DataFrame | None:
         """An INPUTS csv as strings (None when missing)."""
         def build():
-            path = self.inputs / name
+            path = self.input_path(name)
             if not path.exists():
                 return None
             return self.read_frame(path, dtype=str, keep_default_na=False)
@@ -481,7 +515,7 @@ class Context:
     def universe(self) -> tuple[pd.DataFrame | None, str]:
         """Ranked names (rank <= 300 by dv50 or dv20) per week, and where they come from."""
         def build():
-            path = self.inputs / "weekly_universe_top300.csv.gz"
+            path = self.input_path("weekly_universe_top300.csv.gz")
             if path.exists():
                 frame = self.read_frame(path, dtype={"security_id": str, "week_end": str}, keep_default_na=False,
                                         na_values=[""])
@@ -512,7 +546,7 @@ class Context:
         """Listed common stocks per week with their size proxies (market cap, float)."""
         def build():
             weekly = self.prefilter_weekly
-            path = self.cache / "universe" / "weekly_listed.csv.gz"
+            path = self.universe_cache / "weekly_listed.csv.gz"
             if path.exists():
                 frame = self.read_frame(path, dtype={"security_id": str, "week_end": str}, keep_default_na=False,
                                         na_values=[""])
@@ -545,6 +579,25 @@ class Context:
     def unfillable_ids(self) -> set:
         u = self.csv("unfillable.csv")
         return set(u["security_id"]) if u is not None else set()
+
+    @property
+    def investment_spans(self) -> dict:
+        """security -> [(start, end)] days step 12 leaves it out of the base as an investment company (a
+        closed-end fund or BDC, from SEC filings: ``universe/investment_company_spans.csv``); empty when the
+        build has no such file (an older build)."""
+        def build():
+            path = self.universe_cache / "investment_company_spans.csv"
+            if not path.exists():
+                return {}
+            frame = self.read_frame(path, dtype=str, keep_default_na=False)
+            out: dict = {}
+            for sid, a, b in zip(frame["security_id"], frame["start"], frame["end"]):
+                out.setdefault(sid, []).append((a, b))
+            return out
+        return self.memo("investment_spans", build)
+
+    def investment_company_on(self, sid: str, day: str) -> bool:
+        return any(a <= day <= b for a, b in self.investment_spans.get(sid, []))
 
 
 # ------------------------------------------------------------------ result helpers
@@ -877,36 +930,83 @@ def check_security_master(ctx: Context) -> dict:
                         "UNKNOWN are listed (they stay in the universe, as the step-12 build keeps them); neither fails this check"))
 
 
+def _covers(windows: list, start: str, end: str, slack_days: int = NEED_WEEK_DAYS) -> bool:
+    """True when the union of ``windows`` (start, end) covers start..end, gaps of ``slack_days`` allowed."""
+    reach = pd.Timestamp(start) - pd.Timedelta(days=1)
+    for a, b in sorted(windows):
+        if pd.Timestamp(a) > reach + pd.Timedelta(days=slack_days + 1):
+            break
+        reach = max(reach, pd.Timestamp(b))
+        if reach >= pd.Timestamp(end) - pd.Timedelta(days=slack_days):
+            return True
+    return reach >= pd.Timestamp(end) - pd.Timedelta(days=slack_days)
+
+
+def _candidate_rows(ctx: Context) -> pd.DataFrame | None:
+    """Every candidate row (``v_sample`` marks the V sample) with ``coverage`` (the share of the needed
+    sessions with a panel row), ``documented`` (unfillable.csv windows of the security cover the row's need:
+    a row whose need is only partly unfillable, HOFV's 2020-04..06 of a need to 2025-06, is not), ``covered``
+    (coverage >= 95%), ``investment_company`` (the whole need lies in step 12's investment-company spans: the
+    name is outside the base then) and ``open`` (none of these: a fetch or step 9 still owes it)."""
+    def build():
+        c, p = ctx.csv("candidate_fetch_list.csv"), ctx.panel
+        if c is None or p is None:
+            return None
+        rows = c.copy()
+        rows["v_sample"] = rows["reason"] == "V_verify_sample"
+        by_sid = p[p["pos"] >= 0].groupby("security_id")["pos"].apply(lambda s: np.sort(s.values))
+        s = ctx.sessions
+        u = ctx.csv("unfillable.csv")
+        gave_up: dict = {}
+        if u is not None:
+            blank = pd.Series("", index=u.index)
+            for sid, a, b in zip(u["security_id"], u.get("needed_start", blank), u.get("needed_end", blank)):
+                gave_up.setdefault(sid, []).append((a or PRICE_START, b or PRICE_END))
+        spans = ctx.investment_spans
+        coverage, documented, investment = [], [], []
+        for row in rows.itertuples(index=False):
+            start = max(row.needed_start or PRICE_START, PRICE_START)
+            end = min(row.needed_end or PRICE_END, PRICE_END)
+            lo = s.searchsorted(pd.Timestamp(start))
+            hi = s.searchsorted(pd.Timestamp(end), side="right")
+            need = max(hi - lo, 0)
+            have = by_sid.get(row.security_id)
+            got = int(((have >= lo) & (have < hi)).sum()) if have is not None and need else 0
+            coverage.append(got / need if need else 1.0)
+            documented.append(_covers(gave_up.get(row.security_id, []), start, end))
+            investment.append(any(a <= start and end <= b for a, b in spans.get(row.security_id, [])))
+        rows["coverage"] = coverage
+        rows["documented"] = documented
+        rows["covered"] = rows["coverage"] >= CANDIDATE_COVERED
+        rows["investment_company"] = investment
+        rows["open"] = ~rows["covered"] & ~rows["documented"] & ~rows["investment_company"]
+        return rows
+    return ctx.memo("candidate_rows", build)
+
+
 def check_candidates_resolved(ctx: Context) -> dict:
     """Every candidate for price completion either has a vendor series over its needed window (95% of the
-    sessions) or is documented in unfillable.csv."""
+    sessions) or is documented in unfillable.csv (its windows cover the row's need); a candidate whose whole
+    need lies in an investment-company span of step 12 (a closed-end fund or BDC, outside the base) is not
+    owed a series."""
     name, dataset, plan = "candidates_resolved", "prices", "3.2 candidate list; step 8 status"
-    threshold = "0 candidates (V sample aside) without a vendor series over 95% of the needed sessions and not in unfillable.csv"
-    c = ctx.csv("candidate_fetch_list.csv")
-    p = ctx.panel
-    if c is None or p is None:
+    threshold = ("0 candidates (V sample aside) without a vendor series over 95% of the needed sessions whose need the "
+                 "unfillable.csv windows of the security do not cover (needs wholly inside step 12's investment-company "
+                 "spans aside)")
+    rows = _candidate_rows(ctx)
+    if rows is None:
         return no_input(name, dataset, plan, threshold, [ctx.inputs / "candidate_fetch_list.csv",
                                                          ctx.cache / "prices" / "daily_panel.csv.gz"])
-    rows = c[c["reason"] != "V_verify_sample"].copy()
-    by_sid = p[p["pos"] >= 0].groupby("security_id")["pos"].apply(lambda s: np.sort(s.values))
-    s = ctx.sessions
-    coverage = []
-    for row in rows.itertuples(index=False):
-        lo = s.searchsorted(pd.Timestamp(max(row.needed_start or PRICE_START, PRICE_START)))
-        hi = s.searchsorted(pd.Timestamp(min(row.needed_end or PRICE_END, PRICE_END)), side="right")
-        need = max(hi - lo, 0)
-        have = by_sid.get(row.security_id)
-        got = int(((have >= lo) & (have < hi)).sum()) if have is not None and need else 0
-        coverage.append(got / need if need else 1.0)
-    rows["coverage"] = coverage
-    rows["documented"] = rows["security_id"].isin(ctx.unfillable_ids)
-    rows["covered"] = rows["coverage"] >= 0.95
-    open_rows = rows[~rows["covered"] & ~rows["documented"]]
+    rows = rows[~rows["v_sample"]]
+    open_rows = rows[rows["open"]]
+    excluded = rows[~rows["covered"] & ~rows["documented"] & rows["investment_company"]]
     fetch = ctx.live_frame("tiingo/fetch_status.csv")
     tiingo = {} if fetch is None else fetch["status"].value_counts().to_dict()
     return result(name, dataset, plan, threshold, not len(open_rows),
                   numbers={"candidate_rows": int(len(rows)), "covered": int(rows["covered"].sum()),
                            "documented_unfillable": int((~rows["covered"] & rows["documented"]).sum()),
+                           "investment_company_need": int(len(excluded)),
+                           "investment_company_securities": sorted(set(excluded["security_id"]))[:LIST_LIMIT],
                            "open": int(len(open_rows)),
                            "open_by_planned_source": open_rows["planned_source"].value_counts().to_dict(),
                            "open_by_status": open_rows["status"].value_counts().to_dict(),
@@ -1734,7 +1834,7 @@ def _universe_stale_inputs(ctx: Context) -> list | None:
     """Files whose sha256 in the step-12 summary (inputs_sha256, outputs_sha256) differs from the file on disk:
     the universe was built from other inputs, or its outputs were replaced. The live Tiingo status is left out
     (the build may use a fixed copy of it). None when the summary is missing."""
-    path = ctx.cache / "universe" / "universe_summary.json"
+    path = ctx.universe_cache / "universe_summary.json"
     if not path.exists():
         return None
     summary = ctx.read_json(path)
@@ -1762,8 +1862,8 @@ def check_universe_build(ctx: Context) -> dict:
                  "and weekly_liquidity.csv.gz exist; weeks = last XNAS session of each week 2012-01-06..2026-07-17; "
                  "per week dv50 and dv20 ranks 1..>=300 unique; price_ge_10 = Y; no foreign filer ranked; the inputs and "
                  "outputs hashed in CACHE/universe/universe_summary.json are the files on disk (not built from older inputs)")
-    paths = [ctx.inputs / "weekly_universe_summary.csv", ctx.inputs / "weekly_universe_top300.csv.gz",
-             ctx.cache / "universe" / "weekly_listed.csv.gz", ctx.cache / "universe" / "weekly_liquidity.csv.gz"]
+    paths = [ctx.input_path("weekly_universe_summary.csv"), ctx.input_path("weekly_universe_top300.csv.gz"),
+             ctx.universe_cache / "weekly_listed.csv.gz", ctx.universe_cache / "weekly_liquidity.csv.gz"]
     missing = [p for p in paths if not p.exists()]
     frame, basis = ctx.universe
     numbers, details = {"files_missing": len(missing)}, {"missing_inputs": [str(p) for p in missing]}
@@ -1814,7 +1914,10 @@ def check_universe_build(ctx: Context) -> dict:
 
 def _proxy_table(ctx: Context) -> tuple[pd.DataFrame | None, str]:
     """Listed common stocks per week with vendor coverage that week and whether their size proxy reaches
-    the median of the names ranked 200-250 (plan 3.3 check 1)."""
+    the median of the names ranked 200-250 (plan 3.3 check 1). ``above_plan`` is the plan's rule (market cap,
+    else float); ``above`` also counts a float at the band median when the market cap (often carried up to
+    12 months from an old company list) is below it, so a stale market cap never outweighs the float; and
+    ``top250_evidence`` adds step 6's dollar volume at the rank-250 cut whatever the proxy says."""
     def build():
         listed, basis = ctx.listed
         if listed is None:
@@ -1832,7 +1935,9 @@ def _proxy_table(ctx: Context) -> tuple[pd.DataFrame | None, str]:
         cut = band.groupby("week_end").agg(cut_mcap=("mcap", "median"), cut_float=("float_usd", "median"))
         frame = frame.merge(cut, left_on="week_end", right_index=True, how="left")
         mcap, flt = frame["mcap"], frame["float_usd"]
-        frame["above"] = ((mcap >= frame["cut_mcap"]) | (mcap.isna() & (flt >= frame["cut_float"]))).fillna(False)
+        frame["above_plan"] = ((mcap >= frame["cut_mcap"]) | (mcap.isna() & (flt >= frame["cut_float"]))).fillna(False)
+        frame["float_above"] = (flt >= frame["cut_float"]).fillna(False)
+        frame["above"] = frame["above_plan"] | frame["float_above"]
         # Size evidence: a proxy (market cap or float), else step 6's dollar volume (stored files included).
         # A name-week with neither has an unknown size: it is never counted as small.
         frame["proxy_known"] = mcap.notna() | flt.notna()
@@ -1845,6 +1950,8 @@ def _proxy_table(ctx: Context) -> tuple[pd.DataFrame | None, str]:
             frame["dv_above"] = (frame["pf_dv50"] >= frame["week_end"].map(cut250)).fillna(False)
         else:
             frame["dv_above"] = False
+        frame["dv_above"] = frame["dv_above"].astype(bool)
+        frame["top250_evidence"] = frame["above"] | frame["dv_above"]
         frame["unknown_size"] = ~frame["proxy_known"] & ~frame["dv_known"]
         if "evidence" in frame:   # step 12's own class of a missing name-week: price_lt_10 / dv / proxy / unknown
             evidence = frame["evidence"].fillna("").astype(str)
@@ -1892,9 +1999,10 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
     An unpriced name whose size is unknown (no proxy and no step-6 dollar volume) cannot be shown to be
     below that median, so it fails the check too."""
     name, dataset, plan = "universe_proxy_margin", "universe", "3.3 check 1"
-    threshold = (f"0 such names in >= {PROXY_ZERO_SHARE:.0%} of weeks and never more than {PROXY_MAX}; 0 unpriced name-weeks "
-                 "of unknown size (no market cap, no float, no step-6 dollar volume); 0 unpriced name-weeks with no proxy "
-                 "whose step-6 dollar volume reaches the rank-250 cut; the step-12 build's unknown counts 0")
+    threshold = (f"0 such names in >= {PROXY_ZERO_SHARE:.0%} of weeks and never more than {PROXY_MAX} (a float at the band "
+                 "median counts even when a carried market cap is below it); 0 unpriced name-weeks of unknown size (no "
+                 "market cap, no float, no step-6 dollar volume); 0 unpriced name-weeks whose step-6 dollar volume reaches "
+                 "the rank-250 cut, whatever the proxy says; the step-12 build's unknown counts 0")
     frame, basis = _proxy_table(ctx)
     if frame is None:
         return no_input(name, dataset, plan, threshold, ["universe listed set"])
@@ -1902,9 +2010,14 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
     unpriced = unpriced_all[~unpriced_all["outside"]]
     hit_all = unpriced_all[unpriced_all["above"]]
     hit = unpriced[unpriced["above"]]
+    hit_plan = unpriced[unpriced["above_plan"]]
+    float_over_mcap = unpriced[unpriced["float_above"] & ~unpriced["above_plan"]]
     unknown = unpriced[unpriced["unknown_size"]]
     no_proxy = unpriced[~unpriced["proxy_known"]]
-    dv_hits = no_proxy[no_proxy["dv_above"]]
+    dv_hits_no_proxy = no_proxy[no_proxy["dv_above"]]
+    dv_over_proxy = unpriced[unpriced["proxy_known"] & ~unpriced["above"] & unpriced["dv_above"]]
+    dv_hits = pd.concat([dv_hits_no_proxy, dv_over_proxy])
+    per_week_plan = hit_plan.groupby("week_end").size().reindex(ctx.week_ends, fill_value=0)
     per_week = hit.groupby("week_end").size().reindex(ctx.week_ends, fill_value=0)
     per_week_all = hit_all.groupby("week_end").size().reindex(ctx.week_ends, fill_value=0)
     unknown_week = unknown.groupby("week_end").size().reindex(ctx.week_ends, fill_value=0)
@@ -1923,13 +2036,18 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
                            "max_in_a_week": int(per_week.max()), "weeks_over_3": int((per_week > PROXY_MAX).sum()),
                            "plan_rule_met": plan_rule,
                            "name_weeks": int(len(hit)), "name_weeks_unfillable": int(unfill.sum()),
+                           "plan_definition": {"name_weeks": int(len(hit_plan)), "max_in_a_week": int(per_week_plan.max()),
+                                               "share_weeks_zero": _share(int((per_week_plan == 0).sum()), len(per_week_plan))},
+                           "name_weeks_float_at_median_mcap_below": int(len(float_over_mcap)),
+                           "unpriced_name_weeks_dv_at_or_above_cut250_proxy_below": int(len(dv_over_proxy)),
+                           "unpriced_name_weeks_top250_evidence": int(unpriced["top250_evidence"].sum()),
                            "share_weeks_zero_excluding_unfillable": _share(int((per_week_excl == 0).sum()), len(per_week_excl)),
                            "max_in_a_week_excluding_unfillable": int(per_week_excl.max()),
                            "name_weeks_incl_outside_trading": int(len(hit_all)),
                            "max_in_a_week_incl_outside_trading": int(per_week_all.max()),
                            "unpriced_name_weeks": int(len(unpriced)),
                            "unpriced_name_weeks_no_proxy": int(len(no_proxy)),
-                           "unpriced_name_weeks_no_proxy_dv_at_or_above_cut250": int(len(dv_hits)),
+                           "unpriced_name_weeks_no_proxy_dv_at_or_above_cut250": int(len(dv_hits_no_proxy)),
                            "unpriced_name_weeks_unknown_size": int(len(unknown)),
                            "unknown_size_securities": int(unknown["security_id"].nunique()),
                            "weeks_with_unknown_size": int((unknown_week > 0).sum()),
@@ -1941,15 +2059,20 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
                                       "last": r["last"].strftime("%Y-%m-%d"), "unfillable": s in ctx.unfillable_ids}
                                      for s, r in names.iterrows()],
                            "unknown_size": _unknown_size_summary(ctx, unknown),
-                           "no_proxy_dv_at_or_above_cut250": _unknown_size_summary(ctx, dv_hits)},
+                           "no_proxy_dv_at_or_above_cut250": _unknown_size_summary(ctx, dv_hits_no_proxy),
+                           "dv_at_or_above_cut250_proxy_below": _unknown_size_summary(ctx, dv_over_proxy),
+                           "float_at_median_mcap_below": _unknown_size_summary(ctx, float_over_mcap)},
                   basis=basis,
                   note=("vendor prices in a week = a panel row that week; proxy = Wayback market cap carried up to 12 months, "
                         "else XBRL public float (as step 6 carried them); listing weeks the universe build marks outside "
                         "trading (listing start/end within 30 days of the series) are left out and counted separately. "
                         "Unknown size: no proxy and no step-6 dollar volume that week, so nothing shows the name is below "
                         "the median (step 12's evidence column, when present, adds its stored-file dollar volume and its "
-                        "own 'unknown' class); a name with no proxy whose step-6 dollar volume reaches the canonical "
-                        "rank-250 cut (pf_ge_cut250) is counted apart, and both fail the check"))
+                        "own 'unknown' class); a name whose step-6 dollar volume reaches the canonical rank-250 cut "
+                        "(pf_ge_cut250) is counted apart whatever its proxy says (no proxy, or a proxy below the median, "
+                        "such as a market cap carried from an old company list), and both fail the check; a float at the "
+                        "band median counts as above it even when the market cap is below (plan_definition keeps the "
+                        "plan's market-cap-first count)"))
 
 
 def check_universe_capture_coverage(ctx: Context) -> dict:
@@ -2087,6 +2210,10 @@ def check_universe_nasdaq100(ctx: Context) -> dict:
                 counts["excluded_foreign_filer"] += 1
                 other.append({**entry, "state": "excluded_foreign_filer"})
                 continue
+            if y < 2012 and ctx.investment_company_on(sid, year_end):
+                counts["excluded_investment_company"] += 1
+                other.append({**entry, "state": "excluded_investment_company"})
+                continue
             if y >= 2012 and listed is not None:
                 weeks = eligible.get(sid, pd.DatetimeIndex([]))
                 weeks = weeks[weeks.year == y]
@@ -2115,6 +2242,7 @@ def check_universe_nasdaq100(ctx: Context) -> dict:
                            "incomplete": counts["incomplete"], "not_mapped": counts["not_mapped"],
                            "share_complete": _share(checked - counts["incomplete"], checked),
                            "excluded_foreign_filer": counts["excluded_foreign_filer"],
+                           "excluded_investment_company": counts["excluded_investment_company"],
                            "not_in_universe_base_that_year": counts["not_in_universe_base_that_year"],
                            "incomplete_unfillable": sum(bool(f.get("unfillable")) for f in failing)},
                   details={"failing": failing[:LIST_LIMIT], "not_required": other[:LIST_LIMIT]},
@@ -2130,7 +2258,8 @@ def check_universe_form25(ctx: Context) -> dict:
     within 5 sessions of the effective date or the merger close, or a documented exclusion."""
     name, dataset, plan = "universe_form25", "universe", "3.3 check 4"
     threshold = (f"100% of common-stock Form 25s with float >= $1B (effective 2012..{PRICE_END}): series end within "
-                 f"{FORM25_SESSIONS} sessions of the effective date or merger close, or documented (unfillable.csv, foreign filer)")
+                 f"{FORM25_SESSIONS} sessions of the effective date or merger close, or documented (unfillable.csv, foreign "
+                 "filer, an investment company left out of the base by step 12)")
     f, m, t = ctx.csv("form25_nasdaq_2012_2026.csv"), ctx.master, ctx.csv("terminal_returns_2012_2026.csv")
     if f is None or m is None or ctx.panel is None:
         return no_input(name, dataset, plan, threshold, ["form25_nasdaq_2012_2026.csv", "security_master.csv", "panel"])
@@ -2161,10 +2290,14 @@ def check_universe_form25(ctx: Context) -> dict:
                 state = "documented_unfillable"
             elif sid in foreign:
                 state = "documented_foreign_filer"
+            elif ctx.investment_company_on(sid, row.effective_date) or ctx.investment_company_on(
+                    sid, (pd.Timestamp(row.effective_date) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")):
+                state = "documented_investment_company"
             elif state == "unmapped":
                 state = "no_series"
         states[state] += 1
-        if state not in ("series_ends_near", "documented_unfillable", "documented_foreign_filer"):
+        if state not in ("series_ends_near", "documented_unfillable", "documented_foreign_filer",
+                         "documented_investment_company"):
             failing.append({"accession": row.accession, "name": row.subject_name, "effective": row.effective_date,
                             "float_usd": row.public_float_usd, "security_ids": sids, "state": state})
     return result(name, dataset, plan, threshold, len(rows) > 0 and not failing,
@@ -2173,23 +2306,66 @@ def check_universe_form25(ctx: Context) -> dict:
                   details={"failing": failing[:LIST_LIMIT]})
 
 
+def _open_need_windows(ctx: Context) -> dict:
+    """planned source -> security -> [(needed_start, needed_end)] of the open candidate rows (``_candidate_rows``;
+    the V sample's included: its request would serve the weeks too)."""
+    rows = _candidate_rows(ctx)
+    out: dict = {}
+    if rows is None:
+        return out
+    for r in rows[rows["open"]].itertuples(index=False):
+        out.setdefault(r.planned_source, {}).setdefault(r.security_id, []).append(
+            (r.needed_start or "1900-01-01", r.needed_end or "2100-01-01"))
+    return out
+
+
+def _in_windows(security: pd.Series, week_end: pd.Series, windows: dict) -> np.ndarray:
+    """True where a window of the security reaches into the week ending on that day."""
+    end = week_end.dt.strftime("%Y-%m-%d").to_numpy(dtype=object)
+    start = (week_end - pd.Timedelta(days=NEED_WEEK_DAYS)).dt.strftime("%Y-%m-%d").to_numpy(dtype=object)
+    sids = security.to_numpy(dtype=object)
+    return np.array([any(a <= e and s <= b for a, b in windows.get(sid, [])) for sid, s, e in zip(sids, start, end)],
+                    dtype=bool)
+
+
 def check_universe_listed_gaps(ctx: Context) -> dict:
     """Listed universe-base names the step-12 build marks missing for a reason that no fetch decision
-    covers: a series that stops short (series_gap), a Tiingo answer step 9 has not read
-    (fetched_pending_reconcile), no vendor source, or a reason this validator does not know."""
+    covers: a series that stops short (series_gap), an answer step 9 has not read (fetched_pending_reconcile)
+    or read and left out (answer_not_in_panel), no vendor source, a reason this validator does not know, or
+    a pending reason (tiingo_pending / yahoo_pending) with no open candidate row of that source whose need
+    covers the week. Weeks after the series' end (``_series_ends``: the delisting date, or a merger's last
+    price in the terminal table) are counted apart and do not block."""
     name, dataset, plan = "universe_listed_gaps", "universe", "3.1 listed set; 3.3 (completeness); 6 Universe"
     threshold = ("0 eligible name-weeks in CACHE/universe/weekly_listed.csv.gz whose missing_reason is "
-                 + " / ".join(sorted(BLOCKING_MISSING)) + " or not one of the known reasons; securities and week spans listed")
-    path = ctx.cache / "universe" / "weekly_listed.csv.gz"
+                 + " / ".join(sorted(BLOCKING_MISSING)) + " or not one of the known reasons, or is "
+                 + " / ".join(sorted(PENDING_SOURCES)) + " without an open candidate row of that planned source "
+                 "whose need reaches the week; weeks that start after the series' last price (terminal table) or "
+                 "delisting do not count; securities and week spans listed")
+    path = ctx.universe_cache / "weekly_listed.csv.gz"
     listed, basis = ctx.listed
     if listed is None or "official" not in basis or "missing_reason" not in listed.columns:
         return no_input(name, dataset, plan, threshold, [path], note="needs the step-12 weekly_listed file with missing_reason")
     frame = listed[(listed["week_end"] >= WEEK_FIRST) & (listed["week_end"] <= WEEK_LAST)]
     reason = frame["missing_reason"].fillna("").astype(str)
-    missing = frame[reason != ""]
+    missing = frame[reason != ""].copy()
     reasons = missing["missing_reason"].astype(str)
+    # A week that starts after the series' end (a merger's last price, a delisting) needs no row.
+    ends, _ = _series_ends(ctx)
+    end = pd.to_datetime(missing["security_id"].map(ends))
+    after_end = (end.notna() & ((missing["week_end"] - pd.Timedelta(days=NEED_WEEK_DAYS)) > end)).to_numpy()
     unknown_reason = ~reasons.isin(KNOWN_MISSING)
-    blocking = missing[reasons.isin(BLOCKING_MISSING) | unknown_reason]
+    pending = reasons.isin(list(PENDING_SOURCES)).to_numpy()
+    windows = _open_need_windows(ctx)
+    backed = np.zeros(len(missing), dtype=bool)
+    for reason_name, source in PENDING_SOURCES.items():
+        rows = (reasons == reason_name).to_numpy()
+        if rows.any():
+            backed[rows] = _in_windows(missing["security_id"][rows], missing["week_end"][rows], windows.get(source, {}))
+    unbacked = pending & ~backed
+    missing.loc[unbacked, "missing_reason"] = missing.loc[unbacked, "missing_reason"] + "_without_open_candidate"
+    blocking_mask = (reasons.isin(BLOCKING_MISSING).to_numpy() | unknown_reason.to_numpy() | unbacked) & ~after_end
+    blocking = missing[blocking_mask]
+    tail = missing[after_end & (reasons.isin(BLOCKING_MISSING).to_numpy() | unknown_reason.to_numpy() | unbacked)]
     by_reason = reasons.value_counts().to_dict()
     spans = {}
     if len(blocking):
@@ -2208,6 +2384,8 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
     year_counts = {}
     for (y, r), n in by_year.items():
         year_counts.setdefault(int(y), {})[r] = int(n)
+    pending_rows = missing[pending]
+    unbacked_rows = missing[unbacked & ~after_end]
     return result(name, dataset, plan, threshold, not len(blocking),
                   numbers={"eligible_name_weeks": int(len(frame)), "missing_name_weeks": int(len(missing)),
                            "missing_by_reason": {k: int(v) for k, v in by_reason.items()},
@@ -2215,13 +2393,26 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
                            "blocking_securities": int(blocking["security_id"].nunique()),
                            "blocking_by_reason": blocking["missing_reason"].value_counts().to_dict(),
                            "unknown_reasons": sorted(set(reasons[unknown_reason])),
+                           "after_series_end_not_blocking": int(len(tail)),
+                           "after_series_end_securities": int(tail["security_id"].nunique()),
+                           "pending_name_weeks": int(len(pending_rows)),
+                           "pending_without_open_candidate": int(len(unbacked_rows)),
+                           "pending_without_open_candidate_securities": int(unbacked_rows["security_id"].nunique()),
                            "blocking_by_year": year_counts},
-                  details={"blocking_spans_by_reason": spans},
+                  details={"blocking_spans_by_reason": spans,
+                           "after_series_end": [{"security_id": s, "week_end": w.strftime("%Y-%m-%d"),
+                                                 "series_end": ends.get(s, ""), "missing_reason": r}
+                                                for s, w, r in zip(tail["security_id"], tail["week_end"],
+                                                                   tail["missing_reason"])][:LIST_LIMIT]},
                   basis=basis,
-                  note=("reasons other than these are judged elsewhere: tiingo_pending / yahoo_pending (open candidates, "
-                        "candidates_resolved), unfillable "
-                        "(universe_unfillable), not_candidate / candidate_other (universe_proxy_margin and the unknown-size "
-                        "count); a series_gap name has a series that does not reach the week (SMCI, CHRD after a later listing)"))
+                  note=("reasons other than these are judged elsewhere: tiingo_pending / yahoo_pending backed by an open "
+                        "candidate row (candidates_resolved), unfillable (universe_unfillable), not_candidate / "
+                        "candidate_other (universe_proxy_margin and the unknown-size count); a series_gap name has a "
+                        "series that does not reach the week; answer_not_in_panel is an answer step 9 read but left out "
+                        "(SMCI, CHRD); a pending week with no open candidate row of its source whose need reaches the week "
+                        "is reported as <reason>_without_open_candidate and blocks; the weeks after a series' last price "
+                        "(a merger: HIBB, PDCO, ITCI) or delisting are listed under after_series_end, not blocking (a "
+                        "terminal row with no last price keeps its weeks blocking)"))
 
 
 def _panel_dv(ctx: Context, sids) -> pd.DataFrame:
@@ -2340,12 +2531,18 @@ def check_universe_unfillable(ctx: Context) -> dict:
     A week of an unfillable name whose size is unknown cannot be estimated, so it fails the check."""
     name, dataset, plan = "universe_unfillable", "universe", "3.3 check 6"
     threshold = (f"estimated unfillable name-weeks / (250 x weeks) <= {UNFILLABLE_SLOT_SHARE:.0%} in every year (else reported "
-                 "as survivor bias); 0 unpriced unfillable name-weeks of unknown size (no proxy, no step-6 dollar volume)")
+                 "as survivor bias; a week counts when its proxy reaches the band median, a float at it counting even "
+                 "with a market cap below, or when step 6's dollar volume reaches the rank-250 cut whatever the proxy "
+                 "says); 0 unpriced unfillable name-weeks of unknown size (no proxy, no step-6 dollar volume)")
     u = ctx.csv("unfillable.csv")
     frame, basis = _proxy_table(ctx)
     if u is None or frame is None:
         return no_input(name, dataset, plan, threshold, [ctx.inputs / "unfillable.csv", "universe listed set"])
-    hits, unknown = [], []
+    if "top250_evidence" not in frame:   # a table built by an older _proxy_table
+        frame = frame.assign(top250_evidence=frame["above"] | frame["dv_above"])
+    if "above_plan" not in frame:
+        frame = frame.assign(above_plan=frame["above"])
+    hits, unknown, plan_hits = [], [], []
     by_sid = {sid: g for sid, g in frame[~frame["vendor"]].groupby("security_id")}
     for row in u.itertuples(index=False):
         mine = by_sid.get(row.security_id)
@@ -2353,11 +2550,13 @@ def check_universe_unfillable(ctx: Context) -> dict:
             continue
         mine = mine[mine["week_end"].between(pd.Timestamp(row.needed_start or WEEK_FIRST),
                                              pd.Timestamp(row.needed_end or WEEK_LAST))]
-        estimated = mine["above"] | (~mine["proxy_known"] & mine["dv_above"])
+        estimated = mine["top250_evidence"]          # proxy (float not outweighed) or dv at the cut
         hits.append(mine.loc[estimated, ["security_id", "week_end"]])
+        plan_hits.append(mine.loc[mine["above_plan"] | (~mine["proxy_known"] & mine["dv_above"]), ["security_id", "week_end"]])
         unknown.append(mine.loc[mine["unknown_size"] & ~mine["outside"], ["security_id", "week_end"]])
     empty = pd.DataFrame(columns=["security_id", "week_end"])
     est = pd.concat(hits).drop_duplicates() if hits else empty
+    est_plan = pd.concat(plan_hits).drop_duplicates() if plan_hits else empty
     unk = pd.concat(unknown).drop_duplicates() if unknown else empty
     weeks_per_year = pd.Series(ctx.week_ends.year).value_counts()
     per_year = est.groupby(pd.to_datetime(est["week_end"]).dt.year).size() if len(est) else pd.Series(dtype=int)
@@ -2370,6 +2569,9 @@ def check_universe_unfillable(ctx: Context) -> dict:
     unk_names = unk.groupby("security_id").size().sort_values(ascending=False)
     return result(name, dataset, plan, threshold, not over and not len(unk),
                   numbers={"unfillable_rows": int(len(u)), "estimated_name_weeks": int(len(est)),
+                           "estimated_name_weeks_plan_proxy_rule": int(len(est_plan)),
+                           "estimated_by_security": {s: int(n) for s, n in est.groupby("security_id").size()
+                                                     .sort_values(ascending=False).head(LIST_LIMIT).items()} if len(est) else {},
                            "file_est_weeks_in_top250": int(_num(u["est_weeks_in_top250"].values).fillna(0).sum()),
                            "years_over_2pct": over, "unknown_size_name_weeks": int(len(unk)),
                            "unknown_size_securities": int(unk["security_id"].nunique()) if len(unk) else 0,
@@ -2380,8 +2582,10 @@ def check_universe_unfillable(ctx: Context) -> dict:
                            .to_dict("records")[:LIST_LIMIT]},
                   basis=basis,
                   note=("estimate: weeks in the needed window with no vendor price where the name's size proxy reaches the "
-                        "ranks 200-250 median, or, with no proxy, its step-6 dollar volume reaches the rank-250 cut; a week "
-                        "with neither is of unknown size (fails)"))
+                        "ranks 200-250 median (market cap, or a float at the median when the market cap, often carried from "
+                        "an old company list, is below it), or its step-6 dollar volume reaches the rank-250 cut whatever the "
+                        "proxy says (LAZR, PARA); estimated_name_weeks_plan_proxy_rule keeps the earlier count (market cap "
+                        "first, dollar volume only without a proxy); a week with no evidence is of unknown size (fails)"))
 
 
 # ================================================================== manifest coverage (section 6) and the run
@@ -2390,14 +2594,15 @@ def files_for_test(ctx: Context) -> list[Path]:
     """Every file the future test reads: the committed inputs (the plan 1.1 list and any other file in
     INPUTS), the price panel and the dividend table (1.2), the factor files, the universe files and the
     pinned Ken French zips. Planned files that do not exist are kept in the list (they are missing)."""
-    inputs = sorted(p for p in ctx.inputs.glob("*") if p.is_file() and p.name != "manifest.json"
-                    and not p.name.endswith(".tmp"))
-    for name in list(PLAN_INPUTS) + ["validation_summary.json"]:
-        if ctx.inputs / name not in inputs:
-            inputs.append(ctx.inputs / name)
-    cache = [ctx.cache / relative for relative in PLAN_CACHE]
+    inputs = sorted(ctx.input_path(p.name) for p in ctx.inputs.glob("*") if p.is_file()
+                    and p.name not in ("manifest.json", "validation_summary.json") and not p.name.endswith(".tmp"))
+    for name in PLAN_INPUTS:
+        if ctx.input_path(name) not in inputs:
+            inputs.append(ctx.input_path(name))
+    inputs.append(ctx.out_dir / "validation_summary.json")
+    cache = [ctx.cache_path(relative) for relative in PLAN_CACHE]
     cache += [ctx.cache / "factors" / f for f in FACTOR_FILES]
-    universe = ctx.cache / "universe"
+    universe = ctx.universe_cache
     found = sorted(p for p in universe.glob("*") if p.is_file() and not p.name.endswith(".tmp")) if universe.exists() else []
     cache += [p for p in found if p not in cache]
     cache += sorted((ctx.cache / "raw" / "kf").glob("*.zip"))
@@ -2426,7 +2631,7 @@ def check_plan_files(ctx: Context) -> dict:
     files, missing_files, missing_columns, odd_values, mapped, extended = {}, [], [], [], [], []
     for relative, columns, kind in ([(n, c, "input") for n, c in PLAN_INPUTS.items()]
                                     + [(n, c, "cache") for n, c in {**PLAN_CACHE, **PLAN_CACHE_INFRA}.items()]):
-        path = (ctx.inputs if kind == "input" else ctx.cache) / relative
+        path = ctx.input_path(relative) if kind == "input" else ctx.cache_path(relative)
         label = relative if kind == "input" else CACHE_KEY_PREFIX + relative
         if not path.exists():
             missing_files.append(label)
@@ -2587,7 +2792,7 @@ def summary_bytes(summary: dict) -> bytes:
 def write_validation_summary(ctx: Context, results: list[dict], path: Path | None = None) -> dict:
     """Build and write the summary alone (atomic); the run itself uses write_outputs."""
     summary = build_summary(ctx, results)
-    common.atomic_write(path or ctx.inputs / "validation_summary.json", summary_bytes(summary))
+    common.atomic_write(path or ctx.out_dir / "validation_summary.json", summary_bytes(summary))
     return summary
 
 
@@ -2679,7 +2884,7 @@ def build_manifest(ctx: Context, summary: dict, summary_data: bytes | None = Non
     facts = facts or manifest_facts(ctx)
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     files = files_for_test(ctx)
-    summary_path = ctx.inputs / "validation_summary.json"
+    summary_path = ctx.out_dir / "validation_summary.json"
     entries, missing = {}, []
     for path in files:
         if path == summary_path and summary_data is not None:
@@ -2744,9 +2949,9 @@ def write_outputs(ctx: Context, results: list[dict], manifest: bool = True) -> t
     secrets = secret_values()
     if any(value in data.decode("utf-8") or value in text for value in secrets):
         raise RuntimeError("a key value appears in the summary or the manifest; nothing was written")
-    common.atomic_write(ctx.inputs / "validation_summary.json", data)
+    common.atomic_write(ctx.out_dir / "validation_summary.json", data)
     if built is not None:
-        common.atomic_write(ctx.inputs / "manifest.json", text.encode("utf-8"))
+        common.atomic_write(ctx.out_dir / "manifest.json", text.encode("utf-8"))
     return summary, built
 
 
@@ -2754,13 +2959,20 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--only", default="", help="comma-separated check names (printed, nothing written)")
     parser.add_argument("--no-manifest", action="store_true", help="write the summary but not the manifest")
+    parser.add_argument("--universe-dir", type=Path, default=None,
+                        help="check the step-12 build written with reversal_data_universe.py --out-dir DIR (every universe "
+                             "file read from DIR) instead of the published INPUTS and CACHE/universe files")
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="write validation_summary.json and manifest.json here instead of INPUTS")
     args = parser.parse_args(argv)
-    ctx = Context()
+    ctx = Context(universe_dir=args.universe_dir, out_dir=args.out_dir)
+    if args.out_dir:
+        Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     only = {s.strip() for s in args.only.split(",") if s.strip()} or None
     if not only:
         log("hashing the files the test reads (compared again at the end)")
         for path in files_for_test(ctx):
-            if path.exists() and path != ctx.inputs / "validation_summary.json":
+            if path.exists() and path != ctx.out_dir / "validation_summary.json":
                 ctx.sha(path)
     results = run_checks(ctx, only)
     for r in results:

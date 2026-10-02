@@ -543,14 +543,44 @@ def test_tier_c_sample_is_refilled_with_fetchable_names():
     assert facts["sample"] == 5 and facts["pool_unfetchable"] == 1
 
 
-def test_float_price_check_drops_unit_errors_of_10b_or_more():
-    floats = pd.DataFrame({"cik": [1, 2, 3], "end": pd.to_datetime(["2021-06-30"] * 3),
-                           "val": [6.04e11, 1.5e10, 1.2e10], "shares": [3.0e8, 1.0e9, float("nan")]})
-    weekly = pd.DataFrame({"security_id": ["a", "b", "c"], "week_end": pd.to_datetime(["2021-07-02"] * 3),
-                           "close": [15.0, 20.0, 1.0]})
-    master = pd.DataFrame({"security_id": ["a", "b", "c"], "cik": ["1", "2", "3"]})
-    kept, dropped = pf.float_price_check(floats, weekly, master)
-    assert list(kept["cik"]) == [2, 3] and dropped[0]["cik"] == 1
+def test_float_price_check_corrects_or_drops_unit_errors_of_10b_or_more():
+    # Mister Car Wash-like $604B on 300M shares at $15 (a stored close): x1000 gives $2.01 a share, kept as
+    # $604M (round 6); $15B on 1B shares at $20 fits the price and a fact without shares is kept as it is;
+    # one whose x1000 value is still no price ($50T on 10M shares: $5,000 a share) is dropped.
+    floats = pd.DataFrame({"cik": [1, 2, 3, 4], "end": pd.to_datetime(["2021-06-30"] * 4),
+                           "val": [6.04e11, 1.5e10, 1.2e10, 5.0e13], "shares": [3.0e8, 1.0e9, float("nan"), 1.0e7]})
+    weekly = pd.DataFrame({"security_id": ["a", "b", "c", "d"], "week_end": pd.to_datetime(["2021-07-02"] * 4),
+                           "close": [15.0, 20.0, 1.0, 2.0]})
+    master = pd.DataFrame({"security_id": ["a", "b", "c", "d"], "cik": ["1", "2", "3", "4"]})
+    fixed = []
+    kept, dropped = pf.float_price_check(floats, weekly, master, fixed)
+    assert list(kept["cik"]) == [1, 2, 3]
+    assert kept.loc[kept["cik"] == 1, "val"].iloc[0] == pytest.approx(6.04e8)
+    assert kept.loc[kept["cik"] == 1, "unit_fix"].iloc[0] == "per_share"
+    assert kept.loc[kept["cik"] == 1, "val_reported"].iloc[0] == pytest.approx(6.04e11)
+    # the second value is still the dropped facts only (step 12 counts them)
+    assert [r["cik"] for r in dropped] == [4] and [r["cik"] for r in fixed] == [1]
+
+
+def test_x1000_float_errors_are_corrected_only_when_the_corrected_value_checks_out():
+    # Codiak: $412.7B on 22.3M shares and no other fact (x1000: $18.48 a share); Vintage Wine Estates:
+    # $429.6B next to a $364.7M fact (x1000 agrees), and $35.0B, whose x1000 ($35.0M) is a tenth of it.
+    floats = pd.DataFrame({"cik": [1659352, 1834045, 1834045, 1834045],
+                           "end": ["2021-06-30", "2020-12-31", "2021-12-31", "2022-12-31"],
+                           "val": [4.127182e11, 3.6468e8, 4.295629e11, 3.5e10]})
+    shares = pd.DataFrame({"cik": [1659352, 1834045, 1834045, 1834045],
+                           "end": ["2021-08-02", "2020-12-31", "2022-02-01", "2023-04-30"],
+                           "shares": [22331222.0, 36e6, 61691054.0, 59339163.0]})
+    kept, decisions = pf.screen_floats(floats, shares)
+    kept = kept.set_index(["cik", kept["end"].dt.strftime("%Y-%m-%d")])
+    assert kept.loc[(1659352, "2021-06-30"), "val"] == pytest.approx(4.127182e8)
+    assert kept.loc[(1659352, "2021-06-30"), "unit_fix"] == "per_share"
+    assert kept.loc[(1834045, "2021-12-31"), "unit_fix"] == "per_share+other_facts"
+    assert (1834045, "2022-12-31") not in kept.index
+    dropped = [d for d in decisions if d["action"] == "dropped"]
+    assert len(dropped) == 1 and "0.10x the median" in dropped[0]["check_or_reason"]
+    assert pf.unit_fix(1e10, float("nan"))[0] is False
+    assert pf.unit_fix(1e10, 1e9, close=None) == (False, "x1000 gives $0.01 a share outstanding: not an ordinary price")
 
 
 # ------------------------------------------------------------------ built outputs
@@ -564,14 +594,23 @@ def test_built_candidate_list_follows_the_plan():
     master = pd.read_csv(pf.MASTER, dtype=str, keep_default_na=False).set_index("security_id")
     assert list(candidates.columns) == pf.CANDIDATE_COLUMNS
     assert set(candidates["planned_source"]) <= {"wiki", "yahoo", "tiingo", "unfillable"}
-    assert not candidates.duplicated(["security_id", "reason"]).any()
+    assert not candidates.duplicated(["security_id", "reason", "planned_source", "needed_start"]).any()
+    # (a Yahoo row and its Tiingo or unfillable fallback share the reason; nothing else does)
+    assert not candidates[candidates["fallback_from"] == ""].duplicated(["security_id", "reason"]).any()
     # Foreign filers are never ranked or fetched (MIXED ones only outside their foreign years).
     assert not candidates["security_id"].map(master["foreign_filer"]).eq("Y").any()
     # Tiingo is planned only on a supported_tickers range match; active names go to Yahoo.
     tiingo = candidates[candidates["planned_source"] == "tiingo"]
-    assert tiingo["tiingo_range_match"].isin(["Y", "partial"]).all()
+    shadowed = tiingo["tiingo_flags"].str.split().apply(lambda f: "ask_shadowed" in f)
+    assert tiingo.loc[~shadowed, "tiingo_range_match"].isin(["Y", "partial"]).all()
+    assert (tiingo.loc[shadowed, "tiingo_range_match"] == "hidden").all()
+    assert (tiingo.loc[shadowed, "status"] == "deferred_quota").all() and (tiingo.loc[shadowed, "fallback_from"] != "").all()
     fetch = candidates[candidates["reason"] != "V_verify_sample"]
-    assert (fetch.loc[fetch["active"] == "Y", "planned_source"] == "yahoo").all()
+    own = fetch[fetch["fallback_from"] == ""]
+    assert (own.loc[own["active"] == "Y", "planned_source"] == "yahoo").all()
+    # a Tiingo fallback is month 2, after a Yahoo answer that failed or covers under half of the need
+    fallback = fetch[(fetch["fallback_from"] != "") & (fetch["planned_source"] == "tiingo")]
+    assert (fallback["status"] == "deferred_quota").all() and (fallback["fetch_month"] == pf.MONTH_2).all()
     assert (fetch.loc[fetch["planned_source"] == "unfillable", "status"].isin(["no_data", "wrong_entity"])).all()
     # The seeded tier-C sample has 20 names and V has 50.
     assert (candidates["reason"] == "B_C_sample_300M_500M").sum() == pf.TIER_C_SAMPLE
@@ -588,7 +627,7 @@ def test_built_candidate_list_follows_the_plan():
     assert len(s_rows) and s_rows["n"].max() < later["n"].min()
     # Every planned Tiingo row is the row the API serves for its ticker.
     index = pf.tiingo_index(pf.load_supported_tickers(offline=True))
-    for row in tiingo.itertuples(index=False):
+    for row in tiingo[~shadowed].itertuples(index=False):
         served = pf.served_row(index[row.ticker_for_source])
         assert (served["start"], served["end"]) == (row.tiingo_row_start, row.tiingo_row_end), row.ticker_for_source
     # TEVA (foreign to 2018-02) and Atlassian (to 2022-11) are not ranked in their foreign years;
@@ -621,6 +660,16 @@ def test_built_list_sends_every_uncovered_name_listed_now_to_yahoo():
     shells = facts.index[facts["spac_like_now"] == "True"]
     yahoo = candidates[candidates["planned_source"] == "yahoo"]
     assert set(listed.index) - set(shells) <= set(yahoo["security_id"])
+    # round 6: and every name still trading off Nasdaq (moved, or out of the latest snapshots), under its
+    # SEC current ticker, unless Yahoo cannot be asked for it (when-issued, another class's tickers)
+    off = facts[(facts["active"] == "True") & (facts["last_listed"].str[:10] != pf.WINDOW_END)
+                & (facts["uncovered_weeks"].astype(int) > 0) & (facts["yahoo_excluded"] == "")]
+    assert len(off) and set(off.index) <= set(yahoo["security_id"])
+    for sid in ("857855", "816956", "1578987"):  # UCBI -> UCB, CNMD, BANX
+        assert sid in set(yahoo["security_id"]), sid
+    assert yahoo.loc[yahoo["security_id"] == "857855", "ticker_for_source"].iloc[0] == "UCB"
+    assert not candidates["security_id"].isin(["1570585.T-LBYAV", "1570585.T-LBYKV", "1560385.T-LLYVA",
+                                               "1560385.T-LLYVK"]).any()
     assert not candidates.loc[candidates["reason"] == "Y_active_all", "security_id"].isin(shells).any()
     # round 5: listed, never ranked by step 6 before later listings after a Form 25 were kept
     for sid, ticker in pf.Y_NAMED.items():
@@ -632,5 +681,267 @@ def test_built_list_sends_every_uncovered_name_listed_now_to_yahoo():
     unknown = pd.read_csv(pf.UNKNOWN_SIZE, dtype=str, keep_default_na=False)
     assert list(unknown.columns) == pf.UNKNOWN_SIZE_COLUMNS
     assert not unknown["security_id"].isin(listed.index).any()
+    assert not unknown["security_id"].isin(facts.index[facts["active"] == "True"]).any()
     for column in ("close", "dv50", "market_cap", "float_usd"):
         assert column not in unknown.columns
+
+
+# ------------------------------------------------------------------ round 6
+
+def _wolf_facts(extra: dict | None = None) -> pd.DataFrame:
+    base = {"tickers": "CREE", "ticker_last_held": "CREE:2021-10-03", "ticker_first_held": "CREE:2010-12-31",
+            "tickers_sec_current": "WOLF", "first_listed": "2010-12-31", "last_listed": "2021-10-03", "active": True,
+            "transfer_date": "", "cik": "895419", "name": "WOLFSPEED, INC.", "delist_date": "", "via_successor": ""}
+    rows = {"895419": base, **(extra or {})}
+    return pd.DataFrame(list(rows.values()), index=list(rows))
+
+
+def _yahoo_row(sid, ticker, start, end, reason="A1_wiki_dv_rank300"):
+    return {"security_id": sid, "ticker_for_source": ticker, "needed_start": start, "needed_end": end, "reason": reason,
+            "reasons_all": reason, "priority": pf.REASON_PRIORITY.index(reason) + 1, "planned_source": "yahoo",
+            "status": "pending", "fetch_month": pf.MONTH_1, "active": "Y", "cik": sid, "name": "x", "note": "",
+            "tiingo_flags": "", "tiingo_reused_ticker": ""}
+
+
+def test_a_yahoo_answer_without_the_need_falls_back_to_tiingo_wolf():
+    # Wolfspeed (CREE until 2021-10): Yahoo's WOLF holds only the post-bankruptcy equity from 2025-09-29, so
+    # the A1 need 2018-01-21..2021-10-31 has no row (no_rows). Tiingo's WOLF row 1993-02-09..2025-09-26
+    # covers it; the API serves the NYSE row of the new equity, so the row is asked only on purpose.
+    index = supported([("WOLF", "NASDAQ", "Stock", "USD", "1993-02-09", "2025-09-26"),
+                       ("WOLF", "NASDAQ", "Stock", "USD", "2025-06-30", "2025-09-19"),
+                       ("WOLF", "NYSE", "Stock", "USD", "2025-09-29", "2026-09-30")])
+    candidates = pd.DataFrame([_yahoo_row("895419", "WOLF", "2018-01-21", "2021-10-31")]).reindex(
+        columns=pf.CANDIDATE_COLUMNS)
+    answers = {("895419", "WOLF"): [{"symbol": "WOLF", "verdict": "no_rows", "needed_start": "2018-01-21",
+                                     "needed_end": "2021-10-31", "first_row": "2025-09-29", "last_row": "2026-08-31",
+                                     "need_coverage": 0.0, "reasons": "no rows in the need"}]}
+    out, counts = pf.yahoo_fallback(candidates, _wolf_facts(), answers, index, sessions=pf.xnas_sessions())
+    yahoo = out[out["planned_source"] == "yahoo"].iloc[0]
+    assert yahoo["status"] == "yahoo_failed" and yahoo["yahoo_row_start"] == "2025-09-29"
+    tiingo = out[out["planned_source"] == "tiingo"].iloc[0]
+    assert tiingo["ticker_for_source"] == "WOLF" and tiingo["fallback_from"] == "yahoo_no_rows"
+    assert (tiingo["needed_start"], tiingo["needed_end"]) == ("2018-01-21", "2021-10-31")
+    assert (tiingo["status"], tiingo["fetch_month"]) == ("deferred_quota", pf.MONTH_2)
+    assert (tiingo["tiingo_row_start"], tiingo["tiingo_row_end"]) == ("1993-02-09", "2025-09-26")
+    assert "ask_shadowed" in tiingo["tiingo_flags"].split() and counts["fallback_tiingo_ask_shadowed"] == 1
+    # With a single WOLF row the API serves, it is a plain Tiingo row for month 2.
+    plain = supported([("WOLF", "NASDAQ", "Stock", "USD", "1993-02-09", "2025-09-26")])
+    out, counts = pf.yahoo_fallback(candidates, _wolf_facts(), answers, plain, sessions=pf.xnas_sessions())
+    tiingo = out[out["planned_source"] == "tiingo"].iloc[0]
+    assert tiingo["tiingo_range_match"] == "Y" and "ask_shadowed" not in tiingo["tiingo_flags"]
+    assert counts["fallback_tiingo"] == 1
+    # With no Tiingo row it is unfillable, and unfillable.csv names the Yahoo answer.
+    out, counts = pf.yahoo_fallback(candidates, _wolf_facts(), answers, {}, sessions=pf.xnas_sessions())
+    gone = out[out["planned_source"] == "unfillable"].iloc[0]
+    assert gone["fallback_from"] == "yahoo_no_rows" and gone["status"] == "no_data"
+    weekly = pd.DataFrame({"security_id": ["895419"], "week_end": pd.to_datetime(["2019-01-04"]), "universe": [True],
+                           "mcap": [np.nan], "float_usd": [np.nan]})
+    ranks = pd.DataFrame(columns=["security_id", "snapshot_date", "mcap_rank"])
+    table = pf.unfillable_rows(out, _wolf_facts(), weekly, pd.Series([False], index=weekly.index), ranks)
+    assert len(table) == 1 and "yahoo(no_rows 2025-09-29..2026-08-31)" in table.loc[0, "sources_tried"]
+
+
+def test_yahoo_answers_set_the_status_and_only_poor_partials_fall_back():
+    index = supported([("GOOD", "NASDAQ", "Stock", "USD", "2010-01-04", "2026-09-30"),
+                       ("SHORT", "NASDAQ", "Stock", "USD", "2010-01-04", "2026-09-30")])
+    facts = _wolf_facts({
+        "1": {**_wolf_facts().iloc[0].to_dict(), "tickers": "GOOD", "ticker_last_held": f"GOOD:{pf.WINDOW_END}",
+              "ticker_first_held": "GOOD:2010-12-31", "tickers_sec_current": "GOOD", "last_listed": pf.WINDOW_END},
+        "2": {**_wolf_facts().iloc[0].to_dict(), "tickers": "SHORT", "ticker_last_held": f"SHORT:{pf.WINDOW_END}",
+              "ticker_first_held": "SHORT:2010-12-31", "tickers_sec_current": "SHORT", "last_listed": pf.WINDOW_END}})
+    candidates = pd.DataFrame([_yahoo_row("1", "GOOD", "2018-01-21", "2026-08-31", "Y_active_all"),
+                               _yahoo_row("2", "SHORT", "2018-07-18", "2026-08-31", "Y_active_rank300"),
+                               _yahoo_row("895419", "WOLF", "2018-01-21", "2021-10-31")]).reindex(
+        columns=pf.CANDIDATE_COLUMNS)
+    answers = {("1", "GOOD"): [{"symbol": "GOOD", "verdict": "partial", "needed_start": "2018-01-21",
+                                "needed_end": "2026-08-31", "first_row": "2019-06-03", "last_row": "2026-08-31",
+                                "need_coverage": 0.83, "reasons": ""}],
+               ("2", "SHORT"): [{"symbol": "SHORT", "verdict": "partial", "needed_start": "2018-07-18",
+                                 "needed_end": "2026-08-31", "first_row": "2026-07-17", "last_row": "2026-08-31",
+                                 "need_coverage": 0.0034, "reasons": ""}]}
+    out, counts = pf.yahoo_fallback(candidates, facts, answers, index, sessions=pf.xnas_sessions())
+    status = out[out["planned_source"] == "yahoo"].set_index("security_id")["status"].to_dict()
+    assert status == {"1": "partial", "2": "partial", "895419": "pending"}
+    fallback = out[out["fallback_from"] != ""]
+    assert list(fallback["security_id"]) == ["2"]  # CRNX-like: 0.3% of the need
+    assert (fallback.iloc[0]["needed_start"], fallback.iloc[0]["needed_end"]) == ("2018-07-18", "2026-07-16")
+    # the gap a good partial leaves (17 months before 2019-06-03) is listed in unfillable.csv, no symbol spent
+    weekly = pd.DataFrame({"security_id": ["1"], "week_end": pd.to_datetime(["2018-06-01"]), "universe": [True],
+                           "mcap": [np.nan], "float_usd": [np.nan]})
+    ranks = pd.DataFrame(columns=["security_id", "snapshot_date", "mcap_rank"])
+    table = pf.unfillable_rows(out, facts, weekly, pd.Series([False], index=weekly.index), ranks)
+    row = table[table["security_id"] == "1"].iloc[0]
+    assert (row["needed_start"], row["needed_end"]) == ("2018-01-21", "2019-06-02") and "tiingo not asked" in row["sources_tried"]
+
+
+def test_y_active_all_also_takes_names_still_trading_off_nasdaq():
+    # UCBI moved to NYSE as UCB (2024-08); BANX fell out of the latest snapshots while SEC still lists it;
+    # LLYVA's CIK tickers now name other tracking stocks, so Yahoo cannot be asked for it.
+    facts = _fact_rows({
+        "ucbi": {"uncovered_weeks": 332, "listed_now": False, "last_listed": "2024-08-12"},
+        "banx": {"uncovered_weeks": 643, "listed_now": False, "last_listed": "2026-02-28"},
+        "llyva": {"uncovered_weeks": 125, "listed_now": False, "last_listed": "2025-12-31",
+                  "yahoo_excluded": "sec_tickers_of_another_class"},
+        "gone": {"uncovered_weeks": 30, "listed_now": False, "active": False, "last_listed": "2020-05-01"},
+    })
+    hits = pf.rule_hits(facts, pd.DataFrame(columns=["security_id", "snapshot_date", "mcap_rank"]),
+                        pd.DataFrame(columns=["cik", "end", "val"]))
+    assert "Y_active_all" in hits["ucbi"] and "Y_active_all" in hits["banx"]
+    assert "llyva" not in hits and "gone" not in hits
+    assert pf.yahoo_ticker(pd.Series({"active_nasdaq": False, "last_ticker": "UCBI", "yahoo_tickers": "UCB"})) == "UCB"
+    assert pf.yahoo_ticker(pd.Series({"active_nasdaq": False, "last_ticker": "UHALB",
+                                      "yahoo_tickers": "UHAL UHAL-B"})) == "UHAL-B"
+    assert pf.WHEN_ISSUED.search("Liberty Global plc - Class A Ordinary Shares When Distributed")
+
+
+def test_unknown_size_names_are_only_names_no_longer_trading():
+    weeks = pd.to_datetime(["2020-01-03", "2020-01-10"])
+    weekly = pd.DataFrame([{"security_id": s, "week_end": w, "universe": True, "vendor_ok": False,
+                            "outside_trading": False, "dv50": np.nan, "price_ge_10": "", "mcap": np.nan,
+                            "float_usd": np.nan} for s in ("gone", "moved") for w in weeks])
+    facts = pd.DataFrame({"active_nasdaq": [False, False], "active": [False, True], "tickers": ["GON", "MOV"],
+                          "name": ["G", "M"], "cik": ["1", "2"], "delist_date": ["2020-02-01", ""],
+                          "last_listed": ["2020-02-01", "2020-02-01"]}, index=["gone", "moved"])
+    out = pf.unknown_size_delisted(weekly, facts, pd.DataFrame(columns=["security_id", "reason", "planned_source",
+                                                                        "status", "fetch_month"]), fetched={}, dates={})
+    assert list(out["security_id"]) == ["gone"]
+
+
+def test_a_later_listing_after_a_form25_needs_a_symbol_file_or_a_price_row():
+    # LLEX 2017-03-16..09-11 and PBIO 2017-08-13..09-11 were seen in Wayback company lists only, with no
+    # price at all: cut to one day as before round 5. CHRD's later listing has symbol files and prices.
+    spans = pd.DataFrame([
+        {"security_id": "llex", "ticker": "LLEX", "list_start": "2017-03-16", "list_end": "2017-09-11",
+         "after_cut": True, "sources": "wayback_companylist"},
+        {"security_id": "chrd", "ticker": "OAS", "list_start": "2020-11-20", "list_end": "2022-07-22",
+         "after_cut": True, "sources": "repo_symdir"},
+        {"security_id": "cepl", "ticker": "CEPL", "list_start": "2026-07-02", "list_end": "2026-08-31",
+         "after_cut": True, "sources": "repo_screener_300M"},
+        {"security_id": "llex", "ticker": "LLEX", "list_start": "2014-01-22", "list_end": "2016-05-20",
+         "after_cut": False, "sources": "wayback_companylist wayback_symdir"}])
+    best = pd.DataFrame({"security_id": ["cepl"], "date": pd.to_datetime(["2026-07-08"])})
+    out, cut = pf.confirm_after_cut(spans, best)
+    assert [c["security_id"] for c in cut] == ["llex"]
+    llex = out.iloc[0]
+    assert llex["list_end"] == "2017-03-16" and not llex["after_cut"] and llex["after_cut_unconfirmed"]
+    assert out.iloc[1]["after_cut"] and out.iloc[2]["after_cut"] and out.iloc[2]["list_end"] == pf.WINDOW_END
+
+
+def test_the_ipo_rule_does_not_start_a_listing_on_another_companys_rows_truecar():
+    # TRUE: snapshot absent 2014-03-25, first seen 2014-06-05; WIKI's TRUE rows from 2014-03-26 (the first
+    # session the mapping span allows) are another company's; TrueCar's IPO and its stored file 2014-05-16.
+    sessions = pf.xnas_sessions("2014-01-02", "2014-12-31")
+    days = sessions[(sessions >= "2014-03-26") & (sessions <= "2014-06-30")]
+    best = pd.DataFrame({"security_id": "1327318", "date": days})
+    spans = pd.DataFrame([{"security_id": "1327318", "ticker": "TRUE", "list_start": "2014-06-05",
+                           "list_end": pf.WINDOW_END, "start_prev_absent": "2014-03-25", "snapshot_start": "2014-06-05"},
+                          # AMD-like transfer: rows start on the boundary session, no later stored file
+                          {"security_id": "amd", "ticker": "AMD", "list_start": "2014-06-05", "list_end": pf.WINDOW_END,
+                           "start_prev_absent": "2014-03-25", "snapshot_start": "2014-06-05"},
+                          # an IPO between two snapshots
+                          {"security_id": "ipo", "ticker": "IPO", "list_start": "2014-06-05", "list_end": pf.WINDOW_END,
+                           "start_prev_absent": "2014-03-25", "snapshot_start": "2014-06-05"}])
+    best = pd.concat([best, pd.DataFrame({"security_id": "amd", "date": days}),
+                      pd.DataFrame({"security_id": "ipo", "date": days[days >= "2014-05-01"]})], ignore_index=True)
+    stored = {("1327318", "TRUE"): ["2014-05-16"]}
+    trims = pf.boundary_trims(spans, best, stored, sessions)
+    assert trims == {("1327318", "TRUE", "2014-06-05"): ("2014-03-26", "2014-05-16")}
+    trimmed, dropped = pf.trim_rows(best, trims)
+    assert dropped == int(((days >= "2014-03-26") & (days < "2014-05-16")).sum())
+    out = pf.extend_starts(spans, trimmed, sessions).set_index("security_id")
+    assert out.loc["1327318", "list_start"] == "2014-05-16" and out.loc["1327318", "ipo_start"]
+    assert out.loc["amd", "list_start"] == "2014-06-05" and out.loc["amd", "ipo_boundary"]
+    assert out.loc["ipo", "list_start"] == "2014-05-01" and out.loc["ipo", "ipo_start"]
+    # with step 12's published list, only the intervals it names keep their snapshot start
+    listed = pf.extend_starts(spans, trimmed, sessions, boundary={("amd", "AMD", "2014-06-05")}).set_index("security_id")
+    assert listed.loc["amd", "ipo_boundary"] and listed.loc["amd", "list_start"] == "2014-06-05"
+    assert listed.loc["1327318", "list_start"] == "2014-05-16" and listed.loc["ipo", "list_start"] == "2014-05-01"
+
+
+def test_a_relisting_after_a_bankruptcy_has_no_warm_up_in_the_old_shares():
+    # Oasis/Chord: Form 25 2020-11-06 in its bankruptcy, the new equity listed from 2020-11-20.
+    row = pd.Series({"first_listed": "2019-12-27", "first_uncovered": pd.Timestamp("2019-12-27"),
+                     "last_uncovered": pd.Timestamp("2026-07-17"), "last_universe_week": pd.Timestamp("2026-07-17"),
+                     "last_listed": pf.WINDOW_END, "transfer_date": "", "active": True, "active_nasdaq": True,
+                     "via_successor": "", "delist_date": "2020-11-06", "relisted_from": "2020-11-20",
+                     "listed_before_cut": "2020-10-11", "relist_new_equity": "bankruptcy"})
+    hits = {"B_A_float_ge_1B": ("form25_max_float_3y_usd", 2e9), "Y_active_rank300": ("dv", 100)}
+    (_, _, s1, e1, _), (_, _, s2, e2, note) = pf.relisted_parts(row, ["B_A_float_ge_1B", "Y_active_rank300"], hits)
+    assert e1 == "2020-10-11" and s2 == "2020-11-20" and "no warm-up" in note
+    row["relist_new_equity"] = ""
+    assert pf.relisted_parts(row, ["B_A_float_ge_1B", "Y_active_rank300"], hits)[1][2] == "2020-09-06"
+    facts = pd.DataFrame({"relisted_from": ["2020-11-20", "2020-01-15", ""],
+                          "delist_form25_accession": ["a1", "a2", "a3"]}, index=["1486159", "1375365", "x"])
+    terminal = pd.DataFrame({"security_id": ["1486159", "1375365"], "event_subtype": ["bankruptcy", "removed_by_exchange"]})
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "terminal.csv"
+        terminal.to_csv(path, index=False)
+        kinds = pf.relisting_kinds(facts, pd.DataFrame({"accession": ["a2"], "delisting_basis": ["exchange_removal"]}), path)
+    assert kinds.to_dict() == {"1486159": "bankruptcy", "1375365": "", "x": ""}
+
+
+def test_the_month2_plan_ranks_tiingo_only_names_by_expected_top250_weeks():
+    candidates = pd.DataFrame([
+        {**_yahoo_row("a", "AAA", "2018-01-21", "2021-10-31"), "planned_source": "tiingo", "status": "deferred_quota",
+         "fetch_month": pf.MONTH_2, "fallback_from": "yahoo_no_rows"},
+        {**_yahoo_row("b", "BBB", "2019-01-01", "2020-12-31", "V_verify_sample"), "planned_source": "tiingo",
+         "status": "deferred_quota", "fetch_month": pf.MONTH_2, "fallback_from": ""},
+        {**_yahoo_row("c", "CCC", "2019-01-01", "2020-12-31", "B_C_rest_300M_500M"), "planned_source": "tiingo",
+         "status": "conditional_tier_c", "fetch_month": pf.MONTH_2, "fallback_from": ""},
+        {**_yahoo_row("d", "DDD", "2019-01-01", "2020-12-31", "B_A_float_ge_1B"), "planned_source": "tiingo",
+         "status": "pending", "fetch_month": pf.MONTH_1, "fallback_from": ""},  # month 1, being fetched
+        {**_yahoo_row("e", "EEE", "2019-01-01", "2020-12-31", "B_A_float_ge_1B"), "planned_source": "tiingo",
+         "status": "pending", "fetch_month": pf.MONTH_1, "fallback_from": ""},  # answered already
+    ]).reindex(columns=pf.CANDIDATE_COLUMNS).fillna("")
+    status = pd.DataFrame([{"security_id": "e", "ticker_for_source": "EEE", "needed_start": "2019-01-01",
+                            "needed_end": "2020-12-31", "status": "done"}])
+    evidence = pd.DataFrame({"week_end": pd.to_datetime(["2019-01-04", "2019-01-11", "2019-01-04", "2022-01-07"]),
+                             "security_id": ["a", "a", "c", "a"], "p_top250": [0.9, 0.8, 0.5, 5.0],
+                             "unknown": [False, False, False, False]})
+    weekly = pd.DataFrame(columns=["security_id", "week_end", "universe", "vendor_ok", "dv50_rank"])
+    plan, facts = pf.tiingo_month2_plan(candidates, pd.DataFrame(), pd.DataFrame(), {}, weekly, evidence, status,
+                                        cached=lambda t: t == "CCC")
+    assert list(plan["security_id"]) == ["a", "c", "b"]
+    assert plan["expected_top250_weeks"].tolist() == [1.7, 0.5, 0.0]  # a's 2022 week is outside its need
+    assert plan["group"].tolist() == ["yahoo_fallback", "tier_c", "deferred_quota"]
+    assert plan["new_symbol"].tolist() == ["Y", "", "Y"] and plan["cum_new_symbols"].tolist() == [1, 1, 2]
+    assert set(plan[f"within_{pf.PLAN_CUT}"]) == {"Y"} and facts["rows"] == 3
+
+
+def test_list_changes_name_the_rows_a_build_dropped():
+    before = pd.DataFrame({"security_id": ["1", "2"], "reason": ["A1_wiki_dv_rank300", "B_A_float_ge_1B"],
+                           "planned_source": ["tiingo", "tiingo"], "status": ["pending", "pending"]})
+    after = pd.DataFrame({"security_id": ["1", "2"], "reason": ["A1_wiki_dv_rank300", "B_A_float_ge_1B"],
+                          "planned_source": ["tiingo", "unfillable"], "status": ["done", "wrong_entity"]})
+    changes = pf.list_changes(before, after)
+    assert changes["dropped_keys"] == ["2|B_A_float_ge_1B|tiingo"] and changes["added"] == 1
+    assert changes["status_changes"] == {"pending->done": 1}
+
+
+@pytest.mark.skipif(not all(Path(p).exists() for p in BUILT + [pf.YAHOO_REPORT, pf.MONTH2_PLAN]),
+                    reason="step 6 / step 7 outputs not built")
+def test_built_list_feeds_yahoo_answers_back_and_plans_the_fallbacks():
+    candidates = pd.read_csv(pf.CANDIDATES, dtype=str, keep_default_na=False)
+    yahoo = candidates[candidates["planned_source"] == "yahoo"]
+    assert set(yahoo["status"]) <= {"pending", "done", "done_review", "partial", "yahoo_failed"}
+    report = pd.read_csv(pf.YAHOO_REPORT, dtype=str, keep_default_na=False)
+    answered = set(zip(report["security_id"], report["candidate_symbol"]))
+    keys = list(zip(yahoo["security_id"], yahoo["ticker_for_source"]))
+    assert all((k in answered) == (st != "pending") for k, st in zip(keys, yahoo["status"]))
+    # every failed or poor Yahoo answer has a fallback row (Tiingo, or unfillable)
+    poor = yahoo[(yahoo["status"] == "yahoo_failed") | ((yahoo["status"] == "partial")
+                                                       & (pd.to_numeric(yahoo["yahoo_coverage"]) < pf.MIN_PARTIAL_COVERAGE))]
+    fallback = candidates[candidates["fallback_from"] != ""]
+    assert set(zip(poor["security_id"], poor["reason"])) == set(zip(fallback["security_id"], fallback["reason"]))
+    # Wolfspeed (CREE): its A1 need 2018-2021 ends with a Tiingo row
+    wolf = fallback[fallback["security_id"] == "895419"]
+    assert (wolf["planned_source"] == "tiingo").any() and (wolf["ticker_for_source"] == "WOLF").any()
+    # INPUTS/unfillable.csv is this build's (every unfillable candidate row is in it)
+    unfillable = pd.read_csv(pf.UNFILLABLE, dtype=str, keep_default_na=False)
+    gone = candidates[(candidates["planned_source"] == "unfillable") & (candidates["reason"] != "V_verify_sample")]
+    assert set(zip(gone["security_id"], gone["needed_start"])) <= set(zip(unfillable["security_id"], unfillable["needed_start"]))
+    plan = pd.read_csv(pf.MONTH2_PLAN, dtype=str, keep_default_na=False)
+    assert list(plan.columns) == pf.PLAN_COLUMNS
+    assert pd.to_numeric(plan["expected_top250_weeks"]).is_monotonic_decreasing
+    assert set(fallback.loc[fallback["planned_source"] == "tiingo", "security_id"]) <= set(plan["security_id"])

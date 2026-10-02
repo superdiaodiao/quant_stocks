@@ -4,9 +4,20 @@ Data only. Nothing here computes returns, signals, return rankings or spreads. I
 records when each company's earnings 8-K reached EDGAR, the XNAS session that
 first traded on it (D0), and the SIC code printed in each filing's header.
 
-Scope: every CIK that is in ``candidate_fetch_list.csv`` (step 6) or that holds a
-dv20 or dv50 rank <= 300 in a domestic week of ``CACHE/prefilter/weekly_metrics.pkl``.
-Foreign filers are out (the owner excluded them): a CIK flagged Y in security_master is
+Scope: every CIK that can enter the weekly top-300 universe: one of its securities is in
+``INPUTS/weekly_universe_top300.csv.gz`` (step 12) in a domestic week, or a row of
+``candidate_fetch_list.csv`` (step 6) names it. Each CIK gets one event window, from its first
+possible universe day (the Monday of its first top-300 week, or its earliest candidate
+``needed_start``, which already carries the prefilter's 75-day dv50 warm-up) less WARMUP_DAYS
+(120: the longest regular gap between quarterly releases, so the release before the first possible
+week is in the table), not before 2011-10-01, to its last possible day (its last top-300 week or
+latest ``needed_end``) plus HOLD_DAYS (35: the plan's hold of up to 4 weeks, plus D0+1), and at least
+to the end of that day's calendar quarter (so every in-scope quarter is wholly in the window). Every
+filing from 2011-10-01 is planned from the submissions (so fiscal quarters and event kinds see the
+whole sequence), but only those filed inside the window get a header fetched and a row written.
+Coverage is measured on the company-quarters with a domestic week in scope (a top-300 week, or a
+listed week of ``CACHE/prefilter/weekly_metrics.pkl`` inside a candidate window) and listed the whole
+quarter. Foreign filers are out (the owner excluded them): a CIK flagged Y in security_master is
 foreign in every week, and a MIXED CIK in the weeks whose regime in force is foreign
 (``regime_on`` over ``INPUTS/periodic_form_history.csv``, written by step 4). Those weeks
 count nowhere here: not for the top-300 test, the listed spans or any coverage figure.
@@ -54,9 +65,10 @@ Steps:
    ``item202_between`` lists the Item 2.02 8-Ks filed after the period end and up to the
    report (assigned to a later quarter: late filers, odd period ends). A row with either
    has ``usable_as_announcement`` = N and should not be used as an announcement date.
-5. ``-index-headers.html`` for every event and every fallback filing
-   (``CACHE/raw/sec/headers/{cik}/{accession}-index-headers.html.gz``), through
-   SEC_LIMITER and sec_headers(). ``ACCEPTANCE-DATETIME`` there is Eastern wall-clock
+5. ``-index-headers.html`` for every event and every fallback filing inside the window
+   (``CACHE/raw/sec/headers/{cik}/{accession}-index-headers.html.gz``), through this step's
+   own SEC_LIMITER (at most 6 a second, ``--sec-rate``; SEC allows 10 for all processes) and
+   sec_headers(). ``ACCEPTANCE-DATETIME`` there is Eastern wall-clock
    time and is the value used; the JSON ``acceptanceDateTime`` is kept and compared
    (it is labelled Z but is sometimes Eastern time).
 6. D0 = the first XNAS session whose close (16:00 ET, 13:00 on early-close days) is
@@ -71,17 +83,28 @@ Steps:
 ``security_id`` holds every in-scope security of the CIK, space-joined, for a multi-class
 company (one event row per filing): a join on security_id must split it first.
 
+9. Hand sample (``--hand-sample``, plan section 6): 20 in-scope company-quarters with a results
+   release, drawn by numpy default_rng(20261002); their filing index, 8-K and EX-99 exhibits are
+   fetched (``CACHE/raw/sec/docs/{cik}/{accession}/``) and what they say is written to
+   hand_sample_draw.csv for a person to read; that person's findings (hand_sample_verdicts.json,
+   keyed by accession) are joined into hand_sample.csv.
+
 Outputs:
-  INPUTS/earnings_events.csv, INPUTS/earnings_fallback_periodic.csv, INPUTS/sic_history.csv
-  CACHE/earnings/earnings_summary.json   counts, header/JSON agreement, coverage, cache scan
-  CACHE/earnings/scope.csv, company_year_coverage.csv, no_event_companies.csv,
-  foreign_scope_check.csv (each in-scope MIXED CIK: weeks and rows by regime)
+  INPUTS/earnings_events.csv, INPUTS/earnings_fallback_periodic.csv, sic_history.csv (``--sic-out``,
+  default INPUTS/sic_history.csv)
+  CACHE/earnings/earnings_summary.json   counts, header/JSON agreement, coverage (and, with ``--before
+  DIR``, an earlier build's coverage of the same company-quarters), cache scan
+  CACHE/earnings/scope.csv (with each CIK's window), company_quarter_coverage.csv, company_year_coverage.csv,
+  missing_company_quarters.csv (in-scope quarters without a usable date), no_event_companies.csv,
+  foreign_scope_check.csv (each in-scope MIXED CIK: weeks and rows by regime), hand_sample*.csv
 
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_earnings.py                 # fetch what is missing, then build
     PYTHONPATH=. python scripts/reversal_data_earnings.py --offline       # build from the cache only
     PYTHONPATH=. python scripts/reversal_data_earnings.py --limit-ciks 5  # a small trial
+    PYTHONPATH=. python scripts/reversal_data_earnings.py --fetch-only --sec-rate 5   # fetch, write no table
+    PYTHONPATH=. python scripts/reversal_data_earnings.py --hand-sample --sec-rate 1  # the 20-event hand check
 """
 from __future__ import annotations
 
@@ -112,6 +135,7 @@ PREFILTER = common.CACHE / "prefilter"
 WEEKLY = PREFILTER / "weekly_metrics.pkl"
 MASTER = INPUTS / "security_master.csv"
 CANDIDATES = INPUTS / "candidate_fetch_list.csv"
+UNIVERSE_TOP = INPUTS / "weekly_universe_top300.csv.gz"  # step 12: the weekly top-300 universe
 EVENTS_OUT = INPUTS / "earnings_events.csv"
 FALLBACK_OUT = INPUTS / "earnings_fallback_periodic.csv"
 SIC_OUT = INPUTS / "sic_history.csv"
@@ -124,7 +148,7 @@ HDR_SGML_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{folder}/{accessio
 INDEX_HEADERS_FROM = "2014-06-01"
 
 EVENTS_FROM = "2011-10-01"
-TOP_RANK = 300
+WINDOW_OPEN_END = "2099-12-31"  # the window end of a CIK with no dated week or candidate window
 EVENT_FORMS = {"8-K", "8-K/A"}
 PERIODIC_FORMS = {"10-Q", "10-K", "10-QT", "10-KT", "10-K405", "10-QSB", "10-KSB"}
 QUARTER_STEP_DAYS = 91
@@ -137,6 +161,23 @@ AMEND_NEAREST_DAYS = 7  # an 8-K/A without a same-period 8-K amends the Item 2.0
 CATCH_UP_DAYS = {"10-Q": 53, "10-QT": 53, "10-QSB": 53, "10-K": 108, "10-KT": 108, "10-K405": 108, "10-KSB": 108}
 WORKERS = 8
 CHUNK = 400
+# Each CIK's event window: its first possible universe day less WARMUP_DAYS (the longest regular gap
+# between quarterly releases, 120 days, so the release before the first possible week is in the
+# table) to its last possible day plus HOLD_DAYS (the plan's hold of up to 4 weeks, plus D0+1), and at
+# least to the end of that day's calendar quarter.
+WARMUP_DAYS = 120
+HOLD_DAYS = 35
+# SEC allows 10 requests a second for all processes together; this step's share is at most 6.
+SEC_RATE_MAX = 6
+SEC_LIMITER = common.SlidingWindowLimiter({1: SEC_RATE_MAX})
+
+
+def set_sec_rate(rate: float) -> None:
+    """Use a limiter of ``rate`` requests a second (at most SEC_RATE_MAX) for every SEC request."""
+    global SEC_LIMITER
+    if not 0 < rate <= SEC_RATE_MAX:
+        raise ValueError(f"SEC rate must be in (0, {SEC_RATE_MAX}]")
+    SEC_LIMITER = common.SlidingWindowLimiter({1: int(rate)} if rate >= 1 else {1 / rate: 1})
 
 
 def log(message: str) -> None:
@@ -195,46 +236,103 @@ def domestic_weeks(weekly: pd.DataFrame, flags: pd.Series, history: pd.DataFrame
     return weekly[~foreign]
 
 
-def build_scope(weekly: pd.DataFrame, candidates: pd.DataFrame, master: pd.DataFrame,
-                history: pd.DataFrame | None = None) -> pd.DataFrame:
-    """One row per in-scope CIK: why it is in scope, its security_ids, its listed and top-300 spans.
+def load_universe_top(path: Path | None = None) -> pd.DataFrame:
+    """The weekly top-300 universe file (step 12): security_id, cik (Int64), week_end, one row per security-week."""
+    frame = pd.read_csv(path or UNIVERSE_TOP, dtype=str, keep_default_na=False, usecols=["week_end", "security_id", "cik"])
+    return frame.assign(cik=pd.array([_cik_int(c) for c in frame["cik"]], dtype="Int64"),
+                        week_end=pd.to_datetime(frame["week_end"]))
 
-    A CIK is in scope when a candidate row names it or one of its domestic weeks has a dv20 or
-    dv50 rank <= 300. Weeks in which the CIK is a foreign filer (Y, or a MIXED CIK's foreign
-    regime from ``history``) count for nothing: ``top300_weeks_foreign`` gives how many top-300
-    weeks that removed. A CIK whose every security is flagged foreign (Y) is left out.
+
+def candidate_windows(candidates: pd.DataFrame) -> pd.DataFrame:
+    """cik, security_id, start, end for each candidate row with a CIK (start/end NaT without a needed window)."""
+    def day(column):
+        if column not in candidates:
+            return pd.Series(pd.NaT, index=candidates.index)
+        return pd.to_datetime(candidates[column].replace("", None), errors="coerce")
+
+    out = pd.DataFrame({"cik": candidates["cik"].map(_cik_int), "security_id": candidates["security_id"].astype(str),
+                        "start": day("needed_start"), "end": day("needed_end")})
+    out = out[out["cik"].notna()]
+    return out.assign(cik=out["cik"].astype(int)).reset_index(drop=True)
+
+
+def _int_cik(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = frame[frame["cik"].notna()]
+    return frame.assign(cik=frame["cik"].astype(int))
+
+
+def scope_weeks(top: pd.DataFrame, weekly: pd.DataFrame, windows: pd.DataFrame, flags: pd.Series,
+                history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """(cik, week_end), one row per domestic week in which the CIK can be in the universe: its weeks in
+    the top-300 file, and its listed weeks (step 6 ``universe``) inside one of its candidate windows."""
+    parts = [_int_cik(top)[["cik", "week_end"]]]
+    listed = _int_cik(weekly[weekly["universe"]])[["cik", "week_end"]]
+    dated = windows.dropna(subset=["start", "end"])
+    if len(dated) and len(listed):
+        merged = listed.merge(dated[["cik", "start", "end"]], on="cik")
+        parts.append(merged.loc[(merged["week_end"] >= merged["start"]) & (merged["week_end"] <= merged["end"]),
+                                ["cik", "week_end"]])
+    weeks = pd.concat(parts, ignore_index=True).drop_duplicates()
+    if weeks.empty:
+        return weeks
+    foreign = regime_foreign(flags, history, weeks["cik"], weeks["week_end"])
+    return weeks[~foreign].sort_values(["cik", "week_end"]).reset_index(drop=True)
+
+
+def build_scope(top: pd.DataFrame, weekly: pd.DataFrame, candidates: pd.DataFrame, master: pd.DataFrame,
+                history: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One row per in-scope CIK: why it is in scope, its security_ids, its spans and its event window.
+
+    A CIK is in scope when one of its securities is in the weekly top-300 file (``top``: security_id,
+    cik, week_end) in a domestic week, or a candidate row names it. Weeks in which the CIK is a
+    foreign filer (Y, or a MIXED CIK's foreign regime from ``history``) count for nothing:
+    ``top300_weeks_foreign`` gives how many top-300 weeks that removed. A CIK whose every security
+    is flagged foreign (Y) is marked ``excluded_foreign``. The listed span comes from ``weekly``
+    (step 6: security_id, cik, week_end, universe).
+
+    ``window_start``..``window_end`` is the span whose filings count: from its first possible universe
+    day (the Monday of its first top-300 week, or its earliest candidate ``needed_start``) less
+    WARMUP_DAYS, but not before EVENTS_FROM, to its last possible day (its last top-300 week, or its
+    latest ``needed_end``) plus HOLD_DAYS, and at least to the end of that day's calendar quarter. One
+    span per CIK, so the quarterly sequence has no holes; every calendar quarter holding a week in scope
+    lies wholly inside it (WARMUP_DAYS exceeds a quarter at the start).
     """
-    weekly = weekly[weekly["cik"].notna()]
     flags = cik_flags(master)
-    all_top = weekly[(weekly["dv50_rank"] <= TOP_RANK) | (weekly["dv20_rank"] <= TOP_RANK)]
-    weekly = domestic_weeks(weekly, flags, history)
-    top = weekly[(weekly["dv50_rank"] <= TOP_RANK) | (weekly["dv20_rank"] <= TOP_RANK)]
-    listed = weekly[weekly["universe"]]
-    removed = (all_top.groupby(all_top["cik"].astype(int)).size()
-               .sub(top.groupby(top["cik"].astype(int)).size(), fill_value=0).astype(int))
+    top = _int_cik(top)
+    top_domestic = top[~regime_foreign(flags, history, top["cik"], top["week_end"])] if len(top) else top
+    removed = (top.groupby("cik").size().sub(top_domestic.groupby("cik").size(), fill_value=0).astype(int))
+    windows = candidate_windows(candidates)
+    listed = domestic_weeks(weekly, flags, history)
+    listed = listed[listed["universe"]]
     rows: dict[int, dict] = {}
 
     def entry(cik: int) -> dict:
         return rows.setdefault(cik, {"cik": cik, "in_top300": "N", "in_candidates": "N", "security_ids": set()})
 
-    for cik, sid in zip(top["cik"].astype(int), top["security_id"].astype(str)):
-        item = entry(cik)
+    for cik, sid in zip(top_domestic["cik"], top_domestic["security_id"].astype(str)):
+        item = entry(int(cik))
         item["in_top300"] = "Y"
         item["security_ids"].add(sid)
-    for cik, sid in zip(candidates["cik"], candidates["security_id"].astype(str)):
-        value = _cik_int(cik)
-        if value is None:
-            continue
-        item = entry(value)
+    for cik, sid in zip(windows["cik"], windows["security_id"]):
+        item = entry(int(cik))
         item["in_candidates"] = "Y"
         item["security_ids"].add(sid)
     master = master.assign(_cik=master["cik"].map(_cik_int))
     names = master.groupby("_cik")["name"].first()
-    top_span = top.groupby(top["cik"].astype(int))["week_end"].agg(["min", "max", "size"])
+    top_span = top_domestic.groupby("cik")["week_end"].agg(["min", "max", "size"])
     listed_span = listed.groupby(listed["cik"].astype(int))["week_end"].agg(["min", "max"])
+    cand_span = windows.groupby("cik").agg(start=("start", "min"), end=("end", "max"))
     out = []
     for cik, item in sorted(rows.items()):
         flag = flags.get(cik, "")
+        starts = [top_span["min"].get(cik, pd.NaT) - pd.Timedelta(days=6), cand_span["start"].get(cik, pd.NaT)]
+        ends = [top_span["max"].get(cik, pd.NaT), cand_span["end"].get(cik, pd.NaT)]
+        starts, ends = [d for d in starts if pd.notna(d)], [d for d in ends if pd.notna(d)]
+        low = max(pd.Timestamp(EVENTS_FROM), min(starts) - pd.Timedelta(days=WARMUP_DAYS)) if starts else pd.Timestamp(EVENTS_FROM)
+        # never before the end of the last day's calendar quarter, so each in-scope quarter (coverage
+        # counts quarters) lies wholly inside the window
+        high = (max(max(ends) + pd.Timedelta(days=HOLD_DAYS), max(ends).to_period("Q").end_time.normalize())
+                if ends else pd.Timestamp(WINDOW_OPEN_END))
         out.append({
             "cik": cik, "name": names.get(cik, ""), "security_ids": " ".join(sorted(item["security_ids"])),
             "in_top300": item["in_top300"], "in_candidates": item["in_candidates"], "foreign_filer": flag,
@@ -243,24 +341,30 @@ def build_scope(weekly: pd.DataFrame, candidates: pd.DataFrame, master: pd.DataF
             "top300_first_week": _day(top_span["min"].get(cik)), "top300_last_week": _day(top_span["max"].get(cik)),
             "top300_weeks": int(top_span["size"].get(cik, 0)),
             "top300_weeks_foreign": int(removed.get(cik, 0)),
+            "candidate_first_day": _day(cand_span["start"].get(cik)), "candidate_last_day": _day(cand_span["end"].get(cik)),
+            "window_start": low.strftime("%Y-%m-%d"), "window_end": high.strftime("%Y-%m-%d"),
         })
     return pd.DataFrame(out)
 
 
-def foreign_only_top300(weekly: pd.DataFrame, scope: pd.DataFrame) -> list[int]:
-    """CIKs with a top-300 week that are out of scope because every such week is foreign."""
-    weekly = weekly[weekly["cik"].notna()]
-    top = weekly[(weekly["dv50_rank"] <= TOP_RANK) | (weekly["dv20_rank"] <= TOP_RANK)]
-    return sorted(set(top["cik"].astype(int)) - set(scope["cik"].astype(int)))
+def foreign_only_top300(top: pd.DataFrame, scope: pd.DataFrame) -> list[int]:
+    """CIKs with a week in the top-300 file that are out of scope because every such week is foreign."""
+    return sorted(set(_int_cik(top)["cik"]) - set(scope["cik"].astype(int)))
 
 
 def _day(value) -> str:
     return "" if value is None or pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%d")
 
 
+def in_window(days, start: str, end: str) -> np.ndarray:
+    """True where the filing date (YYYY-MM-DD) lies in the CIK's event window."""
+    days = np.asarray(days, dtype=object).astype(str)
+    return (days >= start) & (days <= end)
+
+
 def load_scope() -> pd.DataFrame:
-    weekly = pd.read_pickle(WEEKLY)[["security_id", "cik", "week_end", "universe", "dv50_rank", "dv20_rank"]]
-    return build_scope(weekly, read_csv_text(CANDIDATES), read_csv_text(MASTER), load_history())
+    weekly = pd.read_pickle(WEEKLY)[["security_id", "cik", "week_end", "universe"]]
+    return build_scope(load_universe_top(), weekly, read_csv_text(CANDIDATES), read_csv_text(MASTER), load_history())
 
 
 # ------------------------------------------------------------------ SEC fetches (cache first)
@@ -273,16 +377,18 @@ _STOP = threading.Event()
 
 
 def _sec_get(url: str, path: Path, source: str, symbol: str, offline: bool) -> bytes | None:
-    """The body for ``url`` from cache, else one request through SEC_LIMITER; None when absent (404/offline)."""
+    """The body for ``url`` from cache, else one request through this step's SEC_LIMITER (at most
+    SEC_RATE_MAX a second, not common.SEC_LIMITER); None when absent (404/offline)."""
     if path.exists():
-        return gzip.decompress(path.read_bytes())
+        data = path.read_bytes()
+        return gzip.decompress(data) if path.suffix == ".gz" else data
     if offline or path.with_name(path.name + ".404").exists():
         return None
     if _STOP.is_set():
         raise StopFetching("stopped after an earlier refusal")
     try:
         return common.cached_get(url, path, source=source, headers=common.sec_headers(),
-                                 limiter=common.SEC_LIMITER, symbol=symbol)
+                                 limiter=SEC_LIMITER, symbol=symbol)
     except FileNotFoundError:
         return None
     except HTTPError as exc:
@@ -787,8 +893,13 @@ def resolve_acceptance(json_raw: str, header_et: str, month_rule: str = "utc") -
 
 # ------------------------------------------------------------------ per-company plan
 
-def plan_company(cik: int, offline: bool = False) -> dict:
-    """Item 2.02 events (with fiscal quarters) and fallback periodic filings for one CIK, from its submissions."""
+def plan_company(cik: int, offline: bool = False, window: tuple[str, str] = (EVENTS_FROM, WINDOW_OPEN_END)) -> dict:
+    """Item 2.02 events (with fiscal quarters) and fallback periodic filings for one CIK, from its submissions.
+
+    Every filing from EVENTS_FROM is planned, so fiscal quarters, event kinds and the fallback tests
+    see the company's whole sequence; ``in_window`` marks those filed inside ``window`` (the CIK's
+    event window), plus every event of a fiscal quarter that has one there, which alone get headers
+    fetched and rows written."""
     facts = company_filings(cik, offline)
     table = facts.pop("table")
     ends = period_ends(table)
@@ -805,16 +916,22 @@ def plan_company(cik: int, offline: bool = False) -> dict:
     covered = set(events.loc[~events["amends_how"].isin(AMEND_LINKS), "fiscal_quarter_end"]) - {""}
     fallback = fallback_filings(table, covered)
     periodic = periodic_filings(table)
-    return {**facts, "events": events, "fallback": fallback,
+    events["in_window"] = in_window(events["filingDate"], *window)
+    # a fiscal quarter with one event inside the window comes whole (its release may lie just outside)
+    quarters_in = set(events.loc[events["in_window"], "fiscal_quarter_end"]) - {""}
+    events["in_window"] = events["in_window"] | events["fiscal_quarter_end"].isin(quarters_in)
+    fallback["in_window"] = in_window(fallback["filingDate"], *window)
+    return {**facts, "events": events, "fallback": fallback, "window": tuple(window),
             "n_periodic_since": int((periodic["filingDate"] >= EVENTS_FROM).sum()),
             "first_filing": table["filingDate"].min() if len(table) else "",
             "last_filing": table["filingDate"].max() if len(table) else ""}
 
 
 def foreign_scope_check(scope: pd.DataFrame, weekly: pd.DataFrame, flags: pd.Series, history: pd.DataFrame | None,
-                        events: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
-    """Each in-scope MIXED CIK: its foreign spans (step 4) and how many of its top-300 and listed
-    weeks, events and fallback rows fall where the foreign regime is in force."""
+                        events: pd.DataFrame, fallback: pd.DataFrame, top: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Each in-scope MIXED CIK: its foreign spans (step 4) and how many of its top-300 weeks (``top``, the
+    top-300 file) and listed weeks (``weekly``), events and fallback rows fall where the foreign regime is in force."""
+    top_all = _int_cik(top) if top is not None else pd.DataFrame(columns=["cik", "week_end"])
     master_spans = {}
     if MASTER.exists():
         master = read_csv_text(MASTER)
@@ -825,7 +942,7 @@ def foreign_scope_check(scope: pd.DataFrame, weekly: pd.DataFrame, flags: pd.Ser
     for record in scope[scope["foreign_filer"].str.contains("MIXED")].to_dict("records"):
         cik = int(record["cik"])
         mine = weekly[weekly["cik"].astype(int) == cik]
-        top = mine[(mine["dv50_rank"] <= TOP_RANK) | (mine["dv20_rank"] <= TOP_RANK)].drop_duplicates("week_end")
+        top = top_all[top_all["cik"] == cik].drop_duplicates("week_end")
         listed = mine[mine["universe"]].drop_duplicates("week_end")
 
         def foreign(frame, column):
@@ -845,14 +962,19 @@ def foreign_scope_check(scope: pd.DataFrame, weekly: pd.DataFrame, flags: pd.Ser
     return pd.DataFrame(rows)
 
 
-def plan_all(ciks: list[int], offline: bool = False) -> tuple[dict[int, dict], dict[int, str]]:
-    """(plans, failures): ``plan_company`` for every CIK (older pages fetched as needed), with progress lines."""
+def plan_all(ciks: list[int], offline: bool = False,
+             windows: dict[int, tuple[str, str]] | None = None) -> tuple[dict[int, dict], dict[int, str]]:
+    """(plans, failures): ``plan_company`` for every CIK (older pages fetched as needed), with progress lines;
+    ``windows`` gives each CIK's event window (default: everything from EVENTS_FROM)."""
+    windows = windows or {}
     plans: dict[int, dict] = {}
     failures: dict[int, str] = {}
     started = time.time()
     for start in range(0, len(ciks), CHUNK):
         chunk = ciks[start:start + CHUNK]
-        results = common.parallel_map(lambda cik: plan_company(cik, offline), chunk, WORKERS)
+        results = common.parallel_map(
+            lambda cik: plan_company(cik, offline, windows.get(cik, (EVENTS_FROM, WINDOW_OPEN_END))),
+            chunk, WORKERS)
         for cik, result in zip(chunk, results):
             if isinstance(result, Exception):
                 log(f"  CIK {cik}: {type(result).__name__}: {result}")
@@ -868,10 +990,11 @@ def plan_all(ciks: list[int], offline: bool = False) -> tuple[dict[int, dict], d
 
 
 def header_jobs(plans: dict[int, dict]) -> list[tuple[int, str, str, str]]:
-    """(cik, accession, filing date, kind) for every event and fallback filing."""
+    """(cik, accession, filing date, kind) for every event and fallback filing inside the CIK's window."""
     jobs = []
     for cik, plan in plans.items():
         for frame, kind in ((plan["events"], "item202"), (plan["fallback"], "periodic_fallback")):
+            frame = frame[frame["in_window"]] if "in_window" in frame else frame
             jobs += [(cik, acc, day, kind) for acc, day in zip(frame["accessionNumber"], frame["filingDate"])]
     return jobs
 
@@ -948,7 +1071,7 @@ def _rows(cik: int, frame: pd.DataFrame, source: str, security_ids: str) -> list
             "header_sic_description": parsed["header_sic_description"], "sic_match": parsed["sic_match"],
             "primary_document": record["primaryDocument"], "header_file": kind,
             "json_label": json_label(record["acceptanceDateTime"], parsed["acceptance_header_et"]),
-            **{key: record.get(key, "") for key in PLAN_EXTRAS},
+            **{key: record.get(key, "") for key in PLAN_EXTRAS}, "in_window": bool(record.get("in_window", True)),
         })
     return rows
 
@@ -1013,7 +1136,11 @@ def mark_fallback(fallback: pd.DataFrame) -> pd.DataFrame:
 
 def build_tables(plans: dict[int, dict], scope: pd.DataFrame, calendar: XnasCloses,
                  history: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(events, fallback) from the plans and the cached headers."""
+    """(events, fallback) from the plans and the cached headers: the rows filed inside each CIK's window.
+
+    Event kinds, quarter counts and the fallback's shared-D0 test are worked out over every planned
+    filing first (a filing outside the window has no header and is timed from its JSON by the label
+    rule), so a row near the window's edge is classified as it would be with the whole history."""
     ids = dict(zip(scope["cik"].astype(int), scope["security_ids"]))
     flags = pd.Series(dict(zip(scope["cik"].astype(int), scope["foreign_filer"])), dtype=object)
     event_rows, fallback_rows = [], []
@@ -1036,6 +1163,10 @@ def build_tables(plans: dict[int, dict], scope: pd.DataFrame, calendar: XnasClos
             frame["foreign_filer"] = frame["cik"].astype(int).map(flags).fillna("")
             day = frame["d0_session"].where(frame["d0_session"] != "", frame["filing_date"])
             frame["foreign_regime_on_d0"] = np.where(regime_foreign(flags, history, frame["cik"], day), "Y", "N")
+    if len(events):
+        events = events[events["in_window"].astype(bool)]
+    if len(fallback):
+        fallback = fallback[fallback["in_window"].astype(bool)]
     order = ["cik", "acceptance_sort", "accession"]
     events = events.sort_values(order).reset_index(drop=True) if len(events) else events
     fallback = fallback.sort_values(order).reset_index(drop=True) if len(fallback) else fallback
@@ -1075,23 +1206,28 @@ def sic_history(events: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ coverage (counts only)
 
-def presence(weekly: pd.DataFrame, ciks: set[int]) -> pd.DataFrame:
-    """Per (cik, calendar quarter): weeks listed, weeks in the top 300, and the quarter's week count."""
-    weekly = weekly[weekly["cik"].notna() & weekly["universe"]].copy()
-    weekly["cik"] = weekly["cik"].astype(int)
-    weekly = weekly[weekly["cik"].isin(ciks)]
-    weekly["top"] = (weekly["dv50_rank"] <= TOP_RANK) | (weekly["dv20_rank"] <= TOP_RANK)
-    weekly["quarter"] = weekly["week_end"].dt.to_period("Q").astype(str)
+def presence(weeks: pd.DataFrame, weekly: pd.DataFrame, ciks: set[int]) -> pd.DataFrame:
+    """Per (cik, calendar quarter): weeks listed (step 6 ``universe``, domestic), weeks in scope
+    (``weeks``: cik, week_end from ``scope_weeks``) and the quarter's week count."""
+    listed = _int_cik(weekly[weekly["universe"]])[["cik", "week_end"]]
+    total = (listed.drop_duplicates("week_end").assign(quarter=lambda f: f["week_end"].dt.to_period("Q").astype(str))
+             .groupby("quarter").size().rename("quarter_weeks"))
     # one row per cik-week (a multi-class company counts once)
-    per_week = weekly.groupby(["cik", "quarter", "week_end"])["top"].any().reset_index()
-    out = per_week.groupby(["cik", "quarter"]).agg(listed_weeks=("week_end", "size"), top_weeks=("top", "sum")).reset_index()
-    total = weekly.drop_duplicates("week_end").groupby("quarter").size().rename("quarter_weeks")
-    return out.merge(total, left_on="quarter", right_index=True)
+    listed = listed[listed["cik"].isin(ciks)].drop_duplicates()
+    weeks = _int_cik(weeks)[["cik", "week_end"]]
+    weeks = weeks[weeks["cik"].isin(ciks)].drop_duplicates()
+    both = listed.merge(weeks, on=["cik", "week_end"], how="outer", indicator=True)
+    both["quarter"] = both["week_end"].dt.to_period("Q").astype(str)
+    both["is_listed"] = both["_merge"] != "right_only"
+    both["in_scope"] = both["_merge"] != "left_only"
+    out = both.groupby(["cik", "quarter"]).agg(listed_weeks=("is_listed", "sum"), scope_weeks=("in_scope", "sum")).reset_index()
+    out = out.merge(total, left_on="quarter", right_index=True, how="left")
+    return out.assign(quarter_weeks=out["quarter_weeks"].fillna(0).astype(int))
 
 
 def quarter_coverage(present: pd.DataFrame, events: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
-    """``present`` plus event counts by D0 calendar quarter: all Item 2.02, results releases, fallback
-    (all, and those usable as announcement dates)."""
+    """``present`` plus event counts by D0 calendar quarter: all Item 2.02, those that are not amendments,
+    results releases, fallback (all, and those usable as announcement dates)."""
     def counts(frame: pd.DataFrame, name: str, mask=None) -> pd.Series:
         if frame.empty:
             return pd.Series(dtype=int, name=name)
@@ -1104,46 +1240,63 @@ def quarter_coverage(present: pd.DataFrame, events: pd.DataFrame, fallback: pd.D
         return result
 
     out = present.set_index(["cik", "quarter"])
-    names = ("n_item202", "n_results_release", "n_fallback", "n_fallback_usable")
+    names = ("n_item202", "n_item202_original", "n_results_release", "n_fallback", "n_fallback_usable")
     for series in (counts(events, names[0]),
-                   counts(events, names[1], lambda f: f["event_kind"] == "results_release"),
-                   counts(fallback, names[2]),
-                   counts(fallback, names[3], lambda f: f["usable_as_announcement"] == "Y")):
+                   counts(events, names[1], lambda f: f["event_kind"] != "amendment"),
+                   counts(events, names[2], lambda f: f["event_kind"] == "results_release"),
+                   counts(fallback, names[3]),
+                   counts(fallback, names[4], lambda f: f["usable_as_announcement"] == "Y")):
         out = out.join(series, how="left")
     out = out.fillna({name: 0 for name in names})
     for column in names:
         out[column] = out[column].astype(int)
     out["full_quarter"] = out["listed_weeks"] >= out["quarter_weeks"]
+    out["usable_date"] = (out["n_item202_original"] > 0) | (out["n_fallback_usable"] > 0)
     return out.reset_index()
 
 
+COVERAGE_DEFINITION = ("calendar quarters in which the CIK has at least one domestic week in scope (a week in the "
+                       "weekly top-300 file, or a listed week inside one of its candidate windows) and is listed in "
+                       "every week of the quarter; an event counts when its D0 falls in the quarter; a usable date is "
+                       "an Item 2.02 event that is not an amendment, or a fallback with usable_as_announcement = Y")
+
+
+def scope_quarters(quarters: pd.DataFrame) -> pd.DataFrame:
+    """The company-quarters coverage is measured on (COVERAGE_DEFINITION)."""
+    return quarters[(quarters["scope_weeks"] > 0) & quarters["full_quarter"]]
+
+
 def coverage_summary(quarters: pd.DataFrame) -> dict:
-    """Share of company-quarters (top-300 at least one week, listed the whole quarter) with an event, by year."""
-    q = quarters[(quarters["top_weeks"] > 0) & quarters["full_quarter"]].copy()
+    """Share of in-scope company-quarters (listed the whole quarter) with an event and with a usable date, by year."""
+    q = scope_quarters(quarters).copy()
     q["year"] = q["quarter"].str[:4]
     q["any_item202"] = q["n_item202"] > 0
     q["any_event"] = (q["n_item202"] > 0) | (q["n_fallback"] > 0)
     q["any_usable"] = (q["n_item202"] > 0) | (q["n_fallback_usable"] > 0)
     by_year = q.groupby("year").agg(company_quarters=("cik", "size"), with_item202=("any_item202", "sum"),
-                                    with_item202_or_fallback=("any_event", "sum"))
-    by_year["share_item202"] = (by_year["with_item202"] / by_year["company_quarters"]).round(4)
-    by_year["share_any"] = (by_year["with_item202_or_fallback"] / by_year["company_quarters"]).round(4)
-    return {"definition": "calendar quarters in which the CIK holds a dv20/dv50 rank <= 300 in at least one week "
-                          "and is listed in every week of the quarter; an event counts when its D0 falls in the quarter",
+                                    with_item202_or_fallback=("any_event", "sum"), with_usable_date=("usable_date", "sum"))
+    for name, column in (("share_item202", "with_item202"), ("share_any", "with_item202_or_fallback"),
+                         ("share_usable_date", "with_usable_date")):
+        by_year[name] = (by_year[column] / by_year["company_quarters"]).round(4)
+    return {"definition": COVERAGE_DEFINITION,
             "company_quarters": int(len(q)), "with_item202": int(q["any_item202"].sum()),
-            "with_item202_or_fallback": int(q["any_event"].sum()),
+            "with_item202_or_fallback": int(q["any_event"].sum()), "with_usable_date": int(q["usable_date"].sum()),
+            "without_usable_date": int((~q["usable_date"]).sum()),
             "share_any": round(float(q["any_event"].mean()), 4) if len(q) else None,
             "share_item202_or_usable_fallback": round(float(q["any_usable"].mean()), 4) if len(q) else None,
+            "share_usable_date": round(float(q["usable_date"].mean()), 4) if len(q) else None,
             "by_year": {year: {"company_quarters": int(row.company_quarters), "with_item202": int(row.with_item202),
                                "with_item202_or_fallback": int(row.with_item202_or_fallback),
-                               "share_item202": float(row.share_item202), "share_any": float(row.share_any)}
+                               "with_usable_date": int(row.with_usable_date),
+                               "share_item202": float(row.share_item202), "share_any": float(row.share_any),
+                               "share_usable_date": float(row.share_usable_date)}
                         for year, row in by_year.iterrows()}}
 
 
 def company_year_table(quarters: pd.DataFrame) -> pd.DataFrame:
-    """Per (cik, calendar year): listed and top-300 weeks, Item 2.02 / results-release / fallback counts."""
+    """Per (cik, calendar year): listed and in-scope weeks, Item 2.02 / results-release / fallback counts."""
     q = quarters.assign(year=quarters["quarter"].str[:4])
-    out = q.groupby(["cik", "year"]).agg(listed_weeks=("listed_weeks", "sum"), top_weeks=("top_weeks", "sum"),
+    out = q.groupby(["cik", "year"]).agg(listed_weeks=("listed_weeks", "sum"), scope_weeks=("scope_weeks", "sum"),
                                          n_item202=("n_item202", "sum"), n_results_release=("n_results_release", "sum"),
                                          n_fallback=("n_fallback", "sum"),
                                          n_fallback_usable=("n_fallback_usable", "sum")).reset_index()
@@ -1156,14 +1309,14 @@ def company_year_table(quarters: pd.DataFrame) -> pd.DataFrame:
 
 
 def company_year_summary(years: pd.DataFrame) -> dict:
-    """Distribution of quarterly events (results releases + fallback) per top-300 company-year."""
-    y = years[years["top_weeks"] > 0]
+    """Distribution of quarterly events (results releases + fallback) per in-scope company-year."""
+    y = years[years["scope_weeks"] > 0]
     bucket = y["n_quarterly_events"].clip(upper=5).map(lambda n: "5+" if n >= 5 else str(int(n)))
     full = y["full_year"] == "Y"
     table = pd.crosstab(y.loc[full, "year"], bucket[full])
-    return {"definition": "calendar years with a dv20/dv50 rank <= 300 in at least one domestic week; quarterly "
-                          "events = results_release Item 2.02 events plus fallback filings with D0 in the year",
-            "company_years_top300": int(len(y)), "full_year_listed": int(full.sum()),
+    return {"definition": "calendar years with at least one domestic week in scope (top-300 file or candidate window); "
+                          "quarterly events = results_release Item 2.02 events plus fallback filings with D0 in the year",
+            "company_years_in_scope": int(len(y)), "full_year_listed": int(full.sum()),
             "events_per_company_year": {str(k): int(v) for k, v in bucket.value_counts().sort_index().items()},
             "events_per_full_company_year": {str(k): int(v) for k, v in bucket[full].value_counts().sort_index().items()},
             "zero_item202_company_years": int((y["n_item202"] == 0).sum()),
@@ -1208,11 +1361,11 @@ def ff49_lookup(path: Path = FF_MAPS) -> dict[str, str]:
     return out
 
 
-def sic_week_coverage(weekly: pd.DataFrame, sic: pd.DataFrame, ff49: dict[str, str], ciks: set[int]) -> dict:
-    """For top-300 name-weeks of ``ciks``: is there a header SIC on or before the week, only a later one,
-    or none; and does that SIC fall in an FF49 range (blank checks 6770 counted apart)."""
-    top = weekly[weekly["cik"].notna() & ((weekly["dv50_rank"] <= TOP_RANK) | (weekly["dv20_rank"] <= TOP_RANK))]
-    top = top.assign(cik=top["cik"].astype(int))[["cik", "week_end"]].drop_duplicates().sort_values("week_end")
+def sic_week_coverage(weeks: pd.DataFrame, sic: pd.DataFrame, ff49: dict[str, str], ciks: set[int]) -> dict:
+    """For the name-weeks (``weeks``: cik, week_end, e.g. the top-300 file) of ``ciks``: is there a header
+    SIC on or before the week, only a later one, or none; and does that SIC fall in an FF49 range (blank
+    checks 6770 counted apart)."""
+    top = _int_cik(weeks)[["cik", "week_end"]].drop_duplicates().sort_values("week_end")
     top = top[top["cik"].isin(ciks)]
     if sic.empty:
         return {"name_weeks": int(len(top)), "no_sic": int(len(top))}
@@ -1259,6 +1412,177 @@ def no_event_companies(scope: pd.DataFrame, plans: dict[int, dict], events: pd.D
                      "first_filing": plan.get("first_filing", ""), "last_filing": plan.get("last_filing", ""),
                      "submissions_missing": plan.get("missing", "no_plan")})
     return pd.DataFrame(rows)
+
+
+# ------------------------------------------------------------------ hand sample (plan section 6: events checked by hand)
+
+HAND_SAMPLE_SEED = 20261002
+HAND_SAMPLE_N = 20
+DOCS_DIR = SEC_RAW / "docs"
+INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{folder}/{accession}-index.htm"
+QUARTERS_OUT = OUT / "company_quarter_coverage.csv"
+HAND_DRAW = OUT / "hand_sample_draw.csv"
+HAND_VERDICTS = OUT / "hand_sample_verdicts.json"  # the checker's findings, written by hand
+HAND_SAMPLE = OUT / "hand_sample.csv"
+HAND_VERDICT_FIELDS = ["release_date_stated", "release_time_stated", "date_confirmed", "session_confirmed",
+                       "is_quarterly_results", "d0_matches", "notes"]
+
+
+def hand_sample_population(events: pd.DataFrame, quarters: pd.DataFrame) -> pd.DataFrame:
+    """The results releases whose D0 falls in an in-scope company-quarter (COVERAGE_DEFINITION), one per
+    company-quarter (the earliest accepted when a calendar quarter holds two), sorted by CIK and quarter."""
+    q = scope_quarters(quarters)[["cik", "quarter"]].assign(cik=lambda f: f["cik"].astype(int))
+    rel = events[(events["event_kind"] == "results_release") & (events["d0_session"] != "")].copy()
+    rel["quarter"] = pd.PeriodIndex(pd.to_datetime(rel["d0_session"]), freq="Q").astype(str)
+    rel["cik"] = rel["cik"].astype(int)
+    rel = rel.merge(q, on=["cik", "quarter"]).sort_values(["cik", "quarter", "acceptance_et", "accession"])
+    return rel.drop_duplicates(["cik", "quarter"]).reset_index(drop=True)
+
+
+def draw_hand_sample(population: pd.DataFrame, seed: int = HAND_SAMPLE_SEED, n: int = HAND_SAMPLE_N) -> pd.DataFrame:
+    """``n`` company-quarters drawn without replacement by numpy default_rng(seed), in draw order."""
+    picks = np.random.default_rng(seed).choice(len(population), size=min(n, len(population)), replace=False)
+    return population.iloc[picks].assign(draw_order=range(1, len(picks) + 1), seed=seed,
+                                         population=len(population)).reset_index(drop=True)
+
+
+def _strip(fragment: str) -> str:
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"(?s)<[^>]+>", " ", fragment))).strip()
+
+
+def parse_filing_index(text: str) -> dict:
+    """Facts from an EDGAR filing index page: the info fields (Filing Date, Accepted, Period of Report,
+    Items) and the document table (seq, description, document, type, url)."""
+    info = {_strip(k): _strip(v.replace("<br>", "; ").replace("<br />", "; "))
+            for k, v in re.findall(r'<div class="infoHead">(.*?)</div>\s*<div class="info">(.*?)</div>', text, re.S)}
+    docs = []
+    table = text.split('summary="Document Format Files"', 1)
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table[1].split("</table>", 1)[0] if len(table) > 1 else "", re.S):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)
+        href = re.search(r'href="([^"]+)"', cells[2]) if len(cells) >= 4 else None
+        if href is None:
+            continue
+        link = href.group(1).replace("/ix?doc=", "")
+        docs.append({"seq": _strip(cells[0]), "description": _strip(cells[1]), "document": _strip(cells[2]).split(" ")[0],
+                     "type": _strip(cells[3]), "url": link if link.startswith("http") else "https://www.sec.gov" + link})
+    return {"info": info, "documents": docs}
+
+
+def html_text(data: bytes) -> str:
+    """Plain text of an HTML (or text) filing document, whitespace collapsed."""
+    text = data.decode("utf-8", "replace")
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
+    return _strip(text)
+
+
+_SESSION = re.compile(r"(after (?:the )?(?:u\.s\. )?(?:stock )?markets? (?:has )?clos\w*|after (?:the )?close of (?:the )?(?:stock )?"
+                      r"market|after (?:the )?(?:market|bell)|before (?:the )?(?:u\.s\. )?(?:stock )?markets? open\w*|"
+                      r"prior to (?:the )?(?:u\.s\. )?(?:stock )?markets? open\w*|before (?:the )?(?:opening|open) of "
+                      r"(?:the )?(?:stock )?market|pre-market|premarket|after-market)", re.I)
+_CALL_TIME = re.compile(r"\b\d{1,2}(?::\d{2})?\s*(?:a\.?\s?m\.?|p\.?\s?m\.?)\s*\(?\s*(?:E[SD]?T|Eastern|P[SD]?T|Pacific|"
+                        r"C[SD]?T|Central|M[SD]?T|Mountain|ET|PT|CT|MT)\b", re.I)
+_RESULTS = (re.compile(r"\bannounc\w*\b.{0,200}?\b(?:results|earnings)\b", re.I),
+            re.compile(r"\b(?:report|releas|post)\w*\b.{0,200}?\b(?:results|earnings)\b", re.I))
+
+
+def _contexts(pattern: re.Pattern, text: str, limit: int = 3, width: int = 110) -> str:
+    out = []
+    for match in pattern.finditer(text):
+        out.append(text[max(0, match.start() - width):match.end() + width].strip())
+        if len(out) >= limit:
+            break
+    return " || ".join(out)
+
+
+def release_evidence(text: str) -> dict:
+    """What a press release says about itself: its opening (dateline and headline), the first sentence
+    announcing results, and the passages naming a market session or a call time."""
+    found = next((m for m in (pattern.search(text) for pattern in _RESULTS) if m), None)
+    sentence = text[max(0, found.start() - 150):found.end() + 150].strip() if found else ""
+    return {"release_opening": text[:500], "results_sentence": sentence,
+            "session_phrases": _contexts(_SESSION, text), "call_times": _contexts(_CALL_TIME, text)}
+
+
+def filing_documents(cik: int, accession: str, offline: bool = False) -> dict:
+    """The filing index, the 8-K itself and its EX-99 exhibits for one filing, cache first
+    (``CACHE/raw/sec/docs/{cik}/{accession}/``), through this step's SEC limiter."""
+    folder = DOCS_DIR / str(int(cik)) / accession
+    url = INDEX_URL.format(cik=int(cik), folder=accession.replace("-", ""), accession=accession)
+    data = _sec_get(url, folder / f"{accession}-index.htm.gz", "sec_docs", f"CIK{int(cik)}", offline)
+    if data is None:
+        return {"index_url": url, "info": {}, "documents": [], "texts": {}}
+    parsed = parse_filing_index(data.decode("utf-8", "replace"))
+    texts = {}
+    for doc in parsed["documents"]:
+        if doc["type"] in EVENT_FORMS or doc["type"].upper().startswith("EX-99"):
+            body = _sec_get(doc["url"], folder / f"{doc['document']}.gz", "sec_docs", f"CIK{int(cik)}", offline)
+            if body is not None:
+                texts[doc["document"]] = html_text(body)
+    return {"index_url": url, **parsed, "texts": texts}
+
+
+def hand_sample_rows(drawn: pd.DataFrame, offline: bool = False) -> pd.DataFrame:
+    """The drawn events with their SEC URLs and what the 8-K and its exhibits say (for the checker to read)."""
+    rows = []
+    for record in drawn.to_dict("records"):
+        cik, accession = int(record["cik"]), record["accession"]
+        docs = filing_documents(cik, accession, offline)
+        main = next((d for d in docs["documents"] if d["type"] in EVENT_FORMS), None)
+        exhibits = [d for d in docs["documents"] if d["type"].upper().startswith("EX-99")]
+        release = exhibits[0] if exhibits else None
+        evidence = release_evidence(docs["texts"].get(release["document"], "")) if release else release_evidence("")
+        main_text = docs["texts"].get(main["document"], "") if main else ""
+        item = re.search(r"Item\s*2\.02[^.]{0,400}", main_text, re.I)
+        rows.append({
+            "draw_order": record["draw_order"], "seed": record["seed"], "population": record["population"],
+            "cik": cik, "security_id": record["security_id"], "calendar_quarter": record["quarter"],
+            "fiscal_quarter_end": record["fiscal_quarter_end"], "accession": accession, "form": record["form"],
+            "items": record["items"], "event_kind": record["event_kind"], "event_kind_basis": record["event_kind_basis"],
+            "n_item202_in_fiscal_quarter": record["n_item202_in_fiscal_quarter"],
+            "acceptance_et": record["acceptance_et"], "tz_resolution": record["tz_resolution"],
+            "acceptance_timing": record["acceptance_timing"], "d0_session": record["d0_session"],
+            "index_url": docs["index_url"], "index_accepted": docs["info"].get("Accepted", ""),
+            "index_filing_date": docs["info"].get("Filing Date", ""), "index_items": docs["info"].get("Items", ""),
+            "document_url": main["url"] if main else "", "exhibit_url": release["url"] if release else "",
+            "exhibit_type": release["type"] if release else "", "n_ex99": len(exhibits),
+            "item_202_text": item.group(0) if item else "", **evidence})
+    return pd.DataFrame(rows)
+
+
+def run_hand_sample(offline: bool = False) -> pd.DataFrame:
+    """Draw the sample from the built tables, fetch its documents, and join the checker's verdicts
+    (HAND_VERDICTS, keyed by accession) when they exist: writes HAND_DRAW, and HAND_SAMPLE once every
+    drawn event has a verdict."""
+    events = read_csv_text(EVENTS_OUT)
+    quarters = read_csv_text(QUARTERS_OUT)
+    for column in ("listed_weeks", "scope_weeks", "quarter_weeks"):
+        quarters[column] = quarters[column].astype(int)
+    quarters["full_quarter"] = quarters["full_quarter"] == "True"
+    population = hand_sample_population(events, quarters)
+    drawn = draw_hand_sample(population)
+    log(f"hand sample: {len(drawn)} of {len(population)} in-scope company-quarters with a results release "
+        f"(numpy default_rng({HAND_SAMPLE_SEED}))")
+    rows = hand_sample_rows(drawn, offline)
+    _write_csv(HAND_DRAW, rows)
+    log(f"wrote {HAND_DRAW}")
+    if HAND_VERDICTS.exists():
+        verdicts = json.loads(HAND_VERDICTS.read_text(encoding="utf-8"))
+        table = pd.DataFrame([{"accession": acc, **{k: v.get(k, "") for k in HAND_VERDICT_FIELDS + ["checked_at"]}}
+                              for acc, v in verdicts.items()])
+        out = rows.merge(table, on="accession", how="left")
+        out["ir_url"] = out["exhibit_url"]
+        out["ir_release_et"] = out["index_accepted"]
+        keep = ["draw_order", "seed", "population", "cik", "security_id", "calendar_quarter", "fiscal_quarter_end",
+                "accession", "form", "items", "event_kind", "acceptance_et", "acceptance_timing", "d0_session",
+                "index_url", "document_url", "exhibit_url", "index_accepted", "index_items",
+                *HAND_VERDICT_FIELDS, "checked_at", "ir_url", "ir_release_et"]
+        out = out[keep]
+        if out["d0_matches"].fillna("").ne("").all():
+            _write_csv(HAND_SAMPLE, out)
+            log(f"wrote {HAND_SAMPLE}: d0_matches {dict(Counter(out['d0_matches']))}")
+        else:
+            log(f"verdicts missing for {int(out['d0_matches'].fillna('').eq('').sum())} drawn events: {HAND_SAMPLE} not written")
+    return rows
 
 
 # ------------------------------------------------------------------ main
@@ -1403,7 +1727,21 @@ def input_facts() -> dict:
     """sha256 and modification time of each upstream file this step reads."""
     return {str(path): {"sha256": common.sha256_file(path),
                         "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")}
-            for path in (WEEKLY, CANDIDATES, MASTER, PERIODIC_HISTORY) if path.exists()}
+            for path in (WEEKLY, UNIVERSE_TOP, CANDIDATES, MASTER, PERIODIC_HISTORY) if path.exists()}
+
+
+def read_tables(folder: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(events, fallback) as written by an earlier build in ``folder`` (for a before/after comparison)."""
+    return (read_csv_text(folder / EVENTS_OUT.name), read_csv_text(folder / FALLBACK_OUT.name))
+
+
+def missing_quarters(quarters: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFrame:
+    """In-scope company-quarters (COVERAGE_DEFINITION) without a usable date, with what they do have."""
+    q = scope_quarters(quarters)
+    q = q[~q["usable_date"]]
+    names = scope.set_index(scope["cik"].astype(int))[["name", "security_ids", "in_top300", "in_candidates"]]
+    return q.join(names, on="cik")[["cik", "name", "security_ids", "in_top300", "in_candidates", "quarter",
+                                    "listed_weeks", "scope_weeks", "n_item202", "n_fallback", "n_fallback_usable"]]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1411,11 +1749,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--offline", action="store_true", help="never request; build from the cache only")
     parser.add_argument("--limit-ciks", type=int, default=0, help="a trial on the first N CIKs (writes CACHE/earnings/trial)")
     parser.add_argument("--plan-only", action="store_true", help="stop after counting the headers needed")
+    parser.add_argument("--hand-sample", action="store_true",
+                        help="draw the hand sample from the built tables, fetch its 8-Ks and exhibits, and write "
+                             "hand_sample_draw.csv (and hand_sample.csv when the verdicts are recorded)")
+    parser.add_argument("--fetch-only", action="store_true",
+                        help="fetch the missing headers and scan the cache, then stop without writing any table")
+    parser.add_argument("--sec-rate", type=float, default=SEC_RATE_MAX,
+                        help=f"SEC requests a second for this run (at most {SEC_RATE_MAX})")
+    parser.add_argument("--sic-out", type=Path, default=SIC_OUT, help="where sic_history.csv is written")
+    parser.add_argument("--before", type=Path, default=None,
+                        help="a folder holding an earlier build's earnings_events.csv and earnings_fallback_periodic.csv: "
+                             "its coverage of this build's company-quarters goes in the summary")
     args = parser.parse_args(argv)
+    set_sec_rate(args.sec_rate)
+    if args.hand_sample:
+        run_hand_sample(args.offline)
+        return 0
     started = time.time()
-    log("scope: weekly top-300 (domestic weeks) and candidate CIKs")
+    log(f"scope: weekly top-300 file and candidate CIKs (SEC rate {args.sec_rate}/s)")
     inputs = input_facts()
-    weekly = pd.read_pickle(WEEKLY)[["security_id", "cik", "week_end", "universe", "dv50_rank", "dv20_rank"]]
+    weekly = pd.read_pickle(WEEKLY)[["security_id", "cik", "week_end", "universe"]]
+    top = load_universe_top()
+    candidates = read_csv_text(CANDIDATES)
     master = read_csv_text(MASTER)
     history = load_history()
     if input_facts() != inputs:
@@ -1426,7 +1781,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         log(f"foreign regime: {PERIODIC_HISTORY} ({len(history)} rows, {history['cik'].nunique()} MIXED CIKs)")
     flags = cik_flags(master)
-    scope_all = build_scope(weekly, read_csv_text(CANDIDATES), master, history)
+    scope_all = build_scope(top, weekly, candidates, master, history)
     scope = scope_all[scope_all["excluded_foreign"] == "N"].reset_index(drop=True)
     if args.limit_ciks:
         scope = scope.head(args.limit_ciks)
@@ -1437,7 +1792,8 @@ def main(argv: list[str] | None = None) -> int:
     log(f"scope: {len(ciks)} CIKs (top300 {int((scope['in_top300'] == 'Y').sum())}, "
         f"candidates {int((scope['in_candidates'] == 'Y').sum())}, flags {dict(Counter(scope['foreign_filer']))}; "
         f"top-300 weeks dropped as foreign {int(scope['top300_weeks_foreign'].sum())})")
-    plans, failures = plan_all(ciks, args.offline)
+    windows = {int(c): (a, b) for c, a, b in zip(scope["cik"], scope["window_start"], scope["window_end"])}
+    plans, failures = plan_all(ciks, args.offline, windows)
     jobs = header_jobs(plans)
     kinds = Counter(kind for *_, kind in jobs)
     pages = (sum(p["pages_needed"] for p in plans.values()), sum(p["pages_read"] for p in plans.values()))
@@ -1450,6 +1806,12 @@ def main(argv: list[str] | None = None) -> int:
     log("scan: every needed header in the cache")
     scan = header_cache_scan(jobs)
     log(f"  header cache: {scan['by_status']} complete={scan['complete']}")
+    if args.fetch_only:
+        common.atomic_write(out_dir / "fetch_scan.json", (json.dumps(
+            {"generated": datetime.now().isoformat(timespec="seconds"), "sec_rate_per_second": args.sec_rate,
+             "fetch": dict(fetch_counts), "cache_scan": scan, "stopped_on_refusal": _STOP.is_set()},
+            indent=1) + "\n").encode())
+        return 0 if scan["complete"] else 1
     log("build: parse headers, D0 sessions, event kinds")
     calendar = XnasCloses()
     events, fallback = build_tables(plans, scope, calendar, history)
@@ -1460,19 +1822,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit_ciks:
         targets = (out_dir / "earnings_events.csv", out_dir / "earnings_fallback_periodic.csv", out_dir / "sic_history.csv")
     else:
-        targets = (EVENTS_OUT, FALLBACK_OUT, SIC_OUT)
+        targets = (EVENTS_OUT, FALLBACK_OUT, args.sic_out)
     for path, frame in zip(targets, (event_out, fallback_out, sic)):
         _write_csv(path, frame)
         log(f"wrote {path} ({len(frame)} rows)")
     log("coverage (domestic weeks only)")
     weekly_domestic = domestic_weeks(weekly, flags, history)
-    present = presence(weekly_domestic, set(ciks))
+    weeks = scope_weeks(top, weekly, candidate_windows(candidates), flags, history)
+    present = presence(weeks, weekly_domestic, set(ciks))
     quarters = quarter_coverage(present, events, fallback)
     years = company_year_table(quarters)
     _write_csv(out_dir / "company_year_coverage.csv", years)
+    _write_csv(out_dir / "missing_company_quarters.csv", missing_quarters(quarters, scope))
+    _write_csv(out_dir / QUARTERS_OUT.name, quarters)
+    before = None
+    if args.before is not None:
+        old_events, old_fallback = read_tables(args.before)
+        before = coverage_summary(quarter_coverage(present, old_events, old_fallback))
+        before["tables"] = {str(args.before / EVENTS_OUT.name): len(old_events),
+                            str(args.before / FALLBACK_OUT.name): len(old_fallback)}
+        _write_csv(out_dir / "missing_company_quarters_before.csv",
+                   missing_quarters(quarter_coverage(present, old_events, old_fallback), scope))
     missing = no_event_companies(scope, plans, events, fallback)
     _write_csv(out_dir / "no_event_companies.csv", missing)
-    foreign_check = foreign_scope_check(scope, weekly, flags, history, events, fallback)
+    foreign_check = foreign_scope_check(scope, weekly, flags, history, events, fallback, top)
     _write_csv(out_dir / "foreign_scope_check.csv", foreign_check)
     both = pd.concat([f for f in (events, fallback) if len(f)] or [pd.DataFrame(columns=["filing_date", "acceptance_et"])],
                      ignore_index=True)
@@ -1480,7 +1853,13 @@ def main(argv: list[str] | None = None) -> int:
     lag = (pd.to_datetime(both["filing_date"]) - pd.to_datetime(both["acceptance_et"].str[:10])).dt.days
     headers_missing = int(((events.get("acceptance_header_et", pd.Series(dtype=str)) == "").sum() if len(events) else 0)
                           + ((fallback.get("acceptance_header_et", pd.Series(dtype=str)) == "").sum() if len(fallback) else 0))
-    dropped = foreign_only_top300(weekly, scope_all) if not args.limit_ciks else []
+    dropped = foreign_only_top300(top, scope_all) if not args.limit_ciks else []
+    top_domestic = _int_cik(top)
+    top_domestic = top_domestic[~regime_foreign(flags, history, top_domestic["cik"], top_domestic["week_end"])]
+    planned = {"events": sum(len(p["events"]) for p in plans.values()),
+               "events_in_window": sum(int(p["events"]["in_window"].sum()) for p in plans.values()),
+               "fallback": sum(len(p["fallback"]) for p in plans.values()),
+               "fallback_in_window": sum(int(p["fallback"]["in_window"].sum()) for p in plans.values())}
     summary = {
         "generated": datetime.now().isoformat(timespec="seconds"), "runtime_s": round(time.time() - started, 1),
         # the inputs as read (upstream steps rerun on their own; compare to see whether this build is stale)
@@ -1495,7 +1874,18 @@ def main(argv: list[str] | None = None) -> int:
                                                       if history is None or int(c) not in set(history["cik"].astype(int))],
                   "top300_security_weeks_dropped_as_foreign": int(scope["top300_weeks_foreign"].sum()),
                   "ciks_out_of_scope_because_every_top300_week_is_foreign": dropped,
-                  "excluded_flag_y": int((scope_all["excluded_foreign"] == "Y").sum())},
+                  "excluded_flag_y": int((scope_all["excluded_foreign"] == "Y").sum()),
+                  "definition": ("a CIK is in scope when one of its securities is in the weekly top-300 file "
+                                 f"({UNIVERSE_TOP}) in a domestic week or a candidate row ({CANDIDATES}) names it; its "
+                                 f"event window runs from its first possible day less {WARMUP_DAYS} days (not before "
+                                 f"{EVENTS_FROM}) to its last possible day plus {HOLD_DAYS} days, and at least to "
+                                 "the end of that day's calendar quarter"),
+                  "warmup_days": WARMUP_DAYS, "hold_days": HOLD_DAYS,
+                  "window_start_by_year": dict(sorted(Counter(scope["window_start"].str[:4]).items())),
+                  "scope_weeks": int(len(weeks)), "top300_file_weeks_domestic": int(len(top_domestic.drop_duplicates(["cik", "week_end"])))},
+        "sec_rate_per_second": args.sec_rate,
+        "planned_filings": {**planned, "note": "every filing from EVENTS_FROM is planned and classified; only those "
+                                               "inside the CIK's window get a header and a row"},
         "submissions": {"planned_ciks": len(plans), "older_pages_needed": pages[0], "older_pages_read": pages[1],
                         "ciks_missing": dict(Counter(p["missing"] for p in plans.values() if p["missing"])),
                         "ciks_failed": {str(k): v for k, v in failures.items()}},
@@ -1524,8 +1914,10 @@ def main(argv: list[str] | None = None) -> int:
                         "changes": int((sic["sic_changed"] == "Y").sum()) if len(sic) else 0,
                         "blank_check_6770_rows": int((sic["blank_check_6770"] == "Y").sum()) if len(sic) else 0,
                         "ciks_ever_6770": int(sic.loc[sic["blank_check_6770"] == "Y", "cik"].nunique()) if len(sic) else 0,
-                        "top300_name_weeks": sic_week_coverage(weekly_domestic, sic, ff49_lookup(), set(ciks))},
+                        "written_to": str(args.sic_out),
+                        "top300_name_weeks": sic_week_coverage(top_domestic, sic, ff49_lookup(), set(ciks))},
         "coverage_company_quarters": coverage_summary(quarters),
+        "coverage_company_quarters_before": before,
         "coverage_company_years": company_year_summary(years),
         "gaps_between_quarterly_events": gap_summary(events, fallback, scope),
         "gaps_between_quarterly_events_usable_fallback_only": gap_summary(events, fallback, scope, usable_only=True),
@@ -1542,7 +1934,8 @@ def main(argv: list[str] | None = None) -> int:
     common.atomic_write(out_dir / "earnings_summary.json", (json.dumps(summary, indent=1, default=str) + "\n").encode())
     log(f"events {len(events)} ({dict(Counter(events['event_kind'])) if len(events) else {}}), fallback {len(fallback)} "
         f"(usable {int((fallback['usable_as_announcement'] == 'Y').sum()) if len(fallback) else 0}), sic rows {len(sic)}; "
-        f"company-quarters with an event {summary['coverage_company_quarters'].get('share_any')}; "
+        f"company-quarters with an event {summary['coverage_company_quarters'].get('share_any')}, "
+        f"with a usable date {summary['coverage_company_quarters'].get('share_usable_date')}; "
         f"no Item 2.02: {len(missing)} CIKs; done in {time.time() - started:.0f}s")
     return 0
 

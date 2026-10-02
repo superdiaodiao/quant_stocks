@@ -1,4 +1,6 @@
 """Tests for plan step 12, the weekly universe and its completeness checks (scripts/reversal_data_universe.py)."""
+import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -638,13 +640,220 @@ def test_the_script_never_reads_the_return_column():
     assert "usecols=[\"security_id\", \"date\", \"close_raw\", \"volume_raw\", \"src_primary\"]" in source
 
 
+# ------------------------------------------------------------------ round 6: young names, pending weeks, investment companies
+
+def _young_frame(**columns):
+    base = {"week_end": pd.to_datetime(["2026-04-10"]), "close": [np.nan], "dv50": [np.nan], "first_row": [""],
+            "pf_dv50": [np.nan], "pf_n50": [np.nan], "pf_first_data": pd.to_datetime([None]), "listing_start": ["2010-12-31"],
+            "listing_sessions": [3000]}
+    base.update(columns)
+    return pd.DataFrame(base)
+
+
+def test_a_new_listing_with_no_series_is_young_in_its_first_25_sessions_only():
+    assert un.young_weeks(_young_frame(listing_sessions=[24], listing_start=["2026-03-09"])).tolist() == [True]
+    assert un.young_weeks(_young_frame(listing_sessions=[25], listing_start=["2026-03-06"])).tolist() == [False]
+    # A later run after a gap in the snapshots is no new listing.
+    assert un.young_weeks(_young_frame(listing_sessions=[5], listing_start=["2026-04-03"],
+                                       first_listing_run=[False])).tolist() == [False]
+    # IRHO: listed 2026-03-01 (units), its shares in step 6 from 2026-03-20 with 15 rows in the window.
+    irho = _young_frame(listing_sessions=[29], listing_start=["2026-03-01"], pf_n50=[15.0],
+                        pf_first_data=pd.to_datetime(["2026-03-20"]))
+    assert un.young_weeks(irho).tolist() == [True]
+    # A dv50 from step 6 settles it; so does a series of 25 rows.
+    assert un.young_weeks(irho.assign(pf_dv50=[1e6])).tolist() == [False]
+    assert un.young_weeks(irho.assign(pf_n50=[25.0])).tolist() == [False]
+
+
+def test_a_name_step6_holds_no_row_for_or_whose_data_starts_late_is_not_young():
+    # Altaba after 2017-06: n50 = 0, an old listing.
+    assert un.young_weeks(_young_frame(pf_n50=[0.0], pf_first_data=pd.to_datetime(["2011-06-03"]))).tolist() == [False]
+    # Atlantic American: listed since 2010, step 6's data starts in 2026-03: not a new listing.
+    late = _young_frame(pf_n50=[10.0], pf_first_data=pd.to_datetime(["2026-03-20"]))
+    assert un.young_weeks(late).tolist() == [False]
+
+
+def test_mark_missing_does_not_count_a_young_name_without_series_as_missing():
+    weeks = pd.to_datetime(["2026-04-10"])
+    listed = pd.DataFrame({"security_id": ["irho"], "week_index": [0], "week_end": weeks, "eligible": [True],
+                           "dv50_rank_any_price": [np.nan], "close": [np.nan], "dv50": [np.nan], "price_ge_10": [""],
+                           "has_series": [False], "pf_outside_trading": [False], "pf_dv50": [np.nan], "pf_price": [""],
+                           "mcap": [np.nan], "float_usd": [np.nan], "multi_class": [False], "cik": ["1"],
+                           "first_row": [""], "last_row": [""], "pf_n50": [15.0],
+                           "pf_first_data": pd.to_datetime(["2026-03-20"]), "listing_start": ["2026-03-01"],
+                           "listing_sessions": [29]})
+    spans = pd.DataFrame({"security_id": ["irho"], "list_start": ["2026-03-01"], "list_end": ["2026-08-31"]})
+    cut = pd.DataFrame({"cut250": 1e7, "cut300": 8e6, "cut_mcap": 2e9, "cut_float": 2e9}, index=pd.Index([0], name="week_index"))
+    out = un.mark_missing(listed, spans, {"irho": "not_candidate"}, cut)
+    assert out["young"].tolist() == [True] and out["missing"].tolist() == [False]
+    out = un.mark_missing(listed.assign(pf_n50=[0.0]), spans, {"irho": "not_candidate"}, cut)
+    assert out["missing"].tolist() == [True] and out["evidence"].tolist() == ["unknown"]
+
+
+def test_run_starts_join_a_rename_but_not_a_relisting():
+    spans = pd.DataFrame({"security_id": ["a", "a", "a"], "list_start": ["2012-01-01", "2014-05-01", "2020-01-01"],
+                          "list_end": ["2014-04-30", "2018-12-31", "2026-08-31"]})
+    assert un.run_starts(spans).tolist() == ["2012-01-01", "2012-01-01", "2020-01-01"]
+
+
+def test_pending_reasons_hold_only_in_the_weeks_a_candidate_row_of_that_source_needs():
+    master = pd.DataFrame({"security_id": ["corz", "smci"]})
+    # CORZ: a Tier-C Tiingo row for CORZQ (2021-11-28..2023-01-12) and a Yahoo row from 2023-12-15.
+    candidates = pd.DataFrame({"security_id": ["corz", "corz", "smci"], "planned_source": ["tiingo", "yahoo", "tiingo"],
+                               "needed_start": ["2021-11-28", "2023-12-15", "2018-01-21"],
+                               "needed_end": ["2023-01-12", "2026-08-31", "2020-02-25"]})
+    reasons = un.MissingReasons(master, candidates, pd.DataFrame(columns=["security_id"]),
+                                pd.DataFrame(columns=["security_id", "reason"]), pd.DataFrame(), series_ids={"corz", "smci"})
+    assert reasons.get("corz") == "tiingo_pending" and reasons.chains["corz"][:2] == ["tiingo_pending", "yahoo_pending"]
+    days = ["2022-06-03", "2023-06-02", "2024-04-05", "2026-07-17"]
+    assert reasons.weekly(["corz"] * 4, days).tolist() == ["tiingo_pending", "series_gap", "yahoo_pending", "yahoo_pending"]
+    # SMCI: its only Tiingo row needs 2018-2020; its 2024 weeks are a series gap, not pending.
+    assert reasons.weekly(["smci", "smci"], ["2019-06-07", "2024-06-07"]).tolist() == ["tiingo_pending", "series_gap"]
+    assert reasons.on("smci", "2024-06-07") == "series_gap"
+    # A window reaching into the week counts (needed_end on the Wednesday before the week end).
+    assert reasons.weekly(["corz"], ["2023-01-13"]).tolist() == ["tiingo_pending"]
+
+
+def test_pending_definitions_name_every_pending_reason():
+    texts = un.pending_definitions()
+    for reason in un.PENDING_REASONS:
+        assert reason in texts["complete_250_after_pending"] and reason in texts["residual_survivorship"]
+    assert texts["pending_reasons"] == sorted(un.PENDING_REASONS)
+
+
+def _evidence(*rows):
+    return [(day, form, f"acc-{k}") for k, (day, form) in enumerate(rows)]
+
+
+def test_a_bdc_election_counts_until_its_withdrawal():
+    spans = un.investment_company_spans(_evidence(("2004-04-21", "N-54A"), ("2010-01-01", "40-17G"),
+                                                  ("2018-04-02", "N-54C")))
+    assert spans == [("2004-04-21", "2018-04-01", "bdc_election")]
+    # Red Cat: elected in 1998, withdrew in 2014, an operating company when it listed in 2021.
+    spans = un.investment_company_spans(_evidence(("1998-09-17", "N-54A"), ("2014-07-23", "N-54C")))
+    assert spans == [("1998-09-17", "2014-07-22", "bdc_election")]
+    # A withdrawal with no cached election (American Capital): a BDC from the first evidence on.
+    spans = un.investment_company_spans(_evidence(("2009-06-19", "40-17G"), ("2009-08-19", "N-2"),
+                                                  ("2017-01-03", "N-54C")))
+    assert spans == [("2009-06-19", "2017-01-02", "bdc_until_withdrawal+filings")]
+
+
+def test_a_run_of_fund_filings_counts_from_first_to_last_and_a_stray_filing_does_not():
+    # Altaba: N-8A and N-2 on 2017-06-16, then N-CSR and N-PX; Global Self Storage stops filing in 2016.
+    spans = un.investment_company_spans(_evidence(("2017-06-16", "N-8A"), ("2017-06-16", "N-2"),
+                                                  ("2017-08-25", "N-PX"), ("2017-08-29", "N-CSR")))
+    assert spans == [("2017-06-16", "2017-08-29", "filings")]
+    assert un.investment_company_spans(_evidence(("2001-06-27", "N-30D"))) == []   # Medical Action's lone N-30D
+    gap = un.investment_company_spans(_evidence(("2010-01-04", "40-17G"), ("2010-12-01", "40-17G"),
+                                                ("2013-01-02", "40-17G"), ("2013-11-01", "40-17G")))
+    assert [s[:2] for s in gap] == [("2010-01-04", "2010-12-01"), ("2013-01-02", "2013-11-01")]
+
+
+def test_the_last_run_is_carried_forward_while_the_issuer_still_files_unless_it_deregistered():
+    run = _evidence(*[(f"{y}-07-30", "40-17G") for y in range(2010, 2026)])
+    assert un.investment_company_spans(run, latest_filing="2026-09-11")[-1][1:] == (un.IC_OPEN_END, "filings_current")
+    assert un.investment_company_spans(run, latest_filing="2028-09-11")[-1][1:] == ("2025-07-30", "filings")
+    closed = run + [("2025-10-01", "N-8F", "x")]
+    assert un.investment_company_spans(closed, latest_filing="2026-09-11")[-1][1:] == ("2025-07-30", "filings")
+
+
+def test_ic_evidence_keeps_n_px_only_before_mid_2024_and_amendments_as_their_form():
+    filings = [("N-PX", "2025-09-02", "a"), ("N-PX", "2023-08-30", "b"), ("N-2/A", "2013-07-23", "c"),
+               ("10-K", "2014-03-01", "d"), ("N-8F ORDR", "2015-08-27", "e"), ("497", "2014-01-01", "f")]
+    assert un.ic_evidence(filings) == [("2013-07-23", "N-2", "c"), ("2015-08-27", "N-8F", "e"), ("2023-08-30", "N-PX", "b")]
+    # Bank OZK files N-PX from 2025 only: no evidence, it stays in the base.
+    assert un.ic_evidence([("N-PX", "2025-09-02", "a"), ("N-PX", "2026-08-30", "b")]) == []
+    assert un.ic_evidence([], [("2014-02-01", "h")]) == [("2014-02-01", "SIC 6726", "h")]
+
+
+def test_investment_companies_read_the_cached_submissions_and_apply_to_every_class(tmp_path):
+    import gzip as gz
+    def write(name, payload):
+        (tmp_path / name).write_bytes(gz.compress(json.dumps(payload).encode()))
+    write("CIK0000000010.json.gz", {"cik": "10", "sic": "", "filings": {
+        "recent": {"form": ["10-K", "40-17G", "N-2"], "filingDate": ["2014-03-01", "2013-05-01", "2012-06-01"],
+                   "accessionNumber": ["a", "b", "c"]},
+        "files": [{"name": "CIK0000000010-submissions-001.json", "filingFrom": "2004-01-01", "filingTo": "2011-12-31"}]}})
+    write("CIK0000000010-submissions-001.json.gz", {"form": ["N-54A"], "filingDate": ["2004-04-21"], "accessionNumber": ["e"]})
+    write("CIK0000000020.json.gz", {"cik": "20", "sic": "6022", "filings": {
+        "recent": {"form": ["N-PX", "10-K"], "filingDate": ["2025-09-02", "2026-02-01"], "accessionNumber": ["x", "y"]}}})
+    master = pd.DataFrame({"security_id": ["10.A", "10.B", "20", "30"], "cik": ["10", "10", "20", ""],
+                           "first_ticker": ["BDCA", "BDCB", "OZK", "NOCIK"]})
+    spans, issuers, facts = un.investment_companies(master, {"10.A", "10.B", "20", "30"}, directory=tmp_path)
+    assert spans == {"10.A": [("2004-04-21", un.IC_OPEN_END)], "10.B": [("2004-04-21", un.IC_OPEN_END)]}
+    assert issuers["cik"].tolist() == ["10"] and issuers["election"].iloc[0] == "2004-04-21:e"
+    assert facts["ciks"] == 2 and facts["pages_missing"] == 0 and facts["main_missing"] == []
+
+
+def test_weekly_listed_leaves_investment_company_weeks_out_of_the_base():
+    spans = pd.DataFrame({"security_id": ["altaba", "op"], "ticker": ["AABA", "OP"], "list_start": "2017-01-01",
+                          "list_end": "2018-12-31", "non_common": False})
+    weeks = pd.DatetimeIndex(["2017-06-09", "2017-06-16", "2017-06-23"])
+    listed = un.weekly_listed(spans, weeks, {}, set(), {"altaba": [("2017-06-16", un.IC_OPEN_END)]}).set_index(
+        ["security_id", "week_end"])
+    assert listed.loc[("altaba", "2017-06-09"), "eligible"] and not listed.loc[("altaba", "2017-06-16"), "eligible"]
+    assert listed.loc[("altaba", "2017-06-23"), "investment_company"] and listed.loc[("op", "2017-06-23"), "eligible"]
+
+
+def test_ranks_including_investment_companies_report_their_former_top250_weeks():
+    listed = pd.DataFrame({"security_id": ["bdc", "op"], "week_index": [0, 0], "eligible": [False, True],
+                           "investment_company": [True, False], "non_common": False, "spac_shell": False, "foreign": False,
+                           "close": [20.0, 20.0], "dv50": [5e8, 1e8], "dv20": [5e8, 1e8]})
+    ranked = un.rank_weeks(listed).set_index("security_id")
+    assert np.isnan(ranked.loc["bdc", "dv50_rank"]) and ranked.loc["op", "dv50_rank"] == 1
+    assert ranked.loc["bdc", "dv50_rank_incl_investment"] == 1 and ranked.loc["op", "dv50_rank_incl_investment"] == 2
+
+
+def test_listed_now_shells_follow_step6_listed_now_set():
+    spans = pd.DataFrame({"security_id": ["dync", "ccix", "op", "old"], "list_start": "2025-01-01",
+                          "list_end": [un.WINDOW_END, "2026-08-05", un.WINDOW_END, "2026-06-30"], "non_common": False})
+    looks = {"dync", "ccix"}
+    added, ending = un.listed_now_shells(spans, None, None, {"old": "sic_6770_spac_name"},
+                                         spac_like=lambda ids: set(ids) & looks)
+    assert added == ["dync"] and ending == ["ccix"]
+
+
+def test_form25_and_nasdaq100_checks_set_investment_companies_aside():
+    sessions = pd.bdate_range("2016-06-01", "2017-03-31")
+    form25 = pd.DataFrame({"accession": ["x1"], "classification": "common_delisting", "public_float_usd": ["5e9"],
+                           "float_check_flag": "ok", "effective_date": ["2017-01-13"], "filing_date": ["2017-01-03"],
+                           "subject_name": ["American Capital"]})
+    master = pd.DataFrame({"security_id": ["acas"], "delist_form25_accession": ["x1"]})
+    spans = pd.DataFrame({"security_id": ["acas"], "non_common": False, "after_cut": False})
+    out = un.form25_check(form25, master, {"acas": "2016-11-30"}, sessions, {}, {}, set(), spans,
+                          investment={"acas": [("1997-08-27", "2017-01-12")]})
+    assert out["status"].tolist() == ["excluded_investment_company"]
+    s12 = pd.bdate_range("2012-01-02", "2012-12-31")
+    spans = pd.DataFrame({"security_id": ["bdc"], "ticker": ["BDC"], "list_start": "2011-01-01", "list_end": "2026-08-31"})
+    master = pd.DataFrame({"security_id": ["bdc"], "foreign_filer": ["N"], "tickers_observed": ["BDC"]})
+    n100 = un.nasdaq100_check({"2012": ["BDC"]}, spans, master, {}, pd.DataFrame({"security_id": [], "date": []}), s12,
+                              investment={"bdc": [("2004-01-01", un.IC_OPEN_END)]})
+    assert n100["status"].tolist() == ["investment_company_excluded"]
+
+
 # ------------------------------------------------------------------ built outputs
 
-BUILT_TOP = un.TOP300_FILE
-BUILT_SUMMARY = un.SUMMARY_FILE
+# REVERSAL_UNIVERSE_BUILD=DIR checks a build written with --out-dir DIR instead of the published files; a
+# build by another code version is skipped (its columns may differ from this code's).
+_BUILD_DIR = os.environ.get("REVERSAL_UNIVERSE_BUILD", "")
+BUILT_TOP = Path(_BUILD_DIR) / un.TOP300_FILE.name if _BUILD_DIR else un.TOP300_FILE
+BUILT_SUMMARY = Path(_BUILD_DIR) / un.SUMMARY_FILE.name if _BUILD_DIR else un.SUMMARY_FILE
+BUILT_JSON = (Path(_BUILD_DIR) if _BUILD_DIR else un.OUT) / "universe_summary.json"
+
+
+def _built_version() -> str:
+    try:
+        return json.loads(BUILT_JSON.read_text()).get("code_version", "")
+    except (OSError, ValueError):
+        return ""
+
+
+_STALE = _built_version() != un.CODE_VERSION
+_STALE_REASON = f"universe built by code version {_built_version() or '?'}, not {un.CODE_VERSION}"
 
 
 @pytest.mark.skipif(not BUILT_TOP.exists(), reason="universe not built")
+@pytest.mark.skipif(_STALE, reason=_STALE_REASON)
 def test_built_top300_has_ranks_only_and_full_ranks_each_week():
     top = pd.read_csv(BUILT_TOP, dtype={"security_id": str, "cik": str, "ff49": str})
     assert list(top.columns) == un.TOP300_COLUMNS
@@ -661,6 +870,7 @@ def test_built_top300_has_ranks_only_and_full_ranks_each_week():
 
 
 @pytest.mark.skipif(not BUILT_SUMMARY.exists(), reason="universe not built")
+@pytest.mark.skipif(_STALE, reason=_STALE_REASON)
 def test_built_summary_has_every_week_and_no_vendor_values():
     summary = pd.read_csv(BUILT_SUMMARY)
     assert list(summary.columns) == un.SUMMARY_COLUMNS and len(summary) == 759
