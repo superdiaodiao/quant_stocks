@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
+from src.io.sec_contact import sec_user_agent
 from src.io.security_universe import investable_common_equities
 from src.conf import (
     CLEANED_EPS_DATA_FILE,
@@ -32,7 +33,7 @@ API = "https://api.nasdaq.com/api/company/{symbol}/earnings-surprise?limit=4"
 SEC_TICKERS_API = "https://www.sec.gov/files/company_tickers.json"
 SEC_FACTS_API = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-SEC_HEADERS = {"User-Agent": "quant_stocks research data@example.com", "Accept": "application/json"}
+SEC_HEADERS = {"User-Agent": sec_user_agent(), "Accept": "application/json"}
 POINT_IN_TIME_EPS_FILE = Path(POINT_IN_TIME_EPS_FILE)
 def _period_end(value: str) -> pd.Timestamp:
     return pd.to_datetime(value, format="%b %Y") + pd.offsets.MonthEnd(0)

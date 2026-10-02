@@ -361,8 +361,16 @@ Bandwidth: Tiingo JSON is about 0.95 MB for a full history, so about 390 MB per 
 4. **Multi-class issuers** (GOOG/GOOGL, FOX/FOXA, DISCA/DISCK, LBTYA/K, NWSA/NWS): keep all classes or only the most liquid? Both classes can land in the same industry and the same side.
 5. **Dollar-volume window** (20 or 50 days) and N (150, 200 or 250). Both windows are stored; the protocol picks one.
 6. **Date conventions.** Is 2026-07-17 the last signal date (prices then run to 2026-08-14), or the last return date?
-7. **SEC User-Agent.** Needs a real contact string supplied by the owner in `.env.sec`. The placeholder may get blocked.
+7. **SEC User-Agent.** Needs a real contact string supplied by the owner in `.env.sec`. The placeholder may get blocked. *Settled 2026-10-02:* the owner's contact is in the main checkout's `.env.sec`, which is git-ignored. `src/io/sec_contact.py` reads it for both `SEC_HEADERS` and `reversal_data_common`.
 8. **Vendor terms.** Tiingo is internal use only and Yahoo is unofficial, so raw and vendor-derived values stay in `research_cache`; only ranks, IDs and SEC facts are committed. The redistribution terms for Ken French data are unclear.
+   *Checked 2026-10-02 against the official terms:*
+   - Tiingo §1.6(a) (2026-08-05) bars free-plan users from storing Tiingo data persistently.
+   - Yahoo's terms §2(d)(ix) (2026-08-04) bar automated collection without permission.
+   - nasdaq.com/legal bars automated capture and storing for later use.
+   - SEC, Ken French (local use), the WIKI table and the Internet Archive (research use) are fine.
+   - EODHD would allow private storage (paid).
+
+   *Owner decision 2026-10-02:* keep the stored data and keep using these sources; the owner accepts the risk. The data stays local and is never shared or committed; only ranks, IDs and SEC facts are committed. Request rates stay polite.
 9. **Known residual gaps.** The 2012–2015 period for names delisted in 2016–2017 that WIKI does not have is lost: Tiingo cuts those histories at 2016-01-04. Some large names cannot be filled at all (BMC, LIFE, ONXX, MOLX, Lincare). The development period will carry some survivor bias; the report quantifies it.
 10. **Unverified mechanics:**
     - the WIKI bulk-export size and rate limits;

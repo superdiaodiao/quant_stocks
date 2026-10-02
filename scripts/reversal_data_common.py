@@ -22,6 +22,8 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from src.io.sec_contact import sec_user_agent
+
 MAIN_CHECKOUT = Path("/Users/bytedance/code/quant_stocks")
 CACHE = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026"
 INPUTS = Path("output/research_only/reversal_2012_2026/inputs")
@@ -30,7 +32,7 @@ RAW_INDEX = CACHE / "raw_index.csv.gz"
 QUOTA_LEDGER = CACHE / "quota_ledger.csv"
 # SEC asks for at most ten requests a second; stay well under it.
 SEC_PER_SECOND = 7
-SEC_USER_AGENT = "quant_stocks research data@example.com"
+SEC_USER_AGENT = sec_user_agent()
 SECRET_PARAMS = re.compile(
     r"(api_key|token|apikey|X-Amz-Credential|X-Amz-Signature|X-Amz-Security-Token|Signature|AWSAccessKeyId)=[^&]+",
     re.IGNORECASE)
