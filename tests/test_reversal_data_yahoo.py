@@ -2,6 +2,7 @@
 import gzip
 import io
 import json
+import re
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 
@@ -905,3 +906,52 @@ def test_the_request_ledger_matches_the_quota_ledger(tmp_path):
     assert out["this_step"]["symbols_asked_not_in_this_build"] == {"AGEND": "2026-10-02T00:27:18+00:00"}
     assert out["raw_index_rows_missing"]["rows"] == ["AGEND@2026-10-02T00:27:18+00:00"]
     assert out["checks"]["ledger_this_step_plus_other_equals_ledger"] and not out["checks"]["raw_index_complete"]
+
+
+def test_the_same_shares_listed_again_are_one_series_and_new_shares_alone_need_no_junction(tmp_path):
+    # Round 7: SMCI (removed for late filings 2019-03, listed again 2020-01-15) is the same stock: the candidate
+    # list names no junction, so the move across the relisting stays a return and the verdict is ok. WW's
+    # Yahoo series starts with the new shares (2025-06-27): the junction day has no rows before it, no junction row.
+    raw, out = tmp_path / "raw", tmp_path / "out"
+    raw.mkdir()
+    days = list(pd.bdate_range("2019-11-01", "2020-03-31").strftime("%Y-%m-%d"))
+    (raw / "SMCI__20261001T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(days, [20.0] * len(days), [1000] * len(days))).encode()))
+    new = list(pd.bdate_range("2025-06-27", "2025-09-30").strftime("%Y-%m-%d"))
+    (raw / "WW__20261001T010203Z.json.gz").write_bytes(
+        gzip.compress(json.dumps(_payload(new, [30.0] * len(new), [1000] * len(new))).encode()))
+    base = {"reasons": "Y_active_rank300", "active": "Y", "successor_routed": "", "note": "", "alt_symbols": ""}
+    requests = pd.DataFrame([
+        {**base, "security_id": "9", "symbol": "SMCI", "candidate_symbol": "SMCI", "needed_start": "2019-11-01",
+         "needed_end": "2020-03-31", "junction_date": ""},
+        {**base, "security_id": "10", "symbol": "WW", "candidate_symbol": "WW", "needed_start": "2025-06-27",
+         "needed_end": "2025-09-30", "junction_date": "2025-06-27"}])
+    sessions = pd.DatetimeIndex(pd.bdate_range("2011-06-01", "2026-08-31"))
+    summary = yh.build(requests, refs=_Refs([MASTER_ROW, {**MASTER_ROW, "security_id": "10"}]), raw_dir=raw,
+                       out_dir=out, sessions=sessions, metrics_path=tmp_path / "absent.pkl")
+    report = pd.read_csv(out / "entity_report.csv", keep_default_na=False).set_index("symbol")
+    assert "relist_junction" not in report.loc["SMCI", "verdict_reasons"]
+    assert "relist_junction" not in report.loc["WW", "verdict_reasons"]
+    for sid in ("9", "10"):
+        series = pd.read_csv(out / f"{sid}.csv.gz", keep_default_na=False)
+        assert (series["junction"] != "Y").all()
+    assert summary["relist_junctions"] == []
+    assert yh.relist_junction(pd.DataFrame({"date": pd.to_datetime(new), "close_raw": 30.0}), "2025-06-27") == (None, "")
+
+
+@pytest.mark.skipif(not ((yh.OUT / "entity_report.csv").exists() and yh.CANDIDATES.exists()),
+                    reason="step 7 outputs not built")
+def test_built_series_have_relist_junctions_only_where_the_candidate_list_names_new_equity():
+    report = pd.read_csv(yh.OUT / "entity_report.csv", dtype=str, keep_default_na=False)
+    candidates = pd.read_csv(yh.CANDIDATES, dtype=str, keep_default_na=False)
+    if "junction_date" not in report:
+        pytest.skip("entity report built before round 6")
+    junctions = {(r.security_id, r.junction_date) for r in candidates.itertuples() if r.junction_date}
+    hits = report[report["verdict_reasons"].str.contains("relist_junction:", regex=False)]
+    found = {(r.security_id, re.search(r"relist_junction:(\d{4}-\d{2}-\d{2})", r.verdict_reasons).group(1))
+             for r in hits.itertuples()}
+    assert found <= junctions
+    # round 7: the same shares listed again carry no junction (SMCI, SIGA, SCOR, MDXG)
+    same = {"1375365", "1010086", "1158172", "1376339"}
+    assert not (set(hits["security_id"]) & same)
+    assert not (set(candidates.loc[candidates["junction_date"] != "", "security_id"]) & same)

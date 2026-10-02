@@ -34,8 +34,8 @@ Steps:
 3. Each event is assigned a fiscal quarter: the latest period end before its filing
    date, from the company's own 10-Q/10-K ``reportDate`` values (extended by 91-day
    steps past the last known period). ``event_kind`` then says what each event is
-   (best effort, from filing dates only; the exhibit descriptions in the headers are
-   almost all generic, e.g. 'EX-99.1'):
+   (from filing dates, then checked against the 8-K's own Item 2.02 text, step 6b; the
+   exhibit descriptions in the headers are almost all generic, e.g. 'EX-99.1'):
    - ``amendment``: an 8-K/A linked (``amends_accession``) to the Item 2.02 8-K it amends,
      by the same period of report, else the nearest Item 2.02 8-K filed up to 7 days before,
      else the latest Item 2.02 8-K of the same fiscal quarter;
@@ -44,7 +44,8 @@ Steps:
      most 3 days apart) filed no later than the day after the quarter's 10-Q/10-K, since the
      full release comes just before the report; when every one comes later, or the quarter has
      no report, it is the first. In multi-event quarters this release lies within 7 days of the
-     company's usual lag after the period end in 76% of quarters (the first event: 24%);
+     company's usual lag after the period end in 76% of quarters (the first event: 24%). Rule (b),
+     step 6b, can then move it to an earlier 8-K;
    - ``preannouncement``: an event of the quarter before its results release (preliminary
      figures, delivery or sales updates, guidance);
    - ``other``: an event after the results release of its quarter (call materials,
@@ -55,6 +56,8 @@ Steps:
    choice (all events, first only, the one nearest the report). ``prior_quarter_report_pending``
    = Y marks an event filed before the previous period's late 10-Q/10-K while that period has
    no event: likely that period's release (the assignment is not changed).
+   ``first_in_fiscal_quarter`` = Y on the first non-amendment event of each fiscal quarter (by
+   D0, then acceptance), the plan's alternative to all events; Y on every fallback row.
 4. Fallback: each fiscal quarter that has a 10-Q/10-K (filed from 2011-10-01) but no
    Item 2.02 event gets that report's acceptance (the first original filing for
    the period) in ``earnings_fallback_periodic.csv`` (``event_kind`` = periodic_report).
@@ -67,13 +70,37 @@ Steps:
    has ``usable_as_announcement`` = N and should not be used as an announcement date.
 5. ``-index-headers.html`` for every event and every fallback filing inside the window
    (``CACHE/raw/sec/headers/{cik}/{accession}-index-headers.html.gz``), through this step's
-   own SEC_LIMITER (at most 6 a second, ``--sec-rate``; SEC allows 10 for all processes) and
+   own SEC_LIMITER (at most 4 a second, ``--sec-rate``; SEC allows 10 for all processes) and
    sec_headers(). ``ACCEPTANCE-DATETIME`` there is Eastern wall-clock
    time and is the value used; the JSON ``acceptanceDateTime`` is kept and compared
    (it is labelled Z but is sometimes Eastern time).
 6. D0 = the first XNAS session whose close (16:00 ET, 13:00 on early-close days) is
    strictly after the acceptance time: after the close, or on a non-session day, it is
-   the next session.
+   the next session (kept in ``d0_session_acceptance`` on every row).
+6b. The 8-K's own text (``--fetch-evidence`` fetches the primary document of the rows below,
+   ``CACHE/raw/sec/docs/{cik}/{accession}/{document}.gz``; ``item202_evidence`` reads its Item 2.02
+   paragraph: the stated release date and what it furnishes). Read for every non-amendment row
+   whose period of report lies 2+ sessions before its acceptance D0, and for the results release
+   of every quarter where the last-run rule did not pick the first event (then also the earlier
+   8-Ks of quarters whose pick furnishes no release). CACHE/earnings/release_evidence.csv lists
+   what was read.
+   - Rule (a), late-furnished releases (T2 Biosystems 0001193125-22-147547: released 2022-05-05,
+     accepted 2022-05-11): the release date is the date the Item 2.02 text states, else the period
+     of report when the 8-K reports only 2.02/7.01/8.01/9.01 (with other items it is the earliest
+     event's date, which may come before the release). The time of day is not known, so D0 becomes
+     the latest session that could first trade on it: the session after a session-day release date
+     (a release after the close), else the first session after it; never later than the acceptance
+     D0. If that is earlier, ``late_furnished`` = Y and ``d0_basis`` = release_date_latest. A release
+     before the close of its own day would make D0-1 the first session: the D0-1..D0+1 window
+     holds both. ``report_date_lag_days``/``_sessions`` and ``report_date_kind`` say how far the
+     period of report lies before D0 and whether it can be a release date.
+   - Rule (b), a later 8-K picked as the release (Interface 0000715787-18-000012, slides for
+     investor meetings, picked over the 2018-04-25 release 0000715787-18-000010): when the pick's
+     Item 2.02 text says it furnishes something else (slides, a transcript, a supplement, monthly
+     statistics; a bare or boilerplate-only paragraph never moves a release) and
+     an earlier original 8-K of the quarter states one, that 8-K becomes the release
+     (``event_kind_basis`` item202_text, ``release_check`` moved_from:<accession>); without one the
+     pick stays (``release_check`` pick_furnishes_no_release).
 7. ``sic_history.csv``: one row per header read, the SIC of the block whose CENTRAL
    INDEX KEY is the company (a multi-filer 8-K lists several).
 8. Completeness of the cached headers is checked by scanning the cache itself
@@ -83,27 +110,36 @@ Steps:
 ``security_id`` holds every in-scope security of the CIK, space-joined, for a multi-class
 company (one event row per filing): a join on security_id must split it first.
 
-9. Hand sample (``--hand-sample``, plan section 6): 20 in-scope company-quarters with a results
-   release, drawn by numpy default_rng(20261002); their filing index, 8-K and EX-99 exhibits are
-   fetched (``CACHE/raw/sec/docs/{cik}/{accession}/``) and what they say is written to
-   hand_sample_draw.csv for a person to read; that person's findings (hand_sample_verdicts.json,
-   keyed by accession) are joined into hand_sample.csv.
+9. Hand sample (``--hand-sample``, plan section 6). Round 7 drew 20 in-scope company-quarters with
+   a results release (numpy default_rng(20261002), whole scope); that sample found the T2 and
+   Interface defects, so its 20 company-quarters (frozen in hand_sample_round7_keys.csv) are
+   re-scored under the current rules, and a fresh 20 are drawn by default_rng(20261003) from the
+   plan's population (results releases in company-quarters with a week in the top-300 file).
+   Their filing index, 8-K and EX-99 exhibits are fetched (``CACHE/raw/sec/docs/{cik}/{accession}/``)
+   and what they say is written to hand_sample_draw.csv for a person to read; that person's
+   findings (hand_sample_verdicts.json, keyed by accession, judged by HAND_CRITERION) are joined
+   into hand_sample.csv and INPUTS/earnings_hand_checks.csv (what validate reads). The ir_* columns
+   come from the release itself (the EX-99 exhibit, or the 8-K body when there is none), never
+   from the EDGAR acceptance time.
 
 Outputs:
   INPUTS/earnings_events.csv, INPUTS/earnings_fallback_periodic.csv, sic_history.csv (``--sic-out``,
   default INPUTS/sic_history.csv)
-  CACHE/earnings/earnings_summary.json   counts, header/JSON agreement, coverage (and, with ``--before
-  DIR``, an earlier build's coverage of the same company-quarters), cache scan
+  CACHE/earnings/earnings_summary.json   counts, header/JSON agreement, coverage on three populations (every
+  in-scope week; the plan's universe, weeks in the top-300 file; validate's rank <= 250 weeks), rules (a)
+  and (b) (and, with ``--before DIR``, an earlier build's coverage of the same company-quarters), cache scan
   CACHE/earnings/scope.csv (with each CIK's window), company_quarter_coverage.csv, company_year_coverage.csv,
   missing_company_quarters.csv (in-scope quarters without a usable date), no_event_companies.csv,
-  foreign_scope_check.csv (each in-scope MIXED CIK: weeks and rows by regime), hand_sample*.csv
+  foreign_scope_check.csv (each in-scope MIXED CIK: weeks and rows by regime), release_evidence.csv,
+  hand_sample*.csv; INPUTS/earnings_hand_checks.csv (``--hand-sample``)
 
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_earnings.py                 # fetch what is missing, then build
     PYTHONPATH=. python scripts/reversal_data_earnings.py --offline       # build from the cache only
     PYTHONPATH=. python scripts/reversal_data_earnings.py --limit-ciks 5  # a small trial
-    PYTHONPATH=. python scripts/reversal_data_earnings.py --fetch-only --sec-rate 5   # fetch, write no table
+    PYTHONPATH=. python scripts/reversal_data_earnings.py --fetch-only --sec-rate 4   # fetch, write no table
+    PYTHONPATH=. python scripts/reversal_data_earnings.py --fetch-evidence           # the 8-K texts of step 6b
     PYTHONPATH=. python scripts/reversal_data_earnings.py --hand-sample --sec-rate 1  # the 20-event hand check
 """
 from __future__ import annotations
@@ -167,8 +203,9 @@ CHUNK = 400
 # least to the end of that day's calendar quarter.
 WARMUP_DAYS = 120
 HOLD_DAYS = 35
-# SEC allows 10 requests a second for all processes together; this step's share is at most 6.
-SEC_RATE_MAX = 6
+# SEC allows 10 requests a second for all processes together; several steps may run at once, so this
+# step's share is at most 4 (orchestrator rule of 2026-10-02).
+SEC_RATE_MAX = 4
 SEC_LIMITER = common.SlidingWindowLimiter({1: SEC_RATE_MAX})
 
 
@@ -236,11 +273,17 @@ def domestic_weeks(weekly: pd.DataFrame, flags: pd.Series, history: pd.DataFrame
     return weekly[~foreign]
 
 
-def load_universe_top(path: Path | None = None) -> pd.DataFrame:
-    """The weekly top-300 universe file (step 12): security_id, cik (Int64), week_end, one row per security-week."""
-    frame = pd.read_csv(path or UNIVERSE_TOP, dtype=str, keep_default_na=False, usecols=["week_end", "security_id", "cik"])
-    return frame.assign(cik=pd.array([_cik_int(c) for c in frame["cik"]], dtype="Int64"),
-                        week_end=pd.to_datetime(frame["week_end"]))
+def load_universe_top(path: Path | None = None, ranks: bool = False) -> pd.DataFrame:
+    """The weekly top-300 universe file (step 12): security_id, cik (Int64), week_end, one row per security-week
+    (with ``ranks``, also rank: the better of dv50_rank and dv20_rank)."""
+    columns = ["week_end", "security_id", "cik"] + (["dv50_rank", "dv20_rank"] if ranks else [])
+    frame = pd.read_csv(path or UNIVERSE_TOP, dtype=str, keep_default_na=False, usecols=columns)
+    frame = frame.assign(cik=pd.array([_cik_int(c) for c in frame["cik"]], dtype="Int64"),
+                         week_end=pd.to_datetime(frame["week_end"]))
+    if ranks:
+        best = pd.concat([pd.to_numeric(frame[c], errors="coerce") for c in ("dv50_rank", "dv20_rank")], axis=1).min(axis=1)
+        frame = frame.drop(columns=["dv50_rank", "dv20_rank"]).assign(rank=best)
+    return frame
 
 
 def candidate_windows(candidates: pd.DataFrame) -> pd.DataFrame:
@@ -583,10 +626,12 @@ def classify_quarter(dates: list[str], report: str) -> tuple[int, str]:
 
 
 def classify_events(events: pd.DataFrame) -> pd.DataFrame:
-    """event_kind, event_kind_basis, n_item202_in_fiscal_quarter and days_to_next_item202_in_quarter
-    for ``events`` (cik, accession, form, filing_date, acceptance_sort, fiscal_quarter_end,
+    """event_kind, event_kind_basis, n_item202_in_fiscal_quarter, days_to_next_item202_in_quarter and
+    pick_not_first (Y on a results release that is not its quarter's first non-amendment event) for
+    ``events`` (cik, accession, form, filing_date, acceptance_sort, fiscal_quarter_end,
     periodic_report_filing_date, amends_how), indexed like ``events``. No row is dropped."""
-    columns = ["event_kind", "event_kind_basis", "n_item202_in_fiscal_quarter", "days_to_next_item202_in_quarter"]
+    columns = ["event_kind", "event_kind_basis", "n_item202_in_fiscal_quarter", "days_to_next_item202_in_quarter",
+               "pick_not_first"]
     out = pd.DataFrame("", index=events.index, columns=columns)
     if events.empty:
         return out
@@ -612,6 +657,7 @@ def classify_events(events: pd.DataFrame) -> pd.DataFrame:
         kinds = ["preannouncement"] * release + ["results_release"] + ["other"] * (len(members) - release - 1)
         out.loc[members.index, "event_kind"] = kinds
         out.loc[members.index, "event_kind_basis"] = basis
+        out.loc[members.index, "pick_not_first"] = ["Y" if release > 0 and k == "results_release" else "N" for k in kinds]
     return out
 
 
@@ -848,6 +894,27 @@ class XnasCloses:
             timing = "non_session"
         return session.strftime("%Y-%m-%d"), timing
 
+    def index_on_or_after(self, day: str) -> int:
+        """Position of the first session on or after the calendar day 'YYYY-MM-DD' (len(sessions) if none)."""
+        return int(self.sessions.searchsorted(pd.Timestamp(day)))
+
+    def is_session(self, day: str) -> bool:
+        position = self.index_on_or_after(day)
+        return position < len(self.sessions) and self.sessions[position] == pd.Timestamp(day)
+
+    def session_at(self, position: int) -> str:
+        return self.sessions[position].strftime("%Y-%m-%d") if 0 <= position < len(self.sessions) else ""
+
+    def latest_d0_on_date(self, day: str) -> tuple[str, str]:
+        """(latest D0, earliest D0) for a release made at an unknown time on the calendar day ``day``.
+
+        On a session day the release may have come before that day's close (D0 = that session) or after
+        it (D0 = the next session), so the latest D0 is the next session and the earliest is the day's
+        own. On a non-session day both are the next session."""
+        position = self.index_on_or_after(day)
+        latest = position + 1 if self.is_session(day) else position
+        return self.session_at(latest), self.session_at(position)
+
 
 def json_naive(value: str) -> str:
     """'2016-04-26T20:31:09.000Z' -> '2016-04-26 20:31:09' (the label is not trusted)."""
@@ -921,7 +988,7 @@ def plan_company(cik: int, offline: bool = False, window: tuple[str, str] = (EVE
     quarters_in = set(events.loc[events["in_window"], "fiscal_quarter_end"]) - {""}
     events["in_window"] = events["in_window"] | events["fiscal_quarter_end"].isin(quarters_in)
     fallback["in_window"] = in_window(fallback["filingDate"], *window)
-    return {**facts, "events": events, "fallback": fallback, "window": tuple(window),
+    return {**facts, "events": events, "fallback": fallback, "window": tuple(window), "period_ends": set(ends),
             "n_periodic_since": int((periodic["filingDate"] >= EVENTS_FROM).sum()),
             "first_filing": table["filingDate"].min() if len(table) else "",
             "last_filing": table["filingDate"].max() if len(table) else ""}
@@ -1029,17 +1096,441 @@ def fetch_headers(jobs: list[tuple[int, str, str, str]], offline: bool = False) 
     return counts
 
 
+# ------------------------------------------------------------------ report dates and the 8-K's own Item 2.02 text
+
+# An 8-K's period of report is the date of the earliest event it reports. For an earnings 8-K that is
+# usually the release date, but the 8-K may be furnished days later (T2 Biosystems 0001193125-22-147547:
+# released 2022-05-05, accepted 2022-05-11), and with other items (5.02, 1.01, 3.01, ...) it may be
+# another event's date, before the release (Interface 0000715787-18-000010: period 2018-04-24, the
+# 5.02 event; released 2018-04-25 after the close). The 8-K's own Item 2.02 paragraph says when the
+# release was issued ("On April 25, 2018, Interface ... issued a press release reporting its financial
+# results") and what is furnished (a release, slides, a call transcript), so it is read for the rows
+# where that matters: those whose period of report lies LATE_MIN_SESSIONS or more sessions before the
+# acceptance D0 (a D0-1..D0+1 window may then miss the release), and the results release of every
+# quarter where the last-run rule did not pick the quarter's first event.
+DOC_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{folder}/{document}"
+LATE_MIN_SESSIONS = 2
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov",
+                                       "dec"], 1)}
+_DATE = re.compile(r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|"
+                   r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\s*,?\s*(\d{4})\b"
+                   r"|\b(\d{1,2})/(\d{1,2})/(\d{4})\b", re.I)
+_ITEM = re.compile(r"\bitem\s*(\d{1,2})\s*\.\s*(\d{2})\b", re.I)
+_HEADING = re.compile(r"^[\s.:\-\u2014\u2013]*(?:results\s+of\s+operations?\s+and\s+financial\s+conditions?|regulation\s+fd\s+disclosures?|other\s+events?)[\s.:\-\u2014\u2013]*", re.I)
+_COVER = re.compile(r"securities\s+and\s+exchange\s+commission|date\s+of\s+report|table\s+of\s+contents|"
+                    r"exact\s+name\s+of\s+registrant", re.I)
+_MENTION = re.compile(r"(?:this|under|to|in|of|and|by|with|see|such)\s*$", re.I)  # "... this Item 2.02": not a heading
+
+
+def report_date_timing(frame: pd.DataFrame, calendar: XnasCloses, ends: dict[int, set[str]]) -> pd.DataFrame:
+    """report_date_lag_days (acceptance date, Eastern, less the period of report), report_date_lag_sessions
+    (sessions from the first session on or after the period of report to the acceptance D0) and
+    report_date_kind: event_date, or why the period of report cannot be the release date (blank,
+    period_end: one of the company's 10-Q/10-K period ends or the event's fiscal quarter end;
+    before_quarter_end: on or before the fiscal quarter end; month_end; after_acceptance)."""
+    lags, sessions, kinds = [], [], []
+    for cik, report, accepted, d0, quarter in zip(frame["cik"], frame["report_date"], frame["acceptance_et"],
+                                                   frame["d0_session"], frame["fiscal_quarter_end"]):
+        if not report or not accepted or not d0:
+            lags.append(""), sessions.append(""), kinds.append("blank")
+            continue
+        day = accepted[:10]
+        lags.append(str(_days(day, report)))
+        sessions.append(str(calendar.index_on_or_after(d0) - calendar.index_on_or_after(report)))
+        if report > day:
+            kinds.append("after_acceptance")
+        elif report in ends.get(int(cik), set()) or report == quarter:
+            kinds.append("period_end")
+        elif quarter and report <= quarter:
+            kinds.append("before_quarter_end")
+        elif pd.Timestamp(report).is_month_end:
+            kinds.append("month_end")
+        else:
+            kinds.append("event_date")
+    return pd.DataFrame({"report_date_lag_days": lags, "report_date_lag_sessions": sessions,
+                         "report_date_kind": kinds}, index=frame.index)
+
+
+def main_doc_path(cik: int, accession: str, document: str) -> Path:
+    return DOCS_DIR / str(int(cik)) / accession / f"{document}.gz"
+
+
+def doc_url(cik: int, accession: str, document: str) -> str:
+    return DOC_URL.format(cik=int(cik), folder=accession.replace("-", ""), document=document)
+
+
+def load_main_doc(cik: int, accession: str, document: str, offline: bool = False) -> str | None:
+    """Plain text of the filing's primary document (the 8-K itself), cache first; None when absent."""
+    if not document:
+        return None
+    data = _sec_get(doc_url(cik, accession, document), main_doc_path(cik, accession, document), "sec_docs",
+                    f"CIK{int(cik)}", offline)
+    return html_text(data) if data is not None else None
+
+
+def parse_dates(text: str) -> list[tuple[str, int]]:
+    """(YYYY-MM-DD, position) for every calendar date written in ``text`` ('May 5, 2022', 'Sept. 5 2022', '5/5/2022')."""
+    out = []
+    for match in _DATE.finditer(text):
+        try:
+            if match.group(1):
+                stamp = pd.Timestamp(year=int(match.group(3)), month=_MONTHS[match.group(1)[:3].lower()],
+                                     day=int(match.group(2)))
+            else:
+                stamp = pd.Timestamp(year=int(match.group(6)), month=int(match.group(4)), day=int(match.group(5)))
+        except (ValueError, KeyError):
+            continue
+        out.append((stamp.strftime("%Y-%m-%d"), match.start()))
+    return out
+
+
+def item_section(text: str, item: tuple[str, str] = ("2", "02"), limit: int = 1500) -> str:
+    """The text under the first ``Item 2.02`` heading of an 8-K, up to the next item heading (at most
+    ``limit`` characters). A mention ('this Item 2.02', 'under Item 7.01') is not a heading. When the
+    section is short (headings run together: 'Item 2.02 Results of Operations and Financial Condition.
+    Item 7.01 Regulation FD Disclosure. ...') or refers to Item 7.01 or 8.01, the 7.01 and 8.01 sections
+    that follow are added (the release is often described there)."""
+    headings = [m for m in _ITEM.finditer(text) if not _MENTION.search(text[max(0, m.start() - 12):m.start()])]
+
+    def body(n: int) -> str:
+        match = headings[n]
+        end = headings[n + 1].start() if n + 1 < len(headings) else len(text)
+        return _HEADING.sub("", text[match.end():min(end, match.end() + limit)]).strip(" .:-—–")
+
+    found = []
+    for n, match in enumerate(headings):
+        if (match.group(1), match.group(2)) != item:
+            continue
+        section = body(n)
+        if len(section) < 60 or re.search(r"\bitems?\s*(?:7\.01|8\.01)", section, re.I):
+            for later in range(n + 1, min(n + 4, len(headings))):
+                if (headings[later].group(1), headings[later].group(2)) in (("7", "01"), ("8", "01")):
+                    section = (section + " " + body(later)).strip()
+                elif (headings[later].group(1), headings[later].group(2)) != item:
+                    break
+        found.append(section[:limit])
+        # a heading in the cover page or a table of contents is not the item's own text
+        if len(section) >= 40 and not _COVER.search(section[:400]):
+            return section[:limit]
+    return found[-1] if found else ""
+
+
+# the first verb after a date: an issuing verb makes it a release (or call) date; 'filed' does not
+_VERB_AFTER = re.compile(r"\b(?:(filed|files|filing)|issu(?:ed|es|ing)|releas(?:ed|es|ing)|announc(?:e|ed|es|ing)|report(?:ed|s|ing)|"
+                         r"disclos(?:e|ed|es|ing)|publish(?:ed|es|ing)|post(?:ed|s|ing)|host(?:ed|s|ing)|held|conduct(?:ed|s|ing)|"
+                         r"provid(?:ed|es|ing)|distribut(?:ed|es|ing)|disseminat(?:ed|es|ing)|made\s+available|present(?:ed|s|ing))\b", re.I)
+_PERIOD_DATE = re.compile(r"\b(?:as\s+of|ended|ending|through|at|until|from|to|between)\s*$", re.I)
+_CITES_EARLIER = re.compile(r"\bpreviously\b|\bfiled\b|\beffective\b", re.I)  # just before a date: an earlier filing or event
+# a statement that results were released (not merely the heading 'Results of Operations and Financial Condition')
+_RESULTS_STATED = re.compile(r"\b(?:announc|report|releas|issu|disclos|provid|publish|post)\w*\b[^.;]{0,200}?\b(?:financial\s+|operating\s+|"
+                      r"quarterly\s+|annual\s+)?(?:results|earnings|performance)\b|\bearnings\s+(?:press\s+|news\s+)?release\b|"
+                      r"\b(?:results|earnings)\s+(?:for|of)\s+(?:its|the|our)\s+(?:\w+\s+){0,4}(?:quarter|year|period|months|fiscal)|"
+                      r"\b(?:financial|operating)\s+(?:information|results|data|statements)\s+(?:as\s+of\s+and\s+)?for\s+(?:its|the|our)\s+"
+                      r"(?:\w+\s+){0,5}(?:quarters?|years?|months|periods?)\s+ended", re.I)
+_PRELIMINARY = re.compile(r"\bprelim\w*|\bselected\s+(?:unaudited\s+)?(?:preliminary\s+)?(?:financial|operating)\s+(?:results|information|data)|"
+                          r"\b(?:expected|estimated|anticipated)\s+(?:financial\s+)?(?:results|revenues?|sales|earnings)|\bpre-?announc\w*", re.I)
+_PRESENTATION = re.compile(r"\bpresentation|\bslides?\b|\bslide\s+deck|\bpresent\s+to\s+investors|\binvestor\s+(?:day|meetings?|"
+                           r"conferences?|materials)|\bmeet\s+(?:and\s+present\s+)?(?:to|with)\s+investors", re.I)
+_TRANSCRIPT = re.compile(r"\btranscript|\bprepared\s+remarks|\bscript\b", re.I)
+_STATISTICS = re.compile(r"\b(?:traffic|operating|monthly)\s+(?:statistics|data|results)|\bstatistics\s+for\b|"
+                         r"\b(?:sales|revenues?|deliveries|production)\s+(?:for|through)\s+the\s+month|\bmonth(?:ly)?\s+(?:sales|revenues?)\b|"
+                         r"\bmonth\s+ended\b|\bquarter[\s-]+to[\s-]+date\b", re.I)
+# 'issued a press release, a copy of which is attached': a release, but the text does not say of what
+_BARE_RELEASE = re.compile(r"\b(?:press|news|earnings)\s+release\b", re.I)
+_SUPPLEMENT = re.compile(r"\bsupplement(?:al|ary)?\b|\bfact\s*book|\bhistorical\s+(?:financial\s+)?(?:data|information|results)|"
+                         r"\brecast|\bas\s+adjusted\b", re.I)
+EVIDENCE_HEAD = 1200  # characters of the Item 2.02 text read for the date and the kind
+
+
+def item202_evidence(text: str | None, low: str, high: str) -> dict:
+    """What the 8-K's Item 2.02 paragraph says: ``item202_date``, the first date in it after ``low`` (the
+    fiscal quarter end) and on or before ``high`` (the acceptance date) that reads as the release date:
+    an issuing verb (issued, announced, reported, held, conducted, ...; not 'filed') comes first after it
+    or last before it in its sentence, no 'previously', 'filed' or 'effective' comes before it in that
+    sentence (a date cited from an earlier filing or event), and 'On <date>' / 'dated <date>' is preferred;
+    ``item202_kind``: no_document, no_item202_text, or what the paragraph furnishes: presentation,
+    preliminary (preliminary, selected or estimated figures named in its first 600 characters),
+    results_release (a statement that results were released), presentation, transcript, supplement or
+    statistics (monthly or traffic figures; no such statement), release_unspecified (a press or news
+    release named, nothing said of what it reports), other (none of these: guidance alone, an auditor
+    change, boilerplate only); and the paragraph's opening."""
+    if text is None:
+        return {"item202_kind": "no_document", "item202_date": "", "item202_text": ""}
+    section = item_section(text)
+    if not section:
+        return {"item202_kind": "no_item202_text", "item202_date": "", "item202_text": ""}
+    head = section[:EVIDENCE_HEAD]
+    issued, on = [], []
+    for day, at in parse_dates(head):
+        # the same sentence only ('U.S. Securities' does not end one)
+        before = re.split(r"(?<![A-Z])\.\s+(?=[A-Z(])|;\s", head[max(0, at - 300):at])[-1]
+        if _PERIOD_DATE.search(before[-30:]):   # 'as of December 31', 'quarter ended ...': a period, not an event
+            continue
+        after = _VERB_AFTER.search(head[at:at + 160])
+        prior = [m for m in _VERB_AFTER.finditer(before)]
+        issuing = (after is not None and not after.group(1)) or (bool(prior) and not prior[-1].group(1))
+        if not low < day <= high or not issuing or _CITES_EARLIER.search(before):
+            continue
+        issued.append(day)
+        if re.search(r"\b(?:on|dated)\s*$", head[max(0, at - 9):at], re.I):
+            on.append(day)
+    date = (on or issued or [""])[0]
+    if _PRELIMINARY.search(head[:600]):  # read as preliminary first: that only ever blocks a move
+        kind = "preliminary"
+    elif _RESULTS_STATED.search(head):
+        kind = "results_release"
+    elif _PRESENTATION.search(head):
+        kind = "presentation"
+    elif _TRANSCRIPT.search(head):
+        kind = "transcript"
+    elif _SUPPLEMENT.search(head):
+        kind = "supplement"
+    elif _STATISTICS.search(head):
+        kind = "statistics"
+    elif _BARE_RELEASE.search(head):
+        kind = "release_unspecified"
+    else:
+        kind = "other"
+    return {"item202_kind": kind, "item202_date": date, "item202_text": head[:400]}
+
+
+# The paragraph says it furnishes something other than a results release. 'release_unspecified' and
+# 'other' (no statement either way: 'issued a press release, a copy of which is attached', boilerplate
+# only) never move a release.
+NOT_A_RELEASE = {"presentation", "transcript", "supplement", "statistics"}
+# Rule (a) takes a date from the text only when the text is about a release, a call or furnished results
+# ('other': an auditor change, a lawsuit, guidance alone, where the date is another event's).
+LATE_TEXT_KINDS = {"results_release", "preliminary", "release_unspecified"} | NOT_A_RELEASE
+
+
+def evidence_rows(events: pd.DataFrame, stage: int = 1) -> pd.DataFrame:
+    """The event rows whose 8-K text is read, with ``evidence_reason``.
+
+    Stage 1: every non-amendment row whose period of report lies LATE_MIN_SESSIONS or more sessions
+    before its acceptance D0 (late_candidate), and the results release of each quarter where the
+    last-run rule did not pick the first original 8-K (release_not_first), inside the CIK's window. Stage 2 (needs stage 1's
+    ``item202_kind``): the earlier original 8-Ks of the quarters whose picked release furnishes no
+    release (NOT_A_RELEASE), so another can be chosen."""
+    events = events[events["in_window"].astype(bool)] if "in_window" in events else events
+    lag = pd.to_numeric(events["report_date_lag_sessions"], errors="coerce")
+    late = (lag >= LATE_MIN_SESSIONS) & (events["event_kind"] != "amendment")
+    pick = events["pick_not_first"] == "Y"
+    if stage == 1:
+        reason = np.where(late & pick, "late_candidate;release_not_first",
+                          np.where(late, "late_candidate", "release_not_first"))
+        return events[late | pick].assign(evidence_reason=reason[late | pick])
+    kinds = events.get("item202_kind", pd.Series("", index=events.index))
+    flagged = events[pick & kinds.isin(NOT_A_RELEASE)]
+    keys = set(zip(flagged["cik"], flagged["fiscal_quarter_end"]))
+    picked = dict(zip(zip(flagged["cik"], flagged["fiscal_quarter_end"]), flagged["acceptance_sort"]))
+    mask = [(c, q) in keys and form == "8-K" and kind != "amendment" and sort < picked[(c, q)]
+            for c, q, form, kind, sort in zip(events["cik"], events["fiscal_quarter_end"], events["form"],
+                                              events["event_kind"], events["acceptance_sort"])]
+    return events[mask].assign(evidence_reason="earlier_than_a_non_release_pick")
+
+
+def fetch_docs(rows: pd.DataFrame, offline: bool = False) -> Counter:
+    """Fetch the primary document of each row not yet cached (or known absent), in chunks, printing
+    progress, through this step's SEC limiter; stops on an SEC refusal."""
+    todo = [(int(c), a, d) for c, a, d in zip(rows["cik"], rows["accession"], rows["primary_document"])
+            if d and not main_doc_path(c, a, d).exists() and not _absent(main_doc_path(c, a, d))]
+    counts = Counter(cached=len(rows) - len(todo), no_primary_document=int((rows["primary_document"] == "").sum()))
+    log(f"8-K documents: {len(rows)} rows, {counts['cached']} cached or absent, {len(todo)} to fetch")
+    if offline or not todo:
+        counts["not_fetched_offline"] = len(todo) if offline else 0
+        return counts
+    started = time.time()
+
+    def one(item):
+        cik, accession, document = item
+        return "fetched" if load_main_doc(cik, accession, document) is not None else "absent"
+
+    for start in range(0, len(todo), CHUNK):
+        for result in common.parallel_map(one, todo[start:start + CHUNK], WORKERS):
+            counts[result if isinstance(result, str) else f"error_{type(result).__name__}"] += 1
+        done = min(start + CHUNK, len(todo))
+        elapsed = time.time() - started
+        log(f"  documents: {done}/{len(todo)} ({elapsed / 60:.1f} min, eta {elapsed / done * (len(todo) - done) / 60:.1f} min) "
+            + " ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        if _STOP.is_set():
+            log("  SEC refused a request: stopping; re-run later to fetch the rest")
+            break
+    return counts
+
+
+def attach_evidence(events: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """``events`` with item202_kind / item202_date / item202_text / evidence_reason / evidence_url filled
+    (from the cache only) for ``rows``; blank elsewhere."""
+    events = events.copy()
+    for column in ("item202_kind", "item202_date", "item202_text", "evidence_reason", "evidence_url"):
+        if column not in events:
+            events[column] = ""
+    for index, record in rows.iterrows():
+        text = load_main_doc(int(record["cik"]), record["accession"], record["primary_document"], offline=True)
+        low = record["fiscal_quarter_end"] or (pd.Timestamp(record["filing_date"]) - pd.Timedelta(days=QUARTER_STEP_DAYS)).strftime("%Y-%m-%d")
+        found = item202_evidence(text, low, (record["acceptance_et"] or record["filing_date"])[:10])
+        reasons = ";".join(sorted(set(filter(None, events.at[index, "evidence_reason"].split(";")))
+                                  | set(record["evidence_reason"].split(";"))))
+        events.loc[index, ["item202_kind", "item202_date", "item202_text", "evidence_reason", "evidence_url"]] = [
+            found["item202_kind"], found["item202_date"], found["item202_text"], reasons,
+            doc_url(int(record["cik"]), record["accession"], record["primary_document"]) if record["primary_document"] else ""]
+    return events
+
+
+RELEASE_ITEMS = {"2.02", "7.01", "8.01", "9.01"}  # items that usually report the release itself
+# the bare period of report is taken as the release day only when the text states a release (or is absent)
+REPORT_DATE_KINDS = {"results_release", "preliminary", "release_unspecified", "no_document", "no_item202_text"}
+
+
+def reclassify_by_text(events: pd.DataFrame, calendar: XnasCloses | None = None) -> pd.DataFrame:
+    """Rule (b), for the Interface case: a quarter whose picked results release (last-run rule, not the
+    quarter's first event) furnishes no release by its own Item 2.02 paragraph (NOT_A_RELEASE: slides,
+    a call transcript, a supplement or recast, monthly or traffic statistics) takes as its release the latest earlier original 8-K whose
+    paragraph reports results (item202_kind results_release). Events before it stay preannouncement,
+    those after it become other, and the quarter's rows get event_kind_basis item202_text and
+    release_check 'moved_from:<accession>'. Without such an earlier 8-K the pick stays, with
+    release_check pick_furnishes_no_release (the protocol can use all events of such a quarter).
+    Also (with ``calendar``): when the pick's own text dates the release (item202_date) to an earlier
+    original 8-K of the quarter, one accepted on that day or later whose acceptance D0 is a session that
+    could first trade on a release made that day, that 8-K becomes the release (release_check
+    'moved_from_refurnished:...'; America's Car-Mart 0001171843-25-001354 dates its release to
+    2025-03-06, and an 8-K accepted 2025-03-05 after the close is not it)."""
+    events = events.copy()
+    events["release_check"] = ""
+    flagged = (events["pick_not_first"] == "Y") & (events["item202_kind"].isin(NOT_A_RELEASE) | (events["item202_date"] != ""))
+    picks = events[flagged]
+    if picks.empty:
+        return events
+    keys = set(zip(picks["cik"], picks["fiscal_quarter_end"]))
+    pool = events[[k in keys for k in zip(events["cik"], events["fiscal_quarter_end"])]]
+    for (cik, quarter), group in pool.groupby(["cik", "fiscal_quarter_end"], sort=False):
+        members = group[group["event_kind"] != "amendment"].sort_values(["acceptance_sort", "accession"])
+        pick = members.index[members["event_kind"] == "results_release"][0]
+        before = members.iloc[:members.index.get_loc(pick)]
+        before = before[before["form"] == "8-K"]
+        dated, how = before.iloc[0:0], "moved_from"
+        if events.at[pick, "item202_date"] and calendar is not None:
+            # the pick's own text dates the release: an earlier 8-K accepted then is that release (Western
+            # Digital 0001193125-13-336942 re-furnished its 2013-07-24 release on 2013-08-15)
+            day = events.at[pick, "item202_date"]
+            latest, earliest = calendar.latest_d0_on_date(day)
+            # accepted on the release day or later, and early enough to be first traded on it
+            dated = before[(before["acceptance_sort"].str[:10] >= day) & (before["d0_session_acceptance"] >= earliest)
+                           & (before["d0_session_acceptance"] <= latest)]
+        if len(dated):
+            earlier, how = dated, "moved_from_refurnished"
+        elif events.at[pick, "item202_kind"] in NOT_A_RELEASE:
+            earlier = before[before["item202_kind"] == "results_release"]
+            if earlier.empty:
+                events.loc[pick, "release_check"] = "pick_furnishes_no_release"
+                continue
+        else:
+            continue
+        chosen = members.index.get_loc(earlier.index[-1])
+        kinds = ["preannouncement"] * chosen + ["results_release"] + ["other"] * (len(members) - chosen - 1)
+        events.loc[members.index, "event_kind"] = kinds
+        events.loc[members.index, "event_kind_basis"] = "item202_text"
+        events.loc[members.index, "pick_not_first"] = ["Y" if chosen > 0 and k == "results_release" else "N" for k in kinds]
+        events.loc[members.index, "release_check"] = f"{how}:{events.at[pick, 'accession']}"
+    return events
+
+
+def late_furnished_d0(events: pd.DataFrame, calendar: XnasCloses) -> pd.DataFrame:
+    """Rule (a), for the T2 case: a release furnished in an 8-K accepted days after it was issued.
+
+    For every non-amendment row whose period of report lies LATE_MIN_SESSIONS or more sessions before
+    its acceptance D0, the release date is the date the 8-K's own Item 2.02 paragraph gives when that
+    paragraph is about a release, a call or furnished results (LATE_TEXT_KINDS; release_date_basis
+    item202_text; not 'other', e.g. Quantum Computing 0001213900-24-051804, an auditor change whose
+    date is the SEC's order), else the period of report when it can be an event date, the
+    8-K reports nothing outside RELEASE_ITEMS and its text states a release or is absent
+    (REPORT_DATE_KINDS; report_date), else none: unresolved_not_a_release when the text describes
+    something else (statements of an acquired business, slides), unresolved_other_items when the
+    8-K also reports other items (the period of report is then the earliest event's date, which may
+    come before the release: AMD 0001193125-14-373863, period 2014-10-10 for Item 2.05, released
+    2014-10-16), unresolved when the period of report is a period or month end; the acceptance D0
+    stays for these. It also stays (release_date_basis release_has_own_8k) when another non-amendment
+    8-K of the company, accepted on the release date or later, has its acceptance D0 on a session that
+    could first trade on a release made that day: the release was furnished in time and this filing re-furnishes or supplements it
+    (Texas Capital 0001193125-15-085666, 2015-03-10, on its 2015-01-21 release). The time of day of
+    the release is not known, so D0 is made the latest session that could first trade on a release
+    made that day: the next session when the release date is a session day (a release after its
+    close), else the first session after it; it is never later than the acceptance D0. When that is
+    earlier than the acceptance D0 the row is late_furnished = Y, d0_session takes it (d0_basis
+    release_date_latest) and the acceptance D0 stays in d0_session_acceptance. The release may also
+    have come before the close of its own day, making D0-1 the first session to trade on it: the
+    protocol's D0-1..D0+1 window holds both, whatever the time of day."""
+    events = events.copy()
+    for column, value in (("late_furnished", "N"), ("release_date", ""), ("release_date_basis", ""),
+                          ("d0_basis", "acceptance")):
+        events[column] = value
+    lag = pd.to_numeric(events["report_date_lag_sessions"], errors="coerce")
+    candidates = events[(lag >= LATE_MIN_SESSIONS) & (events["event_kind"] != "amendment")]
+    originals = events[events["event_kind"] != "amendment"]
+    own_d0 = {cik: list(zip(g["accession"], g["acceptance_sort"].str[:10], g["d0_session_acceptance"]))
+              for cik, g in originals.groupby("cik")}
+    for index, row in candidates.iterrows():
+        if row["item202_date"] and row["item202_kind"] in LATE_TEXT_KINDS:
+            day, basis = row["item202_date"], "item202_text"
+        elif row["report_date_kind"] == "event_date":
+            items = {part.strip() for part in str(row["items"]).split(",")}
+            if not items <= RELEASE_ITEMS:
+                day, basis = "", "unresolved_other_items"
+            elif row["item202_kind"] in REPORT_DATE_KINDS:
+                day, basis = row["report_date"], "report_date"
+            else:   # the text describes something other than a release (merger statements, slides, ...)
+                day, basis = "", "unresolved_not_a_release"
+        else:
+            day, basis = "", "unresolved"
+        if day:
+            latest, earliest = calendar.latest_d0_on_date(day)
+            if any(acc != row["accession"] and accepted >= day and earliest <= d0 <= latest
+                   for acc, accepted, d0 in own_d0.get(row["cik"], [])):
+                basis = "release_has_own_8k"   # a later re-furnishing: the release's own 8-K carries its D0
+        events.loc[index, ["release_date", "release_date_basis"]] = [day, basis]
+        if not day or basis == "release_has_own_8k":
+            continue
+        if latest and latest < row["d0_session_acceptance"]:
+            events.loc[index, ["d0_session", "d0_basis", "late_furnished"]] = [latest, "release_date_latest", "Y"]
+    return events
+
+
+def first_in_fiscal_quarter(events: pd.DataFrame) -> pd.Series:
+    """Y for the first non-amendment Item 2.02 event of each fiscal quarter, by D0 (then acceptance), else N."""
+    out = pd.Series("N", index=events.index)
+    rows = events[(events["event_kind"] != "amendment") & (events["fiscal_quarter_end"] != "")]
+    first = rows.sort_values(["cik", "fiscal_quarter_end", "d0_session", "acceptance_sort", "accession"]).drop_duplicates(
+        ["cik", "fiscal_quarter_end"]).index
+    out[first] = "Y"
+    return out
+
+
+def apply_release_evidence(events: pd.DataFrame, calendar: XnasCloses) -> pd.DataFrame:
+    """Read the cached 8-K texts (stage 1, then stage 2 of ``evidence_rows``), then rules (b) and (a)."""
+    events = attach_evidence(events, evidence_rows(events, 1))
+    events = attach_evidence(events, evidence_rows(events, 2))
+    return late_furnished_d0(reclassify_by_text(events, calendar), calendar)
+
+
 # ------------------------------------------------------------------ build the tables
 
-EVENT_COLUMNS = ["cik", "security_id", "accession", "form", "items", "acceptance_json_raw", "acceptance_header_et",
-                 "tz_resolution", "filing_date", "d0_session", "event_kind", "source",
-                 # extras
-                 "acceptance_et", "acceptance_timing", "json_label", "report_date", "fiscal_quarter_end",
-                 "fiscal_quarter_how", "event_kind_basis", "n_item202_in_fiscal_quarter", "days_after_period_end",
-                 "days_to_next_item202_in_quarter", "periodic_report_accession", "periodic_report_form",
-                 "periodic_report_filing_date", "prior_quarter_report_pending", "amends_accession", "amends_how", "foreign_filer", "foreign_regime_on_d0", "header_file"]
+BASE_COLUMNS = ["cik", "security_id", "accession", "form", "items", "acceptance_json_raw", "acceptance_header_et",
+                "tz_resolution", "filing_date", "d0_session", "first_in_fiscal_quarter", "event_kind", "source"]
+EVENT_COLUMNS = BASE_COLUMNS + [
+    # extras
+    "acceptance_et", "acceptance_timing", "json_label", "report_date", "fiscal_quarter_end",
+    "fiscal_quarter_how", "event_kind_basis", "n_item202_in_fiscal_quarter", "days_after_period_end",
+    "days_to_next_item202_in_quarter", "periodic_report_accession", "periodic_report_form",
+    "periodic_report_filing_date", "prior_quarter_report_pending", "amends_accession", "amends_how", "foreign_filer",
+    "foreign_regime_on_d0", "header_file",
+    # rule (a): late-furnished releases; rule (b): the release chosen by the 8-K's own text
+    "d0_session_acceptance", "d0_basis", "late_furnished", "release_date", "release_date_basis",
+    "report_date_lag_days", "report_date_lag_sessions", "report_date_kind", "pick_not_first", "item202_kind",
+    "item202_date", "release_check", "evidence_reason", "evidence_url", "primary_document"]
 EVENT_KINDS = {"results_release", "preannouncement", "other", "amendment"}
-FALLBACK_COLUMNS = EVENT_COLUMNS[:12] + [
+EVIDENCE_COLUMNS = ["cik", "accession", "form", "items", "filing_date", "report_date", "fiscal_quarter_end",
+                    "event_kind", "evidence_reason", "item202_kind", "item202_date", "item202_text", "evidence_url"]
+FALLBACK_COLUMNS = BASE_COLUMNS + [
     # extras
     "acceptance_et", "acceptance_timing", "json_label", "report_date", "fiscal_quarter_end", "fiscal_quarter_how",
     "days_after_period_end", "foreign_filer", "foreign_regime_on_d0", "header_file", "other_8k_between",
@@ -1135,12 +1626,13 @@ def mark_fallback(fallback: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_tables(plans: dict[int, dict], scope: pd.DataFrame, calendar: XnasCloses,
-                 history: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+                 history: pd.DataFrame | None = None, evidence: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(events, fallback) from the plans and the cached headers: the rows filed inside each CIK's window.
 
     Event kinds, quarter counts and the fallback's shared-D0 test are worked out over every planned
     filing first (a filing outside the window has no header and is timed from its JSON by the label
-    rule), so a row near the window's edge is classified as it would be with the whole history."""
+    rule), so a row near the window's edge is classified as it would be with the whole history. With
+    ``evidence`` the cached 8-K texts then settle rules (b) and (a) (``apply_release_evidence``)."""
     ids = dict(zip(scope["cik"].astype(int), scope["security_ids"]))
     flags = pd.Series(dict(zip(scope["cik"].astype(int), scope["foreign_filer"])), dtype=object)
     event_rows, fallback_rows = [], []
@@ -1156,8 +1648,17 @@ def build_tables(plans: dict[int, dict], scope: pd.DataFrame, calendar: XnasClos
         events = events.join(classify_events(events))
         events["days_after_period_end"] = [
             str(_days(day, quarter)) if quarter else "" for day, quarter in zip(events["filing_date"], events["fiscal_quarter_end"])]
+        ends = {int(cik): plan.get("period_ends", set()) for cik, plan in plans.items()}
+        events = events.join(report_date_timing(events, calendar, ends))
+        events["d0_session_acceptance"] = events["d0_session"]
+        if evidence:
+            log("  release evidence: the cached 8-K texts of late and multi-event rows")
+            events = apply_release_evidence(events, calendar)
+        events["first_in_fiscal_quarter"] = first_in_fiscal_quarter(events)
     if len(fallback):
         fallback = mark_fallback(fallback)
+        fallback["first_in_fiscal_quarter"] = "Y"
+        fallback["d0_session_acceptance"] = fallback["d0_session"]
     for frame in (events, fallback):
         if len(frame):
             frame["foreign_filer"] = frame["cik"].astype(int).map(flags).fillna("")
@@ -1206,9 +1707,11 @@ def sic_history(events: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
 
 # ------------------------------------------------------------------ coverage (counts only)
 
-def presence(weeks: pd.DataFrame, weekly: pd.DataFrame, ciks: set[int]) -> pd.DataFrame:
+def presence(weeks: pd.DataFrame, weekly: pd.DataFrame, ciks: set[int],
+             extra: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
     """Per (cik, calendar quarter): weeks listed (step 6 ``universe``, domestic), weeks in scope
-    (``weeks``: cik, week_end from ``scope_weeks``) and the quarter's week count."""
+    (``weeks``: cik, week_end from ``scope_weeks``), the quarter's week count, and for each ``extra``
+    name a count of that frame's (cik, week_end) weeks (e.g. top300_weeks: weeks in the top-300 file)."""
     listed = _int_cik(weekly[weekly["universe"]])[["cik", "week_end"]]
     total = (listed.drop_duplicates("week_end").assign(quarter=lambda f: f["week_end"].dt.to_period("Q").astype(str))
              .groupby("quarter").size().rename("quarter_weeks"))
@@ -1222,7 +1725,12 @@ def presence(weeks: pd.DataFrame, weekly: pd.DataFrame, ciks: set[int]) -> pd.Da
     both["in_scope"] = both["_merge"] != "left_only"
     out = both.groupby(["cik", "quarter"]).agg(listed_weeks=("is_listed", "sum"), scope_weeks=("in_scope", "sum")).reset_index()
     out = out.merge(total, left_on="quarter", right_index=True, how="left")
-    return out.assign(quarter_weeks=out["quarter_weeks"].fillna(0).astype(int))
+    out = out.assign(quarter_weeks=out["quarter_weeks"].fillna(0).astype(int))
+    for name, frame in (extra or {}).items():
+        frame = _int_cik(frame)[["cik", "week_end"]].drop_duplicates()
+        counts = frame.assign(quarter=frame["week_end"].dt.to_period("Q").astype(str)).groupby(["cik", "quarter"]).size()
+        out[name] = [int(counts.get((c, q), 0)) for c, q in zip(out["cik"], out["quarter"])]
+    return out
 
 
 def quarter_coverage(present: pd.DataFrame, events: pd.DataFrame, fallback: pd.DataFrame) -> pd.DataFrame:
@@ -1261,14 +1769,22 @@ COVERAGE_DEFINITION = ("calendar quarters in which the CIK has at least one dome
                        "an Item 2.02 event that is not an amendment, or a fallback with usable_as_announcement = Y")
 
 
-def scope_quarters(quarters: pd.DataFrame) -> pd.DataFrame:
-    """The company-quarters coverage is measured on (COVERAGE_DEFINITION)."""
-    return quarters[(quarters["scope_weeks"] > 0) & quarters["full_quarter"]]
+# The populations coverage and gaps are measured on: every in-scope week (the default), the plan's
+# population (weeks in the top-300 file: the universe), and validate's members (dv50 or dv20 rank <= 250
+# in the window weeks 2012-01-06..2026-07-17).
+POPULATIONS = {"scope": "scope_weeks", "top300_file": "top300_weeks", "rank250": "rank250_weeks"}
+RANK250_WEEKS = ("2012-01-06", "2026-07-17")
 
 
-def coverage_summary(quarters: pd.DataFrame) -> dict:
+def scope_quarters(quarters: pd.DataFrame, weeks_column: str = "scope_weeks") -> pd.DataFrame:
+    """The company-quarters coverage is measured on (COVERAGE_DEFINITION; ``weeks_column`` picks the
+    population: scope_weeks, top300_weeks or rank250_weeks)."""
+    return quarters[(quarters[weeks_column] > 0) & quarters["full_quarter"]]
+
+
+def coverage_summary(quarters: pd.DataFrame, weeks_column: str = "scope_weeks") -> dict:
     """Share of in-scope company-quarters (listed the whole quarter) with an event and with a usable date, by year."""
-    q = scope_quarters(quarters).copy()
+    q = scope_quarters(quarters, weeks_column).copy()
     q["year"] = q["quarter"].str[:4]
     q["any_item202"] = q["n_item202"] > 0
     q["any_event"] = (q["n_item202"] > 0) | (q["n_fallback"] > 0)
@@ -1278,7 +1794,7 @@ def coverage_summary(quarters: pd.DataFrame) -> dict:
     for name, column in (("share_item202", "with_item202"), ("share_any", "with_item202_or_fallback"),
                          ("share_usable_date", "with_usable_date")):
         by_year[name] = (by_year[column] / by_year["company_quarters"]).round(4)
-    return {"definition": COVERAGE_DEFINITION,
+    return {"definition": COVERAGE_DEFINITION, "population_weeks": weeks_column,
             "company_quarters": int(len(q)), "with_item202": int(q["any_item202"].sum()),
             "with_item202_or_fallback": int(q["any_event"].sum()), "with_usable_date": int(q["usable_date"].sum()),
             "without_usable_date": int((~q["usable_date"]).sum()),
@@ -1343,6 +1859,34 @@ def gap_summary(events: pd.DataFrame, fallback: pd.DataFrame, scope: pd.DataFram
     both = both.sort_values(["cik", "d0_session"])
     days = pd.to_datetime(both["d0_session"]).groupby(both["cik"]).diff().dt.days.dropna()
     return {"gaps": int(len(days)), "share_60_120": round(float(((days >= 60) & (days <= 120)).mean()), 4),
+            "under_60": int((days < 60).sum()), "over_120": int((days > 120).sum()),
+            "median_days": float(days.median()) if len(days) else None}
+
+
+def gap_summary_population(events: pd.DataFrame, fallback: pd.DataFrame, quarters: pd.DataFrame,
+                           weeks_column: str, usable_only: bool = True) -> dict:
+    """Days between consecutive quarterly events of a CIK (results releases plus fallbacks, only those
+    usable as announcement dates by default) where the later event's D0 falls in one of the population's
+    company-quarters (``scope_quarters(quarters, weeks_column)``): the plan's 60-120 day test on the same
+    population as the coverage figure."""
+    frames = []
+    if len(events):
+        frames.append(events.loc[events["event_kind"] == "results_release", ["cik", "d0_session"]])
+    if len(fallback):
+        keep = fallback["usable_as_announcement"] == "Y" if usable_only else slice(None)
+        frames.append(fallback.loc[keep, ["cik", "d0_session"]])
+    if not frames:
+        return {}
+    both = pd.concat(frames, ignore_index=True)
+    both = both[both["d0_session"] != ""].assign(cik=lambda f: f["cik"].astype(int)).drop_duplicates()
+    both = both.sort_values(["cik", "d0_session"])
+    day = pd.to_datetime(both["d0_session"])
+    both["gap"] = day.groupby(both["cik"]).diff().dt.days
+    both["quarter"] = day.dt.to_period("Q").astype(str)
+    keys = set(zip(scope_quarters(quarters, weeks_column)["cik"].astype(int), scope_quarters(quarters, weeks_column)["quarter"]))
+    days = both.loc[[k in keys for k in zip(both["cik"], both["quarter"])], "gap"].dropna()
+    return {"population_weeks": weeks_column, "usable_fallback_only": usable_only, "gaps": int(len(days)),
+            "share_60_120": round(float(((days >= 60) & (days <= 120)).mean()), 4) if len(days) else None,
             "under_60": int((days < 60).sum()), "over_120": int((days > 120).sum()),
             "median_days": float(days.median()) if len(days) else None}
 
@@ -1416,27 +1960,63 @@ def no_event_companies(scope: pd.DataFrame, plans: dict[int, dict], events: pd.D
 
 # ------------------------------------------------------------------ hand sample (plan section 6: events checked by hand)
 
-HAND_SAMPLE_SEED = 20261002
+HAND_SAMPLE_SEED = 20261002        # round 7's draw: the whole scope of the 2026-10-02 14:15 build (it found T2 and Interface)
+HAND_SAMPLE_SEED_FRESH = 20261003  # the fresh draw, its seed fixed before drawing (2026-10-02, after rules (a) and (b)), on
+                                   # the plan's population: results releases in universe company-quarters (top-300 file weeks)
 HAND_SAMPLE_N = 20
 DOCS_DIR = SEC_RAW / "docs"
 INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{folder}/{accession}-index.htm"
 QUARTERS_OUT = OUT / "company_quarter_coverage.csv"
 HAND_DRAW = OUT / "hand_sample_draw.csv"
-HAND_VERDICTS = OUT / "hand_sample_verdicts.json"  # the checker's findings, written by hand
+HAND_VERDICTS = OUT / "hand_sample_verdicts.json"  # the checker's findings, written by hand, keyed by accession
 HAND_SAMPLE = OUT / "hand_sample.csv"
-HAND_VERDICT_FIELDS = ["release_date_stated", "release_time_stated", "date_confirmed", "session_confirmed",
-                       "is_quarterly_results", "d0_matches", "notes"]
+HAND_ROUND7_KEYS = OUT / "hand_sample_round7_keys.csv"  # frozen: round 7's 20 company-quarters and its verdicts
+HAND_CHECKS = INPUTS / "earnings_hand_checks.csv"  # what validate's check_earnings_hand_sample reads
+HAND_CRITERION = (
+    "d0_matches = Y when the row is the quarter's results release (is_quarterly_results = Y) and every session that "
+    "could be the first to trade on the release lies in D0-1..D0, so the protocol's D0-1..D0+1 window holds it and D0 "
+    "is never before it. The possible first sessions come from the release date and time stated in the release "
+    "exhibit or the 8-K, read on sec.gov (a release is never later than its 8-K's acceptance); with no stated time, "
+    "every time of day on the stated date counts. match_type: exact when that leaves one session and it is D0, "
+    "window when it leaves D0-1 and D0, none when d0_matches = N.")
+HAND_VERDICT_FIELDS = ["release_date_stated", "release_time_stated", "ir_source", "ir_url", "ir_release_et",
+                       "possible_first_sessions", "is_quarterly_results", "d0_matches", "match_type", "notes", "checked_at"]
+HAND_CHECK_COLUMNS = ["sample", "seed", "draw_order", "accession", "security_id", "cik", "fiscal_quarter_end",
+                      "d0_session", "d0_basis", "ir_url", "ir_source", "ir_release_et", "release_date_stated",
+                      "release_time_stated", "possible_first_sessions", "is_quarterly_results", "d0_matches",
+                      "match_type", "checked_at", "notes"]
 
 
-def hand_sample_population(events: pd.DataFrame, quarters: pd.DataFrame) -> pd.DataFrame:
-    """The results releases whose D0 falls in an in-scope company-quarter (COVERAGE_DEFINITION), one per
-    company-quarter (the earliest accepted when a calendar quarter holds two), sorted by CIK and quarter."""
-    q = scope_quarters(quarters)[["cik", "quarter"]].assign(cik=lambda f: f["cik"].astype(int))
+def hand_sample_population(events: pd.DataFrame, quarters: pd.DataFrame, weeks_column: str = "scope_weeks") -> pd.DataFrame:
+    """The results releases whose D0 falls in a company-quarter of the population (``scope_quarters(quarters,
+    weeks_column)``), one per company-quarter (the earliest accepted when a calendar quarter holds two),
+    sorted by CIK and quarter."""
+    q = scope_quarters(quarters, weeks_column)[["cik", "quarter"]].assign(cik=lambda f: f["cik"].astype(int))
     rel = events[(events["event_kind"] == "results_release") & (events["d0_session"] != "")].copy()
     rel["quarter"] = pd.PeriodIndex(pd.to_datetime(rel["d0_session"]), freq="Q").astype(str)
     rel["cik"] = rel["cik"].astype(int)
     rel = rel.merge(q, on=["cik", "quarter"]).sort_values(["cik", "quarter", "acceptance_et", "accession"])
     return rel.drop_duplicates(["cik", "quarter"]).reset_index(drop=True)
+
+
+def round7_rescored(events: pd.DataFrame, keys: pd.DataFrame) -> pd.DataFrame:
+    """Round 7's 20 company-quarters (``keys``: cik, fiscal_quarter_end, draw_order, seed, population,
+    accession_drawn) with the current table's results release for each (its accession may differ:
+    rule (b) moved Interface's), so they are scored again under the current rules."""
+    rel = events[events["event_kind"] == "results_release"].assign(cik=lambda f: f["cik"].astype(int))
+    rel = rel.drop_duplicates(["cik", "fiscal_quarter_end"]).set_index(["cik", "fiscal_quarter_end"])
+    rows = []
+    for key in keys.to_dict("records"):
+        index = (int(key["cik"]), key["fiscal_quarter_end"])
+        if index not in rel.index:
+            log(f"  round 7 draw {key['draw_order']}: no results release now for {index}")
+            continue
+        row = rel.loc[index].to_dict()
+        row.update(cik=index[0], fiscal_quarter_end=index[1], draw_order=int(key["draw_order"]), seed=int(key["seed"]),
+                   population=int(key["population"]), accession_drawn_round7=key["accession_drawn"],
+                   quarter=str(pd.Period(row["d0_session"], "Q")) if row["d0_session"] else "")
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def draw_hand_sample(population: pd.DataFrame, seed: int = HAND_SAMPLE_SEED, n: int = HAND_SAMPLE_N) -> pd.DataFrame:
@@ -1534,54 +2114,64 @@ def hand_sample_rows(drawn: pd.DataFrame, offline: bool = False) -> pd.DataFrame
         main_text = docs["texts"].get(main["document"], "") if main else ""
         item = re.search(r"Item\s*2\.02[^.]{0,400}", main_text, re.I)
         rows.append({
-            "draw_order": record["draw_order"], "seed": record["seed"], "population": record["population"],
-            "cik": cik, "security_id": record["security_id"], "calendar_quarter": record["quarter"],
-            "fiscal_quarter_end": record["fiscal_quarter_end"], "accession": accession, "form": record["form"],
-            "items": record["items"], "event_kind": record["event_kind"], "event_kind_basis": record["event_kind_basis"],
+            "sample": record.get("sample", ""), "draw_order": record["draw_order"], "seed": record["seed"],
+            "population": record["population"], "cik": cik, "security_id": record["security_id"],
+            "calendar_quarter": record["quarter"], "fiscal_quarter_end": record["fiscal_quarter_end"],
+            "accession": accession, "accession_drawn_round7": record.get("accession_drawn_round7", ""),
+            "form": record["form"], "items": record["items"], "event_kind": record["event_kind"],
+            "event_kind_basis": record["event_kind_basis"], "release_check": record.get("release_check", ""),
             "n_item202_in_fiscal_quarter": record["n_item202_in_fiscal_quarter"],
-            "acceptance_et": record["acceptance_et"], "tz_resolution": record["tz_resolution"],
-            "acceptance_timing": record["acceptance_timing"], "d0_session": record["d0_session"],
+            "report_date": record.get("report_date", ""), "acceptance_et": record["acceptance_et"],
+            "tz_resolution": record["tz_resolution"], "acceptance_timing": record["acceptance_timing"],
+            "d0_session": record["d0_session"], "d0_session_acceptance": record.get("d0_session_acceptance", ""),
+            "d0_basis": record.get("d0_basis", ""), "late_furnished": record.get("late_furnished", ""),
+            "release_date": record.get("release_date", ""), "item202_kind": record.get("item202_kind", ""),
+            "item202_date": record.get("item202_date", ""),
             "index_url": docs["index_url"], "index_accepted": docs["info"].get("Accepted", ""),
-            "index_filing_date": docs["info"].get("Filing Date", ""), "index_items": docs["info"].get("Items", ""),
+            "index_filing_date": docs["info"].get("Filing Date", ""), "index_period": docs["info"].get("Period of Report", ""),
+            "index_items": docs["info"].get("Items", ""),
             "document_url": main["url"] if main else "", "exhibit_url": release["url"] if release else "",
             "exhibit_type": release["type"] if release else "", "n_ex99": len(exhibits),
             "item_202_text": item.group(0) if item else "", **evidence})
     return pd.DataFrame(rows)
 
 
+def hand_check_table(rows: pd.DataFrame, verdicts: dict) -> pd.DataFrame:
+    """The drawn rows joined to the checker's verdicts (keyed by accession), in HAND_CHECK_COLUMNS order
+    (validate reads accession, security_id, ir_url, ir_release_et, d0_matches, checked_at)."""
+    table = pd.DataFrame([{"accession": acc, **{k: v.get(k, "") for k in HAND_VERDICT_FIELDS}}
+                          for acc, v in verdicts.items()], columns=["accession"] + HAND_VERDICT_FIELDS)
+    out = rows.merge(table, on="accession", how="left").fillna("")
+    return out[HAND_CHECK_COLUMNS]
+
+
 def run_hand_sample(offline: bool = False) -> pd.DataFrame:
-    """Draw the sample from the built tables, fetch its documents, and join the checker's verdicts
-    (HAND_VERDICTS, keyed by accession) when they exist: writes HAND_DRAW, and HAND_SAMPLE once every
-    drawn event has a verdict."""
+    """Re-score round 7's 20 company-quarters and draw the fresh 20 (HAND_SAMPLE_SEED_FRESH, the plan's
+    population: top-300 file weeks), fetch their documents, and join the checker's verdicts (HAND_VERDICTS,
+    keyed by accession, judged by HAND_CRITERION): writes HAND_DRAW, and HAND_SAMPLE plus HAND_CHECKS
+    (INPUTS/earnings_hand_checks.csv) once every drawn event has a verdict."""
     events = read_csv_text(EVENTS_OUT)
     quarters = read_csv_text(QUARTERS_OUT)
-    for column in ("listed_weeks", "scope_weeks", "quarter_weeks"):
+    for column in ("listed_weeks", "scope_weeks", "quarter_weeks", "top300_weeks", "rank250_weeks"):
         quarters[column] = quarters[column].astype(int)
     quarters["full_quarter"] = quarters["full_quarter"] == "True"
-    population = hand_sample_population(events, quarters)
-    drawn = draw_hand_sample(population)
-    log(f"hand sample: {len(drawn)} of {len(population)} in-scope company-quarters with a results release "
-        f"(numpy default_rng({HAND_SAMPLE_SEED}))")
-    rows = hand_sample_rows(drawn, offline)
+    old = round7_rescored(events, read_csv_text(HAND_ROUND7_KEYS)).assign(sample="round7_rescored")
+    population = hand_sample_population(events, quarters, "top300_weeks")
+    fresh = draw_hand_sample(population, HAND_SAMPLE_SEED_FRESH).assign(sample="fresh")
+    log(f"hand sample: round 7's {len(old)} company-quarters re-scored; fresh {len(fresh)} of {len(population)} universe "
+        f"company-quarters with a results release (numpy default_rng({HAND_SAMPLE_SEED_FRESH}))")
+    rows = hand_sample_rows(pd.concat([old, fresh], ignore_index=True), offline)
     _write_csv(HAND_DRAW, rows)
     log(f"wrote {HAND_DRAW}")
     if HAND_VERDICTS.exists():
-        verdicts = json.loads(HAND_VERDICTS.read_text(encoding="utf-8"))
-        table = pd.DataFrame([{"accession": acc, **{k: v.get(k, "") for k in HAND_VERDICT_FIELDS + ["checked_at"]}}
-                              for acc, v in verdicts.items()])
-        out = rows.merge(table, on="accession", how="left")
-        out["ir_url"] = out["exhibit_url"]
-        out["ir_release_et"] = out["index_accepted"]
-        keep = ["draw_order", "seed", "population", "cik", "security_id", "calendar_quarter", "fiscal_quarter_end",
-                "accession", "form", "items", "event_kind", "acceptance_et", "acceptance_timing", "d0_session",
-                "index_url", "document_url", "exhibit_url", "index_accepted", "index_items",
-                *HAND_VERDICT_FIELDS, "checked_at", "ir_url", "ir_release_et"]
-        out = out[keep]
-        if out["d0_matches"].fillna("").ne("").all():
-            _write_csv(HAND_SAMPLE, out)
-            log(f"wrote {HAND_SAMPLE}: d0_matches {dict(Counter(out['d0_matches']))}")
+        out = hand_check_table(rows, json.loads(HAND_VERDICTS.read_text(encoding="utf-8")))
+        if out["d0_matches"].ne("").all():
+            _write_csv(HAND_SAMPLE, rows.merge(out[["accession"] + HAND_VERDICT_FIELDS], on="accession", how="left"))
+            _write_csv(HAND_CHECKS, out)
+            log(f"wrote {HAND_SAMPLE} and {HAND_CHECKS}: d0_matches by sample "
+                f"{out.groupby('sample')['d0_matches'].value_counts().to_dict()}")
         else:
-            log(f"verdicts missing for {int(out['d0_matches'].fillna('').eq('').sum())} drawn events: {HAND_SAMPLE} not written")
+            log(f"verdicts missing for {int(out['d0_matches'].eq('').sum())} drawn events: {HAND_CHECKS} not written")
     return rows
 
 
@@ -1645,6 +2235,42 @@ def event_kind_summary(events: pd.DataFrame) -> dict:
                 "definition": "abs(days after period end - the company's median over its single-event quarters, "
                               "10-K quarters apart from 10-Q quarters), for quarters with 2+ events",
                 **deviation}}
+
+
+def release_rule_summary(events: pd.DataFrame, calendar: XnasCloses) -> dict:
+    """Counts for rules (a) and (b): rows read, what their Item 2.02 text furnishes, late-furnished rows and
+    how far D0 moved, quarters whose release moved or whose pick furnishes no release."""
+    if events.empty or "evidence_reason" not in events:
+        return {}
+    read = events[events["evidence_reason"] != ""]
+    lag = pd.to_numeric(events["report_date_lag_sessions"], errors="coerce")
+    candidates = events[(lag >= LATE_MIN_SESSIONS) & (events["event_kind"] != "amendment")]
+    late = events[events["late_furnished"] == "Y"]
+    shift = [calendar.index_on_or_after(a) - calendar.index_on_or_after(b)
+             for a, b in zip(late["d0_session_acceptance"], late["d0_session"])]
+    moved = events[events["release_check"].str.startswith("moved_from")]
+    releases = events[events["event_kind"] == "results_release"]
+    return {
+        "rows_read": int(len(read)), "by_reason": dict(Counter(read["evidence_reason"])),
+        "item202_kind": dict(Counter(read["item202_kind"])),
+        "documents_missing": int(read["item202_kind"].isin(["no_document"]).sum()),
+        "late_rule": {"definition": f"non-amendment rows whose period of report is >= {LATE_MIN_SESSIONS} sessions before "
+                                    "the acceptance D0", "candidates": int(len(candidates)),
+                      "candidates_by_report_date_kind": dict(Counter(candidates["report_date_kind"])),
+                      "release_date_basis": dict(Counter(candidates["release_date_basis"])),
+                      "late_furnished": int(len(late)), "late_furnished_by_kind": dict(Counter(late["event_kind"])),
+                      "late_furnished_by_basis": dict(Counter(late["release_date_basis"])),
+                      "d0_moved_back_sessions": {str(k): int(v) for k, v in sorted(Counter(shift).items())},
+                      "results_release_rows": int(len(releases)),
+                      "results_release_late_furnished": int((releases["late_furnished"] == "Y").sum())},
+        "event_kind_rule": {"picks_read": int((read["evidence_reason"].str.contains("release_not_first")).sum()),
+                            "quarters_moved": int(moved.groupby(["cik", "fiscal_quarter_end"]).ngroups) if len(moved) else 0,
+                            "moved_from_kind": dict(Counter(events.loc[events["accession"].isin(
+                                moved["release_check"].str.split(":").str[1]), "item202_kind"])),
+                            "picks_furnishing_no_release_kept": int((events["release_check"] == "pick_furnishes_no_release").sum()),
+                            "results_release_not_first_event": int((releases["pick_not_first"] == "Y").sum())},
+        "first_in_fiscal_quarter": dict(Counter(events["first_in_fiscal_quarter"])),
+    }
 
 
 def amendment_summary(events: pd.DataFrame) -> dict:
@@ -1754,6 +2380,9 @@ def main(argv: list[str] | None = None) -> int:
                              "hand_sample_draw.csv (and hand_sample.csv when the verdicts are recorded)")
     parser.add_argument("--fetch-only", action="store_true",
                         help="fetch the missing headers and scan the cache, then stop without writing any table")
+    parser.add_argument("--fetch-evidence", action="store_true",
+                        help="fetch the 8-K documents whose Item 2.02 text rules (a) and (b) read (evidence_rows, "
+                             "stages 1 and 2), then stop without writing any table")
     parser.add_argument("--sec-rate", type=float, default=SEC_RATE_MAX,
                         help=f"SEC requests a second for this run (at most {SEC_RATE_MAX})")
     parser.add_argument("--sic-out", type=Path, default=SIC_OUT, help="where sic_history.csv is written")
@@ -1812,6 +2441,24 @@ def main(argv: list[str] | None = None) -> int:
              "fetch": dict(fetch_counts), "cache_scan": scan, "stopped_on_refusal": _STOP.is_set()},
             indent=1) + "\n").encode())
         return 0 if scan["complete"] else 1
+    if args.fetch_evidence:
+        calendar = XnasCloses()
+        log("evidence: build the tables without it, then fetch the 8-K documents of stage 1 and stage 2")
+        events, _ = build_tables(plans, scope, calendar, history, evidence=False)
+        facts = {}
+        for stage in (1, 2):
+            rows = evidence_rows(events, stage)
+            log(f"evidence stage {stage}: {len(rows)} rows {dict(Counter(rows['evidence_reason']))}")
+            facts[f"stage{stage}"] = {"rows": int(len(rows)), "by_reason": dict(Counter(rows["evidence_reason"])),
+                                      "fetch": dict(fetch_docs(rows, args.offline))}
+            events = attach_evidence(events, rows)
+            facts[f"stage{stage}"]["item202_kind"] = dict(Counter(events.loc[rows.index, "item202_kind"]))
+            if _STOP.is_set():
+                break
+        common.atomic_write(out_dir / "evidence_fetch.json", (json.dumps(
+            {"generated": datetime.now().isoformat(timespec="seconds"), "sec_rate_per_second": args.sec_rate,
+             **facts, "stopped_on_refusal": _STOP.is_set()}, indent=1) + "\n").encode())
+        return 0
     log("build: parse headers, D0 sessions, event kinds")
     calendar = XnasCloses()
     events, fallback = build_tables(plans, scope, calendar, history)
@@ -1826,10 +2473,16 @@ def main(argv: list[str] | None = None) -> int:
     for path, frame in zip(targets, (event_out, fallback_out, sic)):
         _write_csv(path, frame)
         log(f"wrote {path} ({len(frame)} rows)")
+    evidence = events.loc[events["evidence_reason"] != "", EVIDENCE_COLUMNS] if len(events) else pd.DataFrame(columns=EVIDENCE_COLUMNS)
+    _write_csv(out_dir / "release_evidence.csv", evidence)
+    log(f"wrote {out_dir / 'release_evidence.csv'} ({len(evidence)} rows: the Item 2.02 text read for rules (a) and (b))")
     log("coverage (domestic weeks only)")
     weekly_domestic = domestic_weeks(weekly, flags, history)
     weeks = scope_weeks(top, weekly, candidate_windows(candidates), flags, history)
-    present = presence(weeks, weekly_domestic, set(ciks))
+    ranked = _int_cik(load_universe_top(ranks=True))
+    ranked = ranked[~regime_foreign(flags, history, ranked["cik"], ranked["week_end"])]
+    rank250 = ranked[(ranked["rank"] <= 250) & (ranked["week_end"] >= RANK250_WEEKS[0]) & (ranked["week_end"] <= RANK250_WEEKS[1])]
+    present = presence(weeks, weekly_domestic, set(ciks), extra={"top300_weeks": ranked, "rank250_weeks": rank250})
     quarters = quarter_coverage(present, events, fallback)
     years = company_year_table(quarters)
     _write_csv(out_dir / "company_year_coverage.csv", years)
@@ -1917,6 +2570,14 @@ def main(argv: list[str] | None = None) -> int:
                         "written_to": str(args.sic_out),
                         "top300_name_weeks": sic_week_coverage(top_domestic, sic, ff49_lookup(), set(ciks))},
         "coverage_company_quarters": coverage_summary(quarters),
+        # the plan's population: domestic company-quarters in the universe (weeks in the top-300 file), and
+        # validate's members (rank <= 250 in the window weeks); the default above is every in-scope week
+        "coverage_company_quarters_by_population": {name: {k: v for k, v in coverage_summary(quarters, column).items()
+                                                           if k != "definition"} for name, column in POPULATIONS.items()},
+        "gaps_by_population": {name: {"usable_fallback_only": gap_summary_population(events, fallback, quarters, column),
+                                      "any_fallback": gap_summary_population(events, fallback, quarters, column, False)}
+                               for name, column in POPULATIONS.items()},
+        "release_rules": release_rule_summary(events, calendar),
         "coverage_company_quarters_before": before,
         "coverage_company_years": company_year_summary(years),
         "gaps_between_quarterly_events": gap_summary(events, fallback, scope),

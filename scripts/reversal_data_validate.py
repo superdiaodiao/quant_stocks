@@ -35,7 +35,9 @@ time and keeps keys of earlier runs). Manifest keys are relative: INPUTS files b
 Step 12's investment-company exclusion (closed-end funds and BDCs, from SEC filings) is read from the
 build's ``investment_company_spans.csv``: those name-weeks are outside the base (the listed file marks them
 not eligible), a Form 25 of one is documented, a candidate whose whole need lies in a span is not owed a
-series, and a 2011 Nasdaq-100 member that is one is not required.
+series, and a 2011 Nasdaq-100 member that is one is not required. The SEC submissions files behind those spans
+are one input of the build: ``universe_build`` re-hashes every file in the build's ``sec_submissions_read.csv.gz``
+(a page cached or fetched again since makes the build stale).
 
 Usage::
 
@@ -65,7 +67,7 @@ import pandas as pd
 
 from scripts import reversal_data_common as common
 
-CODE_VERSION = "2026-10-02.3"
+CODE_VERSION = "2026-10-02.5"
 
 # ------------------------------------------------------------------ constants (plan sections 1, 3, 5, 6)
 
@@ -1542,6 +1544,17 @@ def check_review_queue(ctx: Context) -> dict:
                   details={"by_rule_and_year": by_rule_year})
 
 
+def reconcile_break_day(break_days: dict | None, day: str) -> dict:
+    """One break day out of step 9's summary.json break_days. Step 9 writes {how_to_read, days: {day: {by_state,
+    securities_by_state, securities}}} (reconcile.break_day_table); an older dry run wrote the days at the top
+    level, which is still read. Only by_state and each security's state are used by the caller."""
+    if not isinstance(break_days, dict):
+        return {}
+    days = break_days.get("days") if isinstance(break_days.get("days"), dict) else break_days
+    found = days.get(day)
+    return found if isinstance(found, dict) else {}
+
+
 def check_stored_comparison(ctx: Context) -> dict:
     """Stored-file comparison: days more than 0.5% apart by year; the 2025-06-24 unit break and the
     switch to price-only dividends from 2023 must show."""
@@ -1590,6 +1603,17 @@ def check_stored_comparison(ctx: Context) -> dict:
             exceptions.append(row)
     priced = [r for r in per.values() if r["priced"]]
     no_break_row = [r for r in priced if not r["unit_break_row"]]
+    # Step 9's own reading of the break day (summary.json break_days: unit_break, or stored_moves_with_vendors for
+    # a real move every vendor shows, such as HYPD, NKTR and UPXI on 2025-06-24): it explains a priced name on
+    # step 6's list that has no unit_break row. Only the state is read, never the day's returns.
+    reconcile_summary = ctx.cache / "reconcile" / "summary.json"
+    break_days = ctx.read_json(reconcile_summary).get("break_days") if reconcile_summary.exists() else None
+    day = reconcile_break_day(break_days, BREAK_DAY)
+    states = day.get("securities") or {}
+    for r in no_break_row:
+        r["reconcile_state"] = (states.get(r["security_id"]) or {}).get("state", "") if break_days is not None else ""
+    explained = [r for r in no_break_row if r["reconcile_state"] == "stored_moves_with_vendors"]
+    unexplained = [r for r in no_break_row if r["reconcile_state"] != "stored_moves_with_vendors"]
     switch_shows = bool(after) and min(after) >= 0.5 and (not before or max(before) < 0.1)
     cluster_shows = bool(listed_files) and bool(priced) and not exceptions and len(cluster) > 0
     passed = cluster_shows and switch_shows
@@ -1603,20 +1627,35 @@ def check_stored_comparison(ctx: Context) -> dict:
                            "break_list_priced_stored_excluded": sum(r["stored_excluded"] for r in priced),
                            "break_list_priced_with_unit_break_row": sum(r["unit_break_row"] for r in priced),
                            "break_list_priced_exceptions": len(exceptions),
+                           "break_list_priced_without_unit_break_row": len(no_break_row),
+                           "without_unit_break_row_explained_by_reconcile": len(explained),
+                           "without_unit_break_row_unexplained": len(unexplained),
+                           "without_unit_break_row_by_reconcile_state": dict(Counter(
+                               r["reconcile_state"] or "not in break_days" for r in no_break_row)),
+                           "reconcile_break_days_read": break_days is not None,
+                           "reconcile_break_day_states": day.get("by_state", {}),
+                           "reconcile_break_day_listed": len(states),
                            "panel_rows_2025_06_24": int(len(on_day)),
                            "panel_rows_2025_06_24_stored_excluded": int(on_day.str.contains("stored_excluded", regex=False).sum()),
                            "ex_dates_with_stored_vote_excluded_share_by_year": share_ex,
                            "cluster_shows": cluster_shows, "switch_shows": switch_shows},
                   details={"unit_breaks_2025_06_24": cluster[["security_id", "ticker"]].to_dict("records")[:LIST_LIMIT],
                            "exceptions": exceptions[:LIST_LIMIT],
-                           "priced_without_unit_break_row": [{"security_id": r["security_id"], "files": r["files"]}
+                           "priced_without_unit_break_row": [{"security_id": r["security_id"], "files": r["files"],
+                                                              "stored_excluded": r["stored_excluded"],
+                                                              "reconcile_state": r["reconcile_state"] or "not in break_days"}
                                                              for r in no_break_row][:LIST_LIMIT],
                            "not_priced_that_day": not_priced[:LIST_LIMIT], "unmapped_files": unmapped[:LIST_LIMIT]},
                   note=("the plan's 69 files count the whole stored directory; step 6 lists the break files it read, and "
                         "each is mapped to the security holding that ticker on 2025-06-24 (ticker_intervals); one not "
                         "priced that day is outside this study. A priced one without a unit_break row is listed (the split "
-                        "table misses it) but passes when its stored vote is left out. 'Switch shows': at least half of "
-                        "the 2023-2025 ex-dates and under a tenth of the earlier ones have the stored vote left out"))
+                        "table misses it) but passes when its stored vote is left out; step 9's summary.json break_days "
+                        "(break_days.days[2025-06-24], or the day at the top level in an older dry run; state per "
+                        "security, no return read here) explains it: stored_moves_with_vendors is a real move "
+                        "every vendor shows (no unit break: HYPD, NKTR, UPXI), anything else is listed as unexplained "
+                        "(unit_break there means split_events.csv is older than step 9's run: HON). "
+                        "'Switch shows': at least half of the 2023-2025 ex-dates and under a tenth of the earlier ones have "
+                        "the stored vote left out"))
 
 
 # ================================================================== splits and distributions (4.3, section 6)
@@ -1830,10 +1869,50 @@ def check_terminal_open(ctx: Context) -> dict:
 
 # ================================================================== universe (3.3, section 6)
 
+SUBMISSIONS_DIGEST_KEY = "sec_submissions_digest"       # step 12's inputs_sha256 key for the SEC submissions it read
+SUBMISSIONS_TABLE = "sec_submissions_read.csv.gz"       # its table: name, sha256 (or "missing") of each file
+SUBMISSIONS_MISSING = "missing"
+
+
+def _submissions_digest(files: dict) -> str:
+    """The digest step 12 records (``reversal_data_universe.submissions_digest``): sha256 of the sorted
+    "name<TAB>sha256-or-missing" lines."""
+    lines = "".join(f"{name}\t{files[name]}\n" for name in sorted(files))
+    return common.sha256_bytes(lines.encode("utf-8"))
+
+
+def _submissions_stale(ctx: Context, key: str, digest: str) -> list:
+    """The SEC submissions files step 12 read for the investment-company spans, checked against the cache now:
+    its table (``sec_submissions_read.csv.gz``) must give the recorded digest, and every file in it must still
+    have the recorded sha256 (a file recorded as missing must still be missing: a page cached since changes the
+    spans). Returns stale entries (empty when the cache is as the build saw it)."""
+    table_path = ctx.universe_cache / SUBMISSIONS_TABLE
+    if not table_path.exists():
+        return [{"file": key, "state": f"no {SUBMISSIONS_TABLE} beside the build: the digest cannot be checked"}]
+    table = ctx.read_frame(table_path, dtype=str, keep_default_na=False)
+    recorded = dict(zip(table["name"], table["sha256"]))
+    if _submissions_digest(recorded) != digest:
+        return [{"file": ctx.key(table_path), "state": "does not give the digest in inputs_sha256"}]
+    directory = ctx.cache / "raw" / "sec" / "submissions"
+    changed = []
+    for name, sha in sorted(recorded.items()):
+        path = directory / name
+        now = common.sha256_file(path) if path.exists() else SUBMISSIONS_MISSING
+        if now != sha:
+            changed.append({"name": name, "recorded": "missing" if sha == SUBMISSIONS_MISSING else "read",
+                            "now": "missing" if now == SUBMISSIONS_MISSING else ("cached" if sha == SUBMISSIONS_MISSING
+                                                                                    else "changed")})
+    if not changed:
+        return []
+    return [{"file": key, "state": f"{len(changed)} of {len(recorded)} submissions files differ from the build's",
+             "files": changed[:LIST_LIMIT]}]
+
+
 def _universe_stale_inputs(ctx: Context) -> list | None:
     """Files whose sha256 in the step-12 summary (inputs_sha256, outputs_sha256) differs from the file on disk:
     the universe was built from other inputs, or its outputs were replaced. The live Tiingo status is left out
-    (the build may use a fixed copy of it). None when the summary is missing."""
+    (the build may use a fixed copy of it). The SEC submissions behind the investment-company spans are one
+    digest (``_submissions_stale``). None when the summary is missing."""
     path = ctx.universe_cache / "universe_summary.json"
     if not path.exists():
         return None
@@ -1843,6 +1922,9 @@ def _universe_stale_inputs(ctx: Context) -> list | None:
     stale = []
     for key, digest in recorded.items():
         if not isinstance(digest, str) or key.startswith("tiingo_status"):
+            continue
+        if key.startswith(SUBMISSIONS_DIGEST_KEY):
+            stale += _submissions_stale(ctx, key, digest)
             continue
         file = ctx.inputs / key[len(inputs_prefix):] if key.startswith(inputs_prefix) else ctx.path(key)
         if not file.exists():
@@ -1861,7 +1943,8 @@ def check_universe_build(ctx: Context) -> dict:
     threshold = ("INPUTS/weekly_universe_summary.csv, INPUTS/weekly_universe_top300.csv.gz, CACHE/universe/weekly_listed.csv.gz "
                  "and weekly_liquidity.csv.gz exist; weeks = last XNAS session of each week 2012-01-06..2026-07-17; "
                  "per week dv50 and dv20 ranks 1..>=300 unique; price_ge_10 = Y; no foreign filer ranked; the inputs and "
-                 "outputs hashed in CACHE/universe/universe_summary.json are the files on disk (not built from older inputs)")
+                 "outputs hashed in CACHE/universe/universe_summary.json are the files on disk (not built from older inputs), "
+                 "the SEC submissions files behind the investment-company spans included (a digest of each file's sha256)")
     paths = [ctx.input_path("weekly_universe_summary.csv"), ctx.input_path("weekly_universe_top300.csv.gz"),
              ctx.universe_cache / "weekly_listed.csv.gz", ctx.universe_cache / "weekly_liquidity.csv.gz"]
     missing = [p for p in paths if not p.exists()]
@@ -1904,8 +1987,10 @@ def check_universe_build(ctx: Context) -> dict:
     stale = _universe_stale_inputs(ctx)
     if stale is not None:
         numbers["built_from_inputs_on_disk"] = not stale
+        recorded = ctx.read_json(ctx.universe_cache / "universe_summary.json").get("inputs_sha256", {})
+        numbers["sec_submissions_digest_recorded"] = any(k.startswith(SUBMISSIONS_DIGEST_KEY) for k in recorded)
         details["inputs_or_outputs_changed_since_build"] = stale[:LIST_LIMIT]
-        ok = ok and not stale
+        ok = ok and not stale and numbers["sec_submissions_digest_recorded"]
     ok = ok and "official" in basis
     return result(name, dataset, plan, threshold, ok, numbers=numbers, details=details, basis=basis,
                   status="pass" if ok else ("no_input" if missing else "fail"),
@@ -1953,6 +2038,10 @@ def _proxy_table(ctx: Context) -> tuple[pd.DataFrame | None, str]:
         frame["dv_above"] = frame["dv_above"].astype(bool)
         frame["top250_evidence"] = frame["above"] | frame["dv_above"]
         frame["unknown_size"] = ~frame["proxy_known"] & ~frame["dv_known"]
+        # Step 12's class cap (a class whose own dv50 a few weeks away is far under the cut, so the company-level
+        # proxy is not its size): reported beside the plan's count, never used for pass / fail here.
+        frame["class_capped"] = (frame["proxy_class_capped"].astype(str) == "True") if "proxy_class_capped" in frame \
+            else False
         if "evidence" in frame:   # step 12's own class of a missing name-week: price_lt_10 / dv / proxy / unknown
             evidence = frame["evidence"].fillna("").astype(str)
             frame["dv_known"] = frame["dv_known"] | (evidence == "dv")
@@ -2025,6 +2114,9 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
     per_week_excl = hit[~unfill].groupby("week_end").size().reindex(ctx.week_ends, fill_value=0)
     zero_share = _share(int((per_week == 0).sum()), len(per_week))
     build_unknown = _universe_unknown_columns(ctx)
+    weekly = ctx.csv("weekly_universe_summary.csv")
+    step12_float_only = (int(_num(weekly["n_missing_proxy_above_float_only"].values).fillna(0).sum())
+                         if weekly is not None and "n_missing_proxy_above_float_only" in weekly.columns else None)
     plan_rule = zero_share is not None and zero_share >= PROXY_ZERO_SHARE and int(per_week.max()) <= PROXY_MAX
     passed = (plan_rule and not len(unknown) and not len(dv_hits)
               and not any(v["name_weeks"] for v in build_unknown.values()))
@@ -2053,6 +2145,8 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
                            "weeks_with_unknown_size": int((unknown_week > 0).sum()),
                            "max_unknown_size_in_a_week": int(unknown_week.max()),
                            "step12_unknown_counts": build_unknown,
+                           "step12_applies_the_same_proxy_rule": step12_float_only is not None,
+                           "step12_missing_proxy_above_float_only_name_weeks": step12_float_only,
                            "by_year": {int(y): {"max": int(r.iloc[0]), "weeks_zero": int(r.iloc[1]), "weeks": int(r.iloc[2])}
                                        for y, r in by_year.iterrows()}},
                   details={"names": [{"security_id": s, "weeks": int(r["weeks"]), "first": r["first"].strftime("%Y-%m-%d"),
@@ -2072,7 +2166,10 @@ def check_universe_proxy_margin(ctx: Context) -> dict:
                         "(pf_ge_cut250) is counted apart whatever its proxy says (no proxy, or a proxy below the median, "
                         "such as a market cap carried from an old company list), and both fail the check; a float at the "
                         "band median counts as above it even when the market cap is below (plan_definition keeps the "
-                        "plan's market-cap-first count)"))
+                        "plan's market-cap-first count). Step 12 applies the same either-one rule from code 2026-10-02.4 "
+                        "(its weekly summary's n_missing_proxy_above_float_only counts the name-weeks only the float puts "
+                        "above the median, and they block its complete_250 flags); a build without that column used the "
+                        "market-cap-first rule, which only this check corrects"))
 
 
 def check_universe_capture_coverage(ctx: Context) -> dict:
@@ -2565,6 +2662,15 @@ def check_universe_unfillable(ctx: Context) -> dict:
                        "share": _share(int(per_year.get(y, 0)), UNIVERSE_N * n),
                        "unknown_size_name_weeks": int(unk_year.get(y, 0))} for y, n in sorted(weeks_per_year.items())}
     over = [y for y, r in shares.items() if (r["share"] or 0) > UNFILLABLE_SLOT_SHARE]
+    # The same count without the weeks step 12 caps by the class's own dollar volume (reported only).
+    capped_keys = set(zip(frame.loc[frame["class_capped"], "security_id"], frame.loc[frame["class_capped"], "week_end"])) \
+        if "class_capped" in frame else set()
+    est_capped = est[[k in capped_keys for k in zip(est["security_id"], est["week_end"])]] if len(est) else est
+    capped_year = (est_capped.groupby(pd.to_datetime(est_capped["week_end"]).dt.year).size() if len(est_capped)
+                   else pd.Series(dtype=int))
+    shares_cap = {y: _share(int(per_year.get(y, 0)) - int(capped_year.get(y, 0)), UNIVERSE_N * n)
+                  for y, n in sorted(weeks_per_year.items())}
+    over_cap = [int(y) for y, v in shares_cap.items() if (v or 0) > UNFILLABLE_SLOT_SHARE]
     no_proxy_rows = u[u["proxy"].isin(["", "none"])] if "proxy" in u else u.iloc[:0]
     unk_names = unk.groupby("security_id").size().sort_values(ascending=False)
     return result(name, dataset, plan, threshold, not over and not len(unk),
@@ -2575,7 +2681,14 @@ def check_universe_unfillable(ctx: Context) -> dict:
                            "file_est_weeks_in_top250": int(_num(u["est_weeks_in_top250"].values).fillna(0).sum()),
                            "years_over_2pct": over, "unknown_size_name_weeks": int(len(unk)),
                            "unknown_size_securities": int(unk["security_id"].nunique()) if len(unk) else 0,
-                           "rows_with_proxy_none": int(len(no_proxy_rows)), "by_year": shares},
+                           "rows_with_proxy_none": int(len(no_proxy_rows)), "by_year": shares,
+                           "step12_class_capped": {
+                               "recorded": "proxy_class_capped" in frame.columns,
+                               "estimated_name_weeks_class_capped": int(len(est_capped)),
+                               "by_security": {s: int(n) for s, n in est_capped.groupby("security_id").size()
+                                               .sort_values(ascending=False).head(LIST_LIMIT).items()} if len(est_capped) else {},
+                               "share_by_year_without_capped": {int(y): v for y, v in shares_cap.items()},
+                               "years_over_2pct_without_capped": over_cap}},
                   details={"unknown_size": [{"security_id": s, "name_weeks": int(n)} for s, n in unk_names.head(LIST_LIMIT).items()],
                            "rows_with_proxy_none": no_proxy_rows[[c for c in ("security_id", "ticker", "needed_start",
                                                                              "needed_end", "proxy") if c in u]]
@@ -2585,7 +2698,10 @@ def check_universe_unfillable(ctx: Context) -> dict:
                         "ranks 200-250 median (market cap, or a float at the median when the market cap, often carried from "
                         "an old company list, is below it), or its step-6 dollar volume reaches the rank-250 cut whatever the "
                         "proxy says (LAZR, PARA); estimated_name_weeks_plan_proxy_rule keeps the earlier count (market cap "
-                        "first, dollar volume only without a proxy); a week with no evidence is of unknown size (fails)"))
+                        "first, dollar volume only without a proxy); a week with no evidence is of unknown size (fails). "
+                        "step12_class_capped: the weeks of a class of a multi-class company that step 12's expected count "
+                        "caps by the class's own dollar volume (the company-level float is not the class's size, QRTEB "
+                        "2018-2019), and the shares without them; reported only, pass / fail keeps the plan's proxy rule"))
 
 
 # ================================================================== manifest coverage (section 6) and the run

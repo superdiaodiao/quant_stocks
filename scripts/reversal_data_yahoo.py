@@ -18,7 +18,10 @@ need is asked again under the security's first SEC current ticker (``sec_alterna
 snapshot's LIXT, EVTV, ATLN ... are NMAD, AZIO, CIRC ... now), and the better answer is used
 (``resolve_alternates``). A relisting day the candidate list names (``junction_date``) is a junction
 in the series when it also holds rows before it (Oasis/Chord), and any other single-day move of more
-than 10x on a day without a split inside the need sends the series to review (``level_jumps``). The
+than 10x on a day without a split inside the need sends the series to review (``level_jumps``). Round 7:
+the candidate list names a junction only for new equity after a bankruptcy or a share exchange, on the
+new shares' first session (step 9's RELIST_JUNCTIONS: CHRD 2020-11-20, CORZ 2024-01-24, WW 2025-06-27);
+the same shares listed again (SMCI, SIGA, SCOR, MDXG) are one series with no junction row. The
 summary's ``requests`` block counts every Yahoo request of the quota ledger, this step's and others'.
 
 Only bodies of daily bars are used: Yahoo can answer with other bars (CRNX's range=max request
@@ -1180,7 +1183,8 @@ def level_jumps(window: pd.DataFrame, events: pd.DataFrame) -> list[tuple[pd.Tim
 
 def relist_junction(window: pd.DataFrame, day: str) -> tuple[pd.Timestamp | None, str]:
     """(first row on or after the relisting ``day``, review text) when the series also holds rows before
-    it; (None, '') otherwise (a series that starts with the new listing needs no junction: WW, OPI)."""
+    it; (None, '') otherwise (a series that starts with the new shares needs no junction row). ``day`` is the
+    new shares' first session the candidate list names for new equity only (round 7)."""
     if not day or not len(window):
         return None, ""
     after = window[window["date"] >= pd.Timestamp(day)]

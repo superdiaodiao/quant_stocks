@@ -1,6 +1,7 @@
 """Tests for plan step 9, the canonical series and the split / distribution / review tables
 (scripts/reversal_data_reconcile.py). Synthetic frames only: no cache, no network."""
 from datetime import datetime, timezone
+import re
 
 import numpy as np
 import pandas as pd
@@ -861,3 +862,236 @@ def test_ensure_disk_refuses_to_write_below_the_free_space_limit(tmp_path):
     rc.ensure_disk(tmp_path / "prices" / "X.csv", min_free_mb=0)  # a path that does not exist yet is fine
     with pytest.raises(RuntimeError, match="free"):
         rc.ensure_disk(tmp_path / "X.csv", min_free_mb=1e12)
+
+
+# ------------------------------------------------------------------ round 7: junction entries, zero-volume placeholders,
+# the old shares' own end, the compare headline, the break-day guide, R9 always queued
+
+def test_relist_junction_entries_were_read_and_carry_their_dates():
+    assert set(rc.RELIST_JUNCTIONS) == {"1486159", "1839341", "105319", "1456772", "1556739"}
+    for sid, entry in rc.RELIST_JUNCTIONS.items():
+        assert entry["read"] is True and entry["read_on"], sid  # every document named was read by hand
+        assert entry["url"].startswith(rc._SEC_ARCHIVE) and entry["nasdaq_end_url"].startswith(rc._SEC_ARCHIVE), sid
+        assert entry["old_nasdaq_last_session"] < entry["effective_date"] < entry["first_new_session"], sid
+        assert pd.Timestamp(entry["first_new_session"]).dayofweek < 5, sid
+    assert rc.RELIST_JUNCTIONS["1456772"]["first_new_session"] == "2026-06-22"  # OPI: its first traded row
+    assert rc.RELIST_JUNCTIONS["1456772"]["effective_date"] == "2026-06-17"
+    assert rc.RELIST_JUNCTIONS["1839341"]["effective_date"] == "2024-01-23"
+    assert rc.RELIST_JUNCTIONS["1556739"]["first_new_session"] == "2018-04-18"  # THRY: Dex Media's new shares
+
+
+def test_new_share_rows_with_zero_volume_before_the_first_trade_are_cut_at_a_junction():
+    """OPI: Yahoo's first new-share row (2026-06-18) has volume 0 at a placeholder price; the first trade is
+    two sessions later at half that level. The junction sits on the first trade, and no -50% return is left."""
+    n = 40
+    old = _walk(20, start=13.0, seed=5)
+    new = _walk(20, start=17.0, seed=6)
+    close = np.r_[old, new]
+    close[20:22] = 33.85  # the placeholder (and its repeat)
+    volume = np.full(n, 1000.0)
+    volume[20:22] = 0.0
+    frames = {"yahoo": _frame(close, volume=volume)}
+    placeholder, first_trade = str(SESSIONS[20].date()), str(SESSIONS[22].date())
+    for junction in (placeholder, first_trade):  # an entry dated on the placeholder gives the same series
+        result = rc.reconcile_security("X", frames, {**_ctx(), "junctions": [junction]})
+        canonical = result["canonical"]
+        assert placeholder not in set(canonical["date"])
+        row = canonical[canonical["date"] == first_trade].iloc[0]
+        assert np.isnan(row["tr"]) and "relist_junction" in row["flags"].split(";")
+        assert not (canonical["tr"].abs() > 0.3).any()
+        assert result["summary"]["segments"][1]["first"] == first_trade
+    dated_on_placeholder = rc.reconcile_security("X", frames, {**_ctx(), "junctions": [placeholder]})
+    assert dated_on_placeholder["summary"]["junction_leading_zero_volume_cut"] == [placeholder,
+                                                                                   str(SESSIONS[21].date())]
+
+
+def _series_ends_setup(tmp_path, monkeypatch, junction, segments, unfillable=None):
+    candidates = tmp_path / "candidates.csv"
+    pd.DataFrame(columns=["security_id", "planned_source", "ticker_for_source"]).to_csv(candidates, index=False)
+    monkeypatch.setattr(rc, "CANDIDATES", candidates)
+    monkeypatch.setattr(rc, "TIINGO_STATUS", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "TERMINAL_FILES", [])
+    monkeypatch.setattr(rc, "TERMINAL_2012_2026", tmp_path / "missing_terminal.csv")
+    path = tmp_path / "unfillable.csv"
+    pd.DataFrame(unfillable or [], columns=["security_id", "status"]).to_csv(path, index=False)
+    monkeypatch.setattr(rc, "UNFILLABLE", path)
+    monkeypatch.setitem(rc.RELIST_JUNCTIONS, "J", junction)
+    sessions = rc.pf.xnas_sessions("2016-01-04", rc.WINDOW_END)
+    master = pd.DataFrame([{"security_id": "J", "name": "J", "delist_date": "2025-11-24", "last_listed": "2026-08-01",
+                            "successor_security_id": "", "transfer_date": ""}])
+    identity = {"master": master, "ticker_map": rc.pf.TickerMap(pd.DataFrame(
+        [{"security_id": "J", "ticker": "J", "list_start": "2016-01-04", "list_end": rc.WINDOW_END}])),
+        "relisted": {"J": [("2025-11-24", "2026-06-02", rc.WINDOW_END)]}}
+    end = str(sessions[-1].date())
+    states = {"J": {"summary": {"rows": 100, "last_date": end, "ticker_last": "J",
+                                "junctions": [junction["first_new_session"]], "segments": segments}}}
+    targets = pd.DataFrame({"security_id": ["J"], "weeks_rank300": [8], "in_candidates": [True]})
+    return rc.series_ends(states, targets, identity, sessions).iloc[0], sessions
+
+
+def test_old_shares_that_stop_at_the_wiki_end_have_a_data_gap_not_a_junction_end(tmp_path, monkeypatch):
+    """OPI: the old shares' series stops at the WIKI end (2018-03-27); they traded on Nasdaq to 2025-10-06."""
+    junction = {"first_new_session": "2026-06-22", "kind": "bankruptcy_new_equity", "url": "u", "read": True,
+                "effective_date": "2026-06-17", "old_nasdaq_last_session": "2025-10-06", "note": ""}
+    segments = [{"first": "2016-06-23", "last": rc.WIKI_END, "last_src": "wiki", "ticker": "GOV"},
+                {"first": "2026-06-22", "last": rc.WINDOW_END, "last_src": "yahoo"}]
+    row, sessions = _series_ends_setup(tmp_path, monkeypatch, junction, segments,
+                                       unfillable=[{"security_id": "J", "status": "wrong_entity"}])
+    assert row["category"] == "old_shares_at_relist_junction" and row["last_date"] == rc.WIKI_END
+    assert row["likely_cause"] == "wiki_end_no_later_source"
+    assert (row["old_nasdaq_last_session"], row["old_shares_cancelled"]) == ("2025-10-06", "2026-06-17")
+    gap = int(((sessions > pd.Timestamp(rc.WIKI_END)) & (sessions <= pd.Timestamp("2025-10-06"))).sum())
+    assert row["sessions_after_last_row"] == gap and row["unfillable_status"] == "wrong_entity"
+
+
+def test_old_shares_that_run_on_into_the_otc_months_reach_their_nasdaq_end(tmp_path, monkeypatch):
+    """CHRD: the old OAS series runs to 2020-11-19 (OTC), past its last Nasdaq session 2020-10-09."""
+    junction = {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "url": "u", "read": True,
+                "effective_date": "2020-11-19", "old_nasdaq_last_session": "2020-10-09", "note": ""}
+    segments = [{"first": "2019-12-27", "last": "2020-11-19", "last_src": "yahoo", "ticker": "OAS"},
+                {"first": "2020-11-20", "last": rc.WINDOW_END, "last_src": "tiingo"}]
+    row, _ = _series_ends_setup(tmp_path, monkeypatch, junction, segments)
+    assert row["sessions_after_last_row"] == 0 and row["likely_cause"] == "relist_junction:bankruptcy_new_equity"
+    assert row["unfillable_status"] == ""
+
+
+def test_compare_headline_counts_value_changes_inside_the_common_dates_of_extended_series():
+    old = pd.DataFrame({"date": ["2018-03-26", "2018-03-27"], "close_raw": [10.0, 11.0], "volume_raw": [5.0, 5.0],
+                        "split_factor": [1.0, 1.0], "div_cash": [0.0, 0.0], "tr": [np.nan, 0.1],
+                        "src_primary": ["wiki", "wiki"], "flags": ["", ""]})
+    new = pd.concat([old, old.iloc[[1]].assign(date="2018-03-28")], ignore_index=True)
+    new.loc[1, ["src_primary", "tr"]] = ["tiingo", 0.1002]  # Tiingo replaced WIKI on a common date
+    extended = rc.compare_series(old, new)
+    assert extended["kind"] == "dates" and extended["dates_values"] and extended["common_rows_values_changed"] == 1
+    plain = rc.compare_series(old, pd.concat([old, old.iloc[[1]].assign(date="2018-03-28")], ignore_index=True))
+    assert plain["kind"] == "dates" and not plain["dates_values"] and plain["common_rows_values_changed"] == 0
+    frame = pd.DataFrame([{"security_id": "A", **extended}, {"security_id": "B", **plain},
+                          {"security_id": "C", "kind": "added", "old_rows": 0, "new_rows": 3}])
+    headline = rc.dates_value_changes(frame)
+    assert (headline["securities"], headline["rows"], headline["dates_series"]) == (1, 1, 2)
+    assert headline["by_column"]["tr_changed"] == 1 and headline["by_column"]["src_primary_changed"] == 1
+
+
+def test_break_day_table_tells_a_stored_only_test_how_to_read_each_state():
+    states = {"1": {"summary": {"ticker_last": "NKTR", "break_days": [
+                  {"date": "2025-06-24", "state": "stored_moves_with_vendors", "stored_r": 1.56, "tr": 1.56,
+                   "stored_implied_k": 1.0}]}},
+              "2": {"summary": {"ticker_last": "HON", "break_days": [
+                  {"date": "2025-06-24", "state": "unit_break", "stored_r": 0.895, "tr": -0.0006,
+                   "stored_implied_k": 0.527}]}},
+              "3": {"summary": {"ticker_last": "ZZZ"}}}
+    table = rc.break_day_table(states)
+    assert set(table["how_to_read"]["states"]) == {"unit_break", "stored_moves_with_vendors",
+                                                   "unit_change_on_vendor_event", "stored_differs"}
+    assert "priced_without_unit_break_row" in table["how_to_read"]["for_a_stored_only_test"]
+    day = table["days"]["2025-06-24"]
+    assert day["securities_by_state"] == {"stored_moves_with_vendors": ["1 NKTR"], "unit_break": ["2 HON"]}
+    assert day["securities"]["1"]["ticker"] == "NKTR" and day["by_state"] == {"stored_moves_with_vendors": 1,
+                                                                              "unit_break": 1}
+
+
+def test_every_r9_hit_is_queued_even_outside_the_relevant_scope(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "OUT", tmp_path)
+    monkeypatch.setattr(rc, "REVIEWED_FORMAT", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "relevant_spans", lambda dv_weeks: {})  # nothing ranked: no entry is relevant
+    moves = [{"ticker": "THRY", "event_date": "2018-04-18", "classification": "unreviewed", "source_url": "",
+              "verified_at": "", "notes": "[R9] raw close ...", "security_id": "1556739", "sources_agreeing": "",
+              "rule": "R9", "listed": True},
+             {"ticker": "THRY", "event_date": "2018-04-19", "classification": "unreviewed", "source_url": "",
+              "verified_at": "", "notes": "[R4] zero volume", "security_id": "1556739", "sources_agreeing": "",
+              "rule": "R4", "listed": True}]
+    queue, facts = rc.build_move_queue({"1556739": {"moves": moves}}, {})
+    assert queue["event_date"].tolist() == ["2018-04-18"] and facts["r9_queued_outside_scope"] == 1
+    assert "outside the relevant scope" in queue["notes"].iloc[0]
+    assert (tmp_path / "moves_all.csv").exists()
+
+
+# ------------------------------------------------------------------ round 8: no price level in a committed note, the
+# placeholder before a junction counted as one, a listing start measured against a quote
+
+LEVEL_FREE = re.compile(r"\d{4}-\d{2}-\d{2}|\d+(?:\.\d+)?x|[+-]?\d+(?:\.\d+)?%")
+
+
+def test_r9_note_carries_dates_and_the_ratio_but_no_price_level():
+    n, close, frames = _relist_frames()
+    relists = [(str(SESSIONS[10].date()), str(SESSIONS[18].date()), str(SESSIONS[-1].date()))]
+    result = rc.reconcile_security("X", frames, {**_ctx(), "relists": relists})
+    note = [m for m in result["moves"] if m["rule"] == "R9"][0]["notes"]
+    assert str(SESSIONS[19].date()) in note and str(SESSIONS[20].date()) in note and "x from" in note
+    for level in (close[19], close[20]):  # neither close, at any rounding the note could use
+        assert f"{level:.4g}" not in note and f"{level:.2f}" not in note
+    assert not re.search(r"\d+\.\d+", LEVEL_FREE.sub("", note))  # only dates, ratios and percentages
+    assert not rc.LEVEL_IN_NOTE.search(note)
+
+
+def test_the_queue_refuses_a_note_with_a_price_level(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "OUT", tmp_path)
+    monkeypatch.setattr(rc, "REVIEWED_FORMAT", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "relevant_spans", lambda dv_weeks: {"1": [("2015-01-01", "2015-12-31")]})
+    base = {"ticker": "T", "event_date": "2015-02-02", "classification": "unreviewed", "source_url": "",
+            "verified_at": "", "security_id": "1", "sources_agreeing": "", "listed": True}
+    ratios = [{**base, "rule": "R7", "notes": "[R7] tiingo raw close 1.0214x of yahoo on 3 session(s) to 2015-02-04"},
+              {**base, "rule": "R4", "notes": "[R4] 5 identical raw closes to 2015-02-09; zero volume"}]
+    queue, _ = rc.build_move_queue({"1": {"moves": ratios}}, {})
+    assert len(queue) == 2  # ratios and counts pass
+    leaking = ratios + [{**base, "rule": "R9", "notes": "[R9] raw close 1.125 on 2015-01-30 -> 0.075 (0.0667x)"}]
+    with pytest.raises(ValueError, match="price level"):
+        rc.build_move_queue({"1": {"moves": leaking}}, {})
+
+
+def test_a_placeholder_before_the_first_traded_session_is_a_junction_cut_not_old_share_filler():
+    """OPI: the entry's first_new_session is the first trade (2026-06-22); Yahoo's 2026-06-18 row, after the plan's
+    effective date (2026-06-17), has volume 0. It is reported as the new shares' placeholder; a zero-volume row
+    of the old shares before the effective date stays R5 filler."""
+    n = 40
+    close = np.r_[_walk(20, start=13.0, seed=5), _walk(20, start=17.0, seed=6)]
+    volume = np.full(n, 1000.0)
+    close[18:22] = [close[17], 33.85, 33.85, 33.85]
+    volume[18:22] = 0.0  # 18: the old shares' filler; 20, 21: the new shares' placeholder; 19: none
+    frames = {"yahoo": _frame(close, volume=volume)}
+    frames["yahoo"] = frames["yahoo"].drop(index=19)  # the effective date itself has no vendor row
+    effective, first_trade = str(SESSIONS[19].date()), str(SESSIONS[22].date())
+    ctx = {**_ctx(), "junctions": [first_trade], "junction_effective": {first_trade: effective}}
+    result = rc.reconcile_security("X", frames, ctx)
+    summary = result["summary"]
+    assert summary["junction_leading_zero_volume_cut"] == [str(SESSIONS[20].date()), str(SESSIONS[21].date())]
+    assert summary["filler_cut"] == 1  # the old shares' own zero-volume row before the effective date
+    canonical = result["canonical"]
+    assert not set(canonical["date"]) & {str(SESSIONS[k].date()) for k in (18, 20, 21)}
+    row = canonical[canonical["date"] == first_trade].iloc[0]
+    assert np.isnan(row["tr"]) and "relist_junction" in row["flags"].split(";")
+    assert summary["segments"][0]["last"] == str(SESSIONS[17].date())
+    # without the effective date the same rows are all the old shares' filler (the series is the same)
+    plain = rc.reconcile_security("X", frames, {**_ctx(), "junctions": [first_trade]})
+    assert plain["summary"]["junction_leading_zero_volume_cut"] == [] and plain["summary"]["filler_cut"] == 3
+    assert plain["canonical"]["date"].tolist() == canonical["date"].tolist()
+
+
+def test_relist_junction_entries_pass_their_effective_date_to_the_placeholder_cut():
+    assert rc.junction_effective_of("1456772") == {"2026-06-22": "2026-06-17"}
+    assert rc.junction_effective_of("0") == {}
+
+
+def test_a_listing_start_measured_against_a_zero_volume_quote_has_no_return():
+    """THRY 2020-10-01: the direct listing's first row after a long run of identical zero-volume Yahoo closes."""
+    n = 40
+    close = _walk(n)
+    close[:20] = 5.865  # the quote
+    volume = np.full(n, 1000.0)
+    volume[:20] = 0.0
+    listed = lambda grid: np.arange(len(grid)) >= 20
+    result = rc.reconcile_security("X", {"yahoo": _frame(close, volume=volume)}, _ctx(listed))
+    day = str(SESSIONS[20].date())
+    row = result["canonical"][result["canonical"]["date"] == day].iloc[0]
+    assert np.isnan(row["tr"]) and row["n_sources"] == 0
+    assert "listing_start_after_quote" in row["flags"].split(";") and "move_40" not in row["flags"].split(";")
+    assert result["summary"]["listing_starts_after_quote"] == [day]
+    assert not [m for m in result["moves"] if m["event_date"] == day and m["rule"].startswith("R1")]
+    assert result["canonical"]["tr"].iloc[21:].notna().all()
+    # a trade outside the listing within the staleness span is a price: the return stands
+    traded = volume.copy()
+    traded[17] = 500.0
+    kept = rc.reconcile_security("X", {"yahoo": _frame(close, volume=traded)}, _ctx(listed))
+    row = kept["canonical"][kept["canonical"]["date"] == day].iloc[0]
+    assert np.isfinite(row["tr"]) and "listing_start_after_quote" not in row["flags"].split(";")
+    assert "listing_starts_after_quote" not in kept["summary"]

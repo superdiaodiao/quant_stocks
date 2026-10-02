@@ -604,13 +604,14 @@ def test_built_candidate_list_follows_the_plan():
     shadowed = tiingo["tiingo_flags"].str.split().apply(lambda f: "ask_shadowed" in f)
     assert tiingo.loc[~shadowed, "tiingo_range_match"].isin(["Y", "partial"]).all()
     assert (tiingo.loc[shadowed, "tiingo_range_match"] == "hidden").all()
-    assert (tiingo.loc[shadowed, "status"] == "deferred_quota").all() and (tiingo.loc[shadowed, "fallback_from"] != "").all()
+    # (round 7: the fallbacks are pending_month2, which the month-2 command selects)
+    assert (tiingo.loc[shadowed, "status"] == pf.FALLBACK_STATUS).all() and (tiingo.loc[shadowed, "fallback_from"] != "").all()
     fetch = candidates[candidates["reason"] != "V_verify_sample"]
     own = fetch[fetch["fallback_from"] == ""]
     assert (own.loc[own["active"] == "Y", "planned_source"] == "yahoo").all()
     # a Tiingo fallback is month 2, after a Yahoo answer that failed or covers under half of the need
     fallback = fetch[(fetch["fallback_from"] != "") & (fetch["planned_source"] == "tiingo")]
-    assert (fallback["status"] == "deferred_quota").all() and (fallback["fetch_month"] == pf.MONTH_2).all()
+    assert (fallback["status"] == pf.FALLBACK_STATUS).all() and (fallback["fetch_month"] == pf.MONTH_2).all()
     assert (fetch.loc[fetch["planned_source"] == "unfillable", "status"].isin(["no_data", "wrong_entity"])).all()
     # The seeded tier-C sample has 20 names and V has 50.
     assert (candidates["reason"] == "B_C_sample_300M_500M").sum() == pf.TIER_C_SAMPLE
@@ -665,8 +666,10 @@ def test_built_list_sends_every_uncovered_name_listed_now_to_yahoo():
     off = facts[(facts["active"] == "True") & (facts["last_listed"].str[:10] != pf.WINDOW_END)
                 & (facts["uncovered_weeks"].astype(int) > 0) & (facts["yahoo_excluded"] == "")]
     assert len(off) and set(off.index) <= set(yahoo["security_id"])
-    for sid in ("857855", "816956", "1578987"):  # UCBI -> UCB, CNMD, BANX
+    for sid in ("857855", "816956"):  # UCBI -> UCB, CNMD
         assert sid in set(yahoo["security_id"]), sid
+    # round 7 (D6): an investment company still trading off Nasdaq is not asked (BANX, OFS, RAND are BDCs)
+    assert not candidates["security_id"].isin(["1578987", "1487918", "81955"]).any()
     assert yahoo.loc[yahoo["security_id"] == "857855", "ticker_for_source"].iloc[0] == "UCB"
     assert not candidates["security_id"].isin(["1570585.T-LBYAV", "1570585.T-LBYKV", "1560385.T-LLYVA",
                                                "1560385.T-LLYVK"]).any()
@@ -721,7 +724,9 @@ def test_a_yahoo_answer_without_the_need_falls_back_to_tiingo_wolf():
     tiingo = out[out["planned_source"] == "tiingo"].iloc[0]
     assert tiingo["ticker_for_source"] == "WOLF" and tiingo["fallback_from"] == "yahoo_no_rows"
     assert (tiingo["needed_start"], tiingo["needed_end"]) == ("2018-01-21", "2021-10-31")
-    assert (tiingo["status"], tiingo["fetch_month"]) == ("deferred_quota", pf.MONTH_2)
+    # round 7: a status the month-2 command selects (deferred_quota is the budget's and the fetcher's own)
+    assert (tiingo["status"], tiingo["fetch_month"]) == ("pending_month2", pf.MONTH_2)
+    assert tiingo["status"] in pf.MONTH_2_STATUSES
     assert (tiingo["tiingo_row_start"], tiingo["tiingo_row_end"]) == ("1993-02-09", "2025-09-26")
     assert "ask_shadowed" in tiingo["tiingo_flags"].split() and counts["fallback_tiingo_ask_shadowed"] == 1
     # With a single WOLF row the API serves, it is a plain Tiingo row for month 2.
@@ -944,4 +949,231 @@ def test_built_list_feeds_yahoo_answers_back_and_plans_the_fallbacks():
     plan = pd.read_csv(pf.MONTH2_PLAN, dtype=str, keep_default_na=False)
     assert list(plan.columns) == pf.PLAN_COLUMNS
     assert pd.to_numeric(plan["expected_top250_weeks"]).is_monotonic_decreasing
-    assert set(fallback.loc[fallback["planned_source"] == "tiingo", "security_id"]) <= set(plan["security_id"])
+    # every Tiingo fallback the fetcher has not answered yet is in the plan (answered ones are final: VRM, NCSM ...)
+    status = pd.read_csv(pf.FETCH_STATUS, dtype=str, keep_default_na=False) if pf.FETCH_STATUS.exists() else pd.DataFrame(
+        columns=["security_id", "ticker_for_source", "needed_start", "needed_end", "status"])
+    final = {tuple(r) for r in status.loc[status["status"].isin(pf.TIINGO_FINAL),
+                                          ["security_id", "ticker_for_source", "needed_start", "needed_end"]].to_numpy()}
+    open_fallback = fallback[(fallback["planned_source"] == "tiingo") & ~pd.Series(
+        [tuple(r) in final for r in fallback[["security_id", "ticker_for_source", "needed_start", "needed_end"]].to_numpy()],
+        index=fallback.index)]
+    assert set(open_fallback["security_id"]) <= set(plan["security_id"])
+
+
+# ------------------------------------------------------------------ round 7
+
+def _relisted_fact(sid, relist, before_cut, delist, first_uncovered, new_equity="", first_new="", ticker="X"):
+    return {"cik": sid, "name": "x", "active": True, "active_nasdaq": True, "via_successor": "", "delist_date": delist,
+            "uncovered_weeks": 100, "best_rank": 50, "first_listed": "2015-01-02", "last_listed": pf.WINDOW_END,
+            "first_uncovered": pd.Timestamp(first_uncovered), "last_uncovered": pd.Timestamp("2026-07-17"),
+            "last_universe_week": pd.Timestamp("2026-07-17"), "transfer_date": "", "relisted_from": relist,
+            "listed_before_cut": before_cut, "yahoo_tickers": ticker, "open_ticker": ticker, "last_ticker": ticker,
+            "tickers": ticker, "ticker_first_held": f"{ticker}:2015-01-02", "ticker_last_held": f"{ticker}:{pf.WINDOW_END}",
+            "tickers_sec_current": ticker, "relist_new_equity": new_equity, "relist_first_session": first_new}
+
+
+def test_relist_junctions_are_read_from_the_reconcile_source(tmp_path):
+    source = tmp_path / "reconcile.py"
+    source.write_text('_SEC = "https://www.sec.gov/"\n'
+                      'RELIST_JUNCTIONS = {\n'
+                      '    "1": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True,\n'
+                      '          "url": _SEC + "a.htm", "note": "x"},\n'
+                      '    "2": {"first_new_session": "", "kind": "bankruptcy_new_equity"},\n'
+                      '}\n')
+    junctions, origin = pf.relist_junctions(source)
+    assert junctions == {"1": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True}}
+    assert "RELIST_JUNCTIONS" in origin
+    fallback, origin = pf.relist_junctions(tmp_path / "missing.py")
+    assert origin.startswith("fallback") and fallback["105319"]["first_new_session"] == "2025-06-27"
+    # step 9's own table (round 7): CHRD 2020-11-20, CORZ 2024-01-24, WW 2025-06-27
+    real, origin = pf.relist_junctions()
+    assert origin.endswith("RELIST_JUNCTIONS")
+    assert {s: real[s]["first_new_session"] for s in ("1486159", "1839341", "105319")} == {
+        "1486159": "2020-11-20", "1839341": "2024-01-24", "105319": "2025-06-27"}
+
+
+def test_relisting_kinds_count_step9_junctions_as_new_equity_and_the_same_shares_as_none(tmp_path):
+    # CORZ's terminal subtype is removed_by_exchange, but step 9's RELIST_JUNCTIONS has its share exchange.
+    facts = pd.DataFrame({"relisted_from": ["2024-02-28", "2020-01-15", "2018-03-23", "2025-07-02", "2019-05-01"],
+                          "delist_form25_accession": ["a1", "a2", "a3", "a4", "a5"]},
+                         index=["1839341", "1375365", "1010086", "105319", "new"])
+    terminal = pd.DataFrame({"security_id": ["1839341", "1375365", "new"],
+                             "event_subtype": ["removed_by_exchange", "removed_by_exchange", "bankruptcy"]})
+    path = tmp_path / "terminal.csv"
+    terminal.to_csv(path, index=False)
+    junctions = {"1839341": {"first_new_session": "2024-01-24", "kind": "bankruptcy_share_exchange"},
+                 "105319": {"first_new_session": "2025-06-27", "kind": "bankruptcy_share_exchange"}}
+    kinds = pf.relisting_kinds(facts, pd.DataFrame({"accession": [], "delisting_basis": []}), path, junctions)
+    assert kinds.to_dict() == {"1839341": "bankruptcy", "1375365": "", "1010086": "", "105319": "bankruptcy",
+                               "new": "bankruptcy"}
+    first = pf.relist_first_sessions(facts.assign(relist_new_equity=kinds), junctions)
+    # step 9's first new session where it has one, else the relisting day; nothing for the same shares
+    assert first.to_dict() == {"1839341": "2024-01-24", "1375365": "", "1010086": "", "105319": "2025-06-27",
+                               "new": "2019-05-01"}
+
+
+def test_a_new_equity_need_starts_at_the_first_new_session_not_the_snapshot_or_a_warm_up():
+    hits = {"B_C_rest_300M_500M": ("form25_max_float_3y_usd", 4e8), "Y_active_rank300": ("dv", 100)}
+    # Core Scientific: snapshot relisting 2024-02-28, new shares from 2024-01-24 (no warm-up from 2023-12-15)
+    corz = pd.Series(_relisted_fact("1839341", "2024-02-28", "2023-01-12", "2023-04-22", "2022-02-11",
+                                    "bankruptcy", "2024-01-24", "CORZ"))
+    (_, _, _, e1, _), (_, _, s2, _, note) = pf.relisted_parts(corz, ["B_C_rest_300M_500M", "Y_active_rank300"], hits)
+    assert e1 == "2023-01-12" and s2 == "2024-01-24" and "first session 2024-01-24" in note
+    # WW: snapshot 2025-07-02, new shares from 2025-06-27
+    ww = pd.Series(_relisted_fact("105319", "2025-07-02", "2025-05-31", "2025-07-13", "2018-11-23", "bankruptcy",
+                                  "2025-06-27", "WW"))
+    assert pf.relisted_parts(ww, ["C_late_start", "Y_active_rank300"], {**hits, "C_late_start": ("x", 1)})[1][2] == "2025-06-27"
+    # the same shares listed again (SMCI) keep the 75-day warm-up before the relisting
+    smci = pd.Series(_relisted_fact("1375365", "2020-01-15", "2018-09-06", "2019-03-22", "2018-04-06", ticker="SMCI"))
+    assert pf.relisted_parts(smci, ["B_A_float_ge_1B", "Y_active_rank300"], hits)[1][2] == "2019-11-01"
+
+
+def test_route_gives_a_junction_only_to_new_equity_on_its_first_new_session():
+    facts = pd.DataFrame([
+        _relisted_fact("1375365", "2020-01-15", "2018-09-06", "2019-03-22", "2020-01-17", ticker="SMCI"),
+        _relisted_fact("1486159", "2020-11-20", "2020-10-11", "2020-11-06", "2019-12-27", "bankruptcy", "2020-11-20", "CHRD"),
+        _relisted_fact("105319", "2025-07-02", "2025-05-31", "2025-07-13", "2025-07-04", "bankruptcy", "2025-06-27", "WW"),
+    ], index=["1375365", "1486159", "105319"])
+    hits = {sid: {"Y_active_all": ("uncovered_universe_weeks", 100)} for sid in facts.index}
+    out = pf.route(facts, hits, {}, {}, pd.DataFrame()).set_index("security_id")
+    assert out.loc["1375365", "junction_date"] in ("", None) or pd.isna(out.loc["1375365", "junction_date"])
+    assert out.loc["1486159", "junction_date"] == "2020-11-20"
+    # WW's need (from its first uncovered week less the warm-up) holds the new shares' first session
+    assert out.loc["105319", "junction_date"] == "2025-06-27"
+
+
+def test_investment_company_weeks_leave_the_universe_and_the_market_cap_ranks():
+    spans = pd.DataFrame({"security_id": ["bdc", "op"], "ticker": ["BDC", "OP"], "list_start": ["2015-01-02"] * 2,
+                          "list_end": ["2015-12-31"] * 2, "name": ["BDC Capital Corp", "Operating Inc"],
+                          "share_class": ["", ""]})
+    weeks = pd.DatetimeIndex(["2015-03-06", "2015-09-04"])
+    investment = {"bdc": [("2015-06-01", "2099-12-31")]}
+    listed = pf.listed_weeks(spans, pd.DataFrame(), {}, weeks, investment=investment)
+    flags = listed.set_index(["security_id", "week_end"])["investment_company"]
+    assert not flags[("bdc", pd.Timestamp("2015-03-06"))] and flags[("bdc", pd.Timestamp("2015-09-04"))]
+    assert not flags[("op", pd.Timestamp("2015-09-04"))]
+    lists = pd.DataFrame({"security_id": ["bdc", "op", "bdc", "op"], "ticker": ["BDC", "OP", "BDC", "OP"],
+                          "snapshot_date": ["2015-03-01", "2015-03-01", "2015-09-01", "2015-09-01"],
+                          "market_cap": [2e9, 1e9, 2e9, 1e9]})
+    ranks = pf.mcap_ranks(lists, spans, {}, set(), investment)
+    assert set(zip(ranks["security_id"], ranks["snapshot_date"], ranks["mcap_rank"])) == {
+        ("bdc", "2015-03-01", 1.0), ("op", "2015-03-01", 2.0), ("op", "2015-09-01", 1.0)}
+
+
+def test_month2_plan_counts_share_classes_by_their_own_evidence_and_drops_investment_company_weeks():
+    candidates = pd.DataFrame([
+        {**_yahoo_row("1437107.B", "DISCB", "2019-01-01", "2020-12-31", "A2_mcap_rank400"), "planned_source": "tiingo",
+         "status": "pending_month2", "fetch_month": pf.MONTH_2, "fallback_from": "yahoo_no_rows"},
+        {**_yahoo_row("single", "SNGL", "2019-01-01", "2020-12-31", "A2_mcap_rank400"), "planned_source": "tiingo",
+         "status": "pending_month2", "fetch_month": pf.MONTH_2, "fallback_from": "yahoo_no_rows"},
+        {**_yahoo_row("bdc", "BDC", "2019-01-01", "2020-12-31", "B_A_float_ge_1B"), "planned_source": "tiingo",
+         "status": "deferred_quota", "fetch_month": pf.MONTH_2, "fallback_from": ""},
+        {**_yahoo_row("895419", "WOLF", "2018-01-21", "2021-10-31"), "planned_source": "tiingo",
+         "status": "pending_month2", "fetch_month": pf.MONTH_2, "fallback_from": "yahoo_no_rows",
+         "tiingo_flags": "ask_shadowed", "tiingo_range_match": "hidden"},
+    ]).reindex(columns=pf.CANDIDATE_COLUMNS).fillna("")
+    weeks = pd.to_datetime(["2019-01-04", "2019-01-11", "2019-01-18"])
+    evidence = pd.DataFrame({"week_end": list(weeks) * 4,
+                             "security_id": ["1437107.B"] * 3 + ["single"] * 3 + ["bdc"] * 3 + ["895419"] * 3,
+                             "p_top250": [0.5, 0.5, 0.4, 0.5, 0.5, 0.4, 0.9, 0.9, 0.9, 0.2, 0.2, 0.2],
+                             "unknown": [False] * 12,
+                             "proxy": [True, True, False, True, True, True, True, True, True, True, True, True]})
+    weekly = pd.DataFrame(columns=["security_id", "week_end", "universe", "vendor_ok", "dv50_rank"])
+    plan, facts = pf.tiingo_month2_plan(candidates, pd.DataFrame(), pd.DataFrame(), {}, weekly, evidence,
+                                        pd.DataFrame(), cached=lambda t: False, classes={"1437107.B"},
+                                        investment={"bdc": [("2018-06-01", "2099-12-31")]})
+    got = plan.set_index("security_id")
+    # DISCB keeps only its own dollar-volume week (0.4); its two proxy weeks are the company's
+    assert got.loc["1437107.B", "expected_top250_weeks"] == 0.4 and got.loc["1437107.B", "proxy_not_counted_weeks"] == 2
+    assert got.loc["single", "expected_top250_weeks"] == 1.4 and got.loc["single", "proxy_not_counted_weeks"] == 0
+    # a BDC's weeks are not universe weeks (D6)
+    assert got.loc["bdc", "expected_top250_weeks"] == 0.0 and got.loc["bdc", "missing_weeks"] == 0
+    assert facts["evidence_adjustments"]["investment_company_weeks_dropped"] == 3
+    assert facts["evidence_adjustments"]["class_proxy_weeks"] == 2
+    assert list(plan["security_id"])[:2] == ["single", "895419"]
+    # what the month-2 command selects: the fallbacks (pending_month2), the budget's deferral; WOLF only on purpose
+    assert got["fetch_selectable"].to_dict() == {"1437107.B": "Y", "single": "Y", "bdc": "Y",
+                                                 "895419": "fetch_shadowed_only"}
+
+
+def test_tier_c_sample_triggers_the_rest_when_one_answer_ranks_300_or_better(tmp_path):
+    sessions = pd.bdate_range("2019-01-01", "2019-06-28")
+    weeks = pd.DatetimeIndex([d for d in sessions if d.dayofweek == 4])
+    # 300 other universe names with dv50 from 300 down to 1 ($M); the sampled name trades $250M a day at $20
+    others = pd.DataFrame([(f"o{k}", w, float(300 - k) * 1e6) for k in range(300) for w in weeks],
+                          columns=["security_id", "week_end", "dv50"])
+    mine = pd.DataFrame({"security_id": "s", "week_end": weeks, "dv50": np.nan})
+    weekly = pd.concat([others, mine], ignore_index=True).assign(universe=True, price_ge_10="Y", outside_trading=False)
+    weekly.loc[weekly["security_id"] == "s", "price_ge_10"] = ""
+    path = tmp_path / "S.csv.gz"
+    pd.DataFrame({"date": sessions.strftime("%Y-%m-%d"), "close": 20.0, "volume": 12.5e6}).to_csv(path, index=False)
+    candidates = pd.DataFrame([{"security_id": "s", "ticker_for_source": "S", "needed_start": "2019-01-01",
+                                "needed_end": "2019-06-28", "reason": pf.TIER_C_SAMPLE_REASON, "planned_source": "tiingo",
+                                "status": "pending"},
+                               {"security_id": "r", "ticker_for_source": "R", "needed_start": "2019-01-01",
+                                "needed_end": "2019-06-28", "reason": pf.TIER_C_REST_REASON, "planned_source": "tiingo",
+                                "status": "conditional_tier_c", "fetch_month": pf.MONTH_2}])
+    status = pd.DataFrame([{"security_id": "s", "ticker_for_source": "S", "status": "done", "prices_path": str(path)}])
+    result = pf.tier_c_sample_result(candidates, status, weekly, sessions)
+    assert result["result"] == "triggered" and result["names"]["s"]["best_dv50_rank"] == 51
+    assert pf.apply_tier_c_result(candidates, result)["status"].tolist() == ["pending", "conditional_tier_c"]
+    # at $0.8M a day it ranks below 300: not triggered once every sampled name answered
+    pd.DataFrame({"date": sessions.strftime("%Y-%m-%d"), "close": 20.0, "volume": 0.04e6}).to_csv(path, index=False)
+    result = pf.tier_c_sample_result(candidates, status, weekly, sessions)
+    assert result["result"] == "not_triggered" and result["names"]["s"]["best_dv50_rank"] == 301
+    rest = pf.apply_tier_c_result(candidates, result).set_index("security_id")
+    assert rest.loc["r", "status"] == "tier_c_not_triggered"
+    # unanswered: undecided, nothing changes
+    result = pf.tier_c_sample_result(candidates, status.iloc[0:0], weekly, sessions)
+    assert result["result"] == "undecided"
+
+
+@pytest.mark.skipif(not all(Path(p).exists() for p in BUILT + [pf.MONTH2_PLAN, pf.IC_SPANS_OUT]),
+                    reason="step 6 round-7 outputs not built")
+def test_built_round7_junctions_fallbacks_classes_and_investment_companies():
+    candidates = pd.read_csv(pf.CANDIDATES, dtype=str, keep_default_na=False)
+    summary = __import__("json").loads((pf.OUT / "prefilter_summary.json").read_text())
+    # junctions: only new equity, on step 9's first new session (as the build read it)
+    junctions = summary["relist_junctions"]["new_equity"]
+    named = candidates[candidates["junction_date"] != ""]
+    assert all(junctions[s]["first_new_session"] == d for s, d in zip(named["security_id"], named["junction_date"]))
+    assert not set(named["security_id"]) & {"1375365", "1010086", "1158172", "1376339"}  # SMCI SIGA SCOR MDXG
+    corz = candidates[(candidates["security_id"] == "1839341") & (candidates["planned_source"] == "yahoo")]
+    assert corz["needed_start"].min() >= "2024-01-24"  # no warm-up in the old shares
+    # the Yahoo fallbacks on Tiingo are rows the month-2 command selects
+    fallback = candidates[(candidates["fallback_from"] != "") & (candidates["planned_source"] == "tiingo")]
+    assert set(fallback["status"]) <= set(pf.MONTH_2_STATUSES)
+    # D6: no candidate row needs a week only an investment company holds
+    spans = pd.read_csv(pf.IC_SPANS_OUT, dtype=str, keep_default_na=False)
+    for row in candidates[candidates["security_id"].isin(set(spans["security_id"]))].itertuples():
+        mine = spans[spans["security_id"] == row.security_id]
+        inside = any(a <= row.needed_start and row.needed_end <= b for a, b in zip(mine["start"], mine["end"]))
+        assert not inside, row
+    # the month-2 plan: share classes get nothing from the company's proxy (DISCB, LMCB)
+    plan = pd.read_csv(pf.MONTH2_PLAN, dtype=str, keep_default_na=False)
+    classes = plan[plan["security_id"].isin(["1437107.B", "1560385.T-LMCB"])]
+    assert (pd.to_numeric(classes["expected_top250_weeks"]) < 5).all()
+    assert set(plan["fetch_selectable"]) <= {"Y", "fetch_shadowed_only", "not_in_candidate_list", "N"}
+
+
+def test_month2_plan_does_not_count_an_untested_float_that_dwarfs_the_form25_float():
+    # DIRTT (round 7): an XBRL float of $17.07B for 2022-23 with no close to test it, 47x its checked $365M
+    # Form 25 float, gave 63 of its 65 expected top-250 weeks.
+    weeks = pd.to_datetime(["2021-01-08", "2022-07-15", "2022-07-22"])
+    weekly = pd.DataFrame({"security_id": "drtt", "week_end": weeks, "mcap": np.nan, "close": np.nan,
+                           "float_usd": [3.65e8, 1.707e10, 1.707e10], "universe": True, "vendor_ok": False,
+                           "dv50_rank": np.nan})
+    facts = pd.DataFrame({"public_float_usd": [3.647e8], "float_check_flag": ["ok"]}, index=["drtt"])
+    assert pf.doubtful_float_weeks(weekly, facts) == {("drtt", weeks[1]), ("drtt", weeks[2])}
+    # a checked close, a market cap, or a float within 20x of the Form 25 float keeps the week
+    assert not pf.doubtful_float_weeks(weekly.assign(close=5.0), facts)
+    assert not pf.doubtful_float_weeks(weekly, facts.assign(public_float_usd=1e9))
+    candidates = pd.DataFrame([{**_yahoo_row("drtt", "DRTTF", "2019-11-06", "2023-09-22", "B_C_rest_300M_500M"),
+                                "planned_source": "tiingo", "status": "conditional_tier_c", "fetch_month": pf.MONTH_2,
+                                "fallback_from": ""}]).reindex(columns=pf.CANDIDATE_COLUMNS).fillna("")
+    evidence = pd.DataFrame({"week_end": weeks, "security_id": "drtt", "p_top250": [0.01, 0.98, 0.97],
+                             "unknown": False, "proxy": True})
+    plan, out = pf.tiingo_month2_plan(candidates, pd.DataFrame(), facts, {}, weekly, evidence, pd.DataFrame(),
+                                      cached=lambda t: False)
+    assert plan.loc[0, "expected_top250_weeks"] == 0.01 and plan.loc[0, "proxy_not_counted_weeks"] == 2
+    assert out["evidence_adjustments"]["float_doubtful_securities"] == ["drtt"]

@@ -325,6 +325,39 @@ def test_universe_build_is_no_input_without_the_step12_files(ctx):
     assert out["status"] == "no_input" and not out["passed"] and len(out["details"]["missing_inputs"]) == 4
 
 
+def test_universe_build_sees_sec_submissions_cached_or_fetched_again_after_the_build(ctx):
+    import gzip as gz
+    from scripts import reversal_data_universe as un
+    directory = ctx.cache / "raw" / "sec" / "submissions"
+    directory.mkdir(parents=True, exist_ok=True)
+    def write(name, payload):
+        (directory / name).write_bytes(gz.compress(json.dumps(payload).encode()))
+    write("CIK0000000010.json.gz", {"cik": "10", "filings": {
+        "recent": {"form": ["N-2", "40-17G"], "filingDate": ["2012-06-01", "2013-05-01"], "accessionNumber": ["c", "b"]},
+        "files": [{"name": "CIK0000000010-submissions-001.json", "filingFrom": "2004-01-01", "filingTo": "2011-12-31"}]}})
+    master = pd.DataFrame({"security_id": ["10"], "cik": ["10"], "first_ticker": ["BDC"]})
+    _, _, facts = un.investment_companies(master, {"10"}, directory=directory)
+    build = ctx.cache / "universe"
+    build.mkdir(parents=True, exist_ok=True)
+    un.write_csv(build / un.SUBMISSIONS_TABLE, pd.DataFrame(sorted(facts["files"].items()), columns=["name", "sha256"]),
+                 compress=True)
+    key = f"{un.SUBMISSIONS_DIGEST_KEY} ({directory})"
+    (build / "universe_summary.json").write_text(json.dumps({"inputs_sha256": {key: facts["digest"]}}))
+    assert va.SUBMISSIONS_DIGEST_KEY == un.SUBMISSIONS_DIGEST_KEY and va.SUBMISSIONS_TABLE == un.SUBMISSIONS_TABLE
+    assert va._universe_stale_inputs(ctx) == []
+    # The older page that was missing at build time is cached now: the spans may change.
+    write("CIK0000000010-submissions-001.json.gz", {"form": ["N-54A"], "filingDate": ["2004-04-21"], "accessionNumber": ["e"]})
+    stale = va._universe_stale_inputs(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert len(stale) == 1 and stale[0]["file"] == key
+    assert stale[0]["files"] == [{"name": "CIK0000000010-submissions-001.json.gz", "recorded": "missing", "now": "cached"}]
+    # A table edited after the build no longer gives the recorded digest.
+    un.write_csv(build / un.SUBMISSIONS_TABLE, pd.DataFrame([["CIK0000000010.json.gz", "0" * 64]], columns=["name", "sha256"]),
+                 compress=True)
+    stale = va._universe_stale_inputs(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    assert stale == [{"file": "research_cache/reversal_2012_2026/universe/" + un.SUBMISSIONS_TABLE,
+                      "state": "does not give the digest in inputs_sha256"}]
+
+
 def test_universe_build_fails_when_the_universe_was_built_from_other_inputs(ctx):
     _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": "u"}]))
     upstream = _write(ctx.cache / "reconcile" / "no_series.csv", pd.DataFrame([{"security_id": "1"}]))
@@ -586,6 +619,34 @@ def test_a_stale_market_cap_does_not_outweigh_a_float_or_dollar_volume_at_the_cu
     assert u["estimated_name_weeks"] == 2 and u["estimated_name_weeks_plan_proxy_rule"] == 0
 
 
+def test_unfillable_check_reports_the_step12_class_cap_beside_the_plan_count(ctx):
+    # QRTEB-shaped: a class carrying the company's float above the band median; step 12 caps it by its own
+    # dollar volume. The plan's count still counts it (pass / fail unchanged); the capped view leaves it out.
+    week = "2015-01-09"
+    _proxy_fixture(ctx, [])
+    band = [{"week_end": week, "security_id": f"b{i}", "dv50_rank": 200 + i, "float_usd": 4e9} for i in range(51)]
+    rows = [{"week_end": week, "security_id": "qrteb", "float_usd": 9e9, "proxy_class_capped": True},
+            {"week_end": week, "security_id": "solo", "float_usd": 9e9, "proxy_class_capped": False}]
+    listed = pd.DataFrame(band + rows)
+    listed["eligible"], listed["outside_trading"], listed["pf_ge_cut250"] = True, False, False
+    listed["proxy_class_capped"] = listed["proxy_class_capped"].fillna(False).astype(bool)
+    listed["missing_reason"] = np.where(listed["security_id"].str.startswith("b"), "", "unfillable")
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": s, "needed_start": "2015-01-01",
+                                                          "needed_end": "2015-12-31", "est_weeks_in_top250": "1",
+                                                          "proxy": "float"} for s in ("qrteb", "solo")]))
+    u = va.check_universe_unfillable(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["numbers"]
+    assert u["estimated_name_weeks"] == 2
+    cap = u["step12_class_capped"]
+    assert cap["recorded"] and cap["estimated_name_weeks_class_capped"] == 1 and cap["by_security"] == {"qrteb": 1}
+    assert cap["share_by_year_without_capped"][2015] == va._share(1, u["by_year"][2015]["slots"])
+    assert u["by_year"][2015]["share"] == va._share(2, u["by_year"][2015]["slots"])
+    # An older build without the column: nothing capped.
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed.drop(columns="proxy_class_capped"))
+    u = va.check_universe_unfillable(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["numbers"]
+    assert not u["step12_class_capped"]["recorded"] and u["step12_class_capped"]["estimated_name_weeks_class_capped"] == 0
+
+
 def test_a_universe_build_in_another_directory_is_read_and_the_summary_goes_to_out_dir(ctx, tmp_path):
     build, out = tmp_path / "build", tmp_path / "out"
     build.mkdir()
@@ -690,7 +751,53 @@ def test_stored_comparison_needs_every_priced_break_file_excluded_or_a_unit_brea
     assert n["break_list_not_priced_that_day"] == 1 and n["break_list_unmapped"] == 1   # CCC has no row; ZZZ no holder
     _stored_fixture(ctx, "stored_excluded")
     out = va.check_stored_comparison(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
-    assert out["passed"] and out["details"]["priced_without_unit_break_row"] == [{"security_id": "2", "files": ["bbb"]}]
+    assert out["passed"] and out["details"]["priced_without_unit_break_row"] == [
+        {"security_id": "2", "files": ["bbb"], "stored_excluded": True, "reconcile_state": "not in break_days"}]
+    assert not out["numbers"]["reconcile_break_days_read"] and out["numbers"]["without_unit_break_row_unexplained"] == 1
+
+
+def _break_day_states():
+    return {"1": {"summary": {"ticker_last": "AAA", "break_days": [
+                {"date": "2025-06-24", "state": "unit_break", "stored_r": -0.5, "tr": 0.01, "stored_implied_k": 2.02}]}},
+            "2": {"summary": {"ticker_last": "BBB", "break_days": [
+                {"date": "2025-06-24", "state": "stored_moves_with_vendors", "stored_r": 1.5, "tr": 1.5,
+                 "stored_implied_k": 1.0}]}}}
+
+
+def _check_with_break_days(ctx, break_days):
+    _stored_fixture(ctx, "stored_excluded")
+    (ctx.cache / "reconcile").mkdir(parents=True, exist_ok=True)
+    (ctx.cache / "reconcile" / "summary.json").write_text(json.dumps({"break_days": break_days}))
+    return va.check_stored_comparison(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+
+
+def test_stored_comparison_reads_step9_break_days_to_explain_a_real_move_without_a_unit_break(ctx):
+    # The table is written by step 9's own code, so the two sides change together ({how_to_read, days: {...}}).
+    from scripts import reversal_data_reconcile as rc
+    table = rc.break_day_table(_break_day_states())
+    assert "days" in table and "2025-06-24" not in table
+    out = _check_with_break_days(ctx, table)
+    n = out["numbers"]
+    assert out["passed"] and n["reconcile_break_days_read"] and n["without_unit_break_row_explained_by_reconcile"] == 1
+    assert n["without_unit_break_row_unexplained"] == 0 and n["reconcile_break_day_listed"] == 2
+    assert n["reconcile_break_day_states"] == {"unit_break": 1, "stored_moves_with_vendors": 1}
+    assert out["details"]["priced_without_unit_break_row"][0]["reconcile_state"] == "stored_moves_with_vendors"
+    # Only the state is carried over: no return of the day reaches the summary.
+    assert "stored_r" not in json.dumps(out) and '"tr"' not in json.dumps(out) and "implied_k" not in json.dumps(out)
+
+
+def test_stored_comparison_still_reads_the_older_break_days_layout_without_a_days_layer(ctx):
+    from scripts import reversal_data_reconcile as rc
+    legacy = rc.break_day_table(_break_day_states())["days"]       # the 10:35 dry run: days at the top level
+    out = _check_with_break_days(ctx, legacy)
+    n = out["numbers"]
+    assert out["passed"] and n["without_unit_break_row_explained_by_reconcile"] == 1
+    assert n["reconcile_break_day_states"] == {"unit_break": 1, "stored_moves_with_vendors": 1}
+    # A table without the day (or an odd shape) explains nothing and lists the name as unexplained.
+    for odd in ({"how_to_read": {}, "days": {}}, {"days": {"2026-06-29": {}}}, [], "x"):
+        out = _check_with_break_days(ctx, odd)
+        assert out["numbers"]["without_unit_break_row_unexplained"] == 1
+        assert out["numbers"]["reconcile_break_day_states"] == {}
 
 
 def _plan_value(name, column):

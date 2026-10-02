@@ -237,8 +237,59 @@ def test_limiter_is_seeded_from_the_ledger_so_a_restart_keeps_the_hourly_window(
 def test_limits_above_the_free_tier_are_refused():
     with pytest.raises(SystemExit):
         tiingo.main(["--hourly", "50"])
+    # round 7: the month's last symbols may be spent on purpose, up to the free tier's 500, never past it
     with pytest.raises(SystemExit):
-        tiingo.main(["--month-stop", "500"])
+        tiingo.main(["--month-stop", "501"])
+    assert tiingo.MONTH_LIMIT == 500 and tiingo.MONTH_STOP == 480
+
+
+def test_month2_selects_the_yahoo_fallbacks_budget_deferrals_and_the_tier_c_rest(tmp_path):
+    # Round 7: the prefilter's Yahoo fallbacks were 'deferred_quota' rows this fetcher never deferred itself, so
+    # neither the default run nor 'pending_month2,conditional_tier_c' selected them (DISCB, WOLF, LMCB, VRM ...).
+    path = write_candidates(tmp_path / "c.csv", [
+        ("1", "AAA", "2019-01-01", "2020-01-01", "A2_mcap_rank400", "tiingo", "pending_month2", "2026-11", "1"),
+        ("2", "BBB", "2019-01-01", "2020-01-01", "B_A_float_ge_1B", "tiingo", "deferred_quota", "2026-11", "2"),
+        ("3", "CCC", "2019-01-01", "2020-01-01", "B_C_rest_300M_500M", "tiingo", "conditional_tier_c", "2026-11", "3"),
+        ("4", "DDD", "2019-01-01", "2020-01-01", "B_C_rest_300M_500M", "tiingo", "tier_c_not_triggered", "", "4"),
+        ("5", "EEE", "2019-01-01", "2020-01-01", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "5"),
+        ("6", "FFF", "2019-01-01", "2020-01-01", "B_A_float_ge_1B", "tiingo", "pending", "2026-10", "6"),
+    ])
+    candidates = tiingo.load_candidates(path)
+    status = tiingo.merge_status(tiingo.load_status(tmp_path / "none.csv"), [
+        {"security_id": "6", "ticker_for_source": "FFF", "needed_start": "2019-01-01", "needed_end": "2020-01-01",
+         "status": "done", "order": 6}])
+    assert set(tiingo.MONTH_2_STATUSES) == {"pending", "deferred_quota", "pending_month2", "conditional_tier_c"}
+    month2 = tiingo.select_rows(candidates, status, set(tiingo.MONTH_2_STATUSES))
+    assert set(tiingo.ticker_order(month2)) == {"AAA", "BBB", "CCC", "EEE"}
+    # the old documented statuses miss the budget's own deferrals
+    old = tiingo.select_rows(candidates, status, {"pending_month2", "conditional_tier_c"})
+    assert "BBB" not in set(old["ticker_for_source"])
+
+
+def test_month2_flag_sets_the_month2_statuses(sandbox, capsys):
+    assert run(sandbox, "--dry-run", "--month2", "--month-stop", "500") == 0
+    out = capsys.readouterr().out
+    # CCC's pending_month2 row is selected with its month-1 row (one ticker); the yahoo row never
+    assert "CCC" in out and "YYY" not in out and "stop at 500" in out
+
+
+@pytest.mark.skipif(not (tiingo.CANDIDATES.exists() and (tiingo.PREFILTER / "tiingo_month2_plan.csv").exists()),
+                    reason="step 6 outputs not built")
+def test_built_month2_plan_rows_marked_selectable_are_what_month2_selects():
+    plan = pd.read_csv(tiingo.PREFILTER / "tiingo_month2_plan.csv", dtype=str, keep_default_na=False)
+    if "fetch_selectable" not in plan:
+        pytest.skip("month-2 plan built before round 7")
+    candidates = tiingo.load_candidates(tiingo.CANDIDATES)
+    status = tiingo.load_status()
+    selected = tiingo.select_rows(candidates, status, set(tiingo.MONTH_2_STATUSES))
+    keys = {tiingo.row_key(r) for _, r in selected.iterrows()}
+    # (rows answered since the plan was built are final now, so no run selects them again)
+    final = {tiingo.row_key(r) for _, r in status.iterrows() if r["status"] in tiingo.FINAL}
+    wanted = plan[plan["fetch_selectable"].isin(["Y", "fetch_shadowed_only"])]
+    assert {tiingo.row_key(r) for _, r in wanted.iterrows()} - final <= keys
+    # the Yahoo fallbacks are all selectable (or asked only on purpose: WOLF)
+    fallback = plan[plan["group"] == "yahoo_fallback"]
+    assert set(fallback["fetch_selectable"]) <= {"Y", "fetch_shadowed_only"}
 
 
 # ------------------------------------------------------------------ the run, with a fake network
@@ -336,6 +387,17 @@ def test_monthly_symbol_stop_defers_the_rest(sandbox):
     assert status["AAA"] == "done_review" and status["BBB"] == "deferred_quota" and status["CCC"] == "deferred_quota"
     assert "monthly symbol stop" in json.loads(tiingo.SUMMARY.read_text())["stop"]
     assert run(sandbox) == 0 and len(sandbox["urls"]) == 3  # next month (or a higher budget) picks them up
+
+
+def test_the_last_symbols_of_a_month_stop_at_500_and_each_run_keeps_its_summary(sandbox):
+    # Round 7: the month's last 20 symbols (480 used) are spent with --month-stop 500, never past it.
+    sandbox["answers"] = {"AAA": sandbox["good"], "BBB": sandbox["good"], "CCC": sandbox["good"]}
+    assert run(sandbox, "--already-used", "498", "--month-stop", "500") == 0
+    assert len(sandbox["urls"]) == 2  # 498 + AAA + BBB = 500: stop before CCC
+    status = tiingo.load_status().set_index("ticker_for_source")["status"]
+    assert status["CCC"] == "deferred_quota"
+    runs = sorted((tiingo.SUMMARY.parent / "runs").glob("fetch_summary_*Z.json"))
+    assert len(runs) == 1 and json.loads(runs[0].read_text())["stop"].startswith("monthly symbol stop: 500")
 
 
 def test_429_and_limit_bodies_stop_the_run_and_404_is_no_data(sandbox):

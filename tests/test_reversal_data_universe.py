@@ -229,11 +229,47 @@ def test_expected_top250_takes_dv_evidence_then_proxy_and_zero_under_ten_dollars
     assert low[[0, 1, 3, 4]].tolist() == [0.5, 0.2, 0.0, 0.0] and np.isnan(low[2])
 
 
-def test_proxy_above_uses_market_cap_first_and_float_without_one():
-    frame = pd.DataFrame({"week_index": [0, 0, 0, 0], "mcap": [5e9, 1e9, np.nan, np.nan],
-                          "float_usd": [np.nan, 9e9, 3e9, np.nan]})
+def test_a_class_whose_own_dollar_volume_is_far_under_the_cut_is_not_given_the_company_proxy_rate():
+    # QRTEB-shaped: weeks 0-8 missing with only Qurate's company float; from week 9 step 6 holds its own
+    # dv50 at 1e4 against a 3e7 cut (rank ~1,092). QRTEA, the liquid class, is not touched.
+    weeks = np.arange(12)
+    frame = pd.DataFrame({
+        "security_id": ["QRTEB"] * 12 + ["QRTEA"] * 12 + ["SOLO"] * 12,
+        "week_index": np.r_[weeks, weeks, weeks],
+        "multi_class": [True] * 24 + [False] * 12,
+        "dv50": [np.nan] * 12 + [6e7] * 12 + [np.nan] * 12,
+        "pf_dv50": [np.nan] * 9 + [1e4] * 3 + [np.nan] * 12 + [np.nan] * 9 + [1e4] * 3})
+    cut = pd.DataFrame({"cut250": 3e7}, index=pd.Index(weeks, name="week_index"))
+    ratio, away = un.class_dv_ratios(frame, cut)
+    q = frame["security_id"].eq("QRTEB").to_numpy()
+    assert np.allclose(ratio[q], 1e4 / 3e7)
+    assert away[q].tolist() == [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0]
+    assert np.allclose(ratio[frame["security_id"].eq("QRTEA").to_numpy()], 2.0)
+    assert np.isnan(ratio[frame["security_id"].eq("SOLO").to_numpy()]).all()     # a single class: its own float
+    # Beyond CLASS_DV_WEEKS nothing is borrowed.
+    far = frame[frame["security_id"] == "QRTEB"].assign(week_index=lambda f: np.where(f["pf_dv50"].notna(), 40, 0))
+    far_ratio, _ = un.class_dv_ratios(far, pd.DataFrame({"cut250": 3e7}, index=pd.Index([0, 40], name="week_index")))
+    assert np.isnan(far_ratio[:9]).all() and un.CLASS_DV_WEEKS < 40
+
+    n_bins = len(un.RATIO_EDGES) - 1
+    table = lambda value: {"table": np.full((len(un.YEARS), n_bins), value), "counts": None}
+    rates = {"dv_rule": table(0.001), "proxy_rule": table(0.2), "proxy_rule_multi_class": table(0.65)}
+    missing = pd.DataFrame({"week_end": pd.to_datetime(["2018-03-23"] * 3), "dv_ratio": [np.nan] * 3,
+                            "proxy_ratio": [4.0, 4.0, 4.0], "pf_price_low": [False] * 3,
+                            "multi_class": [True, True, False], "proxy_class_capped": [True, False, False]})
+    assert un.expected_top250(missing, rates).tolist() == [0.001, 0.65, 0.2]
+    assert un.expected_top250(missing.drop(columns="proxy_class_capped"), rates).tolist() == [0.65, 0.65, 0.2]
+
+
+def test_proxy_above_takes_either_market_cap_or_float_and_keeps_the_market_cap_first_reading_apart():
+    frame = pd.DataFrame({"week_index": [0, 0, 0, 0, 0], "mcap": [5e9, 1e9, np.nan, np.nan, 1e9],
+                          "float_usd": [np.nan, 9e9, 3e9, np.nan, 1e9]})
     cut = pd.DataFrame({"cut_mcap": [2e9], "cut_float": [2e9]}, index=pd.Index([0], name="week_index"))
-    assert un.proxy_above(frame, cut).tolist() == [True, False, True, False]
+    # INO 2020: a carried market cap below the band median does not outweigh a float that reaches it.
+    assert un.proxy_above(frame, cut).tolist() == [True, True, True, False, False]
+    assert un.proxy_above_mcap_first(frame, cut).tolist() == [True, False, True, False, False]
+    # The calibrated ratio stays market cap first (the bins the hit rates are measured on).
+    assert un.proxy_ratio_of(frame, cut)[[0, 1, 2]].tolist() == [2.5, 0.5, 1.5]
 
 
 def _missing_frame():
@@ -634,10 +670,17 @@ def test_snapshot_age_is_days_since_the_latest_snapshot_on_or_before_the_week():
     assert ages["snapshot_source"].tolist() == ["wayback_symdir", "repo_symdir"]
 
 
-def test_the_script_never_reads_the_return_column():
+def test_the_script_never_reads_the_return_column(tmp_path):
     source = Path(un.__file__).read_text()
     assert '"tr"' not in source.replace('"tr", "mcap"', "")  # only the banned-column list names it
-    assert "usecols=[\"security_id\", \"date\", \"close_raw\", \"volume_raw\", \"src_primary\"]" in source
+    assert "tr" not in un.PANEL_COLUMNS and "usecols=lambda c: c in PANEL_COLUMNS" in source
+    path = tmp_path / "panel.csv"
+    path.write_text("security_id,date,close_raw,volume_raw,split_factor,div_cash,tr,src_primary,n_sources,max_src_diff,flags\n"
+                    "a,2020-11-19,1.0,10,1,0,0.5,yahoo,1,,\n"
+                    "a,2020-11-20,20.0,10,1,0,,yahoo,1,,gap_before:3;relist_junction\n")
+    panel = un.load_panel(path)
+    assert "tr" not in panel.columns and "flags" not in panel.columns
+    assert panel["relist_junction"].tolist() == [False, True]
 
 
 # ------------------------------------------------------------------ round 6: young names, pending weeks, investment companies
@@ -645,7 +688,7 @@ def test_the_script_never_reads_the_return_column():
 def _young_frame(**columns):
     base = {"week_end": pd.to_datetime(["2026-04-10"]), "close": [np.nan], "dv50": [np.nan], "first_row": [""],
             "pf_dv50": [np.nan], "pf_n50": [np.nan], "pf_first_data": pd.to_datetime([None]), "listing_start": ["2010-12-31"],
-            "listing_sessions": [3000]}
+            "listing_sessions": [3000], "new_listing": [True], "listing_continues": [False]}
     base.update(columns)
     return pd.DataFrame(base)
 
@@ -829,6 +872,253 @@ def test_form25_and_nasdaq100_checks_set_investment_companies_aside():
     n100 = un.nasdaq100_check({"2012": ["BDC"]}, spans, master, {}, pd.DataFrame({"security_id": [], "date": []}), s12,
                               investment={"bdc": [("2004-01-01", un.IC_OPEN_END)]})
     assert n100["status"].tolist() == ["investment_company_excluded"]
+
+
+# ------------------------------------------------------------------ round 7 review: young rule 1, merger tails, inputs, junctions
+
+def _spans(rows):
+    base = {"ipo_start": False, "start_prev_absent": "", "list_end": "2026-08-31"}
+    return pd.DataFrame([{**base, **r} for r in rows])
+
+
+def test_new_listing_evidence_needs_an_issuer_not_public_before_and_dates_a_snapshot_start_from_the_gap():
+    sessions = pd.bdate_range("2013-01-01", "2021-12-31")
+    master = pd.DataFrame({
+        "security_id": ["nbl", "linta", "qvca", "vwr", "ipo", "old"],
+        "cik": ["72207", "1355096", "1355096", "1412232", "9", "8"],
+        "domestic_periodic_first": ["2011-07-28", "2011-08-09", "2011-08-09", "2014-11-06", "", ""]})
+    spans = _spans([
+        # NBL: a transfer from NYSE (its 10-Ks go back years): not a new listing.
+        {"security_id": "nbl", "list_start": "2020-02-25", "start_prev_absent": "2020-02-24"},
+        # QVCA: the reclassified LINTA tracking stock under a new security_id.
+        {"security_id": "linta", "list_start": "2010-12-31", "list_end": "2014-11-20"},
+        {"security_id": "qvca", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"},
+        # VWR: IPO 2014-10-02, first in a snapshot of 2014-11-21, absent from the one of 2014-09-21.
+        {"security_id": "vwr", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"},
+        {"security_id": "ipo", "list_start": "2016-05-10", "ipo_start": True, "start_prev_absent": "2016-04-01"},
+        {"security_id": "old", "list_start": "2010-12-31"},
+    ])
+    out = un.new_listing_evidence(spans, master, sessions).set_index("security_id")
+    assert out.loc["nbl", "new_listing_basis"] == "older_issuer" and not out.loc["nbl", "new_listing"]
+    assert out.loc["linta", "new_listing_basis"] == "no_earlier_snapshot"   # listed since the first snapshot
+    assert out.loc["qvca", "new_listing_basis"] == "older_issuer" and out.loc["qvca", "listing_continues"]
+    assert out.loc["vwr", "new_listing_basis"] == "snapshot_gap" and out.loc["vwr", "earliest_start"] == "2014-09-22"
+    assert out.loc["ipo", "new_listing_basis"] == "ipo_rule" and out.loc["ipo", "earliest_start"] == "2016-05-10"
+    assert out.loc["old", "new_listing_basis"] == "no_earlier_snapshot" and out.loc["old", "earliest_start"] == ""
+    # Without the issuer's 10-K history, the other listed class still shows a reorganisation.
+    bare = master.assign(domestic_periodic_first="")
+    out = un.new_listing_evidence(spans, bare, sessions).set_index("security_id")
+    assert out.loc["qvca", "new_listing_basis"] == "issuer_listed_before" and out.loc["qvca", "listing_continues"]
+
+
+def test_young_rule_1_counts_from_the_earliest_start_and_skips_names_public_before():
+    sessions = pd.bdate_range("2014-06-02", "2015-03-31")
+    weeks = pd.DatetimeIndex(pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-SUN")).max().values)
+    week_pos = sessions.get_indexer(weeks)
+    spans = _spans([{"security_id": "vwr", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"},
+                    {"security_id": "new", "list_start": "2014-11-21", "start_prev_absent": "2014-11-14"},
+                    {"security_id": "nbl", "list_start": "2014-11-21", "start_prev_absent": "2014-11-14"}])
+    master = pd.DataFrame({"security_id": ["vwr", "new", "nbl"], "cik": ["1", "2", "3"],
+                           "domestic_periodic_first": ["2014-11-06", "", "2011-07-28"]})
+    newness = un.new_listing_evidence(spans, master, sessions)
+    k = int(np.searchsorted(weeks, pd.Timestamp("2014-11-21")))
+    listed = pd.DataFrame({"security_id": ["vwr", "new", "nbl"], "week_index": [k] * 3, "week_end": [weeks[k]] * 3,
+                           "listing_start": "2014-11-21", "close": np.nan, "dv50": np.nan, "first_row": "",
+                           "pf_dv50": np.nan, "pf_n50": np.nan, "pf_first_data": pd.to_datetime([None] * 3)})
+    listed = un.attach_new_listing(listed, spans, newness, sessions, week_pos)
+    # VWR: 45 sessions since 2014-09-22 (not young: its weeks stay missing); a name absent from the
+    # snapshot a week before is at most in its fifth session; NBL (a transfer) has no earliest start.
+    assert listed["listing_sessions"].tolist()[:2] == [45, 5] and np.isnan(listed["listing_sessions"].iloc[2])
+    assert un.young_rules(listed).tolist() == ["", "new_listing", ""]
+    # A short step-6 series of an issuer that was public before is no new listing either (QVCA).
+    short = listed.assign(pf_n50=[np.nan, np.nan, 10.0], pf_first_data=pd.to_datetime([None, None, "2014-11-21"]))
+    assert un.young_rules(short).tolist()[2] == ""
+    assert un.young_rules(short.assign(listing_continues=[False, False, False])).tolist()[2] == "short_series"
+
+
+def test_a_final_ipo_prospectus_in_the_snapshot_gap_dates_the_start():
+    sessions = pd.bdate_range("2014-06-02", "2015-03-31")
+    spans = _spans([{"security_id": "vwr", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"},
+                    {"security_id": "ipo", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"},
+                    {"security_id": "old", "list_start": "2014-11-21", "start_prev_absent": "2014-09-21"}])
+    master = pd.DataFrame({"security_id": ["vwr", "ipo", "old"], "cik": ["1", "2", "3"], "domestic_periodic_first": ""})
+    # VWR's 424B4 of 2014-10-02 dates its start two sessions earlier (still 39 sessions before 2014-11-21:
+    # not young); a later IPO in the same gap files on 2014-11-14; a 424B4 long before the gap is not this listing.
+    prospectus = {"1": ["2014-10-02"], "2": ["2014-11-14"], "3": ["2013-05-01"]}
+    out = un.new_listing_evidence(spans, master, sessions, prospectus).set_index("security_id")
+    assert out.loc["vwr", "new_listing_basis"] == "prospectus" and out.loc["vwr", "earliest_start"] == "2014-09-30"
+    assert out.loc["ipo", "new_listing_basis"] == "prospectus" and out.loc["ipo", "earliest_start"] == "2014-11-12"
+    assert out.loc["old", "new_listing_basis"] == "snapshot_gap" and out.loc["old", "earliest_start"] == "2014-09-22"
+
+
+def test_investment_companies_collect_each_ciks_final_prospectus_dates(tmp_path):
+    import gzip as gz
+    (tmp_path / "CIK0000000030.json.gz").write_bytes(gz.compress(json.dumps({"cik": "30", "filings": {"recent": {
+        "form": ["424B4", "S-1", "424B5", "424B1"], "filingDate": ["2014-10-02", "2014-08-01", "2016-03-01", "2018-05-01"],
+        "accessionNumber": ["a", "b", "c", "d"]}}}).encode()))
+    master = pd.DataFrame({"security_id": ["30"], "cik": ["30"], "first_ticker": ["VWR"]})
+    _, issuers, facts = un.investment_companies(master, {"30"}, directory=tmp_path)
+    assert facts["prospectus"] == {"30": ["2014-10-02", "2018-05-01"]} and issuers.empty
+
+
+def test_young_summary_counts_rule_1_weeks_at_the_band_median_and_the_first_run_weeks_left_missing():
+    sessions = pd.bdate_range("2020-01-01", periods=40)
+    weeks = pd.DatetimeIndex(pd.Series(sessions, index=sessions).groupby(sessions.to_period("W-SUN")).max().values)
+    week_pos = sessions.get_indexer(weeks)
+    listed = pd.DataFrame({"security_id": ["new", "nbl"], "ticker": ["NEW", "NBL"], "week_index": [1, 1],
+                           "week_end": [weeks[1]] * 2, "eligible": True, "young": [True, False],
+                           "young_rule": ["new_listing", ""], "close": np.nan, "dv50": np.nan, "pf_dv50": np.nan,
+                           "proxy_above": [True, True], "listing_start": sessions[0].strftime("%Y-%m-%d"),
+                           "first_listing_run": True, "new_listing_basis": ["snapshot_gap", "older_issuer"],
+                           "missing": [False, True]})
+    out = un.young_summary(listed, sessions, week_pos)
+    assert out["by_rule"] == {"new_listing": 1} and out["new_listing_rule"]["proxy_above_name_weeks"] == 1
+    assert out["new_listing_rule"]["proxy_above_securities"] == {"new:NEW": 1}
+    left = out["first_run_weeks_not_young"]
+    assert left["by_basis"] == {"older_issuer": 1} and left["missing_name_weeks"] == 1
+    assert left["proxy_above_securities"] == {"nbl:NBL": 1}
+
+
+def test_a_bdc_that_withdraws_on_its_merger_date_stays_out_through_the_merger_tail():
+    # American Capital: N-54C on 2017-01-03 (the merger's closing), listed to 2017-01-12 (Form 25).
+    evidence = _evidence(("2009-06-19", "40-17G"), ("2009-08-19", "N-2"), ("2017-01-03", "N-54C"))
+    ends = [("2001-01-02", "2017-01-12", ["2017-01-13", "2017-01-03"])]
+    spans = un.investment_company_spans(evidence, latest_filing="2017-01-20", listing_ends=ends)
+    assert spans == [("2009-06-19", "2017-01-12", "bdc_until_withdrawal+filings+merger_tail")]
+    assert un.investment_company_spans(evidence, latest_filing="2017-01-20")[0][1] == "2017-01-02"
+    # Medallion withdrew in 2018 and kept trading as a bank holding company: no tail.
+    medallion = _evidence(("2004-04-21", "N-54A"), ("2018-04-02", "N-54C"))
+    kept = un.investment_company_spans(medallion, listing_ends=[("2004-01-02", "2026-08-30", [])])
+    assert kept == [("2004-04-21", "2018-04-01", "bdc_election")]
+    # A fund whose regular filings end months before the merger: its N-8F at the delisting carries it there.
+    fund = _evidence(("2014-02-28", "N-CSR"), ("2014-08-29", "N-CSRS"), ("2015-02-27", "N-CSR"), ("2015-11-20", "N-8F"))
+    tail = un.investment_company_spans(fund, latest_filing="2015-12-01",
+                                       listing_ends=[("2010-01-04", "2015-11-30", ["2015-12-01"])])
+    assert tail == [("2014-02-28", "2015-11-30", "filings+merger_tail")]
+    # A span that closes inside a listing whose end is far away is left alone.
+    far = un.investment_company_spans(fund, latest_filing="2015-12-01", listing_ends=[("2010-01-04", "2019-06-28", [])])
+    assert far == [("2014-02-28", "2015-02-27", "filings")]
+
+
+def test_listing_ends_join_renames_skip_open_listings_and_carry_the_delisting_dates():
+    spans = pd.DataFrame({"security_id": ["a", "a", "a", "b"], "list_start": ["2010-01-04", "2014-05-01", "2018-01-02", "2015-01-02"],
+                          "list_end": ["2014-04-30", "2016-12-30", "2026-08-31", "2021-03-18"]})
+    master = pd.DataFrame({"security_id": ["a", "b"], "delist_date": ["", "2021-03-29"]})
+    terminal = pd.DataFrame({"security_id": ["b"], "last_price_date": ["2021-03-18"]})
+    ends = un.listing_ends(spans, master, terminal)
+    assert ends == {"a": [("2010-01-04", "2016-12-30", [])], "b": [("2015-01-02", "2021-03-18", ["2021-03-29", "2021-03-18"])]}
+
+
+def test_investment_companies_record_every_submissions_file_and_a_digest_that_moves_with_the_cache(tmp_path):
+    import gzip as gz
+    def write(name, payload):
+        (tmp_path / name).write_bytes(gz.compress(json.dumps(payload).encode()))
+    write("CIK0000000010.json.gz", {"cik": "10", "sic": "", "filings": {
+        "recent": {"form": ["N-2", "40-17G"], "filingDate": ["2012-06-01", "2013-05-01"], "accessionNumber": ["c", "b"]},
+        "files": [{"name": "CIK0000000010-submissions-001.json", "filingFrom": "2004-01-01", "filingTo": "2011-12-31"}]}})
+    master = pd.DataFrame({"security_id": ["10", "20"], "cik": ["10", "20"], "first_ticker": ["BDC", "GONE"]})
+    _, _, facts = un.investment_companies(master, {"10", "20"}, directory=tmp_path)
+    assert facts["files"]["CIK0000000010-submissions-001.json.gz"] == un.SUBMISSIONS_MISSING
+    assert facts["files"]["CIK0000000020.json.gz"] == un.SUBMISSIONS_MISSING
+    assert facts["files_read"] == 1 and facts["files_missing"] == 2
+    assert facts["digest"] == un.submissions_digest(facts["files"])
+    write("CIK0000000010-submissions-001.json.gz", {"form": ["N-54A"], "filingDate": ["2004-04-21"], "accessionNumber": ["e"]})
+    _, _, later = un.investment_companies(master, {"10", "20"}, directory=tmp_path)
+    assert later["digest"] != facts["digest"] and later["files_read"] == 2
+
+
+def test_dollar_volume_windows_restart_at_a_relist_junction():
+    sessions, weeks, week_pos, prev_pos = _grid(80)
+    rows = [("CHRD", day, 2.0 if k < 40 else 100.0, 1000.0, "yahoo", k == 40) for k, day in enumerate(sessions)]
+    rows += [("SAME", day, 2.0 if k < 40 else 100.0, 1000.0, "yahoo", False) for k, day in enumerate(sessions)]
+    panel = pd.DataFrame(rows, columns=["security_id", "date", "close_raw", "volume_raw", "src_primary", "relist_junction"])
+    m = un.canonical_metrics(panel, sessions, week_pos, prev_pos)
+    chrd, same = list(m["ids"]).index("CHRD"), list(m["ids"]).index("SAME")
+    for w, pos in enumerate(week_pos):
+        new_rows = pos - 40 + 1
+        if new_rows <= 0:
+            assert m["dv50"][w, chrd] == m["dv50"][w, same] or np.isnan(m["dv50"][w, chrd])
+        elif new_rows < 10:
+            assert np.isnan(m["dv20"][w, chrd]) and np.isnan(m["dv50"][w, chrd])  # the new shares' own rows only
+        elif new_rows < 25:
+            assert m["dv20"][w, chrd] == pytest.approx(100_000.0) and np.isnan(m["dv50"][w, chrd])
+        else:
+            assert m["dv50"][w, chrd] == pytest.approx(100_000.0)
+    assert m["relist_junctions"] == {"CHRD": [sessions[40].strftime("%Y-%m-%d")]}
+    # Without the flag the old shares' rows stay in the window (the same series).
+    assert not np.isnan(m["dv50"][int(np.searchsorted(week_pos, 42)), same])
+
+
+def test_the_canonical_young_rule_restarts_at_a_relist_junction():
+    # CHRD-shaped: the old shares' rows start ~5 months before the junction, so counting from the security's
+    # first row the new shares' first weeks (a close, no dv50 yet) would be missing; counted from the
+    # junction they are young until the new shares hold 25 rows.
+    sessions, weeks, week_pos, prev_pos = _grid(140)
+    junction = 100
+    rows = [("CHRD", day, 2.0 if k < junction else 100.0, 1000.0, "yahoo", k == junction)
+            for k, day in enumerate(sessions)]
+    panel = pd.DataFrame(rows, columns=["security_id", "date", "close_raw", "volume_raw", "src_primary", "relist_junction"])
+    m = un.canonical_metrics(panel, sessions, week_pos, prev_pos)
+    listed = pd.DataFrame({"security_id": "CHRD", "week_index": np.arange(len(weeks)), "week_end": weeks})
+    out = un.attach_metrics(listed, m)
+    day = sessions[junction].strftime("%Y-%m-%d")
+    assert (out["first_row"] == sessions[0].strftime("%Y-%m-%d")).all()
+    before = out["week_end"] < sessions[junction]
+    assert (out.loc[before, "segment_first_row"] == out.loc[before, "first_row"]).all()
+    assert (out.loc[out["week_end"] >= sessions[junction], "segment_first_row"] == day).all()
+    rules = un.young_rules(out)
+    new_rows = week_pos - junction + 1
+    after = new_rows >= 1
+    assert after.any() and (new_rows[after] < 25).any() and (new_rows[after] >= 25).any()
+    for w in np.flatnonzero(after):
+        if new_rows[w] < 25:
+            assert np.isnan(out.loc[w, "dv50"]) and rules[w] == "canonical", (w, new_rows[w])
+        else:
+            assert not np.isnan(out.loc[w, "dv50"]) and rules[w] == "", (w, new_rows[w])
+    # Without the segment column (first_row only) the same weeks are not young: the defect this fixes.
+    assert (un.young_rules(out.drop(columns="segment_first_row"))[after & (new_rows < 25)] == "").all()
+    # A security without a junction keeps its first row.
+    plain = un.segment_first_rows(pd.DataFrame({"security_id": ["X"], "week_end": weeks[:1], "first_row": ["2012-01-02"]}),
+                                  {"CHRD": [day]})
+    assert plain.tolist() == ["2012-01-02"]
+
+
+def test_one_ticker_only_snapshot_row_against_a_non_nasdaq_sec_exchange_is_left_out_and_reported():
+    base = {"start_prev_absent": "", "end_next_absent": "", "source": "repo_symdir", "source_url": "x",
+            "name_in_source": "", "share_class": "COMMON", "exchange": "NASDAQ"}
+    intervals = pd.DataFrame([
+        {**base, "security_id": "37996", "ticker": "F", "start": "2019-06-17", "end": "2019-06-17",
+         "start_prev_absent": "2019-06-14", "end_next_absent": "2019-08-09", "n_snapshots": "1", "match": "ticker_only"},
+        # The same shape for a delisted security (no SEC current exchange) or one on Nasdaq now: kept.
+        {**base, "security_id": "1597033", "ticker": "SABR", "start": "2011-05-27", "end": "2011-05-27",
+         "n_snapshots": "1", "match": "ticker_only"},
+        {**base, "security_id": "9", "ticker": "OLD", "start": "2013-01-02", "end": "2013-01-02",
+         "n_snapshots": "1", "match": "ticker_only"},
+        # Two snapshots, or a name match: kept even with an SEC exchange elsewhere.
+        {**base, "security_id": "8", "ticker": "TWO", "start": "2015-01-02", "end": "2015-02-02",
+         "n_snapshots": "2", "match": "ticker_only"},
+        {**base, "security_id": "7", "ticker": "NAME", "start": "2015-01-02", "end": "2015-01-02",
+         "n_snapshots": "1", "match": "name+ticker"}])
+    master = pd.DataFrame({"security_id": ["37996", "1597033", "9", "8", "7"],
+                           "exchanges_sec_current": ["NYSE NYSE NYSE NYSE", "NASDAQ", "", "NYSE", "NYSE"]})
+    assert un.doubtful_intervals(intervals, master).tolist() == [True, False, False, False, False]
+    kept, report = un.drop_doubtful_intervals(intervals, master)
+    assert kept["security_id"].tolist() == ["1597033", "9", "8", "7"]
+    assert [(r["security_id"], r["ticker"], r["start"], r["sec_current_exchanges"]) for r in report] == [
+        ("37996", "F", "2019-06-17", "NYSE NYSE NYSE NYSE")]
+    # A file without the snapshot columns keeps every interval.
+    assert not un.doubtful_intervals(intervals.drop(columns=["n_snapshots"]), master).any()
+
+
+def test_the_summary_definitions_follow_the_constants_the_code_uses():
+    young = un.young_definition()
+    for part in (f"{un.YOUNG_DAYS} days", f"{un.YOUNG_ISSUER_DAYS} days", "1 to 24", "24 or fewer", "n50 = 0",
+                 "older_issuer", "issuer_listed_before", "snapshot_gap", "ipo_rule"):
+        assert part in young, part
+    ic = un.investment_company_definition()
+    for part in (un.IC_ELECTION, un.IC_WITHDRAWAL, un.IC_DEREGISTRATION, un.IC_OPEN_END, f"{un.IC_RUN_GAP_DAYS} days",
+                 f">= {un.IC_MIN_RUN}", "filings_current", "merger_tail", f"{un.IC_TAIL_DAYS} days", un.IC_NPX_BEFORE):
+        assert part in ic, part
 
 
 # ------------------------------------------------------------------ built outputs

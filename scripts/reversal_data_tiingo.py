@@ -9,7 +9,8 @@ adjClose identity (plan 4.2 row check).
 What it does:
 - reads ``INPUTS/candidate_fetch_list.csv`` (step 6) and keeps the rows planned for
   Tiingo this month (``planned_source == tiingo``, status ``pending``, or a row this
-  fetcher deferred earlier);
+  fetcher deferred earlier; month 2, ``--month2``: also ``deferred_quota``, ``pending_month2`` and
+  ``conditional_tier_c``, the prefilter's ``MONTH_2_STATUSES``);
 - asks tickers in the prefilter's ``fetch_order``: B-A, A (A1, A2, A3), B-B, C, then the S names
   delisted after 2024-06 (top-300 by dollar volume, or a tier-A/B float with no price), the
   tier-C sample, the V sample; inside a reason the most liquid name first. A ticker serving
@@ -23,7 +24,8 @@ What it does:
 - the monthly budget starts from ``--already-used`` (required for any run that may ask Tiingo:
   the unique symbols the account page shows this month that the ledger does not); before a
   ticker new this month it checks ledger + already-used against 480 (``pf.TIINGO_MONTH_STOP``,
-  the prefilter plans to the same stop) and ``--max-mb`` of Tiingo bytes. A stop defers the
+  the prefilter plans to the same stop; ``--month-stop`` may raise it to the free tier's 500 on purpose,
+  never more) and ``--max-mb`` of Tiingo bytes. A stop defers the
   rest (``deferred_quota``) and still checks cached answers. Refusals stop cleanly: HTTP 429 or
   an error body about limits (quota: the rest deferred), 401 (auth: the run ends), 403 (that
   ticker ``refused``; two in a row end the run); an interruption writes the summary too;
@@ -42,7 +44,7 @@ What it does:
   never rewritten), the parsed series to ``CACHE/tiingo/prices/{TICKER}.csv.gz`` only when the
   answer serves at least one row that is not wrong_entity (a file is one ticker's answer and may
   serve several securities: read it through ``prices_path`` of the security's own status row)
-  and a run summary to ``CACHE/tiingo/fetch_summary.json``.
+  and a run summary to ``CACHE/tiingo/fetch_summary.json`` (each run's also under ``CACHE/tiingo/runs/``).
 
 Statuses (one row per candidate row, keyed by security, ticker and needed window):
 ``done`` (entity check ok), ``done_review`` (data kept, a flag to review), ``partial``
@@ -63,6 +65,9 @@ Usage::
     PYTHONPATH=. python scripts/reversal_data_tiingo.py --already-used N              # the whole month-1 list
     PYTHONPATH=. python scripts/reversal_data_tiingo.py --offline --recheck           # re-check cached answers only
     PYTHONPATH=. python scripts/reversal_data_tiingo.py --already-used N --tickers FRG --fetch-shadowed  # one on purpose
+    PYTHONPATH=. python scripts/reversal_data_tiingo.py --month2 --already-used N    # month 2 (the month-2 plan's rows)
+    PYTHONPATH=. python scripts/reversal_data_tiingo.py --month2 --already-used 0 --month-stop 500 --spacing 80 \
+        --tickers A,B,...   # round 7: the month's last 20 symbols on the month-2 plan's top rows
 """
 from __future__ import annotations
 
@@ -91,6 +96,7 @@ START, END = "2011-06-01", "2026-08-31"
 HOURLY, DAILY = 45, 900  # the free tier allows 50 an hour and 1,000 a day; stay under both
 SPACING = 60.0  # seconds between requests: the hour's 45 are spread out, not sent in a burst
 MONTH_STOP = pf.TIINGO_MONTH_STOP  # unique symbols this month (the free tier allows 500); the prefilter plans to it
+# (the default stop; ``--month-stop`` up to MONTH_LIMIT spends the last symbols of a month on purpose)
 MAX_MB = 900.0  # Tiingo bytes this month (the free tier allows 1 GB)
 MAX_CONSECUTIVE_ERRORS = 3
 MAX_CONSECUTIVE_REFUSALS = 2  # 403s in a row before the run stops (one 403 is that ticker's)
@@ -110,6 +116,12 @@ PREFILTER = common.CACHE / "prefilter"
 TIER_ORDER = list(pf.REASON_PRIORITY)
 MONTH_2_REASONS = set(pf.MONTH_2_REASONS)
 RUN_STATUSES = {"pending"}  # candidate-list statuses fetched by default
+# Month 2 (``--month2``): rows not asked yet, rows the budget deferred, rows planned for month 2 (the prefilter's
+# Yahoo fallbacks among them) and the tier-C rest (round 7: the fallbacks were ``deferred_quota``, which neither the
+# default nor the documented 'pending_month2,conditional_tier_c' selected; the prefilter now writes
+# ``pending_month2`` and both sides use this one list).
+MONTH_2_STATUSES = tuple(pf.MONTH_2_STATUSES)
+MONTH_LIMIT = pf.TIINGO_MONTHLY_SYMBOLS  # the free tier's unique symbols a month: --month-stop may not exceed it
 FINAL = {"done", "done_review", "partial", "wrong_entity", "no_data", "no_data_in_window", "refused"}
 RETRY = {"deferred_quota", "error"}
 # Prefilter matches routed unfillable because Tiingo serves another company for the ticker (seen in
@@ -1048,7 +1060,11 @@ def finish(args, month, status, selected, position, started, before, done, skipp
                "tickers_deferred": skipped, "tickers_not_asked_hidden_by_later_row": prechecked,
                "stop": stop or blocked, "budget_before": before, "budget_after": after,
                "status_counts": status["status"].value_counts().to_dict() if len(status) else {}}
-    common.atomic_write(SUMMARY, (json.dumps(summary, indent=1, default=str) + "\n").encode("utf-8"))
+    body = (json.dumps(summary, indent=1, default=str) + "\n").encode("utf-8")
+    common.atomic_write(SUMMARY, body)
+    # Each run's summary is kept too (round 7: an offline re-check had overwritten the month-1 run's summary).
+    stamp = re.sub(r"[^0-9T]", "", str(started))[:15] or utc_now().strftime("%Y%m%dT%H%M%S")
+    common.atomic_write(SUMMARY.parent / "runs" / f"fetch_summary_{stamp}Z.json", body)
     log(f"budget after: {after}")
     log(f"status file: {STATUS} ({len(status)} rows: {summary['status_counts']})")
 
@@ -1063,7 +1079,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--already-used", type=int, default=None,
                         help="required for a run that may ask Tiingo: unique symbols used this month that the quota "
                              "ledger does not show (the account page's count minus the ledger's; --dry-run prints it)")
-    parser.add_argument("--month-stop", type=int, default=MONTH_STOP)
+    parser.add_argument("--month-stop", type=int, default=MONTH_STOP,
+                        help=f"unique symbols this month to stop at (default {MONTH_STOP}; at most {MONTH_LIMIT}, the "
+                             "free tier's limit, counted from the quota ledger plus --already-used)")
     parser.add_argument("--max-mb", type=float, default=MAX_MB)
     parser.add_argument("--hourly", type=int, default=HOURLY)
     parser.add_argument("--daily", type=int, default=DAILY)
@@ -1072,13 +1090,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="with --tickers: ask those tickers even where Tiingo serves another row of its list "
                              "(a precheck wrong_entity, or a prefilter 'hidden'/'newer_company' row)")
     parser.add_argument("--statuses", default=",".join(sorted(RUN_STATUSES)),
-                        help="candidate-list statuses to fetch (month 2: pending_month2,conditional_tier_c)")
+                        help="candidate-list statuses to fetch (month 2: --month2, i.e. " + ",".join(MONTH_2_STATUSES) + ")")
+    parser.add_argument("--month2", action="store_true",
+                        help="month 2: fetch the candidate statuses " + ",".join(MONTH_2_STATUSES)
+                             + " (overrides --statuses); CACHE/prefilter/tiingo_month2_plan.csv fetch_selectable says which rows")
     parser.add_argument("--reasons", default="", help="comma-separated reasons to restrict to")
     parser.add_argument("--tickers", default="", help="comma-separated tickers to restrict to (kept in priority order)")
     parser.add_argument("--candidates", default=str(CANDIDATES))
     args = parser.parse_args(argv)
-    if args.hourly > HOURLY or args.daily > DAILY or args.month_stop > MONTH_STOP:
-        parser.error(f"limits above {HOURLY}/hour, {DAILY}/day or {MONTH_STOP} symbols are not allowed")
+    if args.hourly > HOURLY or args.daily > DAILY or args.month_stop > MONTH_LIMIT:
+        parser.error(f"limits above {HOURLY}/hour, {DAILY}/day or {MONTH_LIMIT} symbols a month are not allowed")
+    if args.month2:
+        args.statuses = ",".join(MONTH_2_STATUSES)
     return run(args)
 
 

@@ -38,7 +38,17 @@ How the listing ended (``terminal_type``):
 - ``bankruptcy_otc``: removed by Nasdaq (Rule 12d2-2(b)), a bankruptcy, a voluntary delisting
   or a bank failure; the value is the first OTC vendor close after the last Nasdaq session
   (before the suspension date the 8-K states), else a sourced existing row, else it is left
-  to the owner's D5 rule (status ``awaiting_d5``, no default here);
+  to the owner's D5 rule (status ``awaiting_d5``, no default here). A security that listed on
+  Nasdaq again with new shares out of the bankruptcy (the reconcile step's ``RELIST_JUNCTIONS``:
+  CHRD, CORZ, WW, OPI, THRY) is valued as its old shares: their rows only (the price book cut
+  before the new shares' first traded session, ``relist_junction``), their last Nasdaq session
+  (reviewed: the session before the stated suspension), their OTC tail up to the junction when a
+  vendor has it (CHRD), else the plan of reorganization: new shares per old share at the new
+  shares' first vendor close (REVIEWED ``rule`` ``plan_new_shares``: WW, ``needs_review`` until the
+  owner approves the valuation: the builder's checks are in its ``checked`` key), or nothing (``value``
+  0: OPI, Dex Media), which is -100% whatever the last close, so it needs no vendor close; one
+  whose old shares have no vendor rows yet is ``pending_price``, not D5 (CORZ: its holders got
+  21% of the new equity);
 - ``unknown``: no SEC evidence decided it; listed explicitly, never defaulted.
 
 The automatic reading is overridden by ``REVIEWED`` (hand review of the documents named) for
@@ -119,14 +129,25 @@ Outputs:
   CACHE/terminal/for_reconcile_owner.csv  special dividends the terminal value owns (and any booking of them in the
                                           canonical series), exchange moves whose last Nasdaq session no vendor dates
   CACHE/terminal/yahoo_raw/               the acquirer charts
+  CACHE/terminal/yahoo_otc/               a record of a fetch made by hand on 2026-10-02, outside this module (3 Yahoo
+                                          requests 2 s apart for the old shares' OTC tails at relist junctions:
+                                          WGHTQ, OPITS, CORZQ, all 404). The module neither reads nor writes it and
+                                          requests no OTC chart; REVIEWED's WW entry cites the 404
   CACHE/terminal/review_docs/             SEC documents read by hand for REVIEWED that no stage fetches (the
                                           successors' 8-K12Bs of QuidelOrtho and APA; BRCM's election results: the
                                           2016-01-26 425s and Avago's closing 8-K EX-99.2; SEC_LIMITER, sec_headers)
-  CACHE/raw/sec/docs/{cik}/{accession}/{document}.gz   the SEC documents read (and index.htm.gz)
+  CACHE/raw/sec/docs/{cik}/{accession}/{document}.gz   the SEC documents read (and index.htm.gz), with the ones read
+                                          by hand for the relist junctions (the CORZ and OPI emergence 8-Ks and OPI's
+                                          EX-99.1, WW's 10-Q for the quarter to 2025-06-30, Thryv's 2020 424B4, Dex
+                                          Media's 2016-01-05 8-K)
+  ``--out-dir DIR`` writes the INPUTS file under DIR/inputs and the CACHE/terminal outputs under DIR/terminal.
+
+SEC requests (the fetch stages only) go through this process's own limiter, at most 4 a second.
 
 Usage::
 
     PYTHONPATH=. python scripts/reversal_data_terminal.py --offline   # rebuild from the cache (after Tiingo files arrive)
+    PYTHONPATH=. python scripts/reversal_data_terminal.py --offline --out-dir /tmp/terminal_dry  # the same, into scratch
     PYTHONPATH=. python scripts/reversal_data_terminal.py             # fetch missing SEC documents, then build
     PYTHONPATH=. python scripts/reversal_data_terminal.py --no-fetch --yahoo-acquirers   # acquirer charts (capped)
 """
@@ -146,10 +167,14 @@ import numpy as np
 import pandas as pd
 
 from scripts import reversal_data_common as common
+from scripts.reversal_data_reconcile import RELIST_JUNCTIONS
 
 MAIN = common.MAIN_CHECKOUT
 INPUTS = common.INPUTS
-OUT = common.CACHE / "terminal"
+# CACHE/terminal holds what this step reads back (the acquirer and OTC charts, the provenance index, the review
+# documents) and, by default, what it writes; ``--out-dir`` sends the outputs elsewhere (``configure_paths``)
+TERMINAL_CACHE = common.CACHE / "terminal"
+OUT = TERMINAL_CACHE
 SEC_RAW = common.RAW / "sec"
 DOCS = SEC_RAW / "docs"
 SUB_DIR = SEC_RAW / "submissions"
@@ -337,7 +362,7 @@ def _provenance_cache() -> dict[str, Path]:
     """source_url -> envelope path for the repo's earlier SEC filing cache (2024-2026 terminal work)."""
     global _PROVENANCE_CACHE
     if _PROVENANCE_CACHE is None:
-        index_path = OUT / "provenance_cache_index.json"
+        index_path = TERMINAL_CACHE / "provenance_cache_index.json"
         if index_path.exists():
             _PROVENANCE_CACHE = {k: Path(v) for k, v in json.loads(index_path.read_text()).items()}
         else:
@@ -349,7 +374,7 @@ def _provenance_cache() -> dict[str, Path]:
                 except Exception:  # an unreadable envelope is simply not reused
                     continue
             _PROVENANCE_CACHE = found
-            OUT.mkdir(parents=True, exist_ok=True)
+            TERMINAL_CACHE.mkdir(parents=True, exist_ok=True)
             common.atomic_write(index_path, json.dumps({k: str(v) for k, v in found.items()}, indent=0).encode())
     return _PROVENANCE_CACHE
 
@@ -364,6 +389,10 @@ def _from_provenance(url: str) -> bytes | None:
     if common.sha256_bytes(payload) != envelope.get("payload_sha256"):
         return None
     return payload
+
+
+# This process's own SEC pace: at most 4 requests a second (SEC allows 10 in all, and other steps may run at once)
+SEC_LIMITER = common.SlidingWindowLimiter({1: 4})
 
 
 def fetch_sec(url: str, path: Path, symbol: str = "", offline: bool = False) -> bytes | None:
@@ -382,7 +411,7 @@ def fetch_sec(url: str, path: Path, symbol: str = "", offline: bool = False) -> 
         raise StopFetching("stopped after an earlier refusal")
     try:
         return common.cached_get(url, path, source="sec_terminal_docs", headers=common.sec_headers(),
-                                 limiter=common.SEC_LIMITER, symbol=symbol)
+                                 limiter=SEC_LIMITER, symbol=symbol)
     except FileNotFoundError:
         return None
     except HTTPError as exc:
@@ -1566,6 +1595,19 @@ class PriceBook:
         return {"date": day, "close": float(best["close"]), "src": best["src"], "n_sources": int(len(same)),
                 "max_source_diff": spread}
 
+    def before(self, sid: str, day: str) -> "PriceBook":
+        """This book with ``sid`` cut to its rows before ``day``: the old shares before a relist junction. The new
+        shares' rows under the same security_id belong to the later listing, never to the old shares' last trade
+        or OTC close (WW's Tiingo file runs on from the old shares into the new). Other securities are unchanged."""
+        import copy
+
+        view = copy.copy(self)
+        view._cache, view._sessions = dict(self._cache), dict(self._sessions)
+        rows = self.rows(sid)
+        view._cache[sid] = rows[rows["date"] < pd.Timestamp(day)].reset_index(drop=True)
+        view._sessions.pop(sid, None)
+        return view
+
 
 WIKI_END = "2018-03-27"
 # The acquirer's close (or the next leg's) belongs to the XNAS session after the target's last trade.
@@ -1657,7 +1699,7 @@ ACQUIRER_SYMBOLS = {
     "1308161.A": "DIS", "1308161.B": "DIS",
 }
 YAHOO_MAX = 20
-YAHOO_RAW = OUT / "yahoo_raw"
+YAHOO_RAW = TERMINAL_CACHE / "yahoo_raw"
 
 
 def fetch_acquirer_charts(symbols: list[str] | None = None) -> dict:
@@ -1804,6 +1846,8 @@ OUTPUT_COLUMNS = [
     "existing_source_url", "existing_return_diff",
     # a special dividend paid to holders at the closing, part of the value (an SEC fact; REVIEWED)
     "special_dividend_cash", "special_dividend_record_date",
+    # the first traded session of the new shares when this row is the old shares' at a relist junction
+    "relist_junction",
 ]
 TYPES = ("cash_merger", "stock_merger", "mixed", "liquidation", "exchange_move", "bankruptcy_otc", "unknown")
 STATUSES = ("computed", "pending_price", "no_vendor_price", "needs_acquirer_price", "needs_review", "no_terminal_return",
@@ -1824,9 +1868,10 @@ NON_NASDAQ = {"NYSE", "NYSE American", "NYSE Arca", "Cboe BZX", "CBOE"}
 # value (a reviewed total per share), limit (the last trading day), hold (a reason to keep a computed
 # value for review), special_dividend (cash per share paid to holders at the closing, added to the value;
 # special_dividend_record its record date) or special_dividend_before_last_trade (it went ex before the
-# last trade and belongs to the series), approved (what the reviewer checked: lifts the guard, only with the
-# entry's own url, never for an existing-file value), hold_last_session (the hold is about the last session
-# itself: last_price_date stays blank), note.
+# last trade and belongs to the series), rule 'plan_new_shares' (old shares at a relist junction with no OTC close:
+# ``shares`` new shares per old share at the new shares' first vendor close), approved (what the reviewer checked: lifts the guard, only with the
+# entry's own url, never for an existing-file value), checked (what a builder checked, for the owner's review: it
+# lifts nothing), hold_last_session (the hold is about the last session itself: last_price_date stays blank), note.
 _SEC = "https://www.sec.gov/Archives/edgar/data/"
 REVIEWED: dict[str, dict] = {
     # ---- reorganisations, reclassifications and renames into another security (1 share)
@@ -2200,6 +2245,69 @@ REVIEWED: dict[str, dict] = {
 }
 REVIEWED.pop("2007825_placeholder", None)
 
+# The old shares at each relist junction (RELIST_JUNCTIONS, reconcile step): bankruptcies after which the security
+# listed on Nasdaq again with new shares. Read by hand on 2026-10-02 from the documents named (the emergence 8-Ks,
+# the 8-Ks that date the Nasdaq suspension, WW's 10-Q for the share counts, Thryv's 2020 prospectus for Dex Media,
+# which filed no 8-K after its 2016 deregistration). Each row ends on the old shares' last Nasdaq session and is
+# valued by their OTC tail when a vendor has it (CHRD), else by the plan of reorganization (WW: new shares per old
+# share, held for the owner's approval; OPI and Dex Media: nothing). Notes and approvals carry SEC facts and dates
+# only (no vendor levels).
+REVIEWED.update({
+    "1486159": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2020-10-09",
+                "url": _SEC + "1486159/000148615920000080/oas-20201002.htm",
+                "approved": "the 8-K dates the OTC start: Nasdaq delisted the common stock at the opening of business on "
+                            "2020-10-12 and OTC Pink trading as OASAQ began that day; the vendor rows from 2020-10-12 to "
+                            "2020-11-19 are the old shares' OTC tail (Yahoo's chart carries the old OAS history up to the "
+                            "relist junction of 2020-11-20), so the first OTC close values the old shares after their "
+                            "last Nasdaq session, 2020-10-09",
+                "note": "Oasis Petroleum: Chapter 11 filed 2020-09-30; delisted from Nasdaq at the opening on 2020-10-12, "
+                        "OTC Pink as OASAQ from that day; the plan became effective on 2020-11-19: the old common stock "
+                        "was cancelled and its holders received warrants (emergence 8-K filed 2020-11-20); the new "
+                        "shares trade on Nasdaq from 2020-11-20"},
+    "105319": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2025-05-15", "rule": "plan_new_shares",
+               "shares": 0.0111676, "url": _SEC + "105319/000095017025106230/ww-20250630.htm",
+               # held for the owner: the builder does not approve its own plan valuation (round-8 review). To
+               # commit the value, rename ``checked`` to ``approved`` and drop ``hold``
+               "hold": "the plan valuation awaits the owner's approval: the new shares per old share come from the "
+                       "10-Q's share counts (issued less treasury), and the new shares' first vendor close is 29 "
+                       "sessions after the old shares' last Nasdaq session",
+               "checked": "no vendor has the old shares' OTC tail (WGHTQ: Yahoo answers 404, the Tiingo WW file stops "
+                           "at 2025-05-15); valued by the plan: the 10-Q for the quarter to 2025-06-30 states that "
+                           "900,000 new shares went to the holders of prepetition common stock and that 130,048 "
+                           "thousand issued less 49,458 thousand treasury shares were cancelled (80,590 thousand "
+                           "outstanding), so 0.0111676 new share per old share, priced at the new shares' first vendor "
+                           "close on the relist junction, 2025-06-27",
+               "note": "WW International: suspended from Nasdaq on 2025-05-16 (8-K 2025-06-18), Pink market as WGHTQ; "
+                       "the plan became effective on 2025-06-24: the old common stock was cancelled and the holders of "
+                       "existing equity interests received 900,000 of the 10,000,000 new shares (emergence 8-K "
+                       "2025-06-25; 10-Q filed 2025-08-11); the new shares trade from 2025-06-27"},
+    "1456772": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2025-10-06", "value": 0.0,
+                "url": _SEC + "1456772/000110465926076652/tm2618043d2_8k.htm",
+                "approved": "the emergence 8-K (Item 3.03): the Old Common Shares were cancelled on the 2026-06-17 "
+                            "Effective Date and their holders did not receive any distribution; the last Nasdaq session "
+                            "is 2025-10-06 (suspended on 2025-10-07, 8-K filed 2025-11-06); no vendor has the old shares "
+                            "after the WIKI end (unfillable.csv: Tiingo's OPI is the new entity), and none is needed",
+                "note": "Office Properties Income Trust: suspended from Nasdaq on 2025-10-07 and quoted on OTC Pink as "
+                        "OPITS; Chapter 11 filed 2025-10-30; the plan became effective on 2026-06-17: the old shares "
+                        "were cancelled with no distribution; the new shares trade on Nasdaq from 2026-06-22"},
+    "1556739": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2016-01-06", "value": 0.0,
+                "url": _SEC + "1556739/000114036120022046/nt10007762x19_424b4.htm",
+                "approved": "Thryv's 2020 prospectus: Dex Media's former lenders obtained 100% of the reorganized "
+                            "company's common stock at the 2016 emergence, so the old DXM shares received nothing; "
+                            "Nasdaq suspended DXM at the opening of business on 2016-01-07 (8-K filed 2016-01-05), so "
+                            "its last Nasdaq session is 2016-01-06",
+                "note": "Dex Media (DXM): suspended from Nasdaq on 2016-01-07 (Form 25 filed 2016-01-26), deregistered "
+                        "on 2016-02-05, prepackaged Chapter 11 in 2016, emerged on 2016-07-29 with the old equity "
+                        "cancelled; the new shares (Thryv) listed on Nasdaq on 2020-10-01"},
+    "1839341": {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2022-12-30",
+                "url": _SEC + "1839341/000119312524013078/d661343d8k.htm",
+                "note": "Core Scientific: Chapter 11 filed 2022-12-21; the old common stock traded exclusively on OTC "
+                        "Pink as CORZQ from 2023-01-03; the plan became effective on 2024-01-23: the old common stock "
+                        "was cancelled and Existing Common Interests received 21.0% of the new common stock (the 8-K "
+                        "states no per-share ratio); the new shares trade on Nasdaq from 2024-01-24. Not a D5 case: "
+                        "the old shares wait for their vendor rows (CORZQ, Tiingo month 2) and their OTC tail"},
+})
+
 # The document behind each reviewed entry that sets cash, shares or a value without its own ``url``:
 # found by searching the cached documents of the security for the reviewed figures (closing 8-Ks
 # first); for a one-for-one reorganisation or rename (no figure to search), the closing 8-K that
@@ -2471,6 +2579,17 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                         # an existing stock-leg value prices the acquirer at a vendor close: local only
                         "existing_consideration_per_share": "" if stock_leg else _fmt(prior.get("consideration_per_share")),
                         "existing_source_url": prior["source_url"]})
+        # ---- a relist junction (RELIST_JUNCTIONS, reconcile step): the security listed again with new shares out
+        # of a bankruptcy, so this row is the old shares': their last trade, OTC close and plan value come from
+        # their own rows (``view``: the book cut before the new shares' first session), never the new shares'
+        junction = RELIST_JUNCTIONS.get(sid) or {}
+        first_new = junction.get("first_new_session", "")
+        view = book.before(sid, first_new) if first_new else book
+        if first_new:
+            out["relist_junction"] = first_new
+            notes.append(f"old shares at a relist junction: the plan became effective on "
+                         f"{junction.get('effective_date') or '?'} and the new shares (first traded session {first_new}) "
+                         "are a separate segment of the canonical series under the same security_id")
         # ---- the last Nasdaq trade
         limit, anchor = price_window(row, ev)
         limit_basis = f"{row['end_source']}_end"
@@ -2487,7 +2606,7 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
             anchor, out["destination_start_date"] = limit, start
         else:
             if row["end_source"] == "snapshots" and not str(ev.get("closing_dates") or "").strip():
-                cut, reason = snapshot_cut(book, sid, row["end_date"], limit)
+                cut, reason = snapshot_cut(view, sid, row["end_date"], limit)
                 if reason:
                     limit, limit_basis = cut, reason
             # a successor reorganisation the master links (holding company, redomicile, split-off): the Form 25
@@ -2526,7 +2645,9 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         suspended = ev.get("suspension_date") or ""
         if kind == "bankruptcy_otc" and suspended and suspended <= limit and limit_basis != "reviewed":
             limit, limit_basis = _shift(suspended, -1), "day_before_stated_suspension"
-        trade = last_trade(book, sid, limit, anchor)
+        if first_new and limit >= first_new:  # the old shares stop before the new ones trade
+            limit, anchor, limit_basis = previous_session(first_new), "", "session_before_relist_junction"
+        trade = last_trade(view, sid, limit, anchor)
         level = {"security_id": sid, "limit": limit, "limit_basis": limit_basis, "anchor": anchor,
                  **{k: trade.get(k, "") for k in ("status", "last_date", "vendor_last_date", "stored_last_date", "close",
                                                     "src", "n_sources", "max_source_diff", "filler_dropped")}}
@@ -2658,18 +2779,44 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
                 notes.append(f"acquirer price not available ({how or 'acquirer not identified'})")
         elif kind == "bankruptcy_otc":
             if trade["status"] == "ok":
-                quote = otc_close(book, sid, trade["last_date"])
+                # the old shares' OTC tail: up to the relist junction (their rows only), else the usual 30 days
+                within = max(30, (pd.Timestamp(first_new) - pd.Timestamp(trade["last_date"])).days) if first_new else 30
+                quote = otc_close(view, sid, trade["last_date"], within_days=within)
                 if quote is not None:
                     value, basis_note = quote["close"], "otc_vendor_close (local only)"
                     level.update({"otc_close": quote["close"], "otc_date": quote["date"], "otc_src": quote["src"]})
                     notes.append(f"first OTC vendor close on {quote['date']} (the level is local only)")
+            if value is None and first_new and decided.get("value_rule") == "plan_new_shares" \
+                    and decided.get("shares") is not None and trade["status"] == "ok":
+                # no OTC close for the old shares: the plan of reorganization's new shares per old share, at the new
+                # shares' first vendor close (the same security_id, from the relist junction on; WW 2025-06-27)
+                quote = book.close_on(sid, pd.Timestamp(previous_session(first_new)), after=True)
+                if quote is not None:
+                    value = (decided["cash"] or 0.0) + float(decided["shares"]) * quote["close"]
+                    basis_note = "plan_new_shares_at_first_new_share_close (local only)"
+                    out["acquirer_price_date"] = quote["date"].strftime("%Y-%m-%d")
+                    out["acquirer_name"] = "the reorganized company's new common stock (same security_id)"
+                    gap = sessions_after(trade["last_date"], quote["date"])
+                    level.update({"plan_new_share_close": quote["close"], "plan_new_share_date": out["acquirer_price_date"],
+                                  "plan_new_share_src": quote["src"], "plan_gap_sessions": gap})
+                    notes.append(f"no OTC vendor close for the old shares: valued by the plan of reorganization at "
+                                 f"{float(decided['shares']):g} new share per old share, at the new shares' first vendor "
+                                 f"close on {out['acquirer_price_date']} ({gap} XNAS sessions after the last Nasdaq trade; "
+                                 "the level is local only)")
             if value is None and _prior_value(prior) is not None:
                 value, basis_note = _prior_value(prior), "existing_row_consideration"
                 out["consideration_per_share"] = _fmt(value)
                 out["source_url"] = prior["source_url"]
                 notes.append(f"no OTC vendor price; value from {prior['existing_file']} (sourced there: equity cancelled "
                              "or a later cash-out), booked on the session after the last Nasdaq trade")
-            if value is None:
+            if value is None and first_new and price_status == "pending_price":
+                # a relist junction whose old shares have no vendor rows yet (CORZ: the CORZQ file is a month-2
+                # fetch): the plan gave the old holders value, so the D5 default (-100%) is not the answer
+                status = "pending_price"
+                notes.append("no vendor rows for the old shares yet; once they arrive the OTC tail values them (the "
+                             "owner's D5 rule is not the answer: see the reviewed note on what the plan gave the old "
+                             "shares)")
+            elif value is None:
                 status = "awaiting_d5"
                 notes.append("no OTC vendor price; the owner's D5 rule applies")
         # ---- a special dividend paid to holders at the closing (the last close still carries it)
@@ -2702,7 +2849,18 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         guard = [] if approved or kind in ("exchange_move", "unknown") else guard_reasons(decided, out, ev)
         if approved and value is not None:
             notes.append(f"approved by review: {review['approved']}")
-        if value is not None:
+        if value is not None and value == 0.0 and price_status != "ok" and approved and decided.get("limit") \
+                and kind == "bankruptcy_otc" and not holds:
+            # the old shares were cancelled with nothing (a reviewed plan of reorganization: OPI): the return is
+            # -100% whatever the last Nasdaq close was, so no vendor close is needed; the last session is the
+            # reviewed one (its stated suspension), not a vendor row
+            out["terminal_return"] = _fmt(-1.0)
+            out["last_price_date"] = decided["limit"]
+            status = "computed"
+            notes.append("no vendor close on the last Nasdaq session; the holders received nothing, so the return is "
+                         "-100% whatever that close was (last_price_date is the reviewed last Nasdaq session)")
+            level.update({"terminal_value": 0.0, "terminal_return_checked": -1.0, "no_close_needed": True})
+        elif value is not None:
             if price_status == "ok":
                 ratio = value / trade["close"] - 1.0
                 level["terminal_value"], level["terminal_return_checked"] = value, ratio
@@ -2763,16 +2921,48 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
 # ------------------------------------------------------------------ main
 
 
+def forbid_network() -> None:
+    """``--offline``: any socket connection in this process is refused, so the build reads the caches only."""
+    import socket
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError("reversal_data_terminal --offline: a network connection was attempted")
+
+    socket.socket.connect = refuse
+    socket.socket.connect_ex = refuse
+    socket.create_connection = refuse
+
+
+def configure_paths(out_dir: Path | None) -> None:
+    """Send the outputs under ``out_dir`` (``inputs/terminal_returns_2012_2026.csv`` and ``terminal/`` for the
+    CACHE/terminal files this step writes) instead of INPUTS and CACHE/terminal. Everything read (the documents,
+    the charts, the price files, the provenance index) is still read from its usual place."""
+    global OUT, OUTPUT, RECONCILE_HANDOFF, MANUAL_REVIEW_QUEUE
+    if out_dir is None:
+        return
+    root = Path(out_dir).resolve()
+    OUT, OUTPUT = root / "terminal", root / "inputs" / "terminal_returns_2012_2026.csv"
+    RECONCILE_HANDOFF, MANUAL_REVIEW_QUEUE = OUT / "for_reconcile_owner.csv", OUT / "manual_review_queue.csv"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--offline", action="store_true", help="no requests: build from the cache only")
+    parser.add_argument("--offline", action="store_true",
+                        help="no requests (any socket connection is refused): build from the cache only")
+    parser.add_argument("--out-dir", default="",
+                        help="write terminal_returns_2012_2026.csv under OUT_DIR/inputs and the CACHE/terminal outputs "
+                             "under OUT_DIR/terminal (a scratch rebuild); the inputs are read from their usual places")
     parser.add_argument("--scope-only", action="store_true", help="write CACHE/terminal/scope.csv and stop")
     parser.add_argument("--limit", type=int, default=0, help="at most this many documents per fetch stage (a trial)")
     parser.add_argument("--no-fetch", action="store_true", help="skip the SEC fetch stages (same as --offline here)")
     parser.add_argument("--yahoo-acquirers", action="store_true",
                         help=f"fetch the Yahoo charts of ACQUIRER_SYMBOLS not yet cached (at most {YAHOO_MAX} in all)")
     args = parser.parse_args(argv)
+    if args.offline:
+        forbid_network()
+    configure_paths(Path(args.out_dir) if args.out_dir else None)
     OUT.mkdir(parents=True, exist_ok=True)
+    log(f"outputs: {OUTPUT} and {OUT}; " + ("offline (network refused)" if args.offline else "SEC fetch stages on"))
     scope = terminal_candidates()
     log(f"scope: {len(scope)} securities end by {WINDOW_END}")
     common.atomic_write(OUT / "scope.csv", scope.to_csv(index=False).encode())
@@ -2823,6 +3013,9 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     log(f"wrote {OUTPUT}: {len(frame)} rows")
     log("by type: " + json.dumps(summary["rows_by_terminal_type"]))
     log("by status: " + json.dumps(summary["rows_by_status"]))
+    for item in summary["relist_junction_rows"]:
+        log(f"relist junction {item['security_id']} {item['ticker']}: {item['status']} last_price_date "
+            f"{item['last_price_date'] or '-'} ({item['value_basis'] or 'no value'})")
     return frame
 
 
@@ -2962,6 +3155,11 @@ def summarize(frame: pd.DataFrame, existing: pd.DataFrame, matched: dict, used: 
         "last_session_stepped_back_over_filler_rows": sorted(used.loc[filler > 0, "security_id"]) if len(used) else [],
         "exchange_moves_with_stated_new_exchange_start": int(
             (frame["terminal_type"].eq("exchange_move") & frame["destination_start_date"].ne("")).sum()),
+        # the old shares at each relist junction (RELIST_JUNCTIONS): status and how they were valued, no values
+        "relist_junction_rows": [
+            {"security_id": r.security_id, "ticker": r.ticker, "first_new_session": r.relist_junction,
+             "status": r.status, "last_price_date": r.last_price_date, "value_basis": r.consideration_value_basis}
+            for r in frame[frame["relist_junction"].ne("")].itertuples(index=False)] if "relist_junction" in frame else [],
         "returns_aggregated": "none (counts only)",
     }
 

@@ -55,17 +55,27 @@ div_cash, tr, src_primary, n_sources, max_src_diff, flags.
   2026-08-31; rows outside the spans are kept and flagged ``outside_listing`` (R9). A listing after a
   Form 25 cut (``pf.listing_spans`` ``after_cut``: SMCI from 2020-01, CHRD) is a span like any other,
   so the series runs on to 2026 (the OTC months between are ``outside_listing``).
-- Relist junctions (``RELIST_JUNCTIONS``, hand-reviewed from the SEC filings: CHRD/Oasis 2020-11-20,
-  CORZ 2024-01-24, WW 2025-06-27, OPI 2026-06-18): a bankruptcy plan cancelled or exchanged the old
-  shares and the new ones were listed again. Old and new shares are separate segments of the file:
-  the new shares' first row has no ``tr`` (``relist_junction``), any S or D a vendor records on it is
-  dropped (reported), and nothing is chained, voted, spliced, flat-run or queued across it; R5's
-  filler cut applies to each segment's end. The old shares end there with a terminal event
-  (``series_ends.csv`` ``old_shares_at_relist_junction``, for the terminal step). Other relistings
-  keep one series (the same shares: SMCI, removed for late filings), and a raw level change of 10x or
-  more around one with no split is queued (R9, ``relist_jump``) for a junction entry or a market move.
+- Relist junctions (``RELIST_JUNCTIONS``, each read by hand from the SEC documents it names on 2026-10-02:
+  the emergence 8-Ks of CHRD/Oasis 2020-11-20, CORZ 2024-01-24, WW 2025-06-27 and OPI 2026-06-22, and for
+  THRY/Dex Media 2018-04-18, which filed no 8-K after its 2016 deregistration, Thryv's 2020 prospectus;
+  plus the 8-Ks that date each old share's last Nasdaq session): a bankruptcy plan cancelled or exchanged
+  the old shares and the new ones were listed again. Old and new shares are separate segments of the
+  file: the new shares' first traded row has no ``tr`` (``relist_junction``), any S or D a vendor
+  records on it is dropped (reported), and nothing is chained, voted, spliced, flat-run or queued across
+  it; R5's filler cut applies to each segment's end, and new-share rows with volume 0 in every vendor
+  before the first trade, from the plan's effective date on, are cut (``junction_leading_zero_volume_cut``:
+  OPI's Yahoo placeholder on 2026-06-18, after the 2026-06-17 effective date and before the entry's first
+  traded session 2026-06-22; zero-volume rows before the effective date are the old shares' R5 filler). The old
+  shares end with a terminal event (``series_ends.csv`` ``old_shares_at_relist_junction``, measured
+  against their last Nasdaq session, for the terminal step). Other relistings keep one series (the same
+  shares: SMCI, removed for late filings), and a raw level change of 10x or more around one with no
+  split is queued (R9, ``relist_jump``) for a junction entry or a market move.
 - ``tr`` = (C_t x S_t + D_t) / C_{t-1} - 1 from one source's own rows (plan 4.1), so only returns
-  are chained across sources, never levels (R8).
+  are chained across sources, never levels (R8). A listing's first row is blank too when it would be
+  measured against a quote (``listing_start_after_quote``): the row before it is outside the listing
+  with volume 0 in every vendor and no vendor row traded in the ``pf.CLOSE_STALE_SESSIONS`` sessions
+  before it (THRY 2020-10-01: +88.8% against 480 identical zero-volume Yahoo closes; IPO files that
+  start with zero-volume rows). summary.json lists them (``listing_starts_after_quote``).
 - Precedence per day: WIKI, Tiingo, Yahoo to 2017-10-31; Tiingo, Yahoo, WIKI from 2017-11-01. Each
   vendor's return, and the stored vote where valid, is compared with the others: agreeing within
   0.5% or not (R3). With a strict majority, the highest-ranked source in it is primary
@@ -77,7 +87,8 @@ div_cash, tr, src_primary, n_sources, max_src_diff, flags.
   stays: queued, an event the vendor may lack), or ``stored_disagrees`` (a smaller lasting shift).
   Glitch and disagrees days more than 2% apart are queued too (R3, single vendor vs stored), since
   the level ratio cannot say which row is bad; summary.json counts them by difference size.
-- ``n_sources`` = sources with a return that day (vendors plus a valid stored vote);
+- ``n_sources`` = sources with a return that day (vendors plus a valid stored vote; 0 on a
+  ``listing_start_after_quote`` row);
   ``max_src_diff`` = the largest absolute difference between one of them and ``tr``.
 - Other flags: ``level_diff`` (R7, vendor raw closes more than 1% apart), ``move_2x`` and ``move_40``
   (R1), ``hidden_split`` (R2: S = 1 everywhere, the price ratio is within 1% of n:1, 1:n, 3:2 or 2:3,
@@ -130,20 +141,26 @@ Tables:
   majority, a lasting stored shift, or a single vendor and the stored file more than 2% apart,
   [R4] a flat run no second source shows or zero volume, [R6]
   listed sessions with no vendor row, [R7] a vendor level run 2%+ apart or 3+ sessions long, [R9] a
-  10x level change around an unreviewed relisting after a Form 25. Only
+  10x level change around an unreviewed relisting after a Form 25 (dates and the ratio only). Notes carry
+  dates, ratios and percentages, never a vendor price level: the table is committed (plan 8), and the
+  queue step refuses a note with one (``LEVEL_IN_NOTE``). Only
   listed days that can matter are queued: 10 weeks before to 5 weeks after a week ranked <= 300 by
-  step 6, or whose canonical dollar volume reaches step 6's rank-300 cut; every entry, with that
-  scope marked, is in ``CACHE/reconcile/moves_all.csv``.
+  step 6, or whose canonical dollar volume reaches step 6's rank-300 cut; every R9 hit is queued
+  whatever its scope; every entry, with that scope marked, is in ``CACHE/reconcile/moves_all.csv``.
 - ``CACHE/reconcile/``: summary.json (coverage of ranks 1-300 by year with step 6's 5-session
   staleness rule, flag counts by type and year, the plan-6 multi-source agreement count with the
   stored vote and, separately, among vendors only and for the V sample's Tiingo-Yahoo days within
   1e-4, known-case checks), series_ends.csv (series that end before the delist date, or before the window end with
-  none: the inputs for terminal values, with a likely cause), coverage_gaps.csv, no_series.csv,
+  none: the inputs for terminal values, with a likely cause; the old shares at a relist junction with
+  their last Nasdaq session and cancellation date, and a WIKI-end cause when the series stops years
+  before them: OPI), coverage_gaps.csv, no_series.csv,
   securities.csv, source_pairs.csv, moves_all.csv, relist_junctions.csv (every relisting after a Form
-  25 and every junction: dates, rows on each side, status), summary.json ``break_days`` (each known
-  break day's stored files that move 1.4x or more: ``unit_break``, or ``stored_moves_with_vendors`` for
-  a real move both show: EYEN/HYPD +65%, NKTR +156%, UPXI -60% on 2025-06-24, which step 6's
-  stored-only test lists as breaks) and ``run`` (timings, peak memory); ``sources/`` holds the source bundles and
+  25 and every junction: dates, rows on each side, status, document read and its dates), summary.json
+  ``break_days`` (``how_to_read``, then per known break day the stored files that move 1.4x or more,
+  by state with their tickers: ``unit_break``, or ``stored_moves_with_vendors`` for a real move both
+  show: EYEN/HYPD +65%, NKTR +156%, UPXI -60% on 2025-06-24, which step 6's and the validate step's
+  stored-only tests list as breaks with no unit_break row: none is expected) and ``run`` (timings,
+  peak memory); ``sources/`` holds the source bundles and
   ``per_security/`` the state that makes a rerun redo only the securities whose inputs (or this
   file) changed. ``CACHE/prices/daily_panel.csv.gz`` is the long form of every canonical file.
 
@@ -158,7 +175,8 @@ Usage::
     PYTHONPATH=. python scripts/reversal_data_reconcile.py --rebuild       # everything from the raw files
     PYTHONPATH=. python scripts/reversal_data_reconcile.py --no-panel      # skip daily_panel.csv.gz
     # the full rebuild into a scratch directory, compared with the current outputs (compare.json,
-    # compare_series.csv: securities, rows, changed series, table counts):
+    # compare_series.csv: securities, rows, changed series, table counts; the headline counts apart the
+    # series whose dates changed and whose values on the common dates changed too):
     PYTHONPATH=. python scripts/reversal_data_reconcile.py --rebuild --out-dir /tmp/reconcile_dry --compare
 """
 from __future__ import annotations
@@ -172,6 +190,7 @@ import json
 import os
 from pathlib import Path
 import pickle
+import re
 import sys
 import time
 
@@ -181,7 +200,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.3"
+CODE_VERSION = "2026-10-02.4"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
 CODE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 MAIN = common.MAIN_CHECKOUT
@@ -246,6 +265,9 @@ TOL_UNIT = 0.01        # the stored file alone off by an ordinary split ratio wi
 TOL_CASH_SPLIT = 0.01  # a vendor's cash within 1% of the value of a split another vendor records
 STORED_QUEUE_DIFF = 0.02  # a single vendor and the stored file this far apart in r: queued (R3)
 RATIO_QUEUE_TR = 0.10  # |tr| this large on an ex-date whose ratio rests on one source: queued (R1c)
+# a vendor price level in a queue note ("close 1.125", not the ratio "close 1.0214x"): reviewed_moves.csv is
+# committed and must carry dates, ratios and percentages only (plan 8, the owner's 2026-10-02 decision)
+LEVEL_IN_NOTE = re.compile(r"\bclose[sd]?\s+\$?\d+(?:\.\d+)?(?![\d.]*x)", re.I)
 FILLER_VOLUME_SHARE = 0.01  # R5: trailing repeats of the last close with volume below 1% of the median before
 YAHOO_LOADER_VERSION = "2"  # part of the yahoo_new bundle signature (2: volume flags from events.csv)
 # events.csv volume tokens -> the row flag on Yahoo rows dated before that ex-date
@@ -266,33 +288,66 @@ KNOWN_DISAGREEMENTS = [("NFLX", "2013-10-22"), ("KLAC", "2015-01-23"), ("MNST", 
 
 # Listed again after a Form 25 with new shares: a bankruptcy plan cancelled the old shares and issued new
 # ones (or exchanged the old for new). The old and the new shares are separate series joined by a junction
-# on the first session of the new shares: no return is computed across it, and the old shares end there
+# on the first traded session of the new shares: no return is computed across it, and the old shares end
 # with a terminal event (step 11 values it; series_ends.csv and relist_junctions.csv carry the dates).
-# Hand-reviewed from the SEC filings named (``read`` False: only the cached submissions index was seen,
-# the document itself was not read here). A relisting that keeps the same shares (SMCI 2020-01, removed
-# for late filings; SIGA, SCOR, MDXG) has no junction.
+# Each entry was read by hand on ``read_on`` from the SEC documents named: ``url`` (the emergence 8-K, or for
+# Dex Media, which filed no 8-K after its 2016-02 deregistration, Thryv's 2020 prospectus) and
+# ``nasdaq_end_url`` (the 8-K that dates the old shares' last Nasdaq session). ``effective_date`` is the plan's
+# Effective Date (the old shares cancelled), ``old_nasdaq_last_session`` the old shares' last Nasdaq session
+# (the session before the stated suspension); the old shares may trade OTC between the two.
+# ``first_new_session`` is the new shares' first traded session in the vendor data (a zero-volume row before
+# it is a placeholder, not a trade). A relisting that keeps the same shares (SMCI 2020-01, removed for late
+# filings; SIGA, SCOR, MDXG) has no junction.
 _SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/"
 RELIST_JUNCTIONS = {
-    "1486159": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True,
+    "1486159": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
+                "effective_date": "2020-11-19", "old_nasdaq_last_session": "2020-10-09",
                 "url": _SEC_ARCHIVE + "1486159/000148615920000115/oas-20201119.htm",
-                "note": "Oasis Petroleum's plan became effective on 2020-11-19 (the Effective Date): the existing common "
-                        "stock was cancelled and its holders received warrants for the new common stock, which trades "
-                        "on Nasdaq as OAS from 2020-11-20 (CHRD after the 2022 Whiting merger)"},
-    "1839341": {"first_new_session": "2024-01-24", "kind": "bankruptcy_share_exchange", "read": False,
+                "nasdaq_end_url": _SEC_ARCHIVE + "1486159/000148615920000080/oas-20201002.htm",
+                "note": "Oasis Petroleum: Nasdaq delisted the common stock at the opening of business on 2020-10-12 and "
+                        "it traded on OTC Pink as OASAQ from that day (8-K 2020-10-02, Item 3.01); the plan became "
+                        "effective on 2020-11-19 (the Effective Date): the existing common stock was cancelled and its "
+                        "holders received warrants for the new common stock, which trades on Nasdaq as OAS from "
+                        "2020-11-20 (CHRD after the 2022 Whiting merger)"},
+    "1839341": {"first_new_session": "2024-01-24", "kind": "bankruptcy_share_exchange", "read": True, "read_on": "2026-10-02",
+                "effective_date": "2024-01-23", "old_nasdaq_last_session": "2022-12-30",
                 "url": _SEC_ARCHIVE + "1839341/000119312524013078/d661343d8k.htm",
-                "note": "emergence 8-K filed 2024-01-23 (Items 1.01, 1.02, 2.03, 3.02, 3.03, 5.01, 5.02, 5.03; not read "
-                        "here); the new CORZ shares' first trade is 2024-01-24 (Yahoo); the old shares traded OTC as "
-                        "CORZQ"},
-    "105319": {"first_new_session": "2025-06-27", "kind": "bankruptcy_share_exchange", "read": True,
+                "nasdaq_end_url": _SEC_ARCHIVE + "1839341/000119312524013078/d661343d8k.htm",
+                "note": "Core Scientific (Chapter 11 filed 2022-12-21): the old common stock traded exclusively on OTC "
+                        "Pink as CORZQ from 2023-01-03; the plan became effective on 2024-01-23 (the Effective Date), "
+                        "the old common stock was cancelled and its trading terminated that day, Existing Common "
+                        "Interests received 21.0% of the new common stock, and Nasdaq approved listing of and trading "
+                        "in the new common stock as CORZ effective 2024-01-24 (emergence 8-K, cover note, Items 1.02 "
+                        "and 5.01)"},
+    "105319": {"first_new_session": "2025-06-27", "kind": "bankruptcy_share_exchange", "read": True, "read_on": "2026-10-02",
+               "effective_date": "2025-06-24", "old_nasdaq_last_session": "2025-05-15",
                "url": _SEC_ARCHIVE + "105319/000119312525146171/d906370d8k.htm",
-               "note": "the plan became effective on 2025-06-24: the old common stock was cancelled, and 900,000 new "
-                       "shares went to the holders of existing equity interests (9,100,000 to the first-lien lenders); "
-                       "the new shares' first trade is 2025-06-27 (Yahoo)"},
-    "1456772": {"first_new_session": "2026-06-18", "kind": "bankruptcy_new_equity", "read": False,
+               "nasdaq_end_url": _SEC_ARCHIVE + "105319/000119312525142383/d943798d8k.htm",
+               "note": "WW International: the common stock was suspended from Nasdaq on 2025-05-16 and traded on the Pink "
+                       "market as WGHTQ (8-K 2025-06-18); the plan became effective on 2025-06-24: the old common "
+                       "stock was cancelled, and 900,000 new shares went to the holders of existing equity interests "
+                       "(9,100,000 to the first-lien lenders); the new shares' first trade is 2025-06-27 (Yahoo)"},
+    "1456772": {"first_new_session": "2026-06-22", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
+                "effective_date": "2026-06-17", "old_nasdaq_last_session": "2025-10-06",
                 "url": _SEC_ARCHIVE + "1456772/000110465926076652/tm2618043d2_8k.htm",
-                "note": "emergence 8-K filed 2026-06-23 (Items 1.01, 1.02, 1.03, 2.03, 3.02, 3.03, 5.01, 5.02, 5.03; not "
-                        "read here); Yahoo's first new-share row is 2026-06-18 (volume 0), its first traded row "
-                        "2026-06-22"},
+                "nasdaq_end_url": _SEC_ARCHIVE + "1456772/000110465925107765/tm2530037d1_8k.htm",
+                "note": "Office Properties Income Trust: the common shares were suspended from Nasdaq on 2025-10-07 and "
+                        "quoted on OTC Pink as OPITS (8-K 2025-11-06, cover note); the plan became effective on "
+                        "2026-06-17 (the Effective Date): the Old Common Shares were cancelled and their holders did "
+                        "not receive any distribution (emergence 8-K, Item 3.03); the 8-K states no first trading day "
+                        "for the new shares: Yahoo's first new-share row, 2026-06-18, has volume 0 (a placeholder), "
+                        "and its first traded row is 2026-06-22"},
+    "1556739": {"first_new_session": "2018-04-18", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
+                "effective_date": "2016-07-29", "old_nasdaq_last_session": "2016-01-06",
+                "url": _SEC_ARCHIVE + "1556739/000114036120022046/nt10007762x19_424b4.htm",
+                "nasdaq_end_url": _SEC_ARCHIVE + "1556739/000110465916087891/a15-25698_18k.htm",
+                "note": "Dex Media (DXM, now Thryv): Nasdaq suspended the common stock at the opening of business on "
+                        "2016-01-07 (8-K 2016-01-05, Item 3.01); the company deregistered (15-12B 2016-02-05) and filed "
+                        "no 8-K for its 2016 prepackaged Chapter 11, from which it emerged on 2016-07-29; Thryv's "
+                        "2020 prospectus (424B4): the former lenders obtained 100% of the reorganized company's common "
+                        "stock, so the old DXM shares received nothing; the new shares had no public market before "
+                        "the Nasdaq direct listing on 2020-10-01 (a limited history of private trades); their first "
+                        "vendor row is 2018-04-18 (Yahoo)"},
 }
 RELIST_JUMP = 10.0          # unreviewed relisting: a raw level change this large (or 1/10) with no split is queued (R9)
 RELIST_SCREEN_BEFORE_DAYS, RELIST_SCREEN_AFTER_DAYS = 20, 60  # the screen's span: Form 25 - 20 days to relisting + 60
@@ -1138,9 +1193,27 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # relist junctions (RELIST_JUNCTIONS, ``ctx["junctions"]``): segment s runs from its junction (the first
     # session of the new shares) on. No return is computed across a junction, and an S or D a vendor
     # records on it (another history's, or the exchange served as a split) is dropped and reported.
+    # The new shares' rows before their first trade (every vendor row that day has volume 0: a placeholder at a
+    # reference price) are not sessions of either side: they are cut (``leading``), and the segment starts at
+    # the first traded row, so no return is computed against a placeholder. They are looked for from the
+    # junction on (an entry dated on a placeholder) and back from it to the plan's effective date
+    # (``ctx["junction_effective"]``, the day the new shares were issued: OPI's Yahoo row on 2026-06-18,
+    # before its entry's first traded session 2026-06-22); rows before the effective date are the old shares'
+    # and stay with R5's filler cut
     seg = np.zeros(n, dtype=int)
+    no_trade = ~(has[:3] & ~(V[:3] == 0)).any(axis=0)  # no vendor row with a volume other than 0
+    leading = np.zeros(n, dtype=bool)
+    effective = ctx.get("junction_effective", {})
     for day in sorted(ctx.get("junctions", ())):
         start = int(grid.searchsorted(pd.Timestamp(day)))
+        if effective.get(day):
+            back, issued = start - 1, pd.Timestamp(effective[day])
+            while back > 0 and grid[back] >= issued and no_trade[back]:
+                leading[back] = has[:3, back].any()
+                back -= 1
+        while 0 < start < n and no_trade[start]:
+            leading[start] = has[:3, start].any()
+            start += 1
         if 0 < start < n:
             seg[start:] += 1
     seg_break = np.r_[False, seg[1:] != seg[:-1]] if n else np.zeros(0, dtype=bool)
@@ -1193,8 +1266,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # R5: cut filler after the last session with volume > 0 (a missing volume is not filler), then
     # trailing repeats of the last real close with volume below 1% of the 50-row median before them
     # (Tiingo's SPLK 2024-03-18..22: volumes 0, 90, 47, ...)
-    # (each segment's own end too: the old shares' last trade before a relist junction)
+    # (each segment's own end too: the old shares' last trade before a relist junction); the new shares'
+    # placeholder rows before their first trade are cut first (``leading``)
     keep = has_vendor & (primary >= 0)
+    leading_cut = [str(grid[k].date()) for k in np.flatnonzero(keep & leading)]
+    keep &= ~leading
     filler_cut, filler_tiny = 0, np.zeros(0, dtype=int)
     for s in np.unique(seg[keep]):
         part = keep & (seg == s)
@@ -1226,7 +1302,18 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         else:
             tr[k] = total_return(Cp[k], Sp[k], Dp[k], Cp[j])
             cross[k] = True
-    n_sources = choice["n_valid"]
+    # a listing's first row priced against a quote: the row before it is outside the listing and no vendor
+    # row in the step-6 staleness span before it (pf.CLOSE_STALE_SESSIONS sessions) traded, so the close it
+    # is measured against is a vendor's carried or reference price, not a trade (THRY 2020-10-01, +88.8%
+    # against 480 identical zero-volume closes; IPOs whose Yahoo file starts with zero-volume rows). Its
+    # tr is blank (``listing_start_after_quote``), as at a relist junction
+    quote_start = np.zeros(n, dtype=bool)
+    for k, j in zip(idx, prev_idx):
+        if j >= 0 and listed[k] and not listed[j] and no_trade[j] and seg[k] == seg[j] and np.isfinite(tr[k]) and \
+                no_trade[max(0, k - pf.CLOSE_STALE_SESSIONS): k].all():
+            quote_start[k] = True
+    tr[quote_start] = np.nan
+    n_sources = np.where(quote_start, 0, choice["n_valid"])
     with np.errstate(invalid="ignore"):
         diffs = np.where(valid, np.abs(r - tr[None, :]), np.nan)
     max_diff = np.where(np.isfinite(diffs).any(axis=0), np.nanmax(np.where(np.isfinite(diffs), diffs, -1), axis=0), np.nan)
@@ -1361,6 +1448,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.extend(splice_tokens[k])
         if relist_first[k]:
             t.append("relist_junction")  # the new shares' first row: tr is blank, nothing is chained across
+        if quote_start[k]:
+            t.append("listing_start_after_quote")  # tr is blank: no trade before it to measure against
         if relist_jump[k]:
             t.append("relist_jump")  # R9: a 10x level change around an unreviewed relisting
 
@@ -1416,8 +1505,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         result["summary"]["segments"] = segments
         result["summary"]["junctions"] = [str(pd.Timestamp(d).date()) for d in sorted(ctx.get("junctions", ()))]
         result["summary"]["junction_dropped_events"] = junction_dropped
+        result["summary"]["junction_leading_zero_volume_cut"] = leading_cut
     if relist_jump.any():
         result["summary"]["relist_jumps"] = [str(grid[k].date()) for k in np.flatnonzero(relist_jump)]
+    if quote_start.any():
+        result["summary"]["listing_starts_after_quote"] = [str(grid[k].date()) for k in np.flatnonzero(quote_start)]
     # the known break days where the stored file moves 1.4x or more either way (step 6's list of break
     # files) or changes units: ``unit_break`` (a row in split_events.csv), ``stored_moves_with_vendors``
     # (a real move: no unit break), ``unit_change_on_vendor_event`` (the stored file's change is on a
@@ -1704,8 +1796,10 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
     for k in np.flatnonzero(relist_jump & kept):
         before = idx[np.searchsorted(idx, k) - 1]
         cuts = ", ".join(f"Form 25 {cut}, listed again from {start}" for cut, start, _ in x.get("relists", ()))
-        entry(k, "R9", f"raw close {x['Cp'][before]:.4g} on {grid[before].date()} -> {x['Cp'][k]:.4g} "
-                       f"({x['Cp'][k] * x['Sp'][k] / x['Cp'][before]:.3g}x) with no split, around a relisting ({cuts}): "
+        # dates and the ratio only: reviewed_moves.csv is committed, and vendor price levels stay local
+        # (moves_all.csv and the canonical file have the closes)
+        entry(k, "R9", f"raw level change {x['Cp'][k] * x['Sp'][k] / x['Cp'][before]:.3g}x from "
+                       f"{grid[before].date()} to {grid[k].date()} with no split, around a relisting ({cuts}): "
                        "new shares out of a bankruptcy or an exchange (add a RELIST_JUNCTIONS entry: no return across "
                        "it) or a market move", "")
         out[-1]["listed"] = True  # it concerns the listing itself (the jump may fall in the OTC months)
@@ -1855,6 +1949,12 @@ def junctions_of(sid: str) -> list[str]:
     return [entry["first_new_session"]] if entry else []
 
 
+def junction_effective_of(sid: str) -> dict[str, str]:
+    """first_new_session -> the plan's effective date (the new shares issued), where the entry gives one."""
+    entry = RELIST_JUNCTIONS.get(sid)
+    return {entry["first_new_session"]: entry["effective_date"]} if entry and entry.get("effective_date") else {}
+
+
 def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild: bool = False) -> dict[str, dict]:
     mapping, master = identity["mapping"], identity["master"]
     relists = identity.get("relisted", {})
@@ -1870,7 +1970,8 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
                 window = (pd.Timestamp(WINDOW_START), pd.Timestamp(WINDOW_START))
             else:
                 window = (min(d.min() for d in dates), max(d.max() for d in dates))
-        signature = signature_of(sid, frames, window, mapping, json.dumps([junctions_of(sid), relists.get(sid, [])]))
+        signature = signature_of(sid, frames, window, mapping, json.dumps([junctions_of(sid), junction_effective_of(sid),
+                                                                           relists.get(sid, [])]))
         state = None if rebuild else load_state(sid)
         if state is not None and state.get("signature") == signature and \
                 (state["summary"].get("rows", 0) == 0 or (PRICES_DIR / f"{sid}.csv").exists()):
@@ -1882,7 +1983,8 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
             ctx = {"sessions": sessions, "window": window,
                    "listed": lambda grid, sid=sid: listed_mask(mapping, sid, grid),
                    "ticker_of": (lambda day, lookup=lookup, fallback=fallback: lookup(day) or fallback),
-                   "junctions": junctions_of(sid), "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, [])}
+                   "junctions": junctions_of(sid), "junction_effective": junction_effective_of(sid),
+                   "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, [])}
             result = reconcile_security(sid, frames, ctx)
             result["summary"].update(tiingo_self_check(sid, bundles))
             states[sid] = save_result(sid, result, signature)
@@ -2062,7 +2164,16 @@ def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFr
              "scope": f"listed days within {RELEVANT_BEFORE_DAYS} days before to {RELEVANT_AFTER_DAYS} days after a "
                       "week ranked <= 300 (dv20 or dv50, step 6) or whose canonical dollar volume reaches step 6's "
                       "rank-300 cut; every entry is in CACHE/reconcile/moves_all.csv"}
-    frame = frame[frame["listed"] & frame["relevant"]].copy()
+    # R9 (a 10x level change around an unreviewed relisting: new shares, or a market move) is queued whatever its
+    # scope, so a missing junction entry is seen even for a name that never ranked (THRY 2018-04-18 before its
+    # entry, SSM 2024-05-28)
+    r9_outside = frame["rule"].eq("R9") & ~(frame["listed"] & frame["relevant"])
+    frame.loc[r9_outside, "notes"] += " (queued outside the relevant scope: every R9 hit is queued)"
+    facts["r9_queued_outside_scope"] = int(r9_outside.sum())
+    frame = frame[(frame["listed"] & frame["relevant"]) | frame["rule"].eq("R9")].copy()
+    leaking = frame[frame["notes"].str.contains(LEVEL_IN_NOTE)]
+    if len(leaking):  # a code bug: the committed table would carry a vendor price level
+        raise ValueError(f"queue notes with a price level ({len(leaking)}), e.g. {leaking['notes'].iloc[0][:80]!r}")
     if REVIEWED_FORMAT.exists():
         done = pd.read_csv(REVIEWED_FORMAT, dtype=str, keep_default_na=False)
         known = {(t, d): row for t, d, row in zip(done["ticker"], done["event_date"], done.itertuples(index=False))}
@@ -2186,6 +2297,7 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
     position = {d: k for k, d in enumerate(sessions.strftime("%Y-%m-%d"))}
     target_info = targets.set_index("security_id")
     waiting = set(tiingo_waiting()["security_id"])
+    unfillable = unfillable_status()
     def common_fields(sid, info, summary, existing):
         weeks300 = target_info.at[sid, "weeks_rank300"] if sid in target_info.index else 0
         return {"name": info["name"] if info is not None else "",
@@ -2207,16 +2319,35 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
         segments, junctions = summary.get("segments", []), summary.get("junctions", [])
         for old, new in zip(segments, segments[1:]):  # the old shares end at the relist junction
             junction = RELIST_JUNCTIONS.get(sid, {})
-            short = position[new["first"]] - position[old["last"]] - 1 if {old["last"], new["first"]} <= set(position) else ""
+            # the old shares' own end: their last Nasdaq session (the SEC documents), not the junction; a series
+            # that stops well before it has a data gap there (OPI: the WIKI table ends 2018-03-27, the old shares
+            # traded on Nasdaq to 2025-10-06), one that runs on into the OTC months reaches it (CHRD)
+            nasdaq_end = junction.get("old_nasdaq_last_session", "")
+            reference = nasdaq_end or previous_session_of(new["first"], sessions)
+            if old["last"] in position and reference in position:
+                short = max(0, position[reference] - position[old["last"]])
+            else:
+                short = ""
+            pending = sid in waiting
+            if old["last_src"] == "wiki" and old["last"] == WIKI_END and reference > WIKI_END:
+                cause = "wiki_end_no_later_source" + ("_tiingo_pending" if pending else "")
+            elif short and pending:
+                cause = "tiingo_pending"
+            elif short and short > 10:
+                cause = "ends_early"
+            else:
+                cause = f"relist_junction:{junction.get('kind', '')}"
             rows.append({"security_id": sid, "ticker_last": old.get("ticker", ""),
                          "category": "old_shares_at_relist_junction", "last_date": old["last"], "delist_date": delist,
                          "last_listed": last_listed, "sessions_after_last_row": short,
-                         "likely_cause": f"relist_junction:{junction.get('kind', '')}", "tiingo_pending": sid in waiting,
+                         "likely_cause": cause, "tiingo_pending": pending,
                          "filler_cut": "", "last_src": old["last_src"],
                          "existing_last_price_date_match": ("Y" if any(e.endswith(":" + old["last"]) for e in existing)
                                                             else "N") if existing else "",
                          "junction_date": new["first"], "junction_first_new_session": ",".join(junctions),
-                         "junction_url": junction.get("url", ""), **common_fields(sid, info, summary, existing)})
+                         "junction_url": junction.get("url", ""), "old_nasdaq_last_session": nasdaq_end,
+                         "old_shares_cancelled": junction.get("effective_date", ""),
+                         "unfillable_status": unfillable.get(sid, ""), **common_fields(sid, info, summary, existing)})
         if sid in relisted:  # listed again after the Form 25: the later listing's end is the target
             listing_end = min(max(end for _, _, end in relisted[sid]), WINDOW_END)
             target = sessions[sessions <= pd.Timestamp(listing_end)][-1]
@@ -2253,16 +2384,37 @@ def series_ends(states: dict[str, dict], targets: pd.DataFrame, identity: dict, 
                      "filler_cut": summary.get("filler_cut", 0), "last_src": summary.get("last_src", ""),
                      "existing_last_price_date_match": ("Y" if any(e.endswith(":" + last) for e in existing) else "N")
                      if existing else "", "junction_date": "", "junction_first_new_session": ",".join(junctions),
-                     "junction_url": "", **common_fields(sid, info, summary, existing)})
+                     "junction_url": "", "old_nasdaq_last_session": "", "old_shares_cancelled": "",
+                     "unfillable_status": unfillable.get(sid, ""), **common_fields(sid, info, summary, existing)})
     frame = pd.DataFrame(rows, columns=SERIES_END_COLUMNS)
     return frame.sort_values(["category", "security_id"]) if len(frame) else frame
 
 
+def previous_session_of(day: str, sessions: pd.DatetimeIndex) -> str:
+    """The last session strictly before ``day``."""
+    k = int(sessions.searchsorted(pd.Timestamp(day), side="left"))
+    return str(sessions[k - 1].date()) if k > 0 else ""
+
+
+def unfillable_status() -> dict[str, str]:
+    """security -> its ``unfillable.csv`` status (a part of its need no free source fills: OPI wrong_entity)."""
+    if not UNFILLABLE.exists():
+        return {}
+    table = pd.read_csv(UNFILLABLE, dtype=str, keep_default_na=False)
+    if "status" not in table:
+        return {sid: "unfillable" for sid in table.get("security_id", [])}
+    return {sid: status or "unfillable" for sid, status in zip(table["security_id"], table["status"])}
+
+
+# ``sessions_after_last_row``: the listed sessions after the series' last row up to the end it is measured
+# against (the delist date, the later listing's end, the window end; for old shares at a relist junction their
+# last Nasdaq session, ``old_nasdaq_last_session``, 0 when the series reaches it or runs on into the OTC months)
 SERIES_END_COLUMNS = ["security_id", "ticker_last", "name", "category", "last_date", "delist_date", "last_listed",
                       "successor_security_id", "transfer_date", "sessions_after_last_row", "likely_cause",
                       "tiingo_pending", "filler_cut", "last_src", "existing_terminal_rows",
                       "existing_last_price_date_match", "in_candidates", "weeks_rank300", "terminal_2012_2026",
-                      "junction_date", "junction_first_new_session", "junction_url"]
+                      "junction_date", "junction_first_new_session", "junction_url", "old_nasdaq_last_session",
+                      "old_shares_cancelled", "unfillable_status"]
 
 
 def dv_cutoffs() -> pd.DataFrame:
@@ -2467,33 +2619,80 @@ def relist_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataFrame,
                      "rows_before_later_listing": before, "rows_in_later_listing": inside,
                      "first_new_session": entry.get("first_new_session", ""), "kind": entry.get("kind", ""),
                      "document_read": ("Y" if entry.get("read") else "N") if entry else "",
-                     "url": entry.get("url", ""), "old_last_date": old.get("last", ""), "old_last_src": old.get("last_src", ""),
+                     "read_on": entry.get("read_on", ""), "effective_date": entry.get("effective_date", ""),
+                     "old_nasdaq_last_session": entry.get("old_nasdaq_last_session", ""),
+                     "url": entry.get("url", ""), "nasdaq_end_url": entry.get("nasdaq_end_url", ""),
+                     "old_last_date": old.get("last", ""), "old_last_src": old.get("last_src", ""),
                      "new_first_date": new.get("first", ""), "new_first_src": new.get("first_src", ""),
                      "level_ratio_new_first_to_old_last": round(new["first_close"] / old["last_close"], 4)
                      if old and old.get("last_close") else "",
                      "junction_dropped_events": " | ".join(summary.get("junction_dropped_events", [])),
+                     "junction_leading_zero_volume_cut": " ".join(summary.get("junction_leading_zero_volume_cut", [])),
                      "relist_jumps": " ".join(summary.get("relist_jumps", [])), "note": entry.get("note", "")})
     frame = pd.DataFrame(rows)
     facts = {"securities": int(len(frame)),
              "by_status": {k: int(v) for k, v in frame["status"].value_counts().items()} if len(frame) else {},
              "junctions": {r.security_id: f"{r.old_last_date} -> {r.new_first_date}" for r in frame.itertuples()
                            if r.status == "junction"} if len(frame) else {},
-             "rule": "RELIST_JUNCTIONS entries split the series at the new shares' first session: no return across it, "
-                     "the old shares end there (series_ends.csv old_shares_at_relist_junction); other relistings keep "
-                     f"one series, and a raw level change of {RELIST_JUMP:g}x around them is queued (R9)"}
+             "documents_read": {sid: {"read": bool(e.get("read")), "read_on": e.get("read_on", ""),
+                                      "effective_date": e.get("effective_date", ""),
+                                      "old_nasdaq_last_session": e.get("old_nasdaq_last_session", ""),
+                                      "first_new_session": e.get("first_new_session", "")}
+                                for sid, e in sorted(RELIST_JUNCTIONS.items())},
+             "leading_zero_volume_rows_cut": {r.security_id: r.junction_leading_zero_volume_cut for r in frame.itertuples()
+                                              if r.junction_leading_zero_volume_cut} if len(frame) else {},
+             "rule": "RELIST_JUNCTIONS entries split the series at the new shares' first traded session: no return "
+                     "across it (new-share rows with volume 0 before the first trade are cut), the old shares end "
+                     "there (series_ends.csv old_shares_at_relist_junction, measured against their last Nasdaq "
+                     "session); other relistings keep one series, and a raw level change of "
+                     f"{RELIST_JUMP:g}x around them is queued (R9, in reviewed_moves.csv whatever its scope)"}
     return frame, facts
+
+
+BREAK_DAY_STATES = {
+    "unit_break": "the stored file alone changes units that day (every vendor moves normally): a unit_break row in "
+                  "split_events.csv, and the stored file is left out of the vote",
+    "stored_moves_with_vendors": "the stored file moves 1.4x or more and the vendors show the same move within 0.5%: a "
+                                 "real price move, not a unit change, so split_events.csv has no unit_break row for it "
+                                 "(the stored file is still left out of the vote on a known break day)",
+    "unit_change_on_vendor_event": "the stored file's change falls on a vendor's own split or distribution day: "
+                                   "recorded with that event in split_events.csv, not as a unit_break",
+    "stored_differs": "the stored file moves 1.4x or more, the vendors do not move with it, and no unit change was "
+                      "recorded: left out of the vote, no row (a data point to look at)",
+}
 
 
 def break_day_table(states: dict[str, dict]) -> dict:
     """The known break days: where the stored file moves by a split-sized factor or is a unit break, what
     the vendors show (``unit_break``: the stored file alone changes units; ``stored_moves_with_vendors``: a
-    real move both show, so no unit break, EYEN/HYPD, NKTR, UPXI 2025-06-24)."""
+    real move both show, so no unit break, EYEN/HYPD, NKTR, UPXI 2025-06-24). Each day lists, by state,
+    the securities and their last ticker, so a stored-only test (step 6's split-ratio list, the validate
+    step's stored comparison) can tell a file it lists as a break with no unit_break row from a miss."""
     out = defaultdict(dict)
     for sid, state in sorted(states.items()):
+        ticker = state["summary"].get("ticker_last", "")
         for item in state["summary"].get("break_days", []):
-            out[item["date"]][sid] = {k: v for k, v in item.items() if k != "date"}
-    return {day: {"by_state": dict(Counter(v["state"] for v in items.values())), "securities": items}
-            for day, items in sorted(out.items())}
+            out[item["date"]][sid] = {"ticker": ticker, **{k: v for k, v in item.items() if k != "date"}}
+    days = {}
+    for day, items in sorted(out.items()):
+        by_state = defaultdict(list)
+        for sid, item in items.items():
+            by_state[item["state"]].append(f"{sid} {item['ticker']}".strip())
+        days[day] = {"by_state": dict(Counter(v["state"] for v in items.values())),
+                     "securities_by_state": {k: sorted(v) for k, v in sorted(by_state.items())},
+                     "securities": items}
+    return {"how_to_read": {
+        "scope": f"the known stored-file break days {list(BREAK_DAYS)}: every security whose stored file moves 1.4x or "
+                 "more either way that day, or changes units there; the stored file is never a vote on these days",
+        "states": BREAK_DAY_STATES,
+        "for_a_stored_only_test": "a security listed as a break by a test that reads only the stored file "
+                                  "(priced_without_unit_break_row) is explained here when its state is "
+                                  "stored_moves_with_vendors: the vendors confirm the move (EYEN/HYPD +65%, NKTR +156%, "
+                                  "UPXI -60% on 2025-06-24), so no unit_break row is expected and none is missing; "
+                                  "a listed security absent from this table or in another state needs a look",
+        "fields": "per security: ticker (its last), state, stored_r (the stored file's own return that day), tr (the "
+                  "canonical return), stored_implied_k ((1 + tr) / (1 + stored_r))"},
+        "days": days}
 
 
 def summarize_tables(states, prep, ids, args) -> dict:
@@ -2569,6 +2768,11 @@ def summarize_tables(states, prep, ids, args) -> dict:
         "tiingo_identity_rows": int(sum(s["summary"].get("tiingo_identity_rows", 0) for s in states.values())),
         "tiingo_run_vs_old_diff_days": int(sum(s["summary"].get("tiingo_run_vs_old_diff_days", 0) for s in states.values())),
         "relistings": relist_facts,
+        "listing_starts_after_quote": {
+            "rule": "a listing's first row whose previous row is outside the listing, with no vendor volume > 0 in the "
+                    f"{pf.CLOSE_STALE_SESSIONS} sessions before it, has a blank tr (flag listing_start_after_quote)",
+            "securities": {sid: s["summary"]["listing_starts_after_quote"] for sid, s in sorted(states.items())
+                           if s["summary"].get("listing_starts_after_quote")}},
         "break_days": break_day_table(states),
         "checks": checks,
         "files": {"prices": str(PRICES_DIR), "split_events": str(SPLIT_EVENTS), "special_distributions": str(SPECIAL),
@@ -2632,20 +2836,44 @@ def compare_series(old: pd.DataFrame, new: pd.DataFrame) -> dict:
            "old_last": o.index.max() if len(o) else "", "new_first": w.index.min() if len(w) else "",
            "new_last": w.index.max() if len(w) else "", "rows_added": int(len(w.index.difference(o.index))),
            "rows_removed": int(len(o.index.difference(w.index)))}
+    value_rows = np.zeros(len(common), dtype=bool)  # common dates where any value (not only the flags) changed
     for column, tolerance in COMPARE_NUMERIC.items():
         a = pd.to_numeric(o.loc[common, column], errors="coerce").to_numpy(float)
         b = pd.to_numeric(w.loc[common, column], errors="coerce").to_numpy(float)
         with np.errstate(divide="ignore", invalid="ignore"):
             same = (np.isnan(a) & np.isnan(b)) | (np.abs(a - b) <= tolerance * np.maximum(np.abs(a), 1.0))
         out[f"{column}_changed"] = int((~same).sum())
+        value_rows |= ~same
     for column in ("src_primary", "flags"):
         a = o.loc[common, column].fillna("").astype(str).to_numpy()
         b = w.loc[common, column].fillna("").astype(str).to_numpy()
         out[f"{column}_changed"] = int((a != b).sum())
-    values = sum(out[f"{c}_changed"] for c in list(COMPARE_NUMERIC) + ["src_primary"])
+        if column == "src_primary":
+            value_rows |= a != b
+    out["common_rows"] = int(len(common))
+    out["common_rows_values_changed"] = int(value_rows.sum())
     out["kind"] = ("dates" if out["rows_added"] or out["rows_removed"] else
-                   "values" if values else "flags_only" if out["flags_changed"] else "unchanged")
+                   "values" if value_rows.any() else "flags_only" if out["flags_changed"] else "unchanged")
+    # a series whose dates changed can also change on the dates both builds have (Tiingo replacing WIKI rows
+    # 2017-11..2018-03): ``kind`` stays ``dates``, ``dates_values`` says the common dates changed too
+    out["dates_values"] = bool(out["kind"] == "dates" and value_rows.any())
     return out
+
+
+def dates_value_changes(frame: pd.DataFrame) -> dict:
+    """Among the series of kind ``dates`` (rows added or removed), those whose values also changed on the dates
+    both builds have: securities and rows, in all and per column (close, volume, S, D, tr, primary source).
+    Counts of rows only."""
+    columns = [f"{c}_changed" for c in list(COMPARE_NUMERIC) + ["src_primary"]]
+    if not len(frame) or "dates_values" not in frame:
+        return {"securities": 0, "rows": 0, "by_column": {c: 0 for c in columns}}
+    part = frame[frame["kind"].eq("dates") & frame["dates_values"].fillna(False).astype(bool)]
+    return {"securities": int(len(part)),
+            "rows": int(pd.to_numeric(part["common_rows_values_changed"], errors="coerce").fillna(0).sum()),
+            "by_column": {c: int(pd.to_numeric(part[c], errors="coerce").fillna(0).sum()) for c in columns},
+            "dates_series": int(frame["kind"].eq("dates").sum()),
+            "note": "series with dates added or removed whose values on the common dates changed as well (another "
+                    "source became primary, a return was recomputed); compare_series.csv has the counts per security"}
 
 
 def compare_outputs(defaults: dict) -> dict:
@@ -2692,7 +2920,8 @@ def compare_outputs(defaults: dict) -> dict:
                 "securities_added": len(new_ids - old_ids), "securities_removed": len(old_ids - new_ids),
                 "rows_old": int(frame["old_rows"].fillna(0).sum()) if len(frame) else 0,
                 "rows_new": int(frame["new_rows"].fillna(0).sum()) if len(frame) else 0,
-                "series_by_kind": {k: int(v) for k, v in kinds.items()}}
+                "series_by_kind": {k: int(v) for k, v in kinds.items()},
+                "dates_series_with_value_changes_on_common_dates": dates_value_changes(frame)}
     changed = frame[frame["kind"] != "unchanged"].copy() if len(frame) else frame
     if len(changed):
         changed["row_change"] = changed["new_rows"].fillna(0) - changed["old_rows"].fillna(0)

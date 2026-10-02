@@ -338,7 +338,7 @@ def test_summary_counts_only():
 
 def test_reviewed_entries_are_well_formed():
     for sid, review in tr.REVIEWED.items():
-        assert set(review) <= set(tr.REVIEW_KEYS) | {"note"}, sid
+        assert set(review) <= set(tr.REVIEW_KEYS) | {"note", "checked"}, sid  # checked: a builder's note for the owner
         assert review.get("note"), sid
         if review.get("approved"):  # an approval that lifts the guard cites its own source
             # a failed bank files with the FDIC, not the SEC (Signature Bank)
@@ -1094,3 +1094,159 @@ def test_built_file_has_no_unapproved_computed_value_far_from_its_last_close():
     far = computed[returns.abs() > t.GUARD_RETURN]
     approved = {sid for sid, r in t.REVIEWED.items() if r.get("approved") and r.get("url")}
     assert set(far["security_id"]) <= approved
+
+
+# ------------------------------------------------------------------ round 7: the old shares at a relist junction
+
+def _junction(monkeypatch, sid="1", first_new="2025-06-27", effective="2025-06-24", review=None):
+    monkeypatch.setitem(tr.RELIST_JUNCTIONS, sid, {"first_new_session": first_new, "effective_date": effective,
+                                                   "kind": "bankruptcy_share_exchange", "read": True, "url": "u",
+                                                   "note": ""})
+    if review is not None:
+        monkeypatch.setitem(tr.REVIEWED, sid, review)
+
+
+def _ww_book(stored_tail=True):
+    rows = [("1", "2025-05-14", 0.28, 9e6, "tiingo"), ("1", "2025-05-15", 0.25, 1e7, "tiingo")]
+    if stored_tail:  # the stored file's OTC tail (never a level)
+        rows += [("1", d, 26.0, 5e4, "stored") for d in _days("2025-05-16", 28)]
+    rows += [("1", "2025-06-27", 27.0, 2e5, "tiingo"), ("1", "2025-06-30", 30.2, 4e5, "tiingo")]
+    return _book(rows)
+
+
+def test_price_book_before_cuts_only_the_old_shares_rows():
+    book = _book([("1", "2025-05-15", 0.25, 100, "tiingo"), ("1", "2025-06-27", 27.0, 100, "tiingo"),
+                  ("2", "2025-06-27", 5.0, 100, "tiingo")])
+    view = book.before("1", "2025-06-27")
+    assert view.rows("1")["date"].max() == pd.Timestamp("2025-05-15")
+    assert len(view.rows("2")) == 1 and len(book.rows("1")) == 2  # the book itself is unchanged
+
+
+def test_old_shares_last_trade_never_comes_from_the_new_shares(monkeypatch):
+    """WW: the Tiingo file runs on from the old shares (to 2025-05-15) into the new ones (from 2025-06-27); the
+    Form 25 is filed after the junction. The old shares' last trade is 2025-05-15, not a new-share row."""
+    _junction(monkeypatch)
+    monkeypatch.delitem(tr.REVIEWED, "1", raising=False)
+    row = _row(f25_delisting_basis="substituted_merger_or_exchange", f25_filing_date="2025-07-03",
+               end_date="2025-07-13", delist_date="2025-07-13")
+    evidence = [_evidence(closing_items="1.03 3.01", bankruptcy=True)]
+    frame, used = _build([row], evidence, _ww_book(stored_tail=False))
+    out, level = frame.loc["1"], used.set_index("security_id").loc["1"]
+    assert level["last_date"] == "2025-05-15" and level["limit_basis"] == "session_before_relist_junction"
+    assert (out.terminal_type, out.status, out.relist_junction) == ("bankruptcy_otc", "awaiting_d5", "2025-06-27")
+    assert "old shares at a relist junction" in out.status_note
+    # without the junction entry the same book gives a new-share row as the old shares' last trade
+    monkeypatch.delitem(tr.RELIST_JUNCTIONS, "1")
+    plain = _build([row], evidence, _ww_book(stored_tail=False))[1].set_index("security_id").loc["1"]
+    assert plain["last_date"] == "2025-06-30"
+
+
+def test_old_shares_without_an_otc_close_are_valued_by_the_plan_at_the_new_shares_first_close(monkeypatch):
+    _junction(monkeypatch, review={
+        "type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2025-05-15", "rule": "plan_new_shares",
+        "shares": 0.0111676, "url": "https://www.sec.gov/Archives/edgar/data/1/x.htm",
+        "approved": "the plan's new shares per old share", "note": "WW-like"})
+    row = _row(f25_delisting_basis="substituted_merger_or_exchange", f25_filing_date="2025-07-03",
+               end_date="2025-07-13", delist_date="2025-07-13")
+    frame, used = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _ww_book())
+    out, level = frame.loc["1"], used.set_index("security_id").loc["1"]
+    assert (out.status, out.last_price_date, out.acquirer_price_date) == ("computed", "2025-05-15", "2025-06-27")
+    assert float(out.terminal_return) == pytest.approx(0.0111676 * 27.0 / 0.25 - 1)
+    assert out.consideration_shares == "0.0111676" and out.consideration_per_share == ""  # the level stays local
+    assert out.consideration_value_basis.startswith("plan_new_shares_at_first_new_share_close")
+    assert level["plan_new_share_close"] == 27.0 and "27" not in out.status_note.replace("2025-06-27", "")
+
+
+def test_old_shares_otc_tail_values_them_and_stops_at_the_junction(monkeypatch):
+    """CHRD: the old shares' Nasdaq last session 2020-10-09, OTC rows from 2020-10-12, new shares 2020-11-20."""
+    review = {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2020-10-09",
+              "url": "https://www.sec.gov/Archives/edgar/data/1/y.htm", "approved": "OTC start dated", "note": "CHRD-like"}
+    _junction(monkeypatch, first_new="2020-11-20", effective="2020-11-19", review=review)
+    rows = [("1", "2020-10-08", 0.17, 6e7, "yahoo_step7"), ("1", "2020-10-09", 0.16, 7e7, "yahoo_step7"),
+            ("1", "2020-10-12", 0.10, 5e7, "yahoo_step7"), ("1", "2020-11-19", 0.12, 1e6, "yahoo_step7"),
+            ("1", "2020-11-20", 31.0, 8e5, "yahoo_step7")]
+    row = _row(f25_delisting_basis="exchange_removal", f25_filing_date="2020-10-27", end_date="2020-11-06",
+               delist_date="2020-11-06")
+    frame, used = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _book(rows))
+    out = frame.loc["1"]
+    assert (out.status, out.last_price_date) == ("computed", "2020-10-09")
+    assert float(out.terminal_return) == pytest.approx(0.10 / 0.16 - 1)
+    assert used.set_index("security_id").loc["1", "otc_date"] == "2020-10-12"
+    # with no OTC row before the junction, the new shares' first row is not taken for an OTC close
+    gap_rows = [r for r in rows if r[1] not in ("2020-10-12", "2020-11-19")]
+    frame, _ = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _book(gap_rows))
+    assert frame.loc["1", "status"] == "awaiting_d5" and frame.loc["1", "terminal_return"] == ""
+
+
+def test_old_shares_cancelled_with_nothing_need_no_close(monkeypatch):
+    """OPI: no vendor row near the last Nasdaq session (the WIKI table ends in 2018), and the holders received
+    nothing: -100% whatever the close, dated on the reviewed last Nasdaq session."""
+    review = {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2025-10-06", "value": 0.0,
+              "url": "https://www.sec.gov/Archives/edgar/data/1/z.htm", "approved": "no distribution", "note": "OPI-like"}
+    _junction(monkeypatch, first_new="2026-06-22", effective="2026-06-17", review=review)
+    rows = [("1", "2018-03-27", 13.29, 8e5, "wiki"), ("1", "2025-10-06", 0.3, 1e6, "stored"),
+            ("1", "2026-06-22", 17.0, 5e4, "yahoo_step7")]
+    row = _row(f25_delisting_basis="exchange_removal", f25_filing_date="2025-11-14", end_date="2025-11-24",
+               delist_date="2025-11-24")
+    frame, used = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _book(rows))
+    out = frame.loc["1"]
+    assert (out.status, out.terminal_return, out.last_price_date) == ("computed", "-1", "2025-10-06")
+    assert out.consideration_per_share == "0" and out.price_source == ""
+    assert used.set_index("security_id").loc["1", "status"] == "vendor_short"
+
+
+def test_old_shares_waiting_for_their_vendor_rows_are_pending_not_d5(monkeypatch):
+    review = {"type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2022-12-30",
+              "url": "https://www.sec.gov/Archives/edgar/data/1/c.htm", "note": "CORZ-like"}
+    _junction(monkeypatch, first_new="2024-01-24", effective="2024-01-23", review=review)
+    candidates = pd.DataFrame({"security_id": ["1"], "planned_source": ["tiingo"], "status": ["conditional_tier_c"]})
+    row = _row(f25_delisting_basis="exchange_removal", f25_filing_date="2023-04-12", end_date="2023-04-22",
+               delist_date="2023-04-22")
+    frame, _ = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)],
+                      _book([("1", "2024-01-24", 3.44, 1e6, "yahoo_step7")]), candidates)
+    out = frame.loc["1"]
+    assert (out.status, out.event_subtype, out.terminal_return) == ("pending_price", "bankruptcy", "")
+    assert "D5 rule is not the answer" in out.status_note
+
+
+def test_every_relist_junction_has_a_reviewed_row_dated_on_the_old_shares_last_nasdaq_session():
+    for sid, junction in tr.RELIST_JUNCTIONS.items():
+        review = tr.REVIEWED.get(sid)
+        assert review and review["type"] == "bankruptcy_otc" and review["sub"] == "bankruptcy", sid
+        assert review["limit"] == junction["old_nasdaq_last_session"] < junction["first_new_session"], sid
+        assert review["url"].startswith("https://www.sec.gov/Archives/edgar/data/"), sid
+    assert tr.REVIEWED["1456772"]["value"] == 0.0 and tr.REVIEWED["1556739"]["value"] == 0.0
+    assert tr.REVIEWED["105319"]["rule"] == "plan_new_shares"
+    assert "approved" not in tr.REVIEWED["1839341"]  # CORZ waits for its old-share rows
+    # WW: the builder's plan valuation is held for the owner (round-8 review), its checks kept beside it
+    ww = tr.REVIEWED["105319"]
+    assert "approved" not in ww and ww["hold"] and "0.0111676" in ww["checked"]
+    assert "checked" not in tr.REVIEW_KEYS  # a builder's check lifts nothing
+
+
+def test_a_held_plan_valuation_waits_for_review_with_the_value_kept_local(monkeypatch):
+    """WW as committed: no approval, a hold for the owner. The row is needs_review, its return blank, and the
+    valuation is kept in prices_used for the reviewer."""
+    _junction(monkeypatch, review={
+        "type": "bankruptcy_otc", "sub": "bankruptcy", "limit": "2025-05-15", "rule": "plan_new_shares",
+        "shares": 0.0111676, "url": "https://www.sec.gov/Archives/edgar/data/1/x.htm",
+        "hold": "the plan valuation awaits the owner's approval", "checked": "share counts from the 10-Q",
+        "note": "WW-like"})
+    row = _row(f25_delisting_basis="substituted_merger_or_exchange", f25_filing_date="2025-07-03",
+               end_date="2025-07-13", delist_date="2025-07-13")
+    frame, used = _build([row], [_evidence(closing_items="1.03 3.01", bankruptcy=True)], _ww_book())
+    out, level = frame.loc["1"], used.set_index("security_id").loc["1"]
+    assert (out.status, out.terminal_return, out.last_price_date) == ("needs_review", "", "2025-05-15")
+    assert "awaits the owner's approval" in out.status_note and "approved by review" not in out.status_note
+    assert level["terminal_return_checked"] == pytest.approx(0.0111676 * 27.0 / 0.25 - 1)
+    assert out.consideration_per_share == ""
+
+
+def test_configure_paths_sends_the_outputs_under_the_out_dir(tmp_path, monkeypatch):
+    for name in ("OUT", "OUTPUT", "RECONCILE_HANDOFF", "MANUAL_REVIEW_QUEUE"):
+        monkeypatch.setattr(tr, name, getattr(tr, name))  # restored after the test
+    tr.configure_paths(tmp_path)
+    root = tmp_path.resolve()
+    assert tr.OUTPUT == root / "inputs" / "terminal_returns_2012_2026.csv" and tr.OUT == root / "terminal"
+    assert tr.MANUAL_REVIEW_QUEUE.parent == tr.RECONCILE_HANDOFF.parent == root / "terminal"
+    assert tr.YAHOO_RAW == tr.TERMINAL_CACHE / "yahoo_raw"  # the charts are still read from CACHE/terminal

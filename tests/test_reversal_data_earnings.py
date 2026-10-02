@@ -568,11 +568,16 @@ def test_built_events_are_item202_8ks_with_header_times_and_xnas_d0():
     assert (events["tz_resolution"] == "header").mean() >= 0.99
     sessions = set(er.XnasCloses().sessions.strftime("%Y-%m-%d"))
     dated = events[events["d0_session"] != ""]
-    assert dated["d0_session"].isin(sessions).all()
-    assert (dated["d0_session"] >= dated["acceptance_et"].str[:10]).all()
-    # D0 is the acceptance day exactly when the acceptance is before that session's close
-    same_day = dated["d0_session"] == dated["acceptance_et"].str[:10]
+    assert dated["d0_session"].isin(sessions).all() and dated["d0_session_acceptance"].isin(sessions).all()
+    assert (dated["d0_session_acceptance"] >= dated["acceptance_et"].str[:10]).all()
+    # the acceptance D0 is the acceptance day exactly when the acceptance is before that session's close
+    same_day = dated["d0_session_acceptance"] == dated["acceptance_et"].str[:10]
     assert dated.loc[same_day, "acceptance_timing"].isin(["pre_open", "intraday"]).all()
+    # D0 differs from it only on late-furnished rows, and is then earlier
+    late = dated["late_furnished"] == "Y"
+    assert ((dated["d0_session"] != dated["d0_session_acceptance"]) == late).all()
+    assert (dated.loc[late, "d0_session"] < dated.loc[late, "d0_session_acceptance"]).all()
+    assert (dated.loc[late, "d0_basis"] == "release_date_latest").all() and (dated.loc[~late, "d0_basis"] == "acceptance").all()
 
 
 def test_built_events_keep_every_item202_8k_with_one_release_per_quarter():
@@ -706,15 +711,15 @@ def test_rows_outside_the_window_are_dropped_after_the_whole_sequence_is_classif
     assert fallback.empty   # k0 is filed before the window
 
 
-def test_sec_rate_is_capped_at_six_a_second():
-    er.set_sec_rate(5)
-    assert er.SEC_LIMITER.windows == {1: 5}
+def test_sec_rate_is_capped_at_four_a_second():
+    er.set_sec_rate(3)
+    assert er.SEC_LIMITER.windows == {1: 3}
     er.set_sec_rate(0.5)
     assert er.SEC_LIMITER.windows == {2.0: 1}
     with pytest.raises(ValueError):
-        er.set_sec_rate(7)
+        er.set_sec_rate(5)
     er.set_sec_rate(er.SEC_RATE_MAX)
-    assert er.SEC_LIMITER.windows == {1: 6} and er.SEC_LIMITER is not er.common.SEC_LIMITER
+    assert er.SEC_LIMITER.windows == {1: 4} and er.SEC_LIMITER is not er.common.SEC_LIMITER
 
 
 def test_missing_quarters_are_in_scope_full_quarters_without_a_usable_date():
@@ -776,3 +781,305 @@ def test_hand_sample_draw_is_fixed_by_the_seed_and_takes_one_release_per_quarter
     assert first["accession"].tolist() == again["accession"].tolist()
     assert sorted(first["accession"]) == ["a", "d"] and first["draw_order"].tolist() == [1, 2]
     assert set(first["population"]) == {2}
+
+
+# ------------------------------------------------------------------ rules (a) and (b): the 8-K's own Item 2.02 text
+
+T2_8K = ("FORM 8-K Date of Report (Date of earliest event reported): May 5, 2022 T2 Biosystems, Inc. "
+         "Item 2.02 Results of Operations and Financial Condition On May 5, 2022, the Company issued a press release "
+         "announcing its financial results for its fiscal quarter ended March 31, 2022, and held a conference call to "
+         "discuss those results. A copy of the Company's press release and a copy of the transcript of the conference "
+         "call are furnished with this report as Exhibits 99.1 and 99.2, respectively. The information in this Item "
+         "2.02 shall not be deemed filed. Item 3.01. Notice of Delisting. On November 5, 2021, we received a letter "
+         "from The Nasdaq Stock Market. Item 9.01 Financial Statements and Exhibits.")
+INTERFACE_PRES = ("Item 2.02 Results of Operations and Financial Condition. During May 1-2, 2018, Interface, Inc. (the "
+                  "\"Company\") will meet and present to investors and potential investors. A copy of the slide "
+                  "presentation is attached as Exhibit 99.1. Item 9.01 Financial Statements and Exhibits.")
+INTERFACE_RELEASE = ("ITEM 2.02 RESULTS OF OPERATIONS AND FINANCIAL CONDITION. On April 25, 2018, Interface, Inc. (the "
+                     "\"Company\") issued a press release reporting its financial results for the first quarter of 2018 "
+                     "(the \"Earnings Release\"). ITEM 5.02 DEPARTURE OF DIRECTORS. On April 24, 2018 the Board ...")
+AMD_JOINED = ("Item 2.02 Results of Operations and Financial Condition. Item 7.01 Regulation FD Disclosure. The "
+              "information in this report furnished pursuant to Items 2.02 and 7.01 shall not be deemed filed. On "
+              "October 16, 2014, Advanced Micro Devices, Inc. (the Company) announced its financial position and "
+              "results of operations as of and for its fiscal quarter ended September 27, 2014 in a press release. "
+              "Item 9.01 Financial Statements and Exhibits.")
+
+
+def test_calendar_gives_the_latest_and_earliest_d0_of_a_release_day(calendar):
+    # a session day: before its close the day itself, after it the next session
+    assert calendar.latest_d0_on_date("2022-05-05") == ("2022-05-06", "2022-05-05")
+    # a Saturday: the Monday either way
+    assert calendar.latest_d0_on_date("2022-05-07") == ("2022-05-09", "2022-05-09")
+    assert calendar.is_session("2022-05-06") and not calendar.is_session("2022-05-07")
+
+
+def test_item_section_skips_a_cover_page_heading():
+    text = ("Item 2.02 Results of Operations UNITED STATES SECURITIES AND EXCHANGE COMMISSION FORM 8-K Date of Report: "
+            "July 25, 2013 KLA-TENCOR Item 2.02 Results of Operations and Financial Condition. On July 25, 2013, the "
+            "Company issued a press release announcing its results for the fourth quarter. Item 9.01 Exhibits.")
+    assert er.item_section(text).startswith("On July 25, 2013, the Company issued")
+
+
+def test_item_section_skips_mentions_and_joins_run_together_headings():
+    assert er.item_section(T2_8K).startswith("On May 5, 2022, the Company issued a press release")
+    assert "Nasdaq" not in er.item_section(T2_8K)      # stops at the Item 3.01 heading
+    joined = er.item_section(AMD_JOINED)              # the 2.02 heading is followed at once by 7.01's
+    assert "On October 16, 2014, Advanced Micro Devices" in joined and "Item 9.01" not in joined
+    assert er.item_section("no items here") == ""
+
+
+@pytest.mark.parametrize("text, low, high, kind, date", [
+    (T2_8K, "2022-03-31", "2022-05-11", "results_release", "2022-05-05"),        # press release and a transcript
+    (INTERFACE_PRES, "2018-04-01", "2018-04-30", "presentation", ""),            # May 1-2 is after the acceptance
+    (INTERFACE_RELEASE, "2018-04-01", "2018-04-25", "results_release", "2018-04-25"),
+    (AMD_JOINED, "2014-09-27", "2014-10-16", "results_release", "2014-10-16"),
+    ("Item 2.02. On May 3, 2018, Aceto Corporation issued the attached press release that included financial "
+     "information for its third quarter ended March 31, 2018.", "2018-03-31", "2018-05-04", "results_release", "2018-05-03"),
+    ("Item 2.02. On February 10, 2014, American Airlines Group Inc. announced via press release certain traffic "
+     "statistics for January 2014.", "2013-12-31", "2014-02-10", "statistics", "2014-02-10"),
+    # a bare or boilerplate-only paragraph says nothing either way
+    ("Item 2.02. On October 22, 2019, Simmons First National Corporation issued a press release, a copy of which is "
+     "attached hereto as Exhibit 99.1.", "2019-09-30", "2019-10-22", "release_unspecified", "2019-10-22"),
+    ("Item 2.02. As previously reported, effective May 3, 2024, Quantum Computing Inc. dismissed its auditor. On May 3, "
+     "2024, the Securities and Exchange Commission issued an order.", "2024-03-31", "2024-06-11", "other", "2024-05-03"),
+    ("Item 2.02. On January 23, 2014, Quality Systems, Inc. issued a press release announcing its financial performance "
+     "for the period ended December 31, 2013.", "2013-12-31", "2014-01-23", "results_release", "2014-01-23"),
+    ("Item 2.02. On February 3, 2020, Astronics issued a news release providing its preliminary revenue for the "
+     "fourth quarter.", "2019-12-31", "2020-02-04", "preliminary", "2020-02-03"),
+    ("Item 2.02. The Company furnishes the transcript of its conference call held on January 25, 2019.",
+     "2018-12-31", "2019-01-31", "transcript", "2019-01-25"),
+])
+def test_item202_evidence_reads_the_release_date_and_what_is_furnished(text, low, high, kind, date):
+    found = er.item202_evidence(text, low, high)
+    assert (found["item202_kind"], found["item202_date"]) == (kind, date)
+
+
+@pytest.mark.parametrize("text, low, high, date", [
+    # dates cited from an earlier filing or event are not the release date
+    ("Item 2.02. Explanatory Note: On May 14, 2018, Mimecast Limited (the Company) filed a Current Report on Form 8-K "
+     "reporting its results.", "2018-03-31", "2018-05-29", ""),
+    ("Item 2.02. As previously announced on April 16, 2012, we entered into an Agreement and Plan of Merger.",
+     "2012-03-31", "2012-06-14", ""),
+    ("Item 2.02. Certain financial information was included in the Proxy Statement filed on December 4, 2013, in "
+     "connection with the merger, and is reported here.", "2013-09-30", "2013-12-27", ""),
+    ("Item 2.02. As previously reported, effective May 3, 2024, the Company dismissed its auditor.", "2024-03-31",
+     "2024-06-11", ""),
+    ("Item 2.02. As previously reported in the Current Report on Form 8-K filed with the U.S. Securities and Exchange "
+     "Commission on April 29, 2020 by ATN International, the Company reported its results.", "2020-03-31", "2020-06-08", ""),
+    ("Item 2.02. As previously announced on April 16, 2012, we entered into an Agreement and Plan of Merger on April 13, "
+     "2012, with Objet Ltd., under which Objet reported results.", "2012-03-31", "2012-06-14", ""),
+    ("Item 2.02. The Company expects to report that it had approximately $132.0 million in cash as of December 31, "
+     "2021, which it disclosed today.", "2021-09-30", "2022-02-01", ""),
+    # a release issued on a date, a call held on a date
+    ("Item 2.02. Aegion Corporation issued an earnings release on May 2, 2018 to announce its financial results for "
+     "the quarter ended March 31, 2018.", "2018-03-31", "2018-05-08", "2018-05-02"),
+    ("Item 2.02. On April 20, 2021, management of Peoples Bancorp Inc. conducted a facilitated conference call to "
+     "discuss results of operations.", "2021-03-31", "2021-04-23", "2021-04-20"),
+])
+def test_item202_date_is_the_release_not_an_earlier_filing(text, low, high, date):
+    assert er.item202_evidence(text, low, high)["item202_date"] == date
+
+
+def test_item202_evidence_without_a_document_or_an_item202_heading():
+    assert er.item202_evidence(None, "2020-01-01", "2020-02-01")["item202_kind"] == "no_document"
+    assert er.item202_evidence("Item 8.01 Other events.", "2020-01-01", "2020-02-01")["item202_kind"] == "no_item202_text"
+
+
+def test_report_date_timing_says_how_far_the_period_of_report_lies_before_d0(calendar):
+    frame = pd.DataFrame({
+        "cik": [1, 1, 1, 1, 1], "report_date": ["2022-05-05", "2022-03-31", "2022-04-30", "", "2022-05-12"],
+        "acceptance_et": ["2022-05-11 16:25:03"] * 3 + ["2022-05-11 16:25:03", "2022-05-11 16:25:03"],
+        "d0_session": ["2022-05-12"] * 5, "fiscal_quarter_end": ["2022-03-31"] * 5})
+    out = er.report_date_timing(frame, calendar, {1: {"2022-03-31"}})
+    assert out["report_date_kind"].tolist() == ["event_date", "period_end", "month_end", "blank", "after_acceptance"]
+    assert out.loc[0, ["report_date_lag_days", "report_date_lag_sessions"]].tolist() == ["6", "5"]
+
+
+def _quarter(rows):
+    """Event rows of one company as build_tables has them before rules (a) and (b)."""
+    frame = pd.DataFrame(rows, columns=["accession", "form", "items", "acceptance_sort", "report_date", "d0_session",
+                                        "event_kind", "pick_not_first", "item202_kind", "item202_date",
+                                        "report_date_lag_sessions", "report_date_kind"])
+    return frame.assign(cik=7, fiscal_quarter_end="2018-04-01", event_kind_basis="last_run_by_report",
+                        d0_session_acceptance=frame["d0_session"])
+
+
+def test_a_pick_that_furnishes_slides_gives_way_to_the_earlier_results_release():
+    events = _quarter([   # Interface Q1 2018
+        ("p0", "8-K", "2.02,9.01", "2018-03-01 08:00:00", "2018-03-01", "2018-03-01", "preannouncement", "N",
+         "preliminary", "", "0", "event_date"),
+        ("r1", "8-K", "2.02,5.02,9.01", "2018-04-25 16:16:21", "2018-04-24", "2018-04-26", "preannouncement", "N",
+         "results_release", "2018-04-25", "2", "event_date"),
+        ("s2", "8-K", "2.02,9.01", "2018-04-30 15:48:35", "2018-04-30", "2018-04-30", "results_release", "Y",
+         "presentation", "", "0", "event_date")])
+    out = er.reclassify_by_text(events)
+    assert out["event_kind"].tolist() == ["preannouncement", "results_release", "other"]
+    assert set(out["event_kind_basis"]) == {"item202_text"} and set(out["release_check"]) == {"moved_from:s2"}
+    assert out["pick_not_first"].tolist() == ["N", "Y", "N"]
+    # without an earlier results release the pick stays, flagged
+    kept = er.reclassify_by_text(events.assign(item202_kind=["preliminary", "preliminary", "transcript"]))
+    assert kept["event_kind"].tolist() == events["event_kind"].tolist()
+    assert kept["release_check"].tolist() == ["", "", "pick_furnishes_no_release"]
+    # a pick whose paragraph says nothing either way ('other') never moves the release
+    bare = er.reclassify_by_text(events.assign(item202_kind=["preliminary", "results_release", "other"]))
+    assert bare["event_kind"].tolist() == events["event_kind"].tolist() and set(bare["release_check"]) == {""}
+
+
+def test_a_late_furnished_release_takes_the_latest_d0_of_its_release_day(calendar):
+    events = _quarter([
+        # T2: released 2022-05-05 (its text), accepted 2022-05-11: D0 the session after the release day
+        ("t2", "8-K", "2.02,3.01,9.01", "2022-05-11 16:25:03", "2022-05-05", "2022-05-12", "results_release", "N",
+         "results_release", "2022-05-05", "5", "event_date"),
+        # Interface: the period of report is the 5.02 date; the text's release day gives the acceptance D0 back
+        ("r1", "8-K", "2.02,5.02,9.01", "2018-04-25 16:16:21", "2018-04-24", "2018-04-26", "results_release", "N",
+         "results_release", "2018-04-25", "2", "event_date"),
+        # no text date, only release items: the period of report is the release day
+        ("u1", "8-K", "2.02,9.01", "2020-02-04 16:42:28", "2020-02-03", "2020-02-05", "results_release", "N",
+         "no_item202_text", "", "2", "event_date"),
+        # ... unless the text describes something other than a release (an acquired business's statements)
+        ("s1", "8-K", "2.02,9.01", "2026-03-31 16:00:00", "2026-02-13", "2026-04-01", "results_release", "N",
+         "other", "", "31", "event_date"),
+        # no text date and another item (AMD 2014: a 2.05 date): D0 stays
+        ("a1", "8-K", "2.02,2.05,7.01,9.01", "2014-10-16 16:21:56", "2014-10-10", "2014-10-17", "results_release", "N",
+         "no_item202_text", "", "5", "event_date"),
+        # a period end as the period of report and no text date: unresolved, D0 stays
+        ("c1", "8-K", "2.02,9.01", "2020-08-05 07:00:18", "2020-06-30", "2020-08-05", "results_release", "N",
+         "no_document", "", "25", "period_end"),
+        # a text about something else (an auditor change): its date is not the release's
+        ("q1", "8-K", "2.02,4.01,9.01", "2024-06-11 17:26:37", "2024-06-06", "2024-06-12", "results_release", "N",
+         "other", "2024-05-03", "4", "event_date"),
+        # an amendment is never moved
+        ("m1", "8-K/A", "2.02,9.01", "2022-05-20 16:00:00", "2022-05-05", "2022-05-23", "amendment", "N",
+         "", "", "12", "event_date")])
+    out = er.late_furnished_d0(events, calendar).set_index("accession")
+    assert out["d0_session"].to_dict() == {"t2": "2022-05-06", "r1": "2018-04-26", "u1": "2020-02-04", "s1": "2026-04-01",
+                                           "a1": "2014-10-17", "c1": "2020-08-05", "q1": "2024-06-12", "m1": "2022-05-23"}
+    assert out["late_furnished"].to_dict() == {"t2": "Y", "r1": "N", "u1": "Y", "s1": "N", "a1": "N", "c1": "N", "q1": "N",
+                                               "m1": "N"}
+    assert out["release_date_basis"].to_dict() == {"t2": "item202_text", "r1": "item202_text", "u1": "report_date",
+                                                   "s1": "unresolved_not_a_release", "a1": "unresolved_other_items",
+                                                   "c1": "unresolved", "q1": "unresolved_other_items", "m1": ""}
+    assert out.loc["t2", "d0_basis"] == "release_date_latest" and out.loc["r1", "d0_basis"] == "acceptance"
+    assert out.loc["t2", "d0_session_acceptance"] == "2022-05-12"   # kept
+
+
+def test_evidence_rows_take_late_candidates_and_picks_then_the_earlier_8ks_of_a_slide_pick():
+    events = _quarter([
+        ("r1", "8-K", "2.02,9.01", "2018-04-25 16:16:21", "2018-04-25", "2018-04-26", "preannouncement", "N",
+         "", "", "0", "event_date"),
+        ("s2", "8-K", "2.02,9.01", "2018-04-30 15:48:35", "2018-04-30", "2018-04-30", "results_release", "Y",
+         "", "", "0", "event_date"),
+        ("t3", "8-K", "2.02,9.01", "2018-05-09 16:00:00", "2018-05-02", "2018-05-10", "other", "N",
+         "", "", "6", "event_date")]).assign(in_window=True)
+    first = er.evidence_rows(events, 1)
+    assert first["accession"].tolist() == ["s2", "t3"]
+    assert first["evidence_reason"].tolist() == ["release_not_first", "late_candidate"]
+    assert er.evidence_rows(events, 2).empty                     # the pick's kind is not known yet
+    second = er.evidence_rows(events.assign(item202_kind=["", "presentation", ""]), 2)
+    assert second["accession"].tolist() == ["r1"]
+
+
+def test_first_in_fiscal_quarter_is_the_first_non_amendment_event_by_d0():
+    events = pd.DataFrame({"cik": [7] * 5, "fiscal_quarter_end": ["2022-03-31"] * 3 + ["2022-06-30", ""],
+                           "event_kind": ["amendment", "results_release", "other", "results_release", "other"],
+                           "d0_session": ["2022-05-02", "2022-05-06", "2022-05-10", "2022-08-05", "2022-09-01"],
+                           "acceptance_sort": ["2022-05-02"] * 5, "accession": list("abcde")})
+    assert er.first_in_fiscal_quarter(events).tolist() == ["N", "Y", "N", "Y", "N"]
+
+
+def test_presence_counts_extra_weeks_and_gaps_use_the_same_population():
+    weekly = pd.DataFrame({"cik": [7] * 4, "week_end": pd.to_datetime(["2016-01-08", "2016-04-08", "2016-07-08",
+                                                                         "2016-10-07"]), "universe": True})
+    weeks = weekly[["cik", "week_end"]]
+    top = weeks.iloc[[2, 3]]
+    present = er.presence(weeks, weekly, {7}, extra={"top300_weeks": top})
+    assert present.set_index("quarter")["top300_weeks"].to_dict() == {"2016Q1": 0, "2016Q2": 0, "2016Q3": 1, "2016Q4": 1}
+    quarters = present.assign(full_quarter=True)
+    events = pd.DataFrame({"cik": [7] * 4, "event_kind": ["results_release"] * 4,
+                           "d0_session": ["2016-02-01", "2016-05-02", "2016-08-01", "2016-12-05"]})
+    fallback = pd.DataFrame(columns=["cik", "d0_session", "usable_as_announcement"])
+    on_top = er.gap_summary_population(events, fallback, quarters, "top300_weeks")
+    assert on_top["gaps"] == 2 and on_top["over_120"] == 1     # the gaps ending in 2016Q3 (91) and 2016Q4 (126)
+    assert er.gap_summary_population(events, fallback, quarters, "scope_weeks")["gaps"] == 3
+    assert er.coverage_summary(quarters.assign(n_item202=1, n_fallback=0, n_fallback_usable=0, usable_date=True),
+                               "top300_weeks")["company_quarters"] == 2
+
+
+def test_round7_is_rescored_on_the_current_release_of_each_company_quarter():
+    events = pd.DataFrame({"cik": ["715787", "715787"], "fiscal_quarter_end": ["2018-04-01"] * 2,
+                           "accession": ["r1", "s2"], "event_kind": ["results_release", "other"],
+                           "d0_session": ["2018-04-26", "2018-04-30"]})
+    keys = pd.DataFrame({"cik": ["715787"], "fiscal_quarter_end": ["2018-04-01"], "draw_order": ["20"],
+                         "seed": ["20261002"], "population": ["76064"], "accession_drawn": ["s2"]})
+    rows = er.round7_rescored(events, keys)
+    assert rows[["accession", "accession_drawn_round7", "quarter", "draw_order"]].values.tolist() == [["r1", "s2", "2018Q2", 20]]
+
+
+def test_hand_check_table_has_the_columns_validate_reads():
+    rows = pd.DataFrame({c: ["x"] for c in er.HAND_CHECK_COLUMNS if c not in er.HAND_VERDICT_FIELDS})
+    rows["accession"] = ["0001-22-000001"]
+    out = er.hand_check_table(rows, {"0001-22-000001": {"d0_matches": "Y", "ir_url": "u", "ir_release_et": "2022-05-05",
+                                                         "checked_at": "2026-10-02T18:00:00+00:00"}})
+    assert {"accession", "security_id", "ir_url", "ir_release_et", "d0_matches", "checked_at"} <= set(out.columns)
+    assert out.loc[0, "d0_matches"] == "Y" and out.loc[0, "match_type"] == ""
+    assert er.HAND_SAMPLE_SEED_FRESH != er.HAND_SAMPLE_SEED
+
+
+def test_built_late_and_moved_rows_are_consistent():
+    events = _built(er.EVENTS_OUT)
+    late = events[events["late_furnished"] == "Y"]
+    assert (late["event_kind"] != "amendment").all()
+    assert (late["report_date_lag_sessions"].astype(int) >= er.LATE_MIN_SESSIONS).all()
+    assert late["release_date_basis"].isin(["item202_text", "report_date"]).all()
+    # D0 is the session after a session-day release date (or the first session after a non-session day)
+    calendar = er.XnasCloses()
+    assert all(calendar.latest_d0_on_date(day)[0] == d0 for day, d0 in zip(late["release_date"], late["d0_session"]))
+    assert set(events["first_in_fiscal_quarter"]) <= {"Y", "N"}
+    fallback = _built(er.FALLBACK_OUT)
+    assert set(fallback["first_in_fiscal_quarter"]) == {"Y"}
+    moved = events[events["release_check"].str.startswith("moved_from")]
+    assert (moved["event_kind_basis"] == "item202_text").all()
+    releases = moved[moved["event_kind"] == "results_release"]
+    by_text = releases[releases["release_check"].str.startswith("moved_from:")]
+    assert by_text["item202_kind"].eq("results_release").all()   # the text says it reports results
+    # a re-furnishing's release: accepted on or after the date the old pick gives, first traded on it
+    old = events.set_index("accession")
+    for row in releases[releases["release_check"].str.startswith("moved_from_refurnished:")].itertuples():
+        pick = old.loc[row.release_check.split(":")[1]]
+        latest, earliest = calendar.latest_d0_on_date(pick["item202_date"])
+        assert row.acceptance_et[:10] >= pick["item202_date"] and earliest <= row.d0_session_acceptance <= latest
+        assert pick["event_kind"] == "other"
+
+
+def test_a_pick_that_dates_the_release_to_an_earlier_8k_gives_way_to_it(calendar):
+    events = _quarter([   # Western Digital FY2013 Q4: the release, then a re-furnishing that the last-run rule picked
+        ("r1", "8-K", "2.02,9.01", "2013-07-24 16:05:00", "2013-07-24", "2013-07-25", "preannouncement", "N",
+         "", "", "0", "event_date"),
+        ("f2", "8-K", "2.02,9.01", "2013-08-15 08:00:00", "2013-08-14", "2013-08-15", "results_release", "Y",
+         "results_release", "2013-07-24", "16", "event_date")])
+    out = er.reclassify_by_text(events, calendar)
+    assert out["event_kind"].tolist() == ["results_release", "other"]
+    assert set(out["release_check"]) == {"moved_from_refurnished:f2"}
+    assert er.reclassify_by_text(events)["event_kind"].tolist() == ["preannouncement", "results_release"]  # no calendar
+
+
+def test_a_late_refurnishing_of_a_release_with_its_own_8k_keeps_its_d0(calendar):
+    events = _quarter([   # Texas Capital: released 2015-01-21 in its own 8-K; a 2015-03-10 8-K re-furnishes it
+        ("r1", "8-K", "2.02,9.01", "2015-01-21 16:05:00", "2015-01-21", "2015-01-22", "results_release", "N",
+         "", "", "1", "event_date"),
+        ("f2", "8-K", "2.02,9.01", "2015-03-10 16:30:00", "2015-01-21", "2015-03-11", "other", "N",
+         "results_release", "2015-01-21", "33", "event_date")])
+    out = er.late_furnished_d0(events, calendar).set_index("accession")
+    assert out.loc["f2", ["d0_session", "late_furnished", "release_date_basis"]].tolist() == ["2015-03-11", "N",
+                                                                                             "release_has_own_8k"]
+
+
+def test_an_8k_accepted_before_the_stated_release_day_is_not_that_release(calendar):
+    events = _quarter([   # America's Car-Mart: a debt 8-K accepted 2025-03-05 after the close; release 2025-03-06
+        ("d1", "8-K", "2.02,9.01", "2025-03-05 17:41:00", "2025-03-03", "2025-03-06", "preannouncement", "N",
+         "other", "2025-03-03", "2", "event_date"),
+        ("r2", "8-K", "2.02,9.01", "2025-03-10 09:00:00", "2025-03-06", "2025-03-10", "results_release", "Y",
+         "results_release", "2025-03-06", "2", "event_date")])
+    assert er.reclassify_by_text(events, calendar)["event_kind"].tolist() == ["preannouncement", "results_release"]
+    out = er.late_furnished_d0(events, calendar).set_index("accession")
+    assert out.loc["r2", ["d0_session", "late_furnished", "release_date_basis"]].tolist() == ["2025-03-07", "Y", "item202_text"]
