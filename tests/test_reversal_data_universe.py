@@ -567,6 +567,81 @@ def test_mark_missing_skips_weeks_outside_trading_new_listings_and_closes_under_
     assert out.set_index("security_id").loc["d", "missing_reason"] == "unfillable"
 
 
+def _short_window_frame():
+    weeks = pd.to_datetime(["2020-10-02", "2020-10-09"])
+    base = {"eligible": True, "dv50_rank_any_price": np.nan, "dv50": np.nan, "price_ge_10": "Y", "has_series": True,
+            "pf_outside_trading": False, "pf_dv50": np.nan, "pf_price": "", "mcap": np.nan, "float_usd": np.nan,
+            "multi_class": False, "cik": "1", "first_row": "2020-09-21", "last_row": "2026-08-31"}
+    rows = [
+        # kdp: a transfer from NYSE whose rows start at the Nasdaq start: a close, 14 rows, no dv50, not young.
+        {"security_id": "kdp", "week_index": 0, "close": 30.0},
+        # gap: no close in the week: a row is lacking.
+        {"security_id": "gap", "week_index": 1, "close": np.nan, "first_row": "2015-01-02", "last_row": "2020-06-01"},
+    ]
+    listed = pd.DataFrame([{**base, **r} for r in rows])
+    listed["week_end"] = weeks[listed["week_index"].values]
+    spans = pd.DataFrame({"security_id": ["kdp", "gap"], "list_start": ["2020-09-21", "2010-01-01"],
+                          "list_end": ["2026-08-31", "2026-08-31"]})
+    cut = pd.DataFrame({"cut250": 1e7, "cut300": 8e6, "cut_mcap": 2e9, "cut_float": 2e9},
+                       index=pd.Index(range(2), name="week_index"))
+    return listed, spans, cut
+
+
+def test_a_week_with_a_close_and_a_short_window_is_short_window_not_a_lacking_row():
+    # Round 10: 422 name-weeks with a canonical close but fewer than 25 rows in the window (CDW 2013-06,
+    # KDP 2020-09, QVCA 2014-10) were series_gap or answer_not_in_panel, which say a row is lacking.
+    listed, spans, cut = _short_window_frame()
+    out = un.mark_missing(listed, spans, {"kdp": "series_gap", "gap": "series_gap"}, cut).set_index("security_id")
+    assert out["missing"].all()
+    assert out.loc["kdp", "missing_reason"] == "short_window" and out.loc["gap", "missing_reason"] == "series_gap"
+    # An answer older than the panel covers both weeks: only the week without a close is answer_not_in_panel.
+    status = pd.DataFrame({"security_id": ["kdp", "gap"], "status": ["done", "done"],
+                           "first_date": ["2011-06-01", "2011-06-01"], "last_date": ["2026-08-31", "2026-08-31"],
+                           "fetched_utc": ["2026-10-01T19:36:08+00:00", "2026-10-01T19:36:08+00:00"]})
+    out = un.mark_missing(listed, spans, {"kdp": "not_candidate", "gap": "not_candidate"}, cut, status,
+                          "2026-10-02T05:04:50+00:00").set_index("security_id")
+    assert out.loc["kdp", "missing_reason"] == "short_window"
+    assert out.loc["gap", "missing_reason"] == "answer_not_in_panel"
+    # Reasons that do not claim a lacking row are kept (not_candidate, unfillable, the pending ones).
+    for reason in ("not_candidate", "unfillable", "tiingo_pending"):
+        out = un.mark_missing(listed, spans, {"kdp": reason, "gap": reason}, cut).set_index("security_id")
+        assert out.loc["kdp", "missing_reason"] == reason
+    # The evidence still speaks for the week: a proxy at the band median blocks it as before.
+    big = un.mark_missing(listed.assign(mcap=4e10), spans, {"kdp": "series_gap", "gap": "series_gap"}, cut)
+    big = big.set_index("security_id")
+    assert big.loc["kdp", "proxy_above"] and un.blocks_week(big.loc[["kdp"]]).all()
+    assert "short_window" in un.MISSING_REASONS and "n_missing_short_window" in un.SUMMARY_COLUMNS
+
+
+def test_weeks_between_a_documented_relist_junctions_old_and_new_shares_are_outside_trading():
+    # WW: suspended from Nasdaq on 2025-05-16 (last session 2025-05-15), new shares from 2025-06-27.
+    table = pd.DataFrame({"security_id": ["ww", "cepl", "smci", "undocumented"],
+                          "status": ["junction", "junction", "same_shares", "junction"],
+                          "document_read": ["Y", "Y", "", ""],
+                          "old_nasdaq_last_session": ["2025-05-15", "2023-10-04", "", "2025-05-15"],
+                          "first_new_session": ["2025-06-27", "2026-07-08", "", "2025-06-27"]})
+    gaps = un.relist_gaps(table)
+    assert gaps == {"ww": [("2025-05-15", "2025-06-27")], "cepl": [("2023-10-04", "2026-07-08")]}
+    weeks = pd.to_datetime(["2025-05-16", "2025-05-23", "2025-05-30", "2025-07-03", "2023-10-13"])
+    listed = pd.DataFrame({"security_id": ["ww", "ww", "ww", "ww", "cepl"], "week_index": [0, 1, 2, 3, 4],
+                           "week_end": weeks, "close": [12.0, np.nan, np.nan, 20.0, 1.5]})
+    # The week of the last session has a (stale) close; the new shares' week is theirs; CEPL's OTC close stays.
+    assert un.relist_gap_weeks(listed, gaps).tolist() == [False, True, True, False, False]
+    assert not un.relist_gap_weeks(listed, {}).any()
+    base = {"eligible": True, "dv50_rank_any_price": np.nan, "dv50": np.nan, "price_ge_10": "", "has_series": True,
+            "pf_outside_trading": False, "pf_dv50": np.nan, "pf_price": "", "mcap": np.nan, "float_usd": np.nan,
+            "multi_class": False, "cik": "1", "first_row": "2018-07-27", "last_row": "2026-08-31"}
+    frame = pd.DataFrame([{**base, "security_id": "ww", "week_index": i, "close": np.nan} for i in (1, 2)])
+    frame["week_end"] = weeks[[1, 2]]
+    spans = pd.DataFrame({"security_id": ["ww"], "list_start": ["2018-07-27"], "list_end": ["2025-06-05"]})
+    cut = pd.DataFrame({"cut250": 1e7, "cut300": 8e6, "cut_mcap": 2e9, "cut_float": 2e9},
+                       index=pd.Index(range(4), name="week_index"))
+    before = un.mark_missing(frame, spans, {"ww": "series_gap"}, cut)
+    assert before["missing"].all() and not before["outside_trading"].any()
+    after = un.mark_missing(frame, spans, {"ww": "series_gap"}, cut, gaps=gaps)
+    assert after["outside_trading"].all() and after["relist_gap"].all() and not after["missing"].any()
+
+
 def test_form25_check_finds_series_ends_near_the_delisting_and_says_why_others_do_not():
     sessions = pd.bdate_range("2015-01-01", "2016-12-31")
     form25 = pd.DataFrame({"accession": ["x1", "x2", "x3", "x4"], "classification": "common_delisting",

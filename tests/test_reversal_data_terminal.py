@@ -1400,3 +1400,45 @@ def test_a_scratch_build_reads_the_repos_sec_envelopes_without_copying_them(tmp_
 def test_a_month_2_tiingo_row_is_pending_for_month_2():
     candidates = pd.DataFrame({"security_id": ["1"], "planned_source": ["tiingo"], "status": ["pending_month2"]})
     assert tr.price_pending("1", candidates, _book([])) == "tiingo month 2"
+
+
+# ------------------------------------------------------------------ the hand review's merged verdicts
+
+def _verdicts(tmp_path, rows):
+    columns = ["security_id", "ticker", "queue", "verdict", "terminal_type", "event_subtype", "cash", "shares",
+               "acquirer_security_id", "acquirer_name", "last_trading_day", "special_dividend", "special_dividend_record",
+               "fixed_value", "value_rule", "url", "approved", "hold", "hold_last_session", "note", "verified_at",
+               "reviewer", "item_id"]
+    path = tmp_path / "terminal_verdicts.csv"
+    pd.DataFrame(rows).reindex(columns=columns).fillna("").to_csv(path, index=False)
+    return path
+
+
+def test_load_review_verdicts_merges_into_reviewed_and_a_rerun_starts_from_the_code(tmp_path, monkeypatch):
+    monkeypatch.setattr(tr, "REVIEWED", {"1": {"type": "cash_merger", "cash": 10.0, "note": "code"}})
+    monkeypatch.setattr(tr, "CODE_REVIEWED", {"1": {"type": "cash_merger", "cash": 10.0, "note": "code"}})
+    url = "https://www.sec.gov/Archives/edgar/data/1/a.htm"
+    path = _verdicts(tmp_path, [
+        {"security_id": "1", "verdict": "correct", "terminal_type": "cash_merger", "cash": "12", "url": url,
+         "approved": "the CVR paid $2", "item_id": "terminal-01-001"},
+        {"security_id": "2", "verdict": "price_gap", "terminal_type": "stock_merger", "shares": "0.5",
+         "acquirer_security_id": "77", "url": url, "approved": "terms checked", "note": "needs X on 2020-01-02",
+         "item_id": "terminal_price-01-001"}])
+    facts = tr.load_review_verdicts(path)
+    assert facts["entries"] == 2 and facts["new_entries"] == 1 and facts["approved"] == 1
+    assert tr.REVIEWED["1"]["cash"] == 12.0 and tr.REVIEWED["1"]["approved"].startswith("terminal-01-001")
+    assert tr.REVIEWED["2"]["acq"] == "77" and "approved" not in tr.REVIEWED["2"]
+    assert tr.CODE_REVIEWED["1"]["cash"] == 10.0
+    tr.load_review_verdicts(_verdicts(tmp_path, []))
+    assert tr.REVIEWED == {"1": {"type": "cash_merger", "cash": 10.0, "note": "code"}}
+    assert tr.load_review_verdicts(tmp_path / "missing.csv")["missing"]
+
+
+def test_a_merged_verdict_label_reaches_the_reading_but_not_the_guards_note(monkeypatch):
+    monkeypatch.setattr(tr, "REVIEWED", {"5": {"type": "cash_merger", "cash": 4.0, "note": "no holder election",
+                                               "review": "hand review t-1 (approve)"}})
+    decided = tr.apply_review({"security_id": "5"}, {"terminal_type": "unknown", "event_subtype": "", "cash": None,
+                                                    "shares": None, "source_url": "", "note": "", "cvr": False,
+                                                    "election": False})
+    assert decided["review_note"] == "hand review t-1 (approve)"
+    assert "hand review" not in decided["note"]

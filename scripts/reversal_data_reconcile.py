@@ -191,6 +191,22 @@ Tables:
   another vendor, or the stored file, which counts as a second source by the owner's convention of
   2026-10-02) is resolved by plan 4.4's own R1 rule: classified mechanically as ``market_move_second_source``
   with ``verified_at`` the build date and the basis in ``notes``; every other entry stays ``unreviewed``.
+- The hand review (round 10, merged by ``scripts/reversal_data_review.py`` into ``CACHE/review/round10/merged``;
+  ``--review-dir`` reads another merge, ``--no-review`` none): ``moves_verdicts.csv`` fills the queue's
+  classification, source_url and verified_at keyed (security_id, event_date, rule), with a short note naming the
+  item (an ``unresolved`` verdict leaves the row ``unreviewed``); ``split_verdicts.csv`` and
+  ``distribution_verdicts.csv`` fill split_events.csv sec_url / verified_at and special_distributions.csv sec_url
+  keyed (security_id, ex_date) (``sec_url`` = the document, or ``evidence: <sources>`` for a two-source verdict).
+  A ``vendor_error`` verdict with a ``correct_source`` picks the day's canonical source (an R7 run: every session to
+  its end_date; flags ``review_source:<src>`` and, on a day the vote left unresolved, ``disagree_reviewed`` instead of
+  ``disagree_unresolved``); one without a correct_source flags the day ``review_vendor_error``. The queue's R3 and R7
+  rules still read the vote, so the rows the verdicts answer stay in the queue. Verdicts that would change S or D (an
+  unrecorded event, a corrected or rejected split or distribution) are not applied: they are listed in
+  ``merged/moves_data_changes.csv`` and ``merged/split_data_changes.csv`` for the owner.
+- ``HALTED_SPANS``: a documented halt after the last trade (UCFI, NUTR): its listed zero-volume rows are kept
+  (flag ``halt``) instead of cut as R5 filler, and their R4 entries are classified by the evidence named.
+- The predecessor of a continuing SUCCESSOR_LINKS link keeps its Tiingo answer to its successor's window end, so the
+  successor gets the same shares' rows it lacks (ASRT from 2020-06-19; QVCGA from 2025-03-03 via QRTEA's QVCAQ file).
 - ``CACHE/dividends.csv`` (plan 1.2): every cash dividend the canonical series books, as paid on the ex-date
   (security_id, ex_date, cash_as_paid, sources: the vendors with the same amount that day within $0.001;
   then ticker, src_primary, other_amounts, special).
@@ -249,6 +265,7 @@ import pandas as pd
 
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
+from scripts import reversal_data_review as review_merge
 
 CODE_VERSION = "2026-10-02.6"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
@@ -350,6 +367,23 @@ KNOWN_DISAGREEMENTS = [("NFLX", "2013-10-22"), ("KLAC", "2015-01-23"), ("MNST", 
 # it is a placeholder, not a trade). A relisting that keeps the same shares (SMCI 2020-01, removed for late
 # filings; SIGA, SCOR, MDXG) has no junction.
 _SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/"
+# Halts R5 must not cut as filler (plan 4.4 R4: identical closes with zero volume that a second independent source
+# shows are kept and flagged): listed sessions after the last trade where the series stays listed and halted. Rows
+# from ``start`` are kept (flag ``halt``) and their R4 queue entries are classified by the evidence named here.
+# Round-10 gap review (universe_listed_gaps), checked on 2026-10-03 against the cached 8-Ks named.
+HALTED_SPANS = {
+    "1901203": {"start": "2025-10-02", "classification": "flat_genuine", "evidence": "yahoo+stored",
+                "url": _SEC_ARCHIVE + "1901203/000121390026080024/ea0298572-8k_cnhealthy.htm",
+                "note": "UCFI: Yahoo and the stored file both show one constant close and zero volume on every session "
+                        "from 2025-10-02; the 8-K of 2026-07-21 (Item 3.01, Nasdaq delisting determination) names 'the "
+                        "trading halt currently in effect' (its start is not stated)"},
+    "2006468": {"start": "2025-10-09", "classification": "flat_genuine", "evidence": "yahoo+stored",
+                "url": _SEC_ARCHIVE + "2006468/000149315225018007/form8-k.htm",
+                "note": "NUTR: the 8-K of 2025-10-14 (Item 8.01) reports the SEC order suspending trading 2025-10-09 to "
+                        "2025-10-22 and a Nasdaq information request; Yahoo and the stored file both show one constant "
+                        "close and zero volume on every session from 2025-10-09 (no document dates the end of the halt)"},
+}
+HALTED_REVIEWED_AT = "2026-10-03T00:00:00Z"
 RELIST_JUNCTIONS = {
     "1486159": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity", "read": True, "read_on": "2026-10-02",
                 "effective_date": "2020-11-19", "old_nasdaq_last_session": "2020-10-09",
@@ -441,8 +475,34 @@ RELIST_JUNCTIONS = {
                         "2026-07-07): a separate segment, so the 56.6x level change is no return"},
 }
 GAP_RETURN_MAX = 10  # plan R9: no return across a gap of more than 10 sessions (tr blank, ``gap_return_blank``)
+LIST_REVIEW_DAYS = 40  # summary: at most this many changed days per security
 TERMINAL_DIVIDEND_DAYS = 45  # a closing special dividend the terminal value owns: a vendor booking this close before it
 R1_MECHANICAL_CLASS = "market_move_second_source"  # an R1 entry the plan's rule resolves (two sources within 0.5%)
+# The hand review's merged verdicts (scripts/reversal_data_review.py; CACHE/review/round10/merged): the moves queue's
+# classifications, split_events/special_distributions sec_url and verified_at, and the per-day source choices of
+# vendor_error verdicts (``source_overrides``). --review-dir reads another merge; --no-review reads none.
+REVIEW_DIR = review_merge.MERGED_DIR
+APPLY_REVIEW = True
+APPLY_REVIEW_SOURCE_OVERRIDES = True  # vendor_error verdicts with a correct_source pick the day's canonical source
+_REVIEW_CACHE: dict[str, pd.DataFrame | None] = {}
+
+
+def review_table(name: str) -> pd.DataFrame | None:
+    """A merged verdict table (moves_verdicts.csv, split_verdicts.csv, distribution_verdicts.csv), or None."""
+    if not APPLY_REVIEW:
+        return None
+    if name not in _REVIEW_CACHE:
+        _REVIEW_CACHE[name] = review_merge.load_merged(name, REVIEW_DIR)
+    return _REVIEW_CACHE[name]
+
+
+def review_overrides() -> dict[str, list[dict]]:
+    """Per security, the reviewed source choices (vendor_error with a correct_source) and the reviewed vendor errors
+    without one: {"source": [...], "flag": [...]} spans as reversal_data_review gives them."""
+    moves = review_table("moves_verdicts.csv")
+    choose = review_merge.source_overrides(moves) if APPLY_REVIEW_SOURCE_OVERRIDES else {}
+    flags = review_merge.reviewed_days(moves)
+    return {sid: {"source": choose.get(sid, []), "flag": flags.get(sid, [])} for sid in set(choose) | set(flags)}
 
 # Successor links (``security_master.successor_security_id``) of target securities whose series ended at the link
 # (series_ends.csv ``successor_link`` in round 8: 26 pairs). Every predecessor is cut at its real last session,
@@ -1072,7 +1132,11 @@ def load_old_tiingo_rows(identity: dict, targets: set[str]) -> pd.DataFrame:
 
 def load_new_tiingo_rows(identity: dict, targets: set[str], windows: dict) -> tuple[pd.DataFrame, dict]:
     """The month-1 run's answers, through each security's own status row. A file shared by several
-    securities is cut to each one's own listing spans; otherwise to its window."""
+    securities is cut to each one's own listing spans; otherwise to its window, which for the predecessor of a
+    continuing SUCCESSOR_LINKS link runs to its successor's window end: the file fetched for the predecessor's
+    ticker carries the same shares on after the 1:1 reorganisation or rename, and link_frames hands those rows to
+    the successor where it has none of its own (ASRT: the Tiingo answer fetched for 1005201 to 2026-06; QVCGA: the
+    QVCAQ answer fetched for QRTEA; round-10 gap review)."""
     facts = {"status_rows": 0, "status_counts": {}, "files_read": 0, "files_unreadable": [], "shared_files": 0}
     if not TIINGO_STATUS.exists():
         return _empty_rows(), facts
@@ -1083,6 +1147,9 @@ def load_new_tiingo_rows(identity: dict, targets: set[str], windows: dict) -> tu
                     status["prices_path"].ne("")]
     users = usable.groupby("prices_path")["security_id"].nunique()
     mapping = identity["mapping"]
+    continued_to = {pred: (pd.Timestamp(link["last_session"]), windows[link["successor"]][1])
+                    for pred, link in SUCCESSOR_LINKS.items() if link.get("continues") and link["successor"] in windows}
+    facts["predecessor_windows_extended"] = sorted(continued_to)
     out, cache = [], {}
     order = {"done": 0, "done_review": 1, "partial": 2}
     usable = usable.assign(rank=usable["status"].map(order)).sort_values(["security_id", "rank"])
@@ -1105,11 +1172,15 @@ def load_new_tiingo_rows(identity: dict, targets: set[str], windows: dict) -> tu
         rows = frame.copy()
         rows["security_id"] = row.security_id
         dates = pd.DatetimeIndex(rows["date"])
+        cut, until = continued_to.get(row.security_id, (None, None))
         if users.get(row.prices_path, 1) > 1:
             facts["shared_files"] += 1
             keep = listed_mask(mapping, row.security_id, dates)
+            if cut is not None:  # after the predecessor's last session, to its successor's window end
+                keep |= (dates > cut) & (dates <= until)
         else:
             low, high = windows.get(row.security_id, (pd.Timestamp(WINDOW_START), pd.Timestamp(WINDOW_END)))
+            high = max(high, until) if until is not None else high
             keep = (dates >= low) & (dates <= high)
         if row.status == "done_review":
             rows["rowflag"] = (rows["rowflag"] + " tiingo_done_review").str.strip()
@@ -1687,6 +1758,33 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     p = np.clip(primary, 0, 3)
     stored_kind = stored_disagreements(C, r, valid, choice, p)
     choice["unresolved"] = choice["unresolved"] & (stored_kind == "")
+    # the hand review (reversal_data_review, ``ctx["review"]``): a vendor_error verdict with a correct_source picks the
+    # day's canonical source over the vote (the vote's own result stays what the queue rules R3 and R7 read, so the
+    # queue keeps the rows the verdicts answer); a day the vote left unresolved is then resolved with the others as
+    # the minority. A verdict without a correct_source (no other vendor has the day, or none is right) only flags it.
+    p_vote, unresolved_vote = p.copy(), choice["unresolved"].copy()
+    review_pick = np.full(n, -1)
+    review_item = np.full(n, "", dtype=object)
+    review_flag = np.zeros(n, dtype=bool)
+    day_str = grid.strftime("%Y-%m-%d")
+    review = ctx.get("review") or {}
+    for item in review.get("source", ()):
+        i = SRC.index(item["source"])
+        span = (day_str >= item["start"]) & (day_str <= item["end"]) & has[i]
+        review_pick[span] = i
+        review_item[span] = item["item_id"]
+    for item in review.get("flag", ()):
+        review_flag |= (day_str >= item["start"]) & (day_str <= item["end"])
+    review_unused = [item["item_id"] for item in review.get("source", ())
+                     if not ((day_str >= item["start"]) & (day_str <= item["end"]) & has[SRC.index(item["source"])]).any()]
+    for k in np.flatnonzero(review_pick >= 0):
+        i = int(review_pick[k])
+        primary[k] = i
+        choice["unresolved"][k] = False
+        if valid[i, k]:
+            with np.errstate(invalid="ignore"):
+                choice["minority"][:, k] = valid[:, k] & ~(np.abs(r[:, k] - r[i, k]) <= TOL_R)
+    p = np.clip(primary, 0, 3)
     Cp, Vp, Sp, Dp = C[p, cols], V[p, cols], S[p, cols], D[p, cols]
     with np.errstate(divide="ignore", invalid="ignore"):
         implied = (1.0 + r[p, cols]) / (1.0 + stored_r)  # the factor the stored file's move is off by
@@ -1701,6 +1799,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     keep = has_vendor & (primary >= 0)  # never the successor's anchor rows (``has_vendor`` leaves them out)
     leading_cut = [str(grid[k].date()) for k in np.flatnonzero(keep & leading)]
     keep &= ~leading
+    # a documented halt (HALTED_SPANS): its listed zero-volume rows are kept (R4), not cut as filler (R5)
+    halted = np.zeros(n, dtype=bool)
+    halt_entry = HALTED_SPANS.get(sid)
+    if halt_entry:
+        halted = (grid >= pd.Timestamp(halt_entry["start"])) & listed
     filler_cut, filler_tiny = 0, np.zeros(0, dtype=int)
     for s in np.unique(seg[keep]):
         part = keep & (seg == s)
@@ -1708,9 +1811,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         if len(traded):
             tail = part.copy()
             tail[: traded[-1] + 1] = False
+            tail &= ~halted
             filler_cut += int(tail.sum())
             keep &= ~tail
         tiny = tiny_volume_tail(Cp, Vp, keep & (seg == s))
+        tiny = tiny[~halted[tiny]] if len(tiny) else tiny
         keep[tiny] = False
         filler_tiny = np.r_[filler_tiny, tiny]
     filler_cut += len(filler_tiny)
@@ -1803,6 +1908,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         level = np.abs(C[:3] / Cp[None, :] - 1.0)
         vol_ratio = V[:3] / Vp[None, :]
     level_off = has[:3] & (np.nan_to_num(level, nan=0.0) > TOL_LEVEL)
+    # R7 for the queue: against the vote's primary (the hand review answers the vote's level runs)
+    Cp_vote = C[p_vote, cols]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        level_vote = np.abs(C[:3] / Cp_vote[None, :] - 1.0)
+    level_off_vote = has[:3] & (np.nan_to_num(level_vote, nan=0.0) > TOL_LEVEL)
     volume_off = has[:3] & (Vp[None, :] > 0) & (V[:3] > 0) & ((vol_ratio >= VOLUME_DIFF) | (vol_ratio <= 1 / VOLUME_DIFF))
 
     # R1 / R2
@@ -1881,6 +1991,12 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("disagree_resolved:" + "+".join(minority))
         if choice["unresolved"][k]:
             t.append("disagree_unresolved")
+        if review_pick[k] >= 0:
+            t.append(f"review_source:{SRC[p[k]]}")  # the hand review's vendor_error verdict chose this day's source
+            if unresolved_vote[k]:
+                t.append("disagree_reviewed")
+        elif review_flag[k]:
+            t.append("review_vendor_error")  # a reviewed vendor error with no other vendor to use: the row stays
         if stored_kind[k]:
             t.append(stored_kind[k])
         offs = [SRC[i] for i in range(3) if level_off[i, k]]
@@ -1898,6 +2014,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("flat_run")
         if zero_vol[k]:
             t.append("zero_volume")
+        if halted[k]:
+            t.append("halt")  # HALTED_SPANS: a documented halt kept, not cut as filler
         if cross[k]:
             t.append("cross_source_return")
         if abs(Sp[k] - 1.0) > 1e-9:
@@ -1952,7 +2070,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
                  "agreeing": agreeing, "RF": RF, "keep": keep, "stored_unit": stored_unit, "stored_r": stored_r,
                  "stored_excluded": stored_excluded, "cash_split": cash_split, "seg": seg,
                  "relist_first": relist_first, "relist_jump": relist_jump, "break_agree": break_agree,
-                 "relists": ctx.get("relists", ())}
+                 "relists": ctx.get("relists", ()), "Cp_vote": Cp_vote, "p_vote": p_vote, "halted": halted,
+                 "halt_entry": halt_entry or {}}
     result["events"] = split_events_of(sid, ctx_local, ticker_of)
     result["specials"] = specials_of(sid, ctx_local, ticker_of)
     # R1c: an ex-date whose ratio no second source confirms, with |tr| >= 10% resting on it (LGND 2022-11-02)
@@ -1960,8 +2079,9 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     single_ratio = {day_of[e["ex_date"]]: e for e in result["events"]
                     if e["event_type"] != "unit_break" and e["in_canonical"]
                     and len([s for s in e["sources_confirming"].split("+") if s]) < 2}
-    result["moves"] = moves_of(sid, ctx_local, ticker_of, choice=choice, move_2x=move_2x, move_big=move_big,
-                               hidden=hidden, flat=flat, zero_vol=zero_vol, level_off=level_off, gap=gap,
+    result["moves"] = moves_of(sid, ctx_local, ticker_of, choice={**choice, "unresolved": unresolved_vote},
+                               move_2x=move_2x, move_big=move_big,
+                               hidden=hidden, flat=flat, zero_vol=zero_vol, level_off=level_off_vote, gap=gap,
                                stored_kind=stored_kind, vendor_jump=vendor_jump, single_ratio=single_ratio)
     result["pairs"] = pair_stats(sid, C, r, valid, has)
     counts = Counter(token.split(":")[0] for k in idx for token in tokens[k])
@@ -2002,6 +2122,14 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         result["summary"]["gap_returns_blank"] = [f"{grid[k].date()} (gap {int(gap_rows[k])})" for k in np.flatnonzero(gap_blank)]
     if terminal_div_dropped:
         result["summary"]["terminal_dividends_dropped"] = terminal_div_dropped
+    if review.get("source") or review.get("flag"):
+        kept_pick = keep & (review_pick >= 0)
+        result["summary"]["review_sources"] = {
+            "days": int(kept_pick.sum()), "changed": int((kept_pick & (p != p_vote)).sum()),
+            "unresolved_resolved": int((kept_pick & unresolved_vote).sum()),
+            "flagged": int((keep & review_flag & (review_pick < 0)).sum()), "unused_items": review_unused,
+            "changed_days": [f"{grid[k].date()} {SRC[p_vote[k]]}>{SRC[p[k]]}" for k in
+                             np.flatnonzero(kept_pick & (p != p_vote))][:LIST_REVIEW_DAYS]}
     if link_cut:
         k0 = int(idx[0]) if len(idx) else -1
         result["summary"]["successor_link"] = {
@@ -2251,12 +2379,21 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
     single_ratio = single_ratio or {}
     out = []
 
+    halted = x.get("halted", np.zeros(n, dtype=bool))
+    halt_entry = x.get("halt_entry") or {}
+
     def entry(k, rule, note, agreeing_sources=None):
         sources = agreeing_sources if agreeing_sources is not None else \
             "+".join(SRC[i] for i in range(4) if agreeing[i, k])
         out.append({"ticker": ticker_of(grid[k]), "event_date": str(grid[k].date()), "classification": "unreviewed",
                     "source_url": "", "verified_at": "", "notes": f"[{rule}] {note}", "security_id": sid,
                     "sources_agreeing": sources, "rule": rule, "listed": bool(x["listed"][k])})
+
+    def settle_halt(days):  # an R4 run inside a documented halt (HALTED_SPANS): settled by its evidence
+        if halt_entry and halted[days].any():
+            out[-1].update({"classification": halt_entry["classification"], "source_url": halt_entry["url"],
+                            "verified_at": HALTED_REVIEWED_AT})
+            out[-1]["notes"] += f" | HALTED_SPANS (evidence: {halt_entry['evidence']}): {halt_entry['note']}"
 
     keep = x["keep"]
     tr = x["tr"]
@@ -2336,22 +2473,26 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
             continue  # a second vendor shows the same flat run with volume: genuine, flagged only
         entry(s0, "R4", f"{len(days)} identical raw closes to {grid[s1].date()}" + ("; zero volume" if zero else "") +
               ("; no second source" if not confirmed else ""), "+".join(confirmed))
+        settle_halt(days)
     for s0, s1 in run_lengths(zero_vol & ~flat):
         entry(s0, "R4", f"zero volume on {s1 - s0 + 1} session(s) to {grid[s1].date()}", "")
+        settle_halt(np.arange(s0, s1 + 1))
     if len(idx):
         inside = np.zeros(len(grid), dtype=bool)
         inside[idx[0]: idx[-1] + 1] = True
         missing = inside & ~kept & x["listed"]
         for s0, s1 in run_lengths(missing):
             entry(s0, "R6", f"{s1 - s0 + 1} listed session(s) with no vendor row, to {grid[s1].date()}", "")
+    # R7 against the vote's primary (``Cp_vote``/``p_vote``; the same as the canonical's without a reviewed source)
+    Cv, pv = x.get("Cp_vote", x["Cp"]), x.get("p_vote", x["p"])
     for i in range(3):
         for s0, s1 in run_lengths(level_off[i] & kept):
             days = idx[(idx >= s0) & (idx <= s1)]
-            ratio = np.nanmedian(C[i, days] / x["Cp"][days])
+            ratio = np.nanmedian(C[i, days] / Cv[days])
             if len(days) < 3 and abs(ratio - 1) < 0.02:
                 continue  # a day or two 1-2% apart: flagged only
-            entry(s0, "R7", f"{SRC[i]} raw close {ratio:.4f}x of {SRC[x['p'][s0]]} on {len(days)} session(s) "
-                            f"to {grid[s1].date()}", SRC[x["p"][s0]])
+            entry(s0, "R7", f"{SRC[i]} raw close {ratio:.4f}x of {SRC[pv[s0]]} on {len(days)} session(s) "
+                            f"to {grid[s1].date()}", SRC[pv[s0]])
     return out
 
 
@@ -2678,6 +2819,7 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
     first_ticker = dict(zip(master["security_id"], master["first_ticker"]))
     predecessor_of = successor_of()
     dividends_owned = terminal_owned_dividends()
+    reviewed = review_overrides()
     states, built, reused = {}, 0, 0
     started = time.time()
     for n, sid in enumerate(ids, 1):
@@ -2716,9 +2858,11 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
         if cut_at:  # a predecessor is listed up to its reviewed last session (the closing document dates it)
             window = (window[0], max(window[1], pd.Timestamp(cut_at)))
         owned = dividends_owned.get(sid, [])
+        review = reviewed.get(sid, {})
         signature = signature_of(sid, frames, window, mapping, json.dumps([junctions_of(sid), junction_effective_of(sid),
                                                                            relists.get(sid, []), cut_at, pred,
-                                                                           link or {}, owned]))
+                                                                           link or {}, owned]
+                                                                          + ([review] if review else [])))
         state = None if rebuild else load_state(sid)
         if state is not None and state.get("signature") == signature and \
                 (state["summary"].get("rows", 0) == 0 or (PRICES_DIR / f"{sid}.csv").exists()):
@@ -2738,7 +2882,7 @@ def run_securities(ids: list[str], bundles, identity, windows, sessions, rebuild
                    "ticker_of": (lambda day, lookup=lookup, fallback=fallback: lookup(day) or fallback),
                    "junctions": junctions_of(sid), "junction_effective": junction_effective_of(sid),
                    "relists": [] if sid in RELIST_JUNCTIONS else relists.get(sid, []),
-                   "terminal_dividends": owned}
+                   "terminal_dividends": owned, "review": review}
             if link:
                 # ``link_cut``: the last session before the successor's first one (the predecessor's last session,
                 # or the day before a shared first session: Fox 2019-03-18); rows up to it are only the anchor
@@ -2849,6 +2993,7 @@ def build_split_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataF
             frame.loc[hit, "sec_url"] = row.source_url
             frame.loc[hit, "verified_at"] = row.verified_at
             frame.loc[hit, "notes"] = (frame.loc[hit, "notes"] + "; confirmed_price_adjustments.csv").str.strip("; ")
+    facts["hand_review"] = apply_event_verdicts(frame, "split_events")
     cik_of = dict(zip(identity["master"]["security_id"], identity["master"]["cik"]))
     frame["sec_candidates"] = [sec_candidates(cik_of.get(sid, ""), day) if kind != "unit_break" else ""
                                for sid, day, kind in zip(frame["security_id"], frame["ex_date"], frame["event_type"])]
@@ -2872,12 +3017,71 @@ def build_split_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataF
     return frame[SPLIT_COLUMNS], facts
 
 
+def event_verdict_note(v: dict, queue: str) -> str:
+    """The short note a split/distribution verdict adds to the table row (the full note is in the merged file)."""
+    terms = []
+    if queue == "splits":
+        if v["verdict"] == "corrected" and v["split_factor"]:
+            terms.append(f"factor {float(v['split_factor']):.6g}")
+    else:
+        terms += [v["distribution_type"]] if v["distribution_type"] else []
+        terms += [f"ratio {float(v['ratio']):.6g}"] if v["ratio"] else []
+    if v["ex_date_confirmed"] and v["ex_date_confirmed"] != v["ex_date"]:
+        terms.append(f"ex-date {v['ex_date_confirmed']}")
+    return f"hand review {v['item_id']}: {v['verdict']}" + (f" ({', '.join(terms)})" if terms else "")
+
+
+def apply_event_verdicts(frame: pd.DataFrame, table: str) -> dict:
+    """Fill sec_url (and verified_at in split_events.csv) from the hand review's merged verdicts, keyed
+    (security_id, ex_date): split verdicts on split_events rows, distribution verdicts on both tables (a split
+    verdict wins on a split_events row both answer). ``sec_url`` is the verdict's source_url, or 'evidence: ' and
+    the sources for a two-source verdict; an ``unresolved`` verdict fills nothing (the row stays open) and adds its
+    note. A row confirmed_price_adjustments.csv already filled keeps its values. In place; returns counts."""
+    tables = [("distributions", review_table("distribution_verdicts.csv"))]
+    if table == "split_events":
+        tables.append(("splits", review_table("split_verdicts.csv")))
+    facts = {"rows_matched": 0, "filled": 0, "unresolved": 0, "by_verdict": {}, "verdicts_unmatched": {}}
+    if not len(frame):
+        return facts
+    position = {key: k for k, key in zip(frame.index, zip(frame["security_id"], frame["ex_date"]))}
+    for queue, verdicts in tables:
+        if verdicts is None or not len(verdicts):
+            continue
+        unmatched = 0
+        for v in verdicts.to_dict("records"):
+            k = position.get((v["security_id"], v["ex_date"]))
+            if k is None:
+                unmatched += 1
+                continue
+            facts["rows_matched"] += 1
+            facts["by_verdict"][v["verdict"]] = facts["by_verdict"].get(v["verdict"], 0) + 1
+            note = event_verdict_note(v, queue)
+            if v["verdict"] == "unresolved":
+                facts["unresolved"] += 1
+            elif not str(frame.at[k, "sec_url"]):
+                evidence = v.get("evidence_sources", "")
+                frame.at[k, "sec_url"] = v["source_url"] or (f"evidence: {evidence}" if evidence else "")
+                if "verified_at" in frame:
+                    frame.at[k, "verified_at"] = v["verified_at"]
+                facts["filled"] += 1
+            elif queue == "splits" and "verified_at" in frame and not str(frame.at[k, "verified_at"]):
+                frame.at[k, "verified_at"] = v["verified_at"]
+            frame.at[k, "notes"] = "; ".join(x for x in (str(frame.at[k, "notes"]), note) if x)
+        facts["verdicts_unmatched"][queue] = unmatched
+    if frame["notes"].str.contains(LEVEL_IN_NOTE).any():  # the merged notes were checked; this is a code guard
+        raise ValueError(f"{table}: a hand-review note carries a price level")
+    return facts
+
+
 def build_special_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataFrame, dict]:
     frame = pd.DataFrame([e for s in states.values() for e in s["specials"]])
     if frame.empty:
         return pd.DataFrame(columns=SPECIAL_COLUMNS), {"rows": 0}
     facts = {"rows_all": int(len(frame)), "outside_listing": int((~frame["listed"]).sum())}
     frame = frame[frame["listed"]].sort_values(["security_id", "ex_date"], kind="stable")
+    if "sec_url" not in frame:
+        frame["sec_url"] = ""
+    facts["hand_review"] = apply_event_verdicts(frame, "special_distributions")
     cik_of = dict(zip(identity["master"]["security_id"], identity["master"]["cik"]))
     frame["sec_candidates"] = [sec_candidates(cik_of.get(sid, ""), day) for sid, day in zip(frame["security_id"], frame["ex_date"])]
     facts.update({"rows": int(len(frame)), "with_sec_candidates": int((frame["sec_candidates"] != "").sum()),
@@ -2909,6 +3113,47 @@ def relevant_spans(dv_weeks: dict[str, pd.DatetimeIndex]) -> dict[str, list[tupl
                 spans.append([start, end])
         out[sid] = [(a.strftime("%Y-%m-%d"), b.strftime("%Y-%m-%d")) for a, b in spans]
     return out
+
+
+def apply_move_verdicts(frame: pd.DataFrame) -> dict:
+    """The hand review's merged moves verdicts (moves_verdicts.csv), keyed (security_id, event_date, rule): a
+    verdict sets classification, source_url and verified_at and adds a short note (classification, item, and the
+    URL or the agreeing sources); an ``unresolved`` verdict leaves the row ``unreviewed`` (open) and adds its item
+    to the notes. A row with two queue entries on one key (two vendors' R7 runs) gets the verdict on both. In
+    place; returns counts."""
+    verdicts = review_table("moves_verdicts.csv")
+    facts = {"verdicts": 0, "rows_matched": 0, "applied": 0, "unresolved": 0, "verdicts_unmatched": 0,
+             "by_classification": {}}
+    if verdicts is None or not len(verdicts) or not len(frame):
+        return facts
+    facts["verdicts"] = int(len(verdicts))
+    by_key = {}
+    for v in verdicts.to_dict("records"):
+        by_key.setdefault((v["security_id"], v["event_date"], v["rule"]), []).append(v)
+    matched = set()
+    for k in frame.index:
+        key = (frame.at[k, "security_id"], frame.at[k, "event_date"], frame.at[k, "rule"])
+        found = by_key.get(key)
+        if not found:
+            continue
+        matched.add(key)
+        v = found[0]  # one classification per key (the merge rejects a key with two)
+        facts["rows_matched"] += 1
+        items = "+".join(x["item_id"] for x in found)
+        if v["classification"] == "unresolved":
+            facts["unresolved"] += 1
+            frame.at[k, "notes"] += f" | hand review {items}: unresolved, open (moves_verdicts.csv)"
+            continue
+        frame.loc[k, ["classification", "source_url", "verified_at"]] = [v["classification"], v["source_url"],
+                                                                         v["verified_at"]]
+        frame.at[k, "notes"] += " | " + review_merge.move_note({**v, "item_id": items})
+        facts["applied"] += 1
+        facts["by_classification"][v["classification"]] = facts["by_classification"].get(v["classification"], 0) + 1
+    facts["verdicts_unmatched"] = int(sum(len(v) for key, v in by_key.items() if key not in matched))
+    facts["unmatched_items"] = sorted(x["item_id"] for key, v in by_key.items() if key not in matched for x in v)
+    if frame["notes"].str.contains(LEVEL_IN_NOTE).any():  # the merge checked the verdicts; a code guard
+        raise ValueError("reviewed_moves: a hand-review note carries a price level")
+    return facts
 
 
 def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFrame, dict]:
@@ -2944,6 +3189,7 @@ def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFr
                 frame.loc[k, ["classification", "source_url", "verified_at"]] = \
                     [row.classification, row.source_url, row.verified_at]
                 frame.at[k, "notes"] += f" | reviewed_market_moves.csv: {row.notes}"
+    facts["hand_review"] = apply_move_verdicts(frame)
     # plan 4.4 R1 resolves a big move with a second source within 0.5% (or a document): with the stored files
     # counted as a second source (owner convention of 2026-10-02), an R1 entry that two or more sources confirm
     # (``sources_agreeing``: the day's own source and at least one other, vendor or stored) is resolved by the
@@ -3870,8 +4116,20 @@ def compare_outputs(defaults: dict) -> dict:
     return out
 
 
+def review_source_summary(states: dict[str, dict]) -> dict:
+    """The hand review's per-day source choices as the series applied them (reconcile_security ``review_sources``)."""
+    per = {sid: s["summary"]["review_sources"] for sid, s in states.items() if s["summary"].get("review_sources")}
+    return {"review_dir": str(REVIEW_DIR) if APPLY_REVIEW else "", "apply_source_overrides": APPLY_REVIEW_SOURCE_OVERRIDES,
+            "securities": len(per), "days": sum(v["days"] for v in per.values()),
+            "days_source_changed": sum(v["changed"] for v in per.values()),
+            "unresolved_days_resolved": sum(v["unresolved_resolved"] for v in per.values()),
+            "days_flagged_only": sum(v["flagged"] for v in per.values()),
+            "unused_items": sorted(i for v in per.values() for i in v["unused_items"]),
+            "per_security": per}
+
+
 def main(argv=None) -> int:
-    global MIN_FREE_MB, WRITE_SOURCE_CACHE
+    global MIN_FREE_MB, WRITE_SOURCE_CACHE, REVIEW_DIR, APPLY_REVIEW
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--only", default="", help="comma-separated security ids: build these, write no tables")
     parser.add_argument("--rebuild", action="store_true",
@@ -3887,8 +4145,16 @@ def main(argv=None) -> int:
     parser.add_argument("--compare", action="store_true",
                         help="with --out-dir: compare the build with the default outputs (securities, rows, changed "
                              "series, tables) into reconcile/compare.json and compare_series.csv")
+    parser.add_argument("--review-dir", default="",
+                        help=f"read the merged hand-review verdicts from this folder (default {REVIEW_DIR})")
+    parser.add_argument("--no-review", action="store_true",
+                        help="read no hand-review verdicts (the queues as the vote leaves them)")
     args = parser.parse_args(argv)
     MIN_FREE_MB, WRITE_SOURCE_CACHE = args.min_free_mb, not args.no_source_cache
+    if args.review_dir:
+        REVIEW_DIR = Path(args.review_dir)
+    APPLY_REVIEW = not args.no_review
+    _REVIEW_CACHE.clear()
     forbid_network()
     defaults = {"prices": PRICES_DIR, "reconcile": OUT, "split_events": SPLIT_EVENTS, "special": SPECIAL,
                 "reviewed_moves": REVIEWED_MOVES}
@@ -3931,6 +4197,7 @@ def main(argv=None) -> int:
                     log(f"  {key}: {summary[key]}")
         return 0
     summary = summarize_tables(states, prep, ids, args)
+    summary["hand_review_sources"] = review_source_summary(states)
     mark = phase("tables_and_panel", mark)
     stale = sorted(path.stem for path in PRICES_DIR.glob("*.csv") if path.stem not in set(ids))
     summary["price_files"] = {"superseded_this_run": superseded, "not_targets_left": stale,

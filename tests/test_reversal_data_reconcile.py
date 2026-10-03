@@ -36,6 +36,13 @@ def _flags(canonical, day):
     return canonical.loc[canonical["date"] == day, "flags"].iloc[0].split(";")
 
 
+@pytest.fixture(autouse=True)
+def _no_hand_review(tmp_path, monkeypatch):
+    """The tests never read the cache's merged hand-review verdicts (a test that needs them writes its own)."""
+    monkeypatch.setattr(rc, "REVIEW_DIR", tmp_path / "no_review_verdicts")
+    monkeypatch.setattr(rc, "_REVIEW_CACHE", {})
+
+
 # ------------------------------------------------------------------ formula and ratios
 
 def test_total_return_is_the_crsp_definition():
@@ -1557,3 +1564,198 @@ def test_a_cut_successors_first_row_books_no_conversion_event(monkeypatch):
     assert first["date"] == str(SESSIONS[20].date()) and np.isnan(first["tr"]) and first["split_factor"] == 1.0
     assert "distribution_factor" not in first["flags"] and not [e for e in result["events"] if e["ex_date"] == first["date"]]
     assert result["summary"]["link_first_row_event_dropped"]["split"] == pytest.approx(0.602)
+
+
+# ------------------------------------------------------------------ the hand review's merged verdicts
+
+def _write_review(tmp_path, monkeypatch, **tables):
+    folder = tmp_path / "merged"
+    folder.mkdir(exist_ok=True)
+    for name, rows in tables.items():
+        pd.DataFrame(rows).to_csv(folder / f"{name}.csv", index=False)
+    monkeypatch.setattr(rc, "REVIEW_DIR", folder)
+    monkeypatch.setattr(rc, "_REVIEW_CACHE", {})
+    return folder
+
+
+_MOVE_VERDICT = {"security_id": "1", "ticker": "T", "end_date": "", "source_url": "", "evidence_sources": "",
+                 "correct_source": "", "event_type": "", "split_factor": "", "cash_per_share": "", "first_new_session": "",
+                 "effective_date": "", "verified_at": "2026-10-03T00:00:00Z", "reviewer": "hand:test", "notes": "checked"}
+
+
+def test_move_verdicts_fill_the_queue_and_an_unresolved_one_stays_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "OUT", tmp_path)
+    monkeypatch.setattr(rc, "REVIEWED_FORMAT", tmp_path / "missing.csv")
+    monkeypatch.setattr(rc, "relevant_spans", lambda dv_weeks: {"1": [("2015-01-01", "2015-12-31")]})
+    _write_review(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": "2015-02-02", "rule": "R1b", "classification": "market_move_no_adjustment",
+         "source_url": "https://www.sec.gov/Archives/edgar/data/1/x.htm", "item_id": "moves-01-001"},
+        {**_MOVE_VERDICT, "event_date": "2015-02-03", "rule": "R3", "classification": "vendor_error",
+         "evidence_sources": "tiingo+yahoo", "correct_source": "tiingo", "item_id": "moves-01-002"},
+        {**_MOVE_VERDICT, "event_date": "2015-02-04", "rule": "R4", "classification": "unresolved",
+         "item_id": "moves-01-003"},
+        {**_MOVE_VERDICT, "event_date": "2015-02-09", "rule": "R4", "classification": "halt",
+         "source_url": "https://www.nasdaqtrader.com/x", "item_id": "moves-01-004"}])
+    base = {"ticker": "T", "classification": "unreviewed", "source_url": "", "verified_at": "", "security_id": "1",
+            "listed": True, "sources_agreeing": ""}
+    moves = [{**base, "event_date": "2015-02-02", "rule": "R1b", "notes": "[R1b] move of +45% confirmed by no second source"},
+             {**base, "event_date": "2015-02-03", "rule": "R3", "notes": "[R3] sources disagree with no majority"},
+             {**base, "event_date": "2015-02-04", "rule": "R4", "notes": "[R4] zero volume on 1 session(s)"},
+             {**base, "event_date": "2015-02-05", "rule": "R4", "notes": "[R4] zero volume on 1 session(s)"}]
+    queue, facts = rc.build_move_queue({"1": {"moves": moves}}, {})
+    by_day = queue.set_index("event_date")
+    assert by_day.loc["2015-02-02", "classification"] == "market_move_no_adjustment"
+    assert by_day.loc["2015-02-02", "source_url"].startswith("https://www.sec.gov/")
+    assert by_day.loc["2015-02-03", "classification"] == "vendor_error"
+    assert "evidence: tiingo+yahoo" in by_day.loc["2015-02-03", "notes"] and "use tiingo" in by_day.loc["2015-02-03", "notes"]
+    assert by_day.loc["2015-02-04", "classification"] == "unreviewed"  # unresolved: still open
+    assert "moves-01-003: unresolved, open" in by_day.loc["2015-02-04", "notes"]
+    assert by_day.loc["2015-02-05", "classification"] == "unreviewed"  # no verdict
+    review = facts["hand_review"]
+    assert (review["applied"], review["unresolved"], review["verdicts_unmatched"]) == (2, 1, 1)
+    assert review["unmatched_items"] == ["moves-01-004"]  # its queue row is gone: reported, not applied
+    assert facts["unreviewed"] == 2
+
+
+def test_event_verdicts_fill_sec_url_and_verified_at_and_an_unresolved_one_fills_nothing(tmp_path, monkeypatch):
+    _write_review(tmp_path, monkeypatch, split_verdicts=[
+        {"security_id": "1", "ticker": "T", "ex_date": "2015-02-02", "verdict": "confirmed", "split_factor": "",
+         "ex_date_confirmed": "2015-02-02", "event_type": "reverse_split",
+         "source_url": "https://www.sec.gov/Archives/a.htm", "evidence_sources": "", "verified_at": "2026-10-02T10:00:00Z",
+         "reviewer": "hand", "item_id": "splits-01-001", "notes": "8-K"},
+        {"security_id": "1", "ticker": "T", "ex_date": "2015-03-02", "verdict": "confirmed", "split_factor": "",
+         "ex_date_confirmed": "", "event_type": "split", "source_url": "", "evidence_sources": "yahoo+stored",
+         "verified_at": "2026-10-03T00:00:00Z", "reviewer": "mechanical", "item_id": "splits-mech-001", "notes": ""}],
+        distribution_verdicts=[
+        {"security_id": "2", "ticker": "U", "ex_date": "2015-02-10", "verdict": "corrected", "distribution_type": "spinoff",
+         "ratio": "0.25", "cash_per_share": "", "distributed_security": "NEWCO", "ex_date_confirmed": "",
+         "source_url": "https://www.sec.gov/Archives/b.htm", "verified_at": "2026-10-02T11:00:00Z", "reviewer": "hand",
+         "item_id": "distributions-01-001", "notes": "Form 10"},
+        {"security_id": "2", "ticker": "U", "ex_date": "2015-03-10", "verdict": "unresolved", "distribution_type": "",
+         "ratio": "", "cash_per_share": "", "distributed_security": "", "ex_date_confirmed": "", "source_url": "",
+         "verified_at": "2026-10-02T11:00:00Z", "reviewer": "hand", "item_id": "distributions-01-002",
+         "notes": "no record date"}])
+    split = pd.DataFrame({"security_id": ["1", "1", "2", "2"], "ex_date": ["2015-02-02", "2015-03-02", "2015-02-10", "2015-03-10"],
+                          "sec_url": "", "verified_at": "", "notes": "n"})
+    facts = rc.apply_event_verdicts(split, "split_events")
+    assert split["sec_url"].tolist() == ["https://www.sec.gov/Archives/a.htm", "evidence: yahoo+stored",
+                                         "https://www.sec.gov/Archives/b.htm", ""]
+    assert split["verified_at"].tolist()[:3] == ["2026-10-02T10:00:00Z", "2026-10-03T00:00:00Z", "2026-10-02T11:00:00Z"]
+    assert split["verified_at"].iloc[3] == ""
+    assert "hand review distributions-01-001: corrected (spinoff, ratio 0.25)" in split["notes"].iloc[2]
+    assert "distributions-01-002: unresolved" in split["notes"].iloc[3]
+    assert (facts["filled"], facts["unresolved"]) == (3, 1)
+    special = pd.DataFrame({"security_id": ["2"], "ex_date": ["2015-02-10"], "sec_url": [""], "notes": [""]})
+    rc.apply_event_verdicts(special, "special_distributions")
+    assert special["sec_url"].iloc[0] == "https://www.sec.gov/Archives/b.htm"
+
+
+def test_a_confirmed_price_adjustment_keeps_its_url_over_a_verdict(tmp_path, monkeypatch):
+    _write_review(tmp_path, monkeypatch, split_verdicts=[
+        {"security_id": "1", "ticker": "T", "ex_date": "2015-02-02", "verdict": "confirmed", "split_factor": "",
+         "ex_date_confirmed": "", "event_type": "split", "source_url": "https://www.sec.gov/Archives/new.htm",
+         "evidence_sources": "", "verified_at": "2026-10-02T10:00:00Z", "reviewer": "hand", "item_id": "s-1", "notes": ""}])
+    split = pd.DataFrame({"security_id": ["1"], "ex_date": ["2015-02-02"], "sec_url": ["https://old"],
+                          "verified_at": ["2026-01-01"], "notes": [""]})
+    rc.apply_event_verdicts(split, "split_events")
+    assert (split["sec_url"].iloc[0], split["verified_at"].iloc[0]) == ("https://old", "2026-01-01")
+
+
+def test_a_reviewed_source_choice_resolves_a_two_vendor_disagreement_and_the_queue_keeps_its_row():
+    n = 30
+    close = _walk(n)
+    bad = close.copy()
+    bad[10] = bad[10] * 1.03  # wiki wrong on one day; only two vendors, so the vote leaves it unresolved
+    day = str(SESSIONS[10].date())
+    ctx = {**_ctx(), "review": {"source": [{"start": day, "end": day, "source": "yahoo", "item_id": "moves-x"}],
+                                "flag": [{"start": day, "end": day, "source": "yahoo", "item_id": "moves-x"}]}}
+    result = rc.reconcile_security("X", {"wiki": _frame(bad), "yahoo": _frame(close)}, ctx)
+    canonical = result["canonical"].set_index("date")
+    assert canonical.loc[day, "src_primary"] == "yahoo"
+    flags = canonical.loc[day, "flags"].split(";")
+    assert "disagree_unresolved" not in flags
+    assert {"review_source:yahoo", "disagree_reviewed", "disagree_resolved:wiki"} <= set(flags)
+    assert canonical.loc[day, "tr"] == pytest.approx(close[10] / close[9] - 1)
+    # the next day is wiki's own return again (each source's own rows: nothing chained across the choice)
+    nxt = str(SESSIONS[11].date())
+    assert canonical.loc[nxt, "src_primary"] == "wiki" and "disagree_unresolved" in canonical.loc[nxt, "flags"]
+    assert [m for m in result["moves"] if m["rule"] == "R3" and m["event_date"] == day]  # the verdict's row stays
+    assert result["summary"]["review_sources"]["unresolved_resolved"] == 1
+
+
+def test_a_reviewed_vendor_error_without_another_vendor_only_flags_the_day():
+    n = 30
+    close = _walk(n)
+    day = str(SESSIONS[12].date())
+    ctx = {**_ctx(), "review": {"source": [], "flag": [{"start": day, "end": day, "source": "", "item_id": "m"}]}}
+    result = rc.reconcile_security("X", {"yahoo": _frame(close)}, ctx)
+    assert "review_vendor_error" in _flags(result["canonical"], day)
+
+
+def test_a_reviewed_source_choice_on_a_level_run_keeps_the_vote_r7_entry():
+    n = 30
+    close = _walk(n)
+    other = close * 1.05  # a lasting 5% level offset in tiingo against wiki (a wrong class in one vendor)
+    days = [str(d.date()) for d in SESSIONS[5:15]]
+    ctx = {**_ctx(), "review": {"source": [{"start": days[0], "end": days[-1], "source": "tiingo", "item_id": "m"}],
+                                "flag": []}}
+    result = rc.reconcile_security("X", {"wiki": _frame(close), "tiingo": _frame(other)}, ctx)
+    canonical = result["canonical"].set_index("date")
+    assert (canonical.loc[days, "src_primary"] == "tiingo").all()
+    r7 = [m for m in result["moves"] if m["rule"] == "R7"]
+    assert r7 and "tiingo raw close 1.0500x of wiki" in r7[0]["notes"]  # measured against the vote's primary (2015: wiki)
+
+
+def test_a_documented_halt_is_kept_not_cut_as_filler_and_its_r4_entry_is_settled(monkeypatch):
+    n = 40
+    close = _walk(n)
+    volume = np.full(n, 1000.0)
+    close[30:] = close[29]
+    volume[30:] = 0.0
+    start = str(SESSIONS[30].date())
+    monkeypatch.setitem(rc.HALTED_SPANS, "H", {"start": start, "classification": "flat_genuine",
+                                              "evidence": "yahoo+stored", "url": "https://www.sec.gov/Archives/h.htm",
+                                              "note": "halted"})
+    result = rc.reconcile_security("H", {"yahoo": _frame(close, volume=volume)}, _ctx())
+    assert result["summary"]["filler_cut"] == 0
+    assert result["canonical"]["date"].iloc[-1] == str(SESSIONS[n - 1].date())
+    assert "halt" in _flags(result["canonical"], start)
+    r4 = [m for m in result["moves"] if m["rule"] == "R4"]
+    assert r4 and all(m["classification"] == "flat_genuine" and m["source_url"] for m in r4)
+    plain = rc.reconcile_security("X", {"yahoo": _frame(close, volume=volume)}, _ctx())
+    assert plain["summary"]["filler_cut"] == 10
+
+
+def test_review_overrides_read_the_merged_moves_verdicts(tmp_path, monkeypatch):
+    _write_review(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "security_id": "9", "event_date": "2015-02-02", "end_date": "2015-02-06", "rule": "R7",
+         "classification": "vendor_error", "evidence_sources": "tiingo+yahoo", "correct_source": "tiingo", "item_id": "a"},
+        {**_MOVE_VERDICT, "security_id": "9", "event_date": "2015-03-02", "rule": "R4", "classification": "vendor_error",
+         "evidence_sources": "yahoo+stored", "correct_source": "", "item_id": "b"},
+        {**_MOVE_VERDICT, "security_id": "8", "event_date": "2015-03-02", "rule": "R1", "classification": "unresolved",
+         "item_id": "c"}])
+    over = rc.review_overrides()
+    assert set(over) == {"9"}
+    assert over["9"]["source"] == [{"start": "2015-02-02", "end": "2015-02-06", "source": "tiingo", "item_id": "a"}]
+    assert [f["item_id"] for f in over["9"]["flag"]] == ["a", "b"]
+    monkeypatch.setattr(rc, "APPLY_REVIEW_SOURCE_OVERRIDES", False)
+    assert rc.review_overrides()["9"]["source"] == []
+
+
+def test_a_continuing_predecessor_keeps_its_tiingo_rows_to_the_successor_window_end(tmp_path, monkeypatch):
+    path = tmp_path / "ASRT.csv"
+    days = pd.bdate_range("2020-05-01", "2020-08-31")
+    pd.DataFrame({"date": days.strftime("%Y-%m-%d"), "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0,
+                  "volume": 100, "adjClose": 1.0, "adjOpen": 1.0, "adjHigh": 1.0, "adjLow": 1.0, "adjVolume": 100,
+                  "divCash": 0.0, "splitFactor": 1.0}).to_csv(path, index=False)
+    status = tmp_path / "fetch_status.csv"
+    pd.DataFrame([{"security_id": "P", "status": "done", "prices_path": str(path)}]).to_csv(status, index=False)
+    monkeypatch.setattr(rc, "TIINGO_STATUS", status)
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "ASRT", "last_session": "2020-05-19",
+                                                  "continues": True})
+    windows = {"P": (pd.Timestamp("2020-01-01"), pd.Timestamp("2020-06-18")),
+               "S": (pd.Timestamp("2020-03-01"), pd.Timestamp("2020-08-14"))}
+    rows, facts = rc.load_new_tiingo_rows({"mapping": pd.DataFrame(columns=["security_id", "ticker", "list_start", "list_end"])},
+                                          {"P"}, windows)
+    assert rows["date"].max() == pd.Timestamp("2020-08-14")
+    assert "P" in facts["predecessor_windows_extended"]

@@ -232,6 +232,141 @@ def test_tiingo_row_check_reads_the_month1_raw_files(ctx):
     assert not out["passed"] and out["numbers"]["files_over"] == 1
 
 
+def test_adj_identity_kinds_name_cash_per_new_share_and_a_half_cent_close():
+    # row 1: S = 1.1 with cash of the same value, adjClose taking D x S (AFSI 2012-08-30's shape)
+    # row 3: adjClose built from a close half a cent above the close field (RAVN), row 4 reverses it
+    close = [28.8, 26.05, 26.0, 30.76, 30.47, 31.0]
+    split = [1.0, 1.1, 1.0, 1.0, 1.0, 1.0]
+    div = [0.0, 2.605, 0.0, 0.0, 0.0, 0.0]
+    adj = [1.0]
+    for i in range(1, len(close)):
+        adj.append(adj[-1] * (close[i] * split[i] + div[i] * split[i]) / close[i - 1])
+    frame = pd.DataFrame({"date": [f"2012-0{m}-01" for m in range(1, 7)], "close": close, "splitFactor": split,
+                          "divCash": div, "adjClose": adj})
+    frame.loc[3, "adjClose"] = frame.loc[2, "adjClose"] * 30.765 / 26.0
+    frame.loc[4:, "adjClose"] = frame.loc[3, "adjClose"] * np.cumprod(np.array(close[4:]) / np.array([30.765] + close[4:-1]))
+    kinds = va.adj_identity_kinds(frame)
+    assert kinds["kind"].tolist() == ["dividend_times_split", "sub_cent", "sub_cent"]
+    assert kinds["date"].tolist() == ["2012-02-01", "2012-04-01", "2012-05-01"]
+    assert kinds["close_gap"].iloc[1] == pytest.approx(0.005, abs=1e-9)
+    frame.loc[3, "adjClose"] *= 1.01   # a whole-percent miss is neither
+    assert "other" in set(va.adj_identity_kinds(frame)["kind"])
+
+
+def test_price_quantum_finds_the_coarsest_grid_within_float32_restoration_error():
+    q = va.price_quantum([19.14000034, 19.045, 1.2345, 0.47625 * 40, 12.3456789])
+    assert q[0] == 0.01 and q[1] == 0.001 and q[2] == 0.0001 and q[3] == 0.01 and np.isnan(q[4])
+
+
+def test_rounding_explained_accepts_a_cent_rounded_close_and_not_a_cent_gap_or_an_event_gap():
+    dates = ["2011-06-01", "2011-06-02", "2011-06-03", "2011-06-06", "2011-06-07", "2011-06-08"]
+    t = pd.DataFrame({"date": dates, "close": [19.14, 19.045, 19.10, 19.20, 19.30, 19.40],
+                      "splitFactor": 1.0, "divCash": [0, 0, 0, 0, 0, 0.1]})
+    y = pd.DataFrame({"date": dates, "close_raw": [19.14000034, 19.04999971, 19.10, 19.22, 19.30, 19.40],
+                      "split_factor": 1.0, "div_cash": 0.0})
+    out = va.rounding_explained(t, y)
+    # 06-02: half-cent close in Tiingo, cent close in Yahoo; 06-03: both days within the grid
+    assert out.loc["2011-06-02", "rounding"] and out.loc["2011-06-03", "rounding"]
+    # 06-06: a two-cent gap is not rounding, nor is the day after it; 06-08: the dividend differs
+    assert not out.loc["2011-06-06", "rounding"] and not out.loc["2011-06-07", "rounding"]
+    assert not out.loc["2011-06-08", "event_ok"] and not out.loc["2011-06-08", "rounding"]
+
+
+def _v_fixture(ctx, t_close, y_close):
+    days = list(ctx.sessions_between("2015-01-02", "2015-03-31").strftime("%Y-%m-%d"))[:len(t_close)]
+    prices = _write(ctx.cache / "tiingo" / "prices" / "AAA.csv.gz",
+                    pd.DataFrame({"date": days, "close": t_close, "splitFactor": 1.0, "divCash": 0.0}))
+    _write(ctx.cache / "tiingo" / "fetch_status.csv",
+           pd.DataFrame([{"security_id": "1", "ticker_for_source": "AAA", "status": "done", "raw_path": "",
+                          "prices_path": str(prices)}]))
+    _write(ctx.cache / "yahoo" / "1.csv.gz", pd.DataFrame({"date": days, "close_raw": y_close, "split_factor": 1.0,
+                                                           "div_cash": 0.0, "junction": ""}))
+    _write(ctx.inputs / "candidate_fetch_list.csv",
+           pd.DataFrame([{"security_id": "1", "ticker_for_source": "AAA", "reason": "V_verify_sample", "status": "done"},
+                         {"security_id": "2", "ticker_for_source": "BBB", "reason": "V_verify_sample",
+                          "status": "deferred_quota"}]))
+    _panel(ctx, [{"security_id": "1", "date": d} for d in days])
+
+
+def test_v_sample_reports_rounding_days_apart_and_keeps_the_plan_share(ctx):
+    t_close = [10.0, 10.005, 10.0, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7]
+    y_close = [10.0, 10.01, 10.0, 10.1, 10.2, 10.25, 10.4, 10.5, 10.6, 10.7]   # 1 rounding day pair, 1 five-cent gap
+    _v_fixture(ctx, t_close, y_close)
+    out = va.check_v_sample(ctx)
+    n = out["numbers"]
+    assert not out["passed"] and n["compared"] == 1 and n["days"] == 9
+    assert n["over_1e-4"] == 4 and n["rounding_explained"] == 2 and n["not_rounding"] == 2
+    assert n["not_rounding_by_kind"] == {"level_gap": 2} and n["share"] == pytest.approx(5 / 9, abs=1e-6)
+    assert n["share_within_or_rounding"] == pytest.approx(7 / 9, abs=1e-6)
+    assert n["not_compared_by_candidate_status"] == {"deferred_quota": 1}
+    assert [d["date"] for d in out["details"]["not_rounding_days"]] == ["2015-01-09", "2015-01-12"]
+
+
+def test_known_cases_read_a_merger_last_price_date_as_the_repo_anchor_not_the_last_session(ctx):
+    days = list(ctx.sessions_between("2015-02-02", "2015-03-31").strftime("%Y-%m-%d"))
+    _write(ctx.inputs / "ticker_intervals.csv", pd.DataFrame(
+        [{"security_id": s, "ticker": t, "start": "2010-01-04", "end": "2026-08-31", "exchange": "NASDAQ", "source": "x",
+          "source_url": ""} for s, t in (("1", "AAA"), ("2", "BBB"), ("3", "CCC"), ("4", "DDD"))]))
+    ends = {"1": "2015-03-09", "3": "2015-03-05", "4": "2015-03-12", "2": "2015-03-31"}
+    _panel(ctx, [{"security_id": s, "date": d} for s, last in ends.items() for d in days if d <= last])
+    _universe(ctx, [{"week_end": "2015-02-06", "security_id": s, "dv50_rank": 10} for s in ends])
+    actions = pd.DataFrame([{"predecessor": p, "last_price_date": "2015-03-02", "successor": "BBB",
+                             "effective_date": "2015-03-10", "share_ratio": 0.5, "cash_per_share": 10.0,
+                             "source_url": "https://www.sec.gov/x", "verified_at": "2026-01-01"} for p in ("AAA", "CCC", "DDD")])
+    _write(ctx.main / "stocks_list_dir" / "nasdaq" / "corporate_actions.csv", actions)
+    states = {r["predecessor"]: (r["state"], r["ends"]) for r in va.check_known_cases(ctx)["details"]["repo_files"]["corporate_actions"]}
+    # AAA trades on to the session before the effective date (ANSS 2025-07-16 against its 2025-07-17 closing date)
+    assert states["AAA"] == ("consistent", "last_session_before_effective_date")
+    assert states["CCC"][0] == "series_ends_between_last_price_date_and_effective_date"
+    assert states["DDD"][0] == "series_runs_past_effective_date"
+
+
+def test_nasdaq_dividends_reads_cash_and_cash_stock_rows_and_the_answer_state():
+    payload = {"data": {"dividends": {"rows": [
+        {"exOrEffDate": "12/01/2022", "type": "Cash/Stock", "amount": "$0.265"},
+        {"exOrEffDate": "09/06/2022", "type": "Cash", "amount": "$0.265"},
+        {"exOrEffDate": "N/A", "type": "Cash", "amount": "$1.00"}]}}}
+    cash, stock, state = va.nasdaq_dividends(payload)
+    assert state == "rows" and cash.to_dict() == {"2022-09-06": 0.265, "2022-12-01": 0.265} and stock == {"2022-12-01"}
+    empty = {"data": {"dividends": {"rows": None}}, "message": "Dividend History for Non-Nasdaq symbols is not available"}
+    assert va.nasdaq_dividends(empty)[2] == "not_nasdaq"
+    empty["message"] = "Dividend History information is presently unavailable for this company."
+    assert va.nasdaq_dividends(empty)[2] == "no_history"
+
+
+def test_compare_cash_leaves_out_a_distribution_only_one_side_has():
+    a = pd.Series({"2015-03-04": 0.21, "2015-06-03": 0.21, "2015-12-01": 0.21})
+    b = pd.Series({"2015-03-04": 0.21, "2015-06-03": 0.215, "2015-07-01": 5.0, "2016-03-01": 0.21})
+    got = va.compare_cash(a, b, "2015-01-01", "2015-12-31", skip={"2015-07-01"})
+    assert got["matched"] == 2 and got["either"] == 3 and got["skipped"] == 1
+    assert got["only_a"] == ["2015-12-01"] and got["only_b"] == [] and got["gaps"] == [("2015-06-03", pytest.approx(0.005))]
+
+
+def test_dividends_compare_the_nasdaq_sample_with_the_canonical_dividends(ctx, monkeypatch):
+    monkeypatch.setattr(va, "NASDAQ_DIV_SAMPLE", 1)
+    days = list(ctx.sessions_between("2015-01-02", "2015-12-31").strftime("%Y-%m-%d"))
+    _panel(ctx, [{"security_id": "1", "date": d, "split_factor": 1.05 if d == "2015-11-24" else 1.0} for d in days])
+    _write(ctx.cache / "dividends.csv", pd.DataFrame(
+        [{"security_id": "1", "ex_date": d, "cash_as_paid": c, "sources": "yahoo", "special": s}
+         for d, c, s in (("2015-03-04", 0.21, ""), ("2015-06-03", 0.21, ""), ("2015-07-01", 5.0, "Y"),
+                         ("2015-09-09", 0.21, ""), ("2015-11-24", 0.21, ""))]))
+    folder = ctx.cache / "raw" / "nasdaq" / "dividends"
+    _write(folder / "sample.csv", pd.DataFrame([{"security_id": "1", "ticker": "AAA", "stratum": "R_seeded_draw"}]))
+    rows = [{"exOrEffDate": d, "type": t, "amount": a} for d, t, a in (
+        ("03/04/2015", "Cash", "$0.21"), ("06/03/2015", "Cash", "$0.21"), ("09/09/2015", "Cash", "$0.215"),
+        ("11/24/2015", "Cash/Stock", "$0.21"), ("12/01/2015", "Cash/Stock", "$0.21"))]
+    (folder / "AAA.json.gz").write_bytes(gzip.compress(json.dumps({"data": {"dividends": {"rows": rows}}}).encode()))
+    out = va.check_dividends(ctx)
+    pair = out["numbers"]["nasdaq_pairs"]["canonical_nasdaq"]
+    assert not out["passed"] and out["numbers"]["nasdaq_answers"] == {"rows": 1}
+    assert (pair["ex_dates_matched"], pair["ex_dates_either"], pair["distribution_dates_left_out"]) == (4, 5, 1)
+    assert pair["amounts_over_0.001"] == 1 and pair["only_nasdaq"] == 1 and not pair["meets_threshold"]
+    lists = out["details"]["nasdaq_pairs"]["canonical_nasdaq"]
+    assert lists["amount_gaps"][0]["date"] == "2015-09-09" and lists["only_nasdaq"][0]["date"] == "2015-12-01"
+    # the Cash/Stock day with a canonical split factor passes; the one without is listed
+    assert [r["date"] for r in out["details"]["nasdaq_stock_dividend_days_without_split"]] == ["2015-12-01"]
+
+
 def test_review_queue_fails_on_any_unreviewed_item(ctx):
     queue = pd.DataFrame([
         {"ticker": "A", "event_date": "2015-01-02", "classification": "market_move", "source_url": "u", "verified_at": "x",

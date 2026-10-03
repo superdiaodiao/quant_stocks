@@ -71,7 +71,13 @@ so they book no terminal return.
 
 The automatic reading is overridden by ``REVIEWED`` (hand review of the documents named) for
 the rows it gets wrong: another company's terms in the same 8-K, ADS ratios, elections,
-renames, reorganisations the snapshots date late, spin-off adjustments (Compuware).
+renames, reorganisations the snapshots date late, spin-off adjustments (Compuware). ``main`` folds the round-10
+hand-review verdicts (``CACHE/review/round10/merged/terminal_verdicts.csv``, written by
+``scripts/reversal_data_review.py``) into REVIEWED before the build (``load_review_verdicts``; ``--review-verdicts``
+reads another file, ``--no-review-verdicts`` none): a verdict's fields replace the code's (a verdict with a
+terminal_type restates the whole consideration), ``approve`` / ``correct`` / ``decide_type`` verdicts with an
+approval and a url lift the guard, ``price_gap`` verdicts add their checked terms and limits but no approval, ``hold``
+verdicts their reason; the output note names the verdict (``hand review <item_id> (<verdict>)``).
 
 Existing sourced rows are reused: ``stocks_list_dir/nasdaq/terminal_returns.csv``, the
 holdout supplement and the sue_lt 2020 file, i.e. the three files that
@@ -202,6 +208,7 @@ import numpy as np
 import pandas as pd
 
 from scripts import reversal_data_common as common
+from scripts import reversal_data_review as review_merge
 from scripts.reversal_data_reconcile import RELIST_JUNCTIONS, SUCCESSOR_LINKS
 
 MAIN = common.MAIN_CHECKOUT
@@ -2541,6 +2548,31 @@ REVIEWED_SOURCES: dict[str, str] = {
 }
 
 
+# The code's own entries, before the round-10 verdicts (CACHE/review/round10/merged/terminal_verdicts.csv) are merged
+# into REVIEWED by load_review_verdicts (main does it unless --no-review-verdicts).
+CODE_REVIEWED: dict[str, dict] = {sid: dict(entry) for sid, entry in REVIEWED.items()}
+REVIEW_VERDICTS = review_merge.MERGED_DIR / "terminal_verdicts.csv"
+REVIEW_VERDICTS_APPLIED: dict = {"skipped": True}  # set by main
+
+
+def load_review_verdicts(path: Path | None = None) -> dict:
+    """Merge the hand-review verdicts into REVIEWED (reversal_data_review.terminal_entries: a verdict's fields
+    replace the code's, blank ones keep them; price_gap rows add terms and limits but no approval). Returns
+    counts for the summary; a missing file changes nothing."""
+    path = Path(path or REVIEW_VERDICTS)
+    if not path.exists():
+        return {"file": str(path), "rows": 0, "entries": 0, "missing": True}
+    frame = review_merge.read_csv(path)
+    entries = review_merge.terminal_entries(frame, CODE_REVIEWED)
+    REVIEWED.clear()
+    REVIEWED.update({sid: dict(entry) for sid, entry in CODE_REVIEWED.items()})
+    REVIEWED.update(entries)
+    return {"file": str(path), "rows": int(len(frame)), "entries": len(entries),
+            "new_entries": len([s for s in entries if s not in CODE_REVIEWED]),
+            "by_verdict": frame["verdict"].value_counts().to_dict(),
+            "approved": len([s for s, e in entries.items() if e.get("approved") and e.get("url")])}
+
+
 def _fmt(value) -> str:
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return ""
@@ -2621,7 +2653,7 @@ REVIEW_KEYS = {"type": "terminal_type", "sub": "event_subtype", "cash": "cash", 
                "extra": "extra", "limit": "limit", "hold": "hold", "start": "start",
                "special_dividend": "special_dividend", "special_dividend_record": "special_dividend_record",
                "special_dividend_before_last_trade": "special_dividend_before_last_trade",
-               "approved": "approved", "hold_last_session": "hold_last_session"}
+               "approved": "approved", "hold_last_session": "hold_last_session", "review": "review_note"}
 
 
 GUARD_ELECTION = re.compile(r"\bprorat|\belect(?:ion|ions|ed|ing)?\b", re.I)
@@ -2704,6 +2736,8 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         if not out["source_url"]:  # no SEC document read: the listing evidence the end comes from
             out["source_url"] = row.get("listing_source_url") or ""
         notes = [decided["note"]] if decided["note"] else []
+        if decided.get("review_note"):  # the hand-review verdict merged into REVIEWED (load_review_verdicts)
+            notes.append(decided["review_note"])
         holds = [decided["hold"]] if decided.get("hold") else []  # reasons to hold a computed value for review
         prior = existing.get(sid)
         stock_leg = kind in ("stock_merger", "mixed")
@@ -3186,6 +3220,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-fetch", action="store_true", help="skip the SEC fetch stages (same as --offline here)")
     parser.add_argument("--yahoo-acquirers", action="store_true",
                         help=f"fetch the Yahoo charts of ACQUIRER_SYMBOLS not yet cached (at most {YAHOO_MAX} in all)")
+    parser.add_argument("--review-verdicts", default="",
+                        help=f"the merged hand-review verdicts to fold into REVIEWED (default {REVIEW_VERDICTS})")
+    parser.add_argument("--no-review-verdicts", action="store_true", help="use the code's REVIEWED only")
     parser.add_argument("--reconcile-out", default="",
                         help="read series_ends.csv and the canonical price files from this reconcile --out-dir build "
                              "(ROOT/reconcile, ROOT/prices) instead of CACHE")
@@ -3196,6 +3233,10 @@ def main(argv: list[str] | None = None) -> int:
     configure_reconcile(Path(args.reconcile_out) if args.reconcile_out else None)
     OUT.mkdir(parents=True, exist_ok=True)
     log(f"outputs: {OUTPUT} and {OUT}; " + ("offline (network refused)" if args.offline else "SEC fetch stages on"))
+    global REVIEW_VERDICTS_APPLIED
+    REVIEW_VERDICTS_APPLIED = {"skipped": True} if args.no_review_verdicts else \
+        load_review_verdicts(Path(args.review_verdicts) if args.review_verdicts else None)
+    log(f"hand-review verdicts: {REVIEW_VERDICTS_APPLIED}")
     scope = terminal_candidates()
     log(f"scope: {len(scope)} securities end by {WINDOW_END}")
     common.atomic_write(OUT / "scope.csv", scope.to_csv(index=False).encode())
@@ -3251,6 +3292,7 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
                         "last_date": str(moves.loc[moves["to_exchange"].eq("NASDAQ"), "date"].max()) if len(moves) else ""},
         "blank_fields": {c: int(moves[c].eq("").sum()) for c in ("security_id", "from_exchange", "to_exchange",
                                                                  "source_url")} if len(moves) else {}}
+    summary["review_verdicts"] = REVIEW_VERDICTS_APPLIED
     summary["continued_by_successor"] = sorted(frame.loc[frame["continued_as"].ne(""), "security_id"])
     summary["relist_old_shares"] = [
         {"security_id": r.security_id, "status": r.relist_old_shares_status,

@@ -91,7 +91,12 @@ Completeness checks (plan 3.3, no returns):
 - per week, how many of ranks 1-250 and 1-300 have a canonical close in the week / on t;
 - ``missing``: universe-base names listed that week with no canonical rank (no series, or the series
   does not cover the week), outside the weeks before the first / after the last trade (``outside_trading``:
-  the listing starts or ends within 30 days of the series, or step 6 marked it so) and not a new listing
+  the listing starts or ends within 30 days of the series, or step 6 marked it so, or, at a relist junction
+  step 9 documented from SEC filings (``CACHE/reconcile/relist_junctions.csv``: ``old_nasdaq_last_session``,
+  ``first_new_session``), a week with no canonical close after the old shares' last Nasdaq session and
+  before the new shares' first one: the old shares were suspended from Nasdaq and the new ones not yet
+  listed, so nothing traded there (WW 2025-05-16, VRM 2024-12-02, OPI 2025-10-07, CORZ 2023-01;
+  ``relist_gap_weeks``)) and not a new listing
   that is still short of 25 sessions (``young``, ``young_rule``: ``canonical``, a canonical close without
   a dv50 within 75 days of the first canonical row, only at a relist junction or for a new listing whose
   series starts within 5 sessions of its earliest start (``series_starts_listing``; a transfer from NYSE
@@ -146,6 +151,11 @@ Completeness checks (plan 3.3, no returns):
   and CHRD after their Form 25 cuts), ``unfillable`` (inside an
   ``unfillable.csv`` window, or every planned source answered without rows: Tiingo wrong_entity / no_data,
   Yahoo no_rows / failed), ``no_vendor_source``, ``series_gap`` (a series that does not reach this week),
+  ``short_window`` (the week has a canonical close but the 50-session window holds fewer than 25 rows and
+  no young rule applies: a series that starts inside the window, such as a transfer from NYSE whose rows
+  start at the Nasdaq start (KDP 2020-09), a tracking stock or a 1:1 successor not linked, or a hole in the
+  window; it replaces ``series_gap`` and ``answer_not_in_panel``, which say a row is lacking, so these
+  weeks are judged by their evidence like ``not_candidate``; round 10: 422 of the 1,055 name-weeks so labelled),
   ``candidate_other``, ``not_candidate``. The residual survivorship estimate leaves out the three pending
   reasons; ``*_ex_siblings`` also leaves out missing classes whose sibling class ranks that week (owner
   question 8.4: if only the most liquid class is kept, they do not matter); ``*_upper`` adds the unknown
@@ -218,7 +228,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-02.7"
+CODE_VERSION = "2026-10-03.1"
 MAIN = common.MAIN_CHECKOUT
 CACHE = common.CACHE
 INPUTS = common.INPUTS
@@ -243,6 +253,7 @@ TIINGO_STATUS = CACHE / "tiingo" / "fetch_status.csv"
 YAHOO_REPORT = CACHE / "yahoo" / "entity_report.csv"
 YAHOO_STATUS = CACHE / "yahoo" / "fetch_status.csv"
 TERMINAL_QUEUE = CACHE / "terminal" / "manual_review_queue.csv"
+RELIST_TABLE = CACHE / "reconcile" / "relist_junctions.csv"  # step 9: relist junctions read from SEC filings
 STORED_DIR = pf.STORED_DIR
 NASDAQ100 = Path("output/research_only/holdout_2011_2019/inputs/nasdaq100_members_wikipedia_yearend.json")
 
@@ -272,12 +283,15 @@ YAHOO_EMPTY = {"no_rows", "failed"}  # Yahoo entity-report verdicts with no usab
 STRICT_EXPECTED_LIMIT = 1.0  # complete_250_strict: fewer than one expected missing top-250 name in the week
 EVIDENCE = ["price_lt_10", "dv", "proxy", "unknown"]  # a missing name-week's evidence of its top-250 status
 MISSING_REASONS = ["tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "answer_not_in_panel", "unfillable",
-                   "no_vendor_source", "series_gap", "candidate_other", "not_candidate"]
+                   "no_vendor_source", "series_gap", "short_window", "candidate_other", "not_candidate"]
 # filled once the fetches and a step-9 rerun finish
 PENDING_REASONS = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile"}
 # An answer step 9 already had but left out of the panel says more than these (a second fetch of the same
 # history would be dropped the same way; SMCI: Tiingo answered 2011-06..2026-08, a Yahoo request is planned).
 IN_HAND_OVERRIDES = ["yahoo_pending", "series_gap", "no_vendor_source", "candidate_other", "not_candidate"]
+# Labels that say a row is lacking; a missing week with a canonical close and no dv50 (fewer than 25 rows in
+# the 50-session window, no young rule) is short_window instead (round 10: CDW 2013-06, KDP 2020-09, QVCA 2014-10).
+SHORT_WINDOW_FROM = ("series_gap", "answer_not_in_panel")
 
 TOP300_COLUMNS = ["week_end", "security_id", "ticker", "dv50_rank", "dv20_rank", "price_ge_10", "ff49",
                   "earnings_event_within_3_sessions",
@@ -1204,6 +1218,41 @@ def trading_bounds(listed: pd.DataFrame, spans: pd.DataFrame) -> pd.Series:
     return own | (~listed["has_series"] & stepsix)
 
 
+def relist_gaps(table: pd.DataFrame | None) -> dict[str, list[tuple[str, str]]]:
+    """security -> [(old_nasdaq_last_session, first_new_session)] from step 9's relist table: the junctions
+    it read from SEC filings (status ``junction`` / ``junction_no_old_rows``, ``document_read`` Y, both
+    dates given): the old shares' last Nasdaq session before their suspension and the new shares' first."""
+    out: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    if table is None or not len(table):
+        return dict(out)
+    need = {"security_id", "status", "document_read", "old_nasdaq_last_session", "first_new_session"}
+    if not need <= set(table.columns):
+        return dict(out)
+    rows = table[table["status"].astype(str).str.startswith("junction") & (table["document_read"] == "Y")
+                 & (table["old_nasdaq_last_session"] != "") & (table["first_new_session"] != "")]
+    for sid, a, b in zip(rows["security_id"], rows["old_nasdaq_last_session"], rows["first_new_session"]):
+        if a < b:
+            out[sid].append((a, b))
+    return dict(out)
+
+
+def relist_gap_weeks(listed: pd.DataFrame, gaps: dict | None) -> np.ndarray:
+    """Weeks with no canonical close that end after the old shares' last Nasdaq session and before the new
+    shares' first session of a documented relist junction (``relist_gaps``): nothing traded on Nasdaq in
+    them (WW: suspended 2025-05-16, new shares from 2025-06-27), so they are outside trading, not missing.
+    A week with a close (an OTC row step 9 kept, CEPL 2023-10) is left as it is."""
+    out = np.zeros(len(listed), dtype=bool)
+    if not gaps or not len(listed):
+        return out
+    days = listed["week_end"].dt.strftime("%Y-%m-%d").to_numpy(dtype="U10")
+    no_close = np.isnan(listed["close"].to_numpy(dtype=float)) if "close" in listed else np.ones(len(listed), bool)
+    frame = pd.DataFrame({"s": listed["security_id"].to_numpy(dtype=object)})
+    for sid, index in frame.groupby("s").indices.items():
+        for a, b in gaps.get(sid, []):
+            out[index] |= (days[index] > a) & (days[index] < b)
+    return out & no_close
+
+
 FETCH_STATUS_COLUMNS = ["security_id", "status", "first_date", "last_date", "fetched_utc", "updated_utc"]
 
 
@@ -1808,14 +1857,18 @@ def reasons_of_weeks(frame: pd.DataFrame, reasons) -> np.ndarray:
 
 def mark_missing(listed: pd.DataFrame, spans: pd.DataFrame, reasons, cut: pd.DataFrame,
                  fetch_status: pd.DataFrame | None = None, panel_built: str = "",
-                 unfillable_windows: dict | None = None) -> pd.DataFrame:
+                 unfillable_windows: dict | None = None, gaps: dict | None = None) -> pd.DataFrame:
     """Flag missing name-weeks and their evidence. ``reasons`` is a ``MissingReasons`` (a pending reason
     holds only inside the need windows of its candidate rows) or a security -> reason dict; a week inside
     an ``unfillable.csv`` window is ``unfillable`` and one inside a Tiingo answer newer than the panel is
-    ``fetched_pending_reconcile``, whatever the security's reason. ``young_any`` is the new-listing test
-    without the universe-base condition (for the report on the investment companies left out)."""
+    ``fetched_pending_reconcile``, whatever the security's reason; a week with a canonical close whose
+    reason would be ``series_gap`` or ``answer_not_in_panel`` is ``short_window`` (the window is short, no
+    row is lacking). ``gaps`` (``relist_gaps``) puts the weeks between a documented relist junction's old
+    and new shares outside trading. ``young_any`` is the new-listing test without the universe-base
+    condition (for the report on the investment companies left out)."""
     out = listed.copy()
-    out["outside_trading"] = trading_bounds(out, spans).values
+    out["relist_gap"] = relist_gap_weeks(out, gaps)
+    out["outside_trading"] = trading_bounds(out, spans).to_numpy(dtype=bool) | out["relist_gap"].to_numpy()
     ranked_any = out["dv50_rank_any_price"].notna().values
     out["young_rule"] = young_rules(out)
     young = (out["young_rule"] != "").to_numpy()
@@ -1833,6 +1886,11 @@ def mark_missing(listed: pd.DataFrame, spans: pd.DataFrame, reasons, cut: pd.Dat
     in_hand = (pending_reconcile(out, fetch_status, panel_built, newer=False)
                & out["missing_reason"].isin(IN_HAND_OVERRIDES).to_numpy())
     out.loc[in_hand, "missing_reason"] = "answer_not_in_panel"
+    with np.errstate(invalid="ignore"):
+        short = (out["missing"].to_numpy(dtype=bool) & ~np.isnan(out["close"].to_numpy(dtype=float))
+                 & np.isnan(out["dv50"].to_numpy(dtype=float))
+                 & out["missing_reason"].isin(SHORT_WINDOW_FROM).to_numpy())
+    out.loc[short, "missing_reason"] = "short_window"
     c = cut.reindex(out["week_index"].values)
     pf_ok = ~np.isnan(out["pf_dv50"].values) & out["pf_price"].isin(["Y", "U"]).values
     with np.errstate(invalid="ignore"):
@@ -2824,8 +2882,9 @@ def month2_leads(missing: pd.DataFrame, candidates: pd.DataFrame, fetch_status: 
     volume at the rank-300 cut, or with no step-6 dollar volume and a proxy at half the band median or more
     in 4+ weeks, or a proxy above it, or a name still listed with 4+ unknown weeks (no series and no size
     proxy; Yahoo serves it without a Tiingo symbol); with what the fetch lists already say and the source
-    that would serve them (Yahoo for a name still listed, which costs no Tiingo symbol). Unknown names no
-    longer listed are counted in the summary, not listed here (each would cost a Tiingo symbol)."""
+    that would serve them (Yahoo for a name still listed, which costs no Tiingo symbol; none for a
+    ``short_window`` name, whose series already holds the week). Unknown names no longer listed are counted
+    in the summary, not listed here (each would cost a Tiingo symbol)."""
     dv = missing["weeks_pf_dv_ge_cut300"] > 0
     proxy = (missing["weeks_no_pf_dv_proxy_ge_half"] >= 4) | ((missing["weeks_no_pf_dv"] > 0) & (missing["weeks_proxy_above"] > 0))
     unknown = (missing["weeks_unknown"] >= 4) & missing["active_now"] if "weeks_unknown" in missing else False
@@ -2840,7 +2899,8 @@ def month2_leads(missing: pd.DataFrame, candidates: pd.DataFrame, fetch_status: 
     leads["tiingo_status"] = leads["security_id"].map(status).fillna("")
     leads["suggested_source"] = np.select(
         [leads["missing_reason"].isin(PENDING_REASONS), leads["missing_reason"] == "answer_not_in_panel",
-         leads["active_now"].astype(bool)], ["pending", "step9_has_it", "yahoo"], default="tiingo")
+         leads["missing_reason"] == "short_window", leads["active_now"].astype(bool)],
+        ["pending", "step9_has_it", "no_fetch_short_window", "yahoo"], default="tiingo")
     return leads
 
 
@@ -2998,7 +3058,13 @@ def main(argv: list[str] | None = None) -> int:
     reasons = MissingReasons(master, candidates, unfillable, no_series, fetch_status, series_ids, yahoo_report)
     cut = week_cutoffs(listed)
     panel_built = datetime.fromtimestamp(PANEL.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
-    listed = mark_missing(listed, spans, week_reasons, cut, answers, panel_built, windows_of(unfillable))
+    relist_table = read_csv_text(RELIST_TABLE) if RELIST_TABLE.exists() else None
+    gaps = relist_gaps(relist_table)
+    listed = mark_missing(listed, spans, week_reasons, cut, answers, panel_built, windows_of(unfillable), gaps)
+    gap_weeks = listed[listed["relist_gap"] & listed["eligible"]]
+    log(f"relist gaps (step 9's documented junctions) {len(gaps)}: base name-weeks outside trading "
+        f"{len(gap_weeks)} {gap_weeks.groupby('ticker').size().to_dict()}; short_window name-weeks "
+        f"{int((listed['missing_reason'] == 'short_window').sum())}")
     rates = calibrate(listed)
     listed["p_top250"] = 0.0
     listed["p_top250_low"] = 0.0
@@ -3140,7 +3206,7 @@ def main(argv: list[str] | None = None) -> int:
                                                       "the week end"},
         "inputs_sha256": {str(p): common.sha256_file(p) for p in (
             MASTER, INTERVALS, PERIODIC_HISTORY, SNAPSHOT_INDEX, FORM25, CANDIDATES, UNFILLABLE, EARNINGS,
-            SIC_HISTORY, FF_MAPS, TERMINAL, WEEKLY_METRICS, LISTS, NO_SERIES, YAHOO_REPORT, YAHOO_STATUS)
+            SIC_HISTORY, FF_MAPS, TERMINAL, WEEKLY_METRICS, LISTS, NO_SERIES, YAHOO_REPORT, YAHOO_STATUS, RELIST_TABLE)
             if Path(p).exists()}
         | {str(PANEL): panel_sha, f"tiingo_status ({status_path})": status_sha,
            f"{SUBMISSIONS_DIGEST_KEY} ({SUBMISSIONS_DIR})": ic_facts["digest"]},
@@ -3163,6 +3229,14 @@ def main(argv: list[str] | None = None) -> int:
                                                for s, d in sorted(trims.items())},
                     "mapping_boundary_trimmed_rows": int(rows_before - len(panel)),
                     "top300_rows_dv_window_before_listing": int((top["dv_window_before_listing"] == "Y").sum()),
+                    "relist_gap_weeks_outside_trading": {
+                        "junctions": {sid: [list(g) for g in v] for sid, v in sorted(gaps.items())},
+                        "base_name_weeks": int(len(gap_weeks)),
+                        "by_security": {f"{s}:{t}": int(n) for (s, t), n in
+                                        gap_weeks.groupby(["security_id", "ticker"]).size().items()},
+                        "note": "weeks with no canonical close between the old shares' last Nasdaq session and "
+                                "the new shares' first (step 9's relist_junctions.csv, read from SEC filings): "
+                                "outside trading, not missing"},
                     "cut_by_form25": int((spans["cut"] == "form25").sum()),
                     "cut_by_transfer": int((spans["cut"] == "transfer").sum()),
                     "intervals_after_a_cut": int(spans["after_cut"].sum()),

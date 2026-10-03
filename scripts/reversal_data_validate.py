@@ -67,7 +67,7 @@ import pandas as pd
 
 from scripts import reversal_data_common as common
 
-CODE_VERSION = "2026-10-02.5"
+CODE_VERSION = "2026-10-03.1"
 
 # ------------------------------------------------------------------ constants (plan sections 1, 3, 5, 6)
 
@@ -89,6 +89,8 @@ SYMBOL_FILE_MIN_ROWS = 1000
 AGREE_TOL = 0.005
 AGREE_SHARE = 0.995
 V_TOL, V_SHARE, V_NAMES = 1e-4, 0.995, 50
+PRICE_GRIDS = (0.01, 0.001, 0.0001)                     # decimal grids a vendor close is printed on
+HALF_CENT = 0.005
 TIINGO_TOL = 1e-8
 SPLIT_AGREE = 0.98
 SPECIAL_PCT = 0.10
@@ -105,8 +107,10 @@ UNFILLABLE_SLOT_SHARE = 0.02                            # plan 3.3 check 6
 LIST_LIMIT = 40
 # step 12's missing_reason values (reversal_data_universe.MISSING_REASONS, kept equal by a test; not_in_step6 is an
 # older build's); these block completeness by themselves
+# short_window: a week with a canonical close whose 50-session window is short (no row lacking; judged by its
+# evidence like not_candidate, step 12 round 10)
 KNOWN_MISSING = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "answer_not_in_panel", "unfillable",
-                 "no_vendor_source", "series_gap", "candidate_other", "not_candidate", "not_in_step6"}
+                 "no_vendor_source", "series_gap", "short_window", "candidate_other", "not_candidate", "not_in_step6"}
 TIER_BB, TIER_BC_SAMPLE, TIER_BC_REST = "B_B_float_500M_1B", "B_C_sample_300M_500M", "B_C_rest_300M_500M"
 FETCH_DATA = {"done", "done_review", "partial"}         # a Tiingo answer with rows
 FETCH_EMPTY = {"wrong_entity", "no_data"}               # a Tiingo answer (or range check) with no usable rows
@@ -1283,6 +1287,42 @@ def adj_identity_error(frame: pd.DataFrame) -> np.ndarray:
     return err[np.isfinite(err)]
 
 
+ADJ_KINDS = ("dividend_times_split", "sub_cent", "other")
+
+
+def adj_identity_kinds(frame: pd.DataFrame) -> pd.DataFrame:
+    """The rows whose adjClose ratio misses the plan 4.2 formula by more than TIINGO_TOL, with what the miss is:
+
+    - ``dividend_times_split``: S != 1 and D > 0 on the row, and the ratio equals (C_t S + D S) / C_{t-1} within
+      1e-6: Tiingo's adjClose takes the cash per new share, the plan's formula per old share (AFSI and LBAI stock
+      dividends that also carry the same value as cash; the LBTYA/K, LBRDA/K, SVC and WINMQ distributions);
+    - ``sub_cent``: the miss is no more than half a cent on each of the two closes, i.e. adjClose was built from
+      a close a sub-cent digit away from the ``close`` field (RAVN: WIKI has the half cent the close field drops);
+    - ``other``.
+
+    Columns: date (of row t), err, kind, close_gap (adjClose ratio x C_{t-1} - (C_t S + D), in $ of row t)."""
+    empty = pd.DataFrame(columns=["date", "err", "kind", "close_gap"])
+    if len(frame) < 2:
+        return empty
+    close, adj = frame["close"].astype(float).values, frame["adjClose"].astype(float).values
+    split = frame["splitFactor"].astype(float).fillna(1.0).values
+    div = frame["divCash"].astype(float).fillna(0.0).values
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = adj[1:] / adj[:-1]
+        implied = (close[1:] * split[1:] + div[1:]) / close[:-1]
+        err = np.abs(ratio / implied - 1.0)
+        per_new = np.abs(ratio / ((close[1:] * split[1:] + div[1:] * split[1:]) / close[:-1]) - 1.0)
+        gap = ratio * close[:-1] - (close[1:] * split[1:] + div[1:])
+        bound = HALF_CENT * (split[1:] + (close[1:] * split[1:] + div[1:]) / close[:-1]) + 1e-9 * np.abs(close[1:])
+    bad = np.isfinite(err) & (err > TIINGO_TOL)
+    if not bad.any():
+        return empty
+    kind = np.where((split[1:] != 1.0) & (div[1:] > 0) & (per_new <= 1e-6), "dividend_times_split",
+                    np.where(np.abs(gap) <= bound, "sub_cent", "other"))
+    dates = frame["date"].astype(str).str[:10].values[1:]
+    return pd.DataFrame({"date": dates[bad], "err": err[bad], "kind": kind[bad], "close_gap": gap[bad]})
+
+
 def check_tiingo_row_check(ctx: Context) -> dict:
     """Tiingo row check: adjClose ratios equal the raw formula within 1e-8 in every Tiingo file used."""
     name, dataset, plan = "tiingo_row_check", "prices", "6 Prices (Tiingo row check); 4.2"
@@ -1294,13 +1334,15 @@ def check_tiingo_row_check(ctx: Context) -> dict:
     used = status[status["status"].isin(["done", "done_review", "partial"])]
     per_file, worst, rows_checked = [], 0.0, 0
     unreadable = []
+    by_kind: Counter = Counter()
     for row in used.itertuples(index=False):
         raw = ctx.path(row.raw_path) if row.raw_path else None
         if raw is None or not raw.exists():
             unreadable.append(row.ticker_for_source)
             continue
         try:
-            err = adj_identity_error(_tiingo_frame(ctx, raw))
+            frame = _tiingo_frame(ctx, raw)
+            err = adj_identity_error(frame)
         except (ValueError, KeyError, OSError) as exc:
             unreadable.append(f"{row.ticker_for_source}: {type(exc).__name__}")
             continue
@@ -1308,24 +1350,39 @@ def check_tiingo_row_check(ctx: Context) -> dict:
         top = float(err.max()) if len(err) else 0.0
         worst = max(worst, top)
         if top > TIINGO_TOL:
+            kinds = adj_identity_kinds(frame)
+            counts = kinds["kind"].value_counts().to_dict()
+            by_kind.update(counts)
             per_file.append({"ticker": row.ticker_for_source, "security_id": row.security_id, "max_err": top,
-                             "rows_over": int((err > TIINGO_TOL).sum())})
-    flagged = 0
-    flagged_ids = []
+                             "rows_over": int((err > TIINGO_TOL).sum()), "kinds": counts,
+                             "first": kinds["date"].min(), "last": kinds["date"].max(),
+                             "other_rows": kinds.loc[kinds["kind"] == "other", "date"].head(5).tolist()})
+    flagged, flagged_ids, flagged_agree = 0, [], 0
     if ctx.panel is not None:
         hit = ctx.panel["flags"].str.contains("tiingo_adj_identity", regex=False)
         flagged = int(hit.sum())
         flagged_ids = ctx.panel.loc[hit, "security_id"].value_counts().head(LIST_LIMIT).to_dict()
+        rows = ctx.panel[hit]
+        flagged_agree = int(((rows["n_sources"] >= 2) & (rows["max_src_diff"] <= AGREE_TOL)
+                             & ~rows["flags"].str.contains("disagree_unresolved", regex=False)).sum())
     passed = worst <= TIINGO_TOL and not unreadable and flagged == 0 and len(used) > 0
+    explained = sum(1 for f in per_file if set(f["kinds"]) <= {"dividend_times_split", "sub_cent"})
     return result(name, dataset, plan, threshold, passed,
                   numbers={"files_used": int(len(used)), "rows_checked": rows_checked, "max_err": worst,
                            "files_over": len(per_file), "files_unreadable": len(unreadable),
+                           "rows_over_by_kind": {k: int(by_kind.get(k, 0)) for k in ADJ_KINDS},
+                           "files_over_only_dividend_times_split_or_sub_cent": explained,
                            "panel_rows_flagged_tiingo_adj_identity": flagged,
+                           "panel_flagged_rows_another_source_within_0p5pct": flagged_agree,
                            "fetch_status_rows": int(len(status)), "fetch_status": status["status"].value_counts().to_dict()},
                   details={"files_over": per_file[:LIST_LIMIT], "unreadable": unreadable[:LIST_LIMIT],
                            "panel_flagged_by_security": flagged_ids},
                   note=("month-1 files (fetch_status done/done_review/partial) are recomputed here; older Tiingo caches "
-                        "the reconcile step also reads are covered by its per-row flag in the panel"))
+                        "the reconcile step also reads are covered by its per-row flag in the panel. kinds: "
+                        "dividend_times_split = Tiingo's adjClose takes the cash of an S != 1 day per new share (the plan's "
+                        "formula per old share), so whether D is per old or new share is decided in split_events / "
+                        "special_distributions; sub_cent = close and adjClose built from closes at most half a cent apart; the "
+                        "canonical record never reads adjClose"))
 
 
 def _series_ends(ctx: Context) -> dict:
@@ -1487,8 +1544,42 @@ def _yahoo_file(ctx: Context, sid: str) -> Path | None:
     return path if path.exists() else None
 
 
+def price_quantum(values) -> np.ndarray:
+    """The coarsest decimal grid (0.01, 0.001 or 0.0001) each close lies on, within the float32 error a restored
+    Yahoo close carries (Yahoo's split-adjusted value x the later split ratios); nan when it lies on none."""
+    x = np.asarray(values, dtype=float)
+    out = np.full(len(x), np.nan)
+    tol = np.maximum(1e-6, 2e-7 * np.abs(x))
+    for q in sorted(PRICE_GRIDS):          # finest first, so a coarser grid overwrites
+        out = np.where(np.abs(x - np.round(x / q) * q) <= tol, q, out)
+    return out
+
+
+def rounding_explained(t: pd.DataFrame, y: pd.DataFrame) -> pd.DataFrame:
+    """Per date both files have (a Tiingo prices file ``t`` and a restored Yahoo file ``y``): can a gap between
+    their returns that day come from price rounding alone?
+
+    ``level_ok``: the two raw closes differ by at most half a unit of the coarser of their two decimal grids
+    (``price_quantum``). Yahoo prints closes to the cent where Tiingo keeps a sub-cent digit: NVDA 2011-06-02,
+    a Tiingo close with a half cent and the restored Yahoo close on the cent above. ``event_ok``: the same split
+    factor and dividends within $0.001. ``rounding``: level_ok on the day and on the session before (the row
+    before in both files), and event_ok on the day. A single-stock comparison of two sources; nothing else."""
+    m = t[["date", "close", "splitFactor", "divCash"]].merge(
+        y[["date", "close_raw", "split_factor", "div_cash"]], on="date", how="inner").sort_values("date")
+    ct, cy = m["close"].astype(float).values, m["close_raw"].astype(float).values
+    half = 0.5 * np.fmax(price_quantum(ct), price_quantum(cy))
+    level_ok = np.abs(ct - cy) <= np.nan_to_num(half, nan=0.0) + np.maximum(1e-6, 2e-7 * np.abs(ct))
+    event_ok = (np.abs(m["splitFactor"].astype(float).fillna(1.0).values - m["split_factor"].astype(float).fillna(1.0).values) <= 1e-9) \
+        & (np.abs(m["divCash"].astype(float).fillna(0.0).values - m["div_cash"].astype(float).fillna(0.0).values) <= DIV_AMOUNT_TOL)
+    out = pd.DataFrame({"level_ok": level_ok, "event_ok": event_ok}, index=m["date"].values)
+    out["level_ok_prev"] = out["level_ok"].shift(1, fill_value=False).astype(bool)
+    out["rounding"] = out["level_ok"] & out["level_ok_prev"] & out["event_ok"]
+    return out
+
+
 def check_v_sample(ctx: Context) -> dict:
-    """Active names: Yahoo-derived returns against Tiingo returns for the 50-name V sample."""
+    """Active names: Yahoo-derived returns against Tiingo returns for the 50-name V sample. Days over 1e-4 are
+    split into rounding-explained days (``rounding_explained``) and the rest, which are listed by kind."""
     name, dataset, plan = "v_sample", "prices", "6 Prices (V sample); 3.2 rule V"
     threshold = f"all {V_NAMES} V names compared; |delta r| <= {V_TOL} on >= {V_SHARE} of days (the rest explained by hand)"
     c = ctx.csv("candidate_fetch_list.csv")
@@ -1496,12 +1587,14 @@ def check_v_sample(ctx: Context) -> dict:
         return no_input(name, dataset, plan, threshold, [ctx.inputs / "candidate_fetch_list.csv"])
     v = c[c["reason"] == "V_verify_sample"]
     tiingo = _tiingo_files(ctx)
-    per, days, within, over = [], 0, 0, []
+    spans = ctx.panel_spans
+    per, days, within, over, rounded, rest = [], 0, 0, [], 0, []
     for row in v.itertuples(index=False):
         t_path, y_path = tiingo.get(row.security_id), _yahoo_file(ctx, row.security_id)
         if t_path is None or y_path is None:
             per.append({"security_id": row.security_id, "ticker": row.ticker_for_source,
-                        "compared": False, "tiingo": t_path is not None, "yahoo": y_path is not None})
+                        "compared": False, "tiingo": t_path is not None, "yahoo": y_path is not None,
+                        "candidate_status": getattr(row, "status", "")})
             continue
         t = ctx.read_frame(t_path, dtype={"date": str})
         y = ctx.read_frame(y_path, dtype={"date": str, "junction": str}, keep_default_na=False)
@@ -1514,15 +1607,50 @@ def check_v_sample(ctx: Context) -> dict:
         days += len(both)
         within += int((diff <= V_TOL).sum())
         over += [{"security_id": row.security_id, "date": d} for d in diff[diff > V_TOL].index[:5]]
+        over_days = diff[diff > V_TOL].index
+        explained = rounding_explained(t, y).reindex(over_days)
+        hit = explained["rounding"].fillna(False).astype(bool)
+        rounded += int(hit.sum())
+        first, last = (spans.loc[row.security_id, "first"], spans.loc[row.security_id, "last"]) \
+            if row.security_id in spans.index else ("", "")
+        for d in over_days[~hit.values]:
+            e = explained.loc[d]
+            rest.append({"security_id": row.security_id, "ticker": row.ticker_for_source, "date": d,
+                         "abs_delta_r": _round(diff[d]),
+                         "kind": "event_differs" if not bool(e["event_ok"]) else "level_gap",
+                         "in_panel_window": bool(first) and first <= d <= last})
         per.append({"security_id": row.security_id, "ticker": row.ticker_for_source, "compared": True,
-                    "days": int(len(both)), "share_1e4": _share(int((diff <= V_TOL).sum()), len(both))})
+                    "days": int(len(both)), "share_1e4": _share(int((diff <= V_TOL).sum()), len(both)),
+                    "over_1e-4": int(len(over_days)), "rounding_explained": int(hit.sum())})
     compared = sum(r["compared"] for r in per)
     share = _share(within, days)
     passed = compared == V_NAMES == len(v) and share is not None and share >= V_SHARE
+    if rest and ctx.panel is not None:   # the canonical row's vote on each day that is not rounding
+        keys = {(r["security_id"], r["date"]) for r in rest}
+        p = ctx.panel
+        rows = p[p["security_id"].isin({k[0] for k in keys})]
+        votes = {(s, d): (src, int(n), f) for s, d, src, n, f in
+                 zip(rows["security_id"], rows["date"], rows["src_primary"], rows["n_sources"], rows["flags"]) if (s, d) in keys}
+        for r in rest:
+            src, n, f = votes.get((r["security_id"], r["date"]), ("", 0, ""))
+            r.update(canon_src=src, canon_n_sources=n, canon_flags=f)
+    kinds = Counter((r["kind"], r["in_panel_window"]) for r in rest)
     return result(name, dataset, plan, threshold, passed,
-                  numbers={"v_names": int(len(v)), "compared": compared, "days": days, "within_1e-4": within, "share": share},
-                  details={"names": per[:V_NAMES], "days_over_1e-4": over[:LIST_LIMIT]},
-                  note="Yahoo junction rows are left out (they carry another history's S and D); each source's own returns only")
+                  numbers={"v_names": int(len(v)), "compared": compared, "days": days, "within_1e-4": within, "share": share,
+                           "over_1e-4": days - within, "rounding_explained": rounded, "not_rounding": len(rest),
+                           "not_rounding_by_kind": {f"{k}{'' if w else '_outside_panel_window'}": n
+                                                    for (k, w), n in sorted(kinds.items())},
+                           "share_within_or_rounding": _share(within + rounded, days),
+                           "not_compared_by_candidate_status": dict(Counter(r.get("candidate_status", "")
+                                                                            for r in per if not r["compared"]))},
+                  details={"names": per[:V_NAMES], "days_over_1e-4": over[:LIST_LIMIT],
+                           "not_rounding_days": rest[:2 * LIST_LIMIT]},
+                  note=("Yahoo junction rows are left out (they carry another history's S and D); each source's own returns "
+                        "only. rounding_explained: both raw closes within half a unit of the coarser decimal grid on the day "
+                        "and the session before, same S and D (Yahoo prints closes to the cent where Tiingo keeps a sub-cent "
+                        "digit); reported apart, the share against the threshold is unchanged. not_rounding_days carry the "
+                        "canonical row's source count and flags (its majority vote) for the hand review; days outside the "
+                        "security's panel window are before its Nasdaq listing and not in the data"))
 
 
 def check_review_queue(ctx: Context) -> dict:
@@ -1746,19 +1874,36 @@ def check_known_cases(ctx: Context) -> dict:
             succ = ctx.holder_of(row.successor, row.effective_date)
             g = by_sid.get(sid)
             ticker_change = _num([row.share_ratio]).iloc[0] == 1.0 and (_num([row.cash_per_share]).fillna(0).iloc[0] == 0.0)
+            ends = ""
             if g is None:
                 state = "not_a_target" if sid not in ranked else "no_series"
             elif sid == succ or (ticker_change and not succ):
                 state = "consistent" if g["date"].max() > row.effective_date else "series_stops_at_ticker_change"
             else:
-                last_pos = ctx.session_pos([g["date"].max()])[0]
+                # The repo's last_price_date is a date its stored predecessor file must hold, and the successor is
+                # spliced on only after that file's last date (src/io/corporate_actions.py), so it is a lower bound
+                # for the last session, not the last session itself. The series is consistent with the row when it
+                # ends there (+-1 session) or on the last session before the effective date (ANSS: 8-K, trading
+                # suspended before the open on the 2025-07-17 closing date; CHX: closing date 2025-07-16).
+                last = g["date"].max()
+                last_pos = ctx.session_pos([last])[0]
                 want_pos = ctx.session_pos([row.last_price_date])[0]
-                state = "consistent" if abs(last_pos - want_pos) <= 1 else (
-                    "series_ends_early" if last_pos < want_pos else "series_runs_past_last_price_date")
+                before_effective = ctx.sessions[ctx.sessions < pd.Timestamp(row.effective_date)][-1].strftime("%Y-%m-%d")
+                if abs(last_pos - want_pos) <= 1:
+                    state, ends = "consistent", "at_last_price_date"
+                elif last >= row.effective_date:
+                    state = "series_runs_past_effective_date"
+                elif last < row.last_price_date:
+                    state = "series_ends_early"
+                elif last == before_effective:
+                    state, ends = "consistent", "last_session_before_effective_date"
+                else:
+                    state = "series_ends_between_last_price_date_and_effective_date"
             repo.setdefault("corporate_actions", []).append(
                 {"predecessor": row.predecessor, "successor": row.successor, "last_price_date": row.last_price_date,
-                 "security_id": sid, "successor_security_id": succ, "ticker_change": bool(ticker_change),
-                 "series_last": g["date"].max() if g is not None else "", "state": state})
+                 "effective_date": row.effective_date, "security_id": sid, "successor_security_id": succ,
+                 "ticker_change": bool(ticker_change), "series_last": g["date"].max() if g is not None else "",
+                 "state": state, "ends": ends})
     repo_bad = [r for r in repo.get("confirmed_price_adjustments", []) if not r["consistent"]] + \
         [r for r in repo.get("corporate_actions", []) if r["state"] not in ("consistent", "not_a_target")]
     passed = not bad and not repo_bad and "confirmed_price_adjustments" in repo and "corporate_actions" in repo
@@ -1767,15 +1912,205 @@ def check_known_cases(ctx: Context) -> dict:
                            "confirmed_price_adjustments": len(repo.get("confirmed_price_adjustments", [])),
                            "corporate_actions": len(repo.get("corporate_actions", [])), "repo_rows_inconsistent": len(repo_bad)},
                   details={"known_cases": rows, "repo_files": repo},
-                  note="corporate_actions rows for securities never ranked <= 300 are 'not_a_target'")
+                  note=("corporate_actions rows for securities never ranked <= 300 are 'not_a_target'; a merger row's "
+                        "last_price_date is the repo file's anchor date, so a series that runs on to the last session "
+                        "before the effective date is consistent (ends = last_session_before_effective_date)"))
+
+
+NASDAQ_DIV_DIR = "raw/nasdaq/dividends"      # step 7b: {TICKER}.json.gz (api.nasdaq.com answers) and sample.csv
+NASDAQ_CASH_TYPES = {"cash", "cash/stock"}    # Cash/Stock: the cash part of a day that also has a stock dividend
+OLD_TIINGO_DIRS = ("research_cache/tiingo_overlap", "research_cache/tiingo_delisted", "research_cache/sue_lt_2020_2026/raw")
+DIV_PAIRS = ("tiingo_nasdaq", "canonical_nasdaq", "yahoo_nasdaq")
+DIV_PAIRS_JUDGED = ("tiingo_nasdaq", "canonical_nasdaq")   # yahoo_nasdaq is reported (Yahoo is in the canonical)
+
+
+def _empty_cash() -> pd.Series:
+    return pd.Series(dtype=float, index=pd.Index([], dtype=object))
+
+
+def nasdaq_dividends(payload: dict) -> tuple[pd.Series, set, str]:
+    """One api.nasdaq.com dividends answer: the cash per ex-date as paid (Nasdaq gives the declared amounts, not
+    split-scaled: NVDA 0.16 before its 2021 split), the ex-dates typed Cash/Stock (a stock dividend that day:
+    CBSH's yearly 5%), and the answer's state: ``rows``, ``no_history`` (Nasdaq knows no dividend) or
+    ``not_nasdaq`` (Nasdaq serves no history for a symbol it does not list)."""
+    data = payload.get("data") or {}
+    rows = (data.get("dividends") or {}).get("rows") or []
+    if not rows:
+        message = str(payload.get("message") or "").lower()
+        return _empty_cash(), set(), "not_nasdaq" if "non-nasdaq" in message else "no_history"
+    frame = pd.DataFrame(rows)
+    kind = frame["type"].astype(str).str.strip().str.lower() if "type" in frame else pd.Series("", index=frame.index)
+    day = pd.to_datetime(frame["exOrEffDate"], format="%m/%d/%Y", errors="coerce").dt.strftime("%Y-%m-%d")
+    amount = pd.to_numeric(frame["amount"].astype(str).str.replace("$", "", regex=False).str.replace(",", "", regex=False),
+                           errors="coerce")
+    cash = kind.isin(NASDAQ_CASH_TYPES) & day.notna() & amount.notna()
+    series = amount[cash].groupby(day[cash]).sum().astype(float) if cash.any() else _empty_cash()
+    stock = set(day[kind.str.contains("stock", regex=False) & day.notna()])
+    return series, stock, "rows"
+
+
+def compare_cash(a: pd.Series, b: pd.Series, lo: str, hi: str, skip=frozenset()) -> dict:
+    """Two cash-dividend series (ex-date -> amount) inside [lo, hi]: the ex-dates in both and in either, the
+    amount gaps over $0.001 and the dates only one side has. A date in ``skip`` (a distribution, not a cash
+    dividend: a spin-off or a stock dividend a vendor books as cash) that only one side has is left out."""
+    a = a[(a.index >= lo) & (a.index <= hi)]
+    b = b[(b.index >= lo) & (b.index <= hi)]
+    both = a.index.intersection(b.index)
+    only_a = sorted(d for d in a.index.difference(b.index) if d not in skip)
+    only_b = sorted(d for d in b.index.difference(a.index) if d not in skip)
+    gap = (a[both] - b[both]).abs()
+    one_side = len(a.index.difference(b.index)) + len(b.index.difference(a.index))
+    return {"matched": int(len(both)), "either": int(len(both) + len(only_a) + len(only_b)),
+            "gaps": [(d, float(v)) for d, v in gap[gap > DIV_AMOUNT_TOL].items()], "only_a": only_a, "only_b": only_b,
+            "skipped": int(one_side - len(only_a) - len(only_b))}
+
+
+def _sample_tiingo_cash(ctx: Context, sid: str, ticker: str, month1: dict, step9_used_tiingo: bool):
+    """A sample name's Tiingo dividends (ex-date -> divCash), the file's first and last date and where it is
+    from: the month-1 prices file, else an older full-history Tiingo JSON cache of the ticker that step 9 reads
+    (only when step 9 booked a Tiingo dividend for this security, so the file is this company's); None if none."""
+    path = month1.get(sid)
+    if path is not None:
+        t = ctx.read_frame(path, dtype={"date": str})
+        t["date"] = t["date"].str[:10]
+        cash = t[t["divCash"].astype(float) > 0].groupby("date")["divCash"].sum().astype(float)
+        return cash, t["date"].min(), t["date"].max(), "month1"
+    if not step9_used_tiingo:
+        return None
+    for directory in OLD_TIINGO_DIRS:
+        path = ctx.main / directory / f"{ticker.lower()}.json"
+        if not path.exists():
+            continue
+        payload = ctx.read_json(path)
+        frame = pd.DataFrame(payload.get("prices", []) if isinstance(payload, dict) else payload)
+        if not len(frame) or "divCash" not in frame:
+            continue
+        frame["date"] = frame["date"].astype(str).str[:10]
+        cash = frame[frame["divCash"].astype(float) > 0].groupby("date")["divCash"].sum().astype(float)
+        return cash, frame["date"].min(), frame["date"].max(), directory.split("/", 1)[1]
+    return None
+
+
+def _distribution_dates(ctx: Context, canonical: pd.DataFrame | None) -> dict:
+    """security -> ex-dates that are distributions, not cash dividends: split_events distribution/spinoff rows,
+    special_distributions rows and the canonical dividends marked special."""
+    out: dict = {}
+    s = ctx.csv("split_events.csv")
+    if s is not None:
+        rows = s[s["event_type"].isin(["distribution", "spinoff"])]
+        for sid, day in zip(rows["security_id"], rows["ex_date"]):
+            out.setdefault(sid, set()).add(day)
+    sp = ctx.csv("special_distributions.csv")
+    if sp is not None:
+        for sid, day in zip(sp["security_id"], sp["ex_date"]):
+            out.setdefault(sid, set()).add(day)
+    if canonical is not None and "special" in canonical:
+        rows = canonical[canonical["special"] == "Y"]
+        for sid, day in zip(rows["security_id"], rows["ex_date"]):
+            out.setdefault(sid, set()).add(day)
+    return out
+
+
+def _nasdaq_sample_pairs(ctx: Context) -> dict:
+    """The step-7b sample (CACHE/raw/nasdaq/dividends/sample.csv and one answer per ticker) against Tiingo, the
+    canonical dividends (CACHE/dividends.csv) and Yahoo, from 2013-08-01 inside each security's panel window."""
+    directory = ctx.cache / NASDAQ_DIV_DIR
+    sample_path = directory / "sample.csv"
+    files = sorted(directory.glob("*.json.gz")) if directory.exists() else []
+    out = {"files": len(files), "sample": 0, "answers": {}, "strata": {}, "pairs": {}, "lists": {}, "no_data": [],
+           "stock_without_split": []}
+    if not sample_path.exists():
+        return out
+    sample = ctx.read_frame(sample_path, dtype=str, keep_default_na=False)
+    out["sample"] = int(len(sample))
+    out["strata"] = sample["stratum"].value_counts().to_dict() if "stratum" in sample else {}
+    canonical = ctx.cache_csv("dividends.csv")
+    if canonical is not None:
+        canonical = canonical.assign(cash=pd.to_numeric(canonical["cash_as_paid"], errors="coerce"))
+    distributions = _distribution_dates(ctx, canonical)
+    month1 = _tiingo_files(ctx)
+    spans = ctx.panel_spans
+    splits: dict = {}
+    if ctx.panel is not None:
+        p = ctx.panel
+        moved = p[p["security_id"].isin(set(sample["security_id"])) & (p["split_factor"] != 1.0) & (p["pos"] >= 0)]
+        splits = {sid: set(g["pos"]) for sid, g in moved.groupby("security_id")}
+    totals = {k: {"securities": 0, "matched": 0, "either": 0, "skipped": 0} for k in DIV_PAIRS}
+    lists = {k: {"amount_gaps": [], "only_nasdaq": [], "only_other": []} for k in DIV_PAIRS}
+    answers: Counter = Counter()
+    for row in sample.itertuples(index=False):
+        path = directory / f"{row.ticker}.json.gz"
+        if not path.exists():
+            answers["missing_file"] += 1
+            out["no_data"].append({"ticker": row.ticker, "state": "missing_file"})
+            continue
+        nasdaq, stock, state = nasdaq_dividends(json.loads(gzip.decompress(ctx.read_bytes(path))))
+        answers[state] += 1
+        if state == "not_nasdaq" or row.security_id not in spans.index:
+            out["no_data"].append({"ticker": row.ticker, "security_id": row.security_id,
+                                   "state": state if state == "not_nasdaq" else "no_panel_series"})
+            continue
+        if state == "no_history":
+            out["no_data"].append({"ticker": row.ticker, "security_id": row.security_id, "state": state})
+        lo = max(NASDAQ_DIV_FROM, spans.loc[row.security_id, "first"])
+        hi = min(PRICE_END, spans.loc[row.security_id, "last"])
+        skip = distributions.get(row.security_id, set())
+        own = canonical[canonical["security_id"] == row.security_id] if canonical is not None else None
+        others = {}
+        if own is not None:
+            others["canonical_nasdaq"] = (own.groupby("ex_date")["cash"].sum().astype(float), lo, hi)
+        tiingo = _sample_tiingo_cash(ctx, row.security_id, row.ticker, month1,
+                                     own is not None and own["sources"].str.contains("tiingo", regex=False).any())
+        if tiingo is not None:
+            others["tiingo_nasdaq"] = (tiingo[0], max(lo, tiingo[1]), min(hi, tiingo[2]))
+        y_path = _yahoo_file(ctx, row.security_id)
+        if y_path is not None:
+            y = ctx.read_frame(y_path, dtype={"date": str})
+            cash = y[y["div_cash"].astype(float) > 0].groupby("date")["div_cash"].sum().astype(float)
+            others["yahoo_nasdaq"] = (cash, max(lo, y["date"].min()), min(hi, y["date"].max()))
+        for key, (series, a, b) in others.items():
+            if a > b:
+                continue
+            got = compare_cash(nasdaq, series, a, b, skip)
+            t = totals[key]
+            t["securities"] += 1
+            t["matched"] += got["matched"]
+            t["either"] += got["either"]
+            t["skipped"] += got["skipped"]
+            lists[key]["amount_gaps"] += [{"security_id": row.security_id, "ticker": row.ticker, "date": d, "diff": _round(v)}
+                                          for d, v in got["gaps"]]
+            lists[key]["only_nasdaq"] += [{"security_id": row.security_id, "ticker": row.ticker, "date": d}
+                                          for d in got["only_a"]]
+            lists[key]["only_other"] += [{"security_id": row.security_id, "ticker": row.ticker, "date": d}
+                                         for d in got["only_b"]]
+        for day in sorted(stock):
+            if not lo <= day <= hi:
+                continue
+            pos = int(ctx.sessions.searchsorted(pd.Timestamp(day)))
+            if not any(abs(pos - q) <= 1 for q in splits.get(row.security_id, ())):
+                out["stock_without_split"].append({"security_id": row.security_id, "ticker": row.ticker, "date": day})
+    for key in DIV_PAIRS:
+        t, lst = totals[key], lists[key]
+        share = _share(t["matched"], t["either"])
+        out["pairs"][key] = {"securities": t["securities"], "ex_dates_matched": t["matched"], "ex_dates_either": t["either"],
+                             "share": share, "amounts_over_0.001": len(lst["amount_gaps"]),
+                             "only_nasdaq": len(lst["only_nasdaq"]), "only_other": len(lst["only_other"]),
+                             "distribution_dates_left_out": t["skipped"],
+                             "meets_threshold": bool(share is not None and share >= DIV_MATCH and not lst["amount_gaps"])}
+    out["answers"] = dict(answers)
+    out["lists"] = lists
+    return out
 
 
 def check_dividends(ctx: Context) -> dict:
-    """Dividends: Tiingo against Nasdaq (100-name sample from 2013-08) and against Yahoo after split scaling."""
+    """Dividends: Tiingo against Yahoo (after split scaling), and the step-7b Nasdaq sample (100 names from
+    2013-08) against Tiingo and against the canonical dividends; Yahoo against Nasdaq is reported."""
     name, dataset, plan = "dividends", "dividends", "6 Dividends; step 7b"
-    threshold = (f"Nasdaq sample of {NASDAQ_DIV_SAMPLE} names and Tiingo-Yahoo pairs: ex-date match >= {DIV_MATCH}; "
-                 f"amounts within ${DIV_AMOUNT_TOL}")
+    threshold = (f"ex-date match >= {DIV_MATCH} and amounts within ${DIV_AMOUNT_TOL} for the Tiingo-Yahoo pairs, and for "
+                 f"Tiingo-Nasdaq and canonical-Nasdaq over a Nasdaq sample of {NASDAQ_DIV_SAMPLE} names from "
+                 f"{NASDAQ_DIV_FROM} (distribution ex-dates only one side has left out of the Nasdaq pairs)")
     tiingo = _tiingo_files(ctx)
+    spans = ctx.panel_spans
     pairs, matched, union, amount_bad = 0, 0, 0, []
     for sid, t_path in tiingo.items():
         y_path = _yahoo_file(ctx, sid)
@@ -1793,21 +2128,34 @@ def check_dividends(ctx: Context) -> dict:
         matched += len(common_dates)
         union += len(td.index.union(yd.index))
         diff = (td[common_dates] - yd[common_dates]).abs()
-        amount_bad += [{"security_id": sid, "date": d, "diff": _round(v)} for d, v in diff[diff > DIV_AMOUNT_TOL].items()]
-    nasdaq_dir = ctx.cache / "raw" / "nasdaq" / "dividends"
-    nasdaq_files = sorted(nasdaq_dir.glob("*.json*")) if nasdaq_dir.exists() else []
+        first, last = (spans.loc[sid, "first"], spans.loc[sid, "last"]) if sid in spans.index else ("", "")
+        amount_bad += [{"security_id": sid, "date": d, "diff": _round(v), "in_panel_window": bool(first) and first <= d <= last}
+                       for d, v in diff[diff > DIV_AMOUNT_TOL].items()]
     share = _share(matched, union)
     yahoo_ok = share is not None and share >= DIV_MATCH and not amount_bad
-    passed = yahoo_ok and len(nasdaq_files) >= NASDAQ_DIV_SAMPLE
+    nasdaq = _nasdaq_sample_pairs(ctx)
+    judged = [nasdaq["pairs"].get(k, {}).get("meets_threshold", False) for k in DIV_PAIRS_JUDGED]
+    sample_complete = nasdaq["sample"] >= NASDAQ_DIV_SAMPLE and nasdaq["answers"].get("missing_file", 0) == 0
+    passed = yahoo_ok and sample_complete and all(judged)
+    lists = {k: {kind: v[:LIST_LIMIT] for kind, v in got.items()} for k, got in nasdaq["lists"].items()}
     return result(name, dataset, plan, threshold, passed,
                   numbers={"tiingo_yahoo_securities": pairs, "ex_dates_matched": matched, "ex_dates_either": union,
                            "tiingo_yahoo_match_share": share, "amounts_over_0.001": len(amount_bad),
-                           "nasdaq_sample_files": len(nasdaq_files), "nasdaq_sample_needed": NASDAQ_DIV_SAMPLE},
-                  details={"amounts_over_0.001": amount_bad[:LIST_LIMIT]},
+                           "amounts_over_0.001_in_panel_window": sum(r["in_panel_window"] for r in amount_bad),
+                           "nasdaq_sample_files": nasdaq["files"], "nasdaq_sample_names": nasdaq["sample"],
+                           "nasdaq_sample_needed": NASDAQ_DIV_SAMPLE, "nasdaq_sample_strata": nasdaq["strata"],
+                           "nasdaq_answers": nasdaq["answers"], "nasdaq_pairs": nasdaq["pairs"],
+                           "nasdaq_stock_dividend_days_without_split": len(nasdaq["stock_without_split"])},
+                  details={"amounts_over_0.001": amount_bad[:LIST_LIMIT], "nasdaq_pairs": lists,
+                           "nasdaq_no_data": nasdaq["no_data"][:LIST_LIMIT],
+                           "nasdaq_stock_dividend_days_without_split": nasdaq["stock_without_split"][:LIST_LIMIT]},
                   note=("the Nasdaq dividends sample (step 7b, CACHE/raw/nasdaq/dividends/) has not been fetched; "
                         "Yahoo dividends are compared as restored (already scaled by later splits)"
-                        if not nasdaq_files else ""))
-
+                        if not nasdaq["sample"] else
+                        "Yahoo dividends are compared as restored (already scaled by later splits); Nasdaq amounts are as "
+                        "declared (Cash and Cash/Stock rows); a not_nasdaq answer carries no history and is left out; "
+                        "nasdaq_stock_dividend_days_without_split = Cash/Stock ex-dates with no canonical split factor "
+                        "within one session (a stock dividend the canonical series may miss)"))
 
 # ================================================================== terminal values (4.5, section 6)
 
@@ -2504,7 +2852,7 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
                   basis=basis,
                   note=("reasons other than these are judged elsewhere: tiingo_pending / yahoo_pending backed by an open "
                         "candidate row (candidates_resolved), unfillable (universe_unfillable), not_candidate / "
-                        "candidate_other (universe_proxy_margin and the unknown-size count); a series_gap name has a "
+                        "candidate_other / short_window (universe_proxy_margin and the unknown-size count); a series_gap name has a "
                         "series that does not reach the week; answer_not_in_panel is an answer step 9 read but left out "
                         "(SMCI, CHRD); a pending week with no open candidate row of its source whose need reaches the week "
                         "is reported as <reason>_without_open_candidate and blocks; the weeks after a series' last price "
@@ -2932,8 +3280,8 @@ ENDPOINTS = {  # templates only: keys travel in headers or are redacted
                   "Ken French data library; redistribution terms unclear (plan 8 item 8); 202608 build pinned"),
     "cboe": ("https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv", "CBOE public file"),
     "wayback": ("https://web.archive.org/web/{timestamp}id_/{original_url}", "Internet Archive captures of Nasdaq pages"),
-    "nasdaq": ("https://api.nasdaq.com/api/quote/{symbol}/{historical|dividends}?assetclass=etf&...",
-               "Nasdaq public API (QQQ tail and dividends)"),
+    "nasdaq": ("https://api.nasdaq.com/api/quote/{symbol}/{historical|dividends}?assetclass=etf|stocks&...",
+               "Nasdaq public API (QQQ tail and dividends; the step-7b stock dividends sample); values stay local"),
     "invesco": ("https://www.invesco.com/us/financial-products/etfs/product-detail/main/distributions/03?"
                 "audienceType=Investor&action=download&ticker=QQQ", "issuer page (QQQ distributions)"),
     "sec": ("https://data.sec.gov/submissions/CIK{cik:010d}.json and https://www.sec.gov/Archives/edgar/data/{cik}/"
