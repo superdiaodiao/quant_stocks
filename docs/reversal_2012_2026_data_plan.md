@@ -30,6 +30,7 @@ Owner decisions so far, all made before any returns were seen:
   - Later free Tiingo months build **data version 2**. The test rules say in advance that version 2 is only a robustness check, with the rules unchanged. If it changes the conclusion, the conclusion counts as unreliable.
   - A year whose missing share exceeds 2% of top-250 slots is reported, but it is not used to judge the strategy. The share is read on the **model** estimate of §3.3 check 6, in which a week of unknown size counts for nothing. Two other readings are reported beside it: the **calibrated** reading and the **upper** bound. Neither decides pass or fail. *(How the checks read this rule, written down 2026-10-03 for the owner to confirm.)*
   - No further sources are sought after the free-source survey of 2026-10-02.
+- 2026-10-03, D5 decided: a delisting with no terminal value found (no OTC price, no consideration) books **−55%**, the Shumway and Warther (1999) estimate for Nasdaq performance-related delistings. −100% is reported beside it as a stress test. Decided before any returns were seen.
 - 2026-10-02, two conventions (both follow CRSP practice; set before any returns were seen):
   - A 1:1 holding-company reorganisation or reincorporation (Google to Alphabet, 2015-10) continues the same security, as CRSP keeps one PERMNO. Dollar-volume windows and returns run across the successor link; no day is counted twice.
   - When a large daily move is reviewed, the repo's own stored price files count as a second source beside the vendors.
