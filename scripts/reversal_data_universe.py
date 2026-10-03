@@ -155,7 +155,8 @@ Completeness checks (plan 3.3, no returns):
   no young rule applies: a series that starts inside the window, such as a transfer from NYSE whose rows
   start at the Nasdaq start (KDP 2020-09), a tracking stock or a 1:1 successor not linked, or a hole in the
   window; it replaces ``series_gap`` and ``answer_not_in_panel``, which say a row is lacking, so these
-  weeks are judged by their evidence like ``not_candidate``; round 10: 422 of the 1,055 name-weeks so labelled),
+  weeks are judged by their evidence like ``not_candidate``, and validate's universe_listed_gaps blocks those
+  whose evidence could reach the top 250; round 10: 422 of the 1,055 name-weeks so labelled),
   ``candidate_other``, ``not_candidate``. The residual survivorship estimate leaves out the three pending
   reasons; ``*_ex_siblings`` also leaves out missing classes whose sibling class ranks that week (owner
   question 8.4: if only the most liquid class is kept, they do not matter); ``*_upper`` adds the unknown
@@ -169,9 +170,12 @@ Completeness checks (plan 3.3, no returns):
   top-250 sets (with the reasons for step 6 names not in the canonical top 250);
 - plan 3.3 checks 2 (company-list capture dates), 3 (Nasdaq-100 year-end members 2011-2019),
   4 (Form 25 delistings with float >= $1B), 5 (fetch margin of the month-1 names) and 6 (survivorship
-  by year: the residual of every reason but the pending ones, unknown name-weeks counted as top-250
-  name-weeks, at most 2% of slots; the plan's unfillable-only share is kept beside it); check 7 (FINRA)
-  needs requests and is not run.
+  by year: the residual of every reason but the pending ones read three ways, the model (unknown
+  name-weeks get nothing), calibrated (unknown name-weeks times the round-10 sample's rate,
+  ``UNKNOWN_SIZE_CALIBRATION`` / ``UNKNOWN_SAMPLE_STRATA``, written down with the sample file's sha256)
+  and the upper bound (unknown name-weeks counted as top-250 name-weeks); the 2% rule of plan section 0
+  reads the model, the other two are reported beside it; the plan's unfillable-only share is kept beside
+  it); check 7 (FINRA) needs requests and is not run.
 
 A week is ``complete_250`` when at least 250 names are ranked, all of ranks 1-250 have a canonical close
 in the week, no missing name has dollar-volume evidence at or above the rank-250 cut, none has only a
@@ -228,7 +232,7 @@ import pandas as pd
 from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 
-CODE_VERSION = "2026-10-03.1"
+CODE_VERSION = "2026-10-03.2"
 MAIN = common.MAIN_CHECKOUT
 CACHE = common.CACHE
 INPUTS = common.INPUTS
@@ -292,6 +296,39 @@ IN_HAND_OVERRIDES = ["yahoo_pending", "series_gap", "no_vendor_source", "candida
 # Labels that say a row is lacking; a missing week with a canonical close and no dv50 (fewer than 25 rows in
 # the 50-session window, no young rule) is short_window instead (round 10: CDW 2013-06, KDP 2020-09, QVCA 2014-10).
 SHORT_WINDOW_FROM = ("series_gap", "answer_not_in_panel")
+# A short_window week whose own canonical dv20 rank (closes and volumes the series already holds) is within
+# this rank blocks like top-250 evidence (round-10 merge review: APA 2020-07 ranked 101st, BPR 2018-09
+# 102nd-165th, CLOV 2021-01 123rd-137th were judged small on the step-6 cut and the proxy alone). 300, not
+# 250: a 20-session figure over a short window is noisy, so the margin matches the top-300 table.
+SHORT_WINDOW_OWN_RANK = 300
+
+# Calibrated rate for unknown-size name-weeks (round-10 hand review; written down here so a build can be
+# re-run without the review folder). The sample: 40 securities drawn (numpy default_rng(20261003)) from the
+# counted unknown name-weeks of 2018-2024 (evidence unknown, not pending) in the round-9 build: stratum A =
+# 2021-2023 (5,515 name-weeks, 30 names), stratum B = 2018-2020 and 2024 (2,371 name-weeks, 10 names). Each
+# name was sized from SEC filings only (cover shares x an SEC-dated price; no vendor volume): size ratio =
+# that market value / the week's canonical rank-250 dv50 cut. A name judged "no" (every SEC-dated price
+# under $10, or market value under 2x the cut, or not in the universe base) gets rate 0; every other name
+# (implausible, possible, unresolved) gets the top-250 share of its size-ratio bin in the calibration table
+# below, measured on canonical single-class name-weeks of 2018-2024 (close >= $10, ranked by dv50; market
+# value = latest SEC cover shares within 200 days x the same week's canonical close; ranks and sizes only).
+# The stratum rate is the mean over its names; the pooled rate weights the strata by their name-weeks.
+# It is a model figure: the table comes from ordinary names, while most unknown names sit in merger or
+# bankruptcy limbo (and SPRT in a squeeze), where turnover can differ a lot; 4 of the 25 "no" verdicts rest
+# on inferred or pre-span prices (FRAN, LGCY, FRBK, VWE). It is reported beside the model (unknown weeks
+# get nothing) and the all-unknown upper bound (every unknown week counted as a top-250 week); the 2% rule
+# (plan section 0 and 3.3 check 6) is read on the model estimate.
+UNKNOWN_SAMPLE_PATH = ("review", "round10", "gaps", "unknown_size_sample.csv")   # under CACHE
+UNKNOWN_SAMPLE_SHA256 = "be4a3827a2ad5554b102f722390866ba5510c973f9ec66e3a7d5cc73b106996a"
+# (lower, upper, top-250 share of canonical name-weeks): size ratio in [lower, upper)
+UNKNOWN_SIZE_CALIBRATION = ((0, 1, 0.0), (1, 2, 0.0), (2, 5, 0.00027), (5, 10, 0.00079), (10, 15, 0.0019),
+                            (15, 20, 0.0076), (20, 30, 0.0127), (30, 50, 0.0343), (50, 75, 0.0908),
+                            (75, 100, 0.1786), (100, float("inf"), 0.7684))
+UNKNOWN_SAMPLE_STRATA = {"A": {"years": (2021, 2022, 2023), "population_name_weeks": 5515, "names": 30,
+                               "rate": 0.001898},
+                         "B": {"years": (2018, 2019, 2020, 2024), "population_name_weeks": 2371, "names": 10,
+                               "rate": 0.01035}}
+UNKNOWN_SAMPLE_POOLED_RATE = 0.004439   # (5,515 x A + 2,371 x B) / 7,886; used for the years not sampled
 
 TOP300_COLUMNS = ["week_end", "security_id", "ticker", "dv50_rank", "dv20_rank", "price_ge_10", "ff49",
                   "earnings_event_within_3_sessions",
@@ -314,7 +351,8 @@ SUMMARY_COLUMNS = ["week_end", "n_listed_common", "n_with_vendor_prices", "n_pri
                    "n_missing_proxy_above_single_class", "n_missing_proxy_above_no_pf_dv",
                    "n_missing_proxy_above_no_pf_dv_not_pending", "n_missing_proxy_above_float_only",
                    "n_missing_dv_stored_direct",
-                   "n_missing_unknown", "n_missing_unknown_not_pending", "est_missing_top250",
+                   "n_missing_unknown", "n_missing_unknown_not_pending", "n_missing_short_window_own_dv20_top",
+                   "est_missing_top250",
                    "est_missing_top250_residual", "est_missing_top250_residual_ex_siblings",
                    "est_missing_top250_residual_upper", "n_unresolved_candidates_ge_cut300",
                    *[f"n_missing_{r}" for r in MISSING_REASONS],
@@ -2378,6 +2416,9 @@ def weekly_summary(listed: pd.DataFrame, cut: pd.DataFrame, weeks: pd.DatetimeIn
     s["n_missing_unknown"] = unknown.groupby(miss["week_index"]).sum()
     s["n_missing_unknown_not_pending"] = (unknown & ~miss["missing_reason"].isin(PENDING_REASONS)).groupby(
         miss["week_index"]).sum()
+    # short_window is never pending, so one count serves both flags.
+    s["n_missing_short_window_own_dv20_top"] = pd.Series(short_window_own_top(miss), index=miss.index).groupby(
+        miss["week_index"]).sum()
     s["est_missing_top250"] = m["p_top250"].sum().round(2)
     residual = miss[~miss["missing_reason"].isin(PENDING_REASONS)]
     s["est_missing_top250_residual"] = residual.groupby("week_index")["p_top250"].sum().round(2)
@@ -2423,11 +2464,13 @@ def weekly_summary(listed: pd.DataFrame, cut: pd.DataFrame, weeks: pd.DatetimeIn
     s["est_missing_top250_residual_upper"] = (s["est_missing_top250_residual"] + s["n_missing_unknown_not_pending"]).round(2)
     ranked_and_closed = (s["n_ranked_dv50"] >= TOP_N) & (s["top250_close_in_week"] == TOP_N)
     s["complete_250"] = yes_no(ranked_and_closed & (s["n_missing_pf_dv_ge_cut250"] == 0)
-                               & (s["n_missing_proxy_above_no_pf_dv"] == 0) & (s["n_missing_unknown"] == 0))
+                               & (s["n_missing_proxy_above_no_pf_dv"] == 0) & (s["n_missing_unknown"] == 0)
+                               & (s["n_missing_short_window_own_dv20_top"] == 0))
     s["complete_250_strict"] = yes_no((s["complete_250"] == "Y") & (s["est_missing_top250"] < STRICT_EXPECTED_LIMIT))
     s["complete_250_after_pending"] = yes_no(ranked_and_closed & (s["n_missing_pf_dv_ge_cut250_not_pending"] == 0)
                                              & (s["n_missing_proxy_above_no_pf_dv_not_pending"] == 0)
-                                             & (s["n_missing_unknown_not_pending"] == 0))
+                                             & (s["n_missing_unknown_not_pending"] == 0)
+                                             & (s["n_missing_short_window_own_dv20_top"] == 0))
     return s.reset_index(drop=True)[SUMMARY_COLUMNS]
 
 
@@ -2662,6 +2705,76 @@ def fetch_margin(candidates: pd.DataFrame, listed: pd.DataFrame) -> dict:
     return out
 
 
+# ------------------------------------------------------------------ unknown-size calibration
+
+def calibration_rate(ratio: float) -> float | None:
+    """Top-250 share of the calibration bin a size ratio falls in (UNKNOWN_SIZE_CALIBRATION); None if no ratio."""
+    if ratio is None or not np.isfinite(ratio):
+        return None
+    for lo, hi, rate in UNKNOWN_SIZE_CALIBRATION:
+        if lo <= ratio < hi:
+            return rate
+    return None
+
+
+def unknown_size_calibration(cache: Path | None = None) -> dict:
+    """The calibrated top-250 rate of unknown-size name-weeks: the written-down stratum rates, checked
+    against the sample file when it is there (its sha256, and each row's rate recomputed from its verdict
+    and size ratio with UNKNOWN_SIZE_CALIBRATION). The written-down rates are used either way; a mismatch
+    is reported (``sample_matches`` False), never silently replaced by the file's numbers."""
+    path = Path(cache or common.CACHE).joinpath(*UNKNOWN_SAMPLE_PATH)
+    out = {"sample_file": str(path), "sample_sha256_written": UNKNOWN_SAMPLE_SHA256,
+           "calibration_table": [{"ratio_from": lo, "ratio_to": (None if hi == float("inf") else hi), "top250_share": r}
+                                 for lo, hi, r in UNKNOWN_SIZE_CALIBRATION],
+           "strata": {k: {**v, "years": list(v["years"])} for k, v in UNKNOWN_SAMPLE_STRATA.items()},
+           "pooled_rate": UNKNOWN_SAMPLE_POOLED_RATE,
+           "years_not_sampled_rate": "pooled_rate (extrapolated: the sample covers 2018-2024 only)",
+           "sample_present": path.exists(), "sample_sha256": None, "sample_matches": False}
+    if not path.exists():
+        return out
+    out["sample_sha256"] = common.sha256_file(path)
+    sample = pd.read_csv(path, dtype=str, keep_default_na=False)
+    ratio = pd.to_numeric(sample["mv_max_over_cut"], errors="coerce")
+    no = sample["could_rank_top250"].str.strip().eq("no")
+    recomputed = [0.0 if n else calibration_rate(r) for n, r in zip(no, ratio)]
+    used = pd.to_numeric(sample["expected_rate_used"], errors="coerce")
+    rows_agree = all(r is not None and abs(r - u) < 1e-9 for r, u in zip(recomputed, used))
+    strata = {}
+    for name, spec in UNKNOWN_SAMPLE_STRATA.items():
+        mine = [r for r, st in zip(recomputed, sample["stratum"]) if st == name and r is not None]
+        strata[name] = {"names": len(mine), "rate": round(float(np.mean(mine)), 6) if mine else None}
+    rates_agree = all(strata[k]["names"] == v["names"] and strata[k]["rate"] is not None
+                      and abs(strata[k]["rate"] - v["rate"]) < 5e-6 for k, v in UNKNOWN_SAMPLE_STRATA.items())
+    out.update({"sample_rows": int(len(sample)), "rows_rate_recomputed_agree": rows_agree,
+                "strata_from_file": strata,
+                "verdicts": {k: int(v) for k, v in sample["could_rank_top250"].value_counts().items()},
+                "sample_matches": bool(out["sample_sha256"] == UNKNOWN_SAMPLE_SHA256 and rows_agree and rates_agree)})
+    return out
+
+
+def unknown_rate(year: int) -> tuple[float, str]:
+    """Calibrated top-250 rate of an unknown-size name-week in a year, and where it comes from."""
+    for name, spec in UNKNOWN_SAMPLE_STRATA.items():
+        if year in spec["years"]:
+            return spec["rate"], f"stratum {name}"
+    return UNKNOWN_SAMPLE_POOLED_RATE, "pooled (year not sampled)"
+
+
+def three_estimates(model: float, unknown: int, year: int, slots: int) -> dict:
+    """Model (unknown weeks get nothing), calibrated (unknown weeks x the year's calibrated rate) and upper
+    (every unknown week a top-250 week) expected top-250 name-weeks and shares of slots; the 2% rule is read
+    on the model."""
+    rate, basis = unknown_rate(year)
+    calibrated = model + unknown * rate
+    share = lambda value: round(value / slots, 5) if slots else None
+    return {"unknown_rate": rate, "unknown_rate_basis": basis,
+            "name_weeks": {"model": round(model, 2), "calibrated": round(calibrated, 2), "upper": round(model + unknown, 2)},
+            "share_of_slots": {"model": share(model), "calibrated": share(calibrated), "upper": share(model + unknown)},
+            "over_2pct": {"model": bool(slots and model / slots > UNFILLABLE_SHARE_LIMIT),
+                          "calibrated": bool(slots and calibrated / slots > UNFILLABLE_SHARE_LIMIT),
+                          "upper": bool(slots and (model + unknown) / slots > UNFILLABLE_SHARE_LIMIT)}}
+
+
 # ------------------------------------------------------------------ reports
 
 EVIDENCE_BINS = ["dv_ge_cut", "dv_below_cut", "proxy_ge_0_5", "proxy_0_25_to_0_5", "proxy_lt_0_25", "price_lt_10",
@@ -2678,7 +2791,7 @@ def evidence_bins(frame: pd.DataFrame) -> np.ndarray:
     return np.select(conditions, EVIDENCE_BINS[:6], default="unknown")
 
 
-def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
+def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int, year: int | None = None) -> dict:
     """Plan 3.3 check 6 over every missing reason except the pending ones: the expected top-250 name-weeks
     held by missing names (the model, on known evidence), plus the unknown name-weeks counted as top-250
     name-weeks (``upper``: they are never taken as small); ``lower`` puts 0 on the proxy's lowest bin
@@ -2686,7 +2799,10 @@ def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
     population (``unfillable`` only) is kept beside it. The proxy bins use the either-one ratio
     (``proxy_ratio_of``, the reading of ``proxy_above``); ``market_cap_first_binning`` gives the same shares
     with the plan's market-cap-first ratio (``p_top250_mcap_first``) and the float-only name-weeks' expected
-    count under both."""
+    count under both. ``estimates`` gives the three readings side by side (``three_estimates``: the model,
+    the calibrated rate on unknown name-weeks from the round-10 sample, the all-unknown upper bound) for
+    the residual and for the unfillable-only population; ``pass`` (the 2% rule of plan section 0 and 3.3
+    check 6) is read on the model, ``pass_calibrated`` and ``pass_upper`` are reported beside it."""
     residual = float(settled["p_top250"].sum())
     low = float(settled["p_top250_low"].sum()) if "p_top250_low" in settled else residual
     unknown = int((settled["evidence"] == "unknown").sum())
@@ -2699,9 +2815,17 @@ def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
            "upper_share": share(residual + unknown), "lower_share_bin0_zero": share(low),
            "range_share": [share(low), share(residual), share(residual + unknown)],
            "unfillable_only_share": share(unfill), "unfillable_only_upper_share": share(unfill + unfill_unknown),
-           "pass": bool((residual + unknown) / slots <= UNFILLABLE_SHARE_LIMIT),
+           "pass": bool(residual / slots <= UNFILLABLE_SHARE_LIMIT),
+           "pass_rule": "model estimate (unknown name-weeks get nothing) <= 2% of slots",
+           "pass_upper": bool((residual + unknown) / slots <= UNFILLABLE_SHARE_LIMIT),
            "pass_known_evidence_only": bool(residual / slots <= UNFILLABLE_SHARE_LIMIT),
            "pass_unfillable_only": bool(unfill / slots <= UNFILLABLE_SHARE_LIMIT)}
+    if year is not None:
+        est = three_estimates(residual, unknown, year, slots)
+        out["estimates"] = est
+        out["unfillable_only_estimates"] = three_estimates(unfill, unfill_unknown, year, slots)
+        out["calibrated_share"] = est["share_of_slots"]["calibrated"]
+        out["pass_calibrated"] = not est["over_2pct"]["calibrated"]
     if "p_top250_uncapped" in my:
         # The same shares with a class's company-level proxy left uncapped (``class_dv_ratios``), for comparison.
         out["without_class_cap"] = {
@@ -2729,11 +2853,28 @@ def check_6(settled: pd.DataFrame, my: pd.DataFrame, slots: int) -> dict:
     return out
 
 
+def short_window_own_top(rows: pd.DataFrame) -> np.ndarray:
+    """short_window name-weeks whose own canonical dv20 rank (``dv20_rank`` or ``dv20_rank_any_price``,
+    the better of the two) is within ``SHORT_WINDOW_OWN_RANK``: the series' own short window says the name
+    could be in the top 250, whatever step 6 or the proxy say. False where the columns are absent."""
+    if "missing_reason" not in rows or not len(rows):
+        return np.zeros(len(rows), dtype=bool)
+    ranks = [pd.to_numeric(rows[c], errors="coerce").to_numpy(dtype=float)
+             for c in ("dv20_rank", "dv20_rank_any_price") if c in rows]
+    if not ranks:
+        return np.zeros(len(rows), dtype=bool)
+    best = np.fmin.reduce(ranks) if len(ranks) > 1 else ranks[0]
+    with np.errstate(invalid="ignore"):
+        return (rows["missing_reason"].astype(str).to_numpy() == "short_window") & (best <= SHORT_WINDOW_OWN_RANK)
+
+
 def blocks_week(rows: pd.DataFrame) -> pd.Series:
     """Missing name-weeks that make a week incomplete: dollar-volume evidence at or above the rank-250
-    cut, only a proxy that reaches the band median, or no evidence at all (unknown)."""
+    cut, only a proxy that reaches the band median, no evidence at all (unknown), or a short_window week
+    whose own dv20 rank is within ``SHORT_WINDOW_OWN_RANK`` (``short_window_own_top``)."""
     proxy_only = rows["proxy_above"] & ~rows["pf_dv_ok"] & ~rows["pf_price_low"]
-    return rows["pf_ge_cut250"] | proxy_only | (rows["evidence"] == "unknown")
+    own = pd.Series(short_window_own_top(rows), index=rows.index)
+    return rows["pf_ge_cut250"] | proxy_only | (rows["evidence"] == "unknown") | own
 
 
 def after_pending_ex_siblings(summary: pd.DataFrame, listed: pd.DataFrame) -> pd.Series:
@@ -2760,7 +2901,7 @@ def by_year(summary: pd.DataFrame, listed: pd.DataFrame, top: pd.DataFrame) -> d
         lone = float(settled.loc[~settled["sibling_priced"], "p_top250"].sum())
         blind = settled[~settled["pf_dv_ok"] & ~settled["pf_price_low"]]
         bins = pd.Series(evidence_bins(settled), index=settled.index)
-        six = check_6(settled, my, slots)
+        six = check_6(settled, my, slots, int(year))
         blockers = settled[blocks_week(settled)]
         blockers = (blockers.groupby(["ticker", "missing_reason", "evidence"]).size().sort_values(ascending=False)
                     .head(12))
@@ -2776,11 +2917,13 @@ def by_year(summary: pd.DataFrame, listed: pd.DataFrame, top: pd.DataFrame) -> d
                                  "top250_not_all_closed": int((g["top250_close_in_week"] < TOP_N).sum()),
                                  "dv_ge_cut250": int((g["n_missing_pf_dv_ge_cut250"] > 0).sum()),
                                  "proxy_only_ge_band_median": int((g["n_missing_proxy_above_no_pf_dv"] > 0).sum()),
-                                 "unknown": int((g["n_missing_unknown"] > 0).sum())},
+                                 "unknown": int((g["n_missing_unknown"] > 0).sum()),
+                                 "short_window_own_dv20_top": int((g["n_missing_short_window_own_dv20_top"] > 0).sum())},
                 "complete_250_after_pending": {
                     "dv_ge_cut250": int((g["n_missing_pf_dv_ge_cut250_not_pending"] > 0).sum()),
                     "proxy_only_ge_band_median": int((g["n_missing_proxy_above_no_pf_dv_not_pending"] > 0).sum()),
-                    "unknown": int((g["n_missing_unknown_not_pending"] > 0).sum())}},
+                    "unknown": int((g["n_missing_unknown_not_pending"] > 0).sum()),
+                    "short_window_own_dv20_top": int((g["n_missing_short_window_own_dv20_top"] > 0).sum())}},
             "after_pending_blockers_name_weeks": {f"{t}:{r}:{e}": int(n) for (t, r, e), n in blockers.items()},
             "weeks_ranked_lt_250": int((g["n_ranked_dv50"] < TOP_N).sum()),
             "top250_close_in_week_min": int(g["top250_close_in_week"].min()),
@@ -2807,6 +2950,7 @@ def by_year(summary: pd.DataFrame, listed: pd.DataFrame, top: pd.DataFrame) -> d
             "residual_ex_sibling_classes_name_weeks": round(lone, 1),
             "residual_ex_sibling_classes_share_of_slots": round(lone / slots, 5),
             "residual_upper_name_weeks": round(residual + six["unknown_name_weeks"], 1),
+            "residual_calibrated_name_weeks": round(six["estimates"]["name_weeks"]["calibrated"], 1),
             "residual_by_reason": {r: round(float(v), 1) for r, v in settled.groupby("missing_reason")["p_top250"].sum().items()},
             "unknown_name_weeks_by_reason": {r: int(v) for r, v in
                                              settled.loc[settled["evidence"] == "unknown", "missing_reason"].value_counts().items()},
@@ -3192,8 +3336,12 @@ def main(argv: list[str] | None = None) -> int:
                                          "no foreign filer that week, no investment company that week (closed-end "
                                          "funds and BDCs, from SEC filings); every share class kept",
                         "investment_company": investment_company_definition(),
-                        "check_6": "plan 3.3 check 6 on the residual of every non-pending reason, unknown name-weeks "
-                                   "counted as top-250 name-weeks (pass = upper share <= 2% of slots); the "
+                        "check_6": "plan 3.3 check 6 on the residual of every non-pending reason, read three ways: "
+                                   "the model (unknown name-weeks get nothing), calibrated (unknown name-weeks x the "
+                                   "round-10 sample's rate for the year, unknown_size_calibration) and upper (unknown "
+                                   "name-weeks counted as top-250 name-weeks); pass = the model's share <= 2% of slots "
+                                   "(plan section 0: a year above is reported, not used to judge the strategy), "
+                                   "pass_calibrated and pass_upper beside it; the "
                                    "unfillable-only share is kept beside it. The expected count (p_top250) bins a "
                                    "proxy-only name-week by the larger of market cap / band median market cap and "
                                    "float / band median float, so a float-only week (proxy_above by its float alone, "
@@ -3273,6 +3421,8 @@ def main(argv: list[str] | None = None) -> int:
                          "missing classes whose sibling class ranks set aside",
         "no_sic_or_investment_entity_in_top250_kept": no_sic_in_top250(top, master),
         "calibration": rates_for_json(rates),
+        "unknown_size_calibration": unknown_size_calibration(),
+        "check_6_three_estimates": check_6_overview(years),
         "by_year": years,
         "overall": {
             "complete_250_share": round(float((summary["complete_250"] == "Y").mean()), 4),
@@ -3285,7 +3435,9 @@ def main(argv: list[str] | None = None) -> int:
             "residual_ex_sibling_classes_name_weeks": round(float(summary["est_missing_top250_residual_ex_siblings"].sum()), 1),
             "unknown_name_weeks": int(summary["n_missing_unknown"].sum()),
             "unknown_name_weeks_not_pending": int(summary["n_missing_unknown_not_pending"].sum()),
+            "short_window_own_dv20_top_name_weeks": int(summary["n_missing_short_window_own_dv20_top"].sum()),
             "residual_upper_name_weeks": round(float(summary["est_missing_top250_residual_upper"].sum()), 1),
+            "residual_calibrated_name_weeks": round(sum(f["residual_calibrated_name_weeks"] for f in years.values()), 1),
             "missing_by_evidence": {k: int(v) for k, v in evidence_counts.items()},
             "proxy_check_1_share_weeks_zero": round(float((summary["n_missing_proxy_above"] == 0).mean()), 4),
             "proxy_check_1_max": int(summary["n_missing_proxy_above"].max()),
@@ -3326,16 +3478,32 @@ def main(argv: list[str] | None = None) -> int:
                                "with_unknown_weeks": int((missing["weeks_unknown"] > 0).sum())},
     }
     write_json(out_dir / "universe_summary.json", payload)
-    log("by year (complete shares of weeks; residual, unknown and upper as shares of top-250 slots):")
+    calib = payload["unknown_size_calibration"]
+    log(f"unknown-size calibration: sample {'matches' if calib['sample_matches'] else 'DOES NOT MATCH'} the "
+        f"written-down sha256 and rates; check 6 years over 2% {payload['check_6_three_estimates']['years_over_2pct']}")
+    log("by year (complete shares of weeks; residual = model, calibrated and upper as shares of top-250 slots):")
     for line in completeness.to_string(index=False).splitlines():
         log("  " + line)
     log(f"done in {payload['runtime_seconds']} s; outputs in {out_dir} ({top300_file.name}, {summary_file.name})")
     return 0
 
 
+def check_6_overview(years: dict) -> dict:
+    """Check 6's three readings for every year side by side, and the years over 2% under each (the plan
+    section 0 rule reads the model)."""
+    rows = {int(y): f["check_6"]["estimates"] for y, f in years.items() if "estimates" in f["check_6"]}
+    over = {k: [y for y, e in rows.items() if e["over_2pct"][k]] for k in ("model", "calibrated", "upper")}
+    return {"rule": "2% of top-250 slots per year, read on the model (plan section 0; 3.3 check 6)",
+            "years_over_2pct": over,
+            "by_year": {y: {"model": e["share_of_slots"]["model"], "calibrated": e["share_of_slots"]["calibrated"],
+                            "upper": e["share_of_slots"]["upper"], "unknown_rate": e["unknown_rate"],
+                            "unknown_rate_basis": e["unknown_rate_basis"]} for y, e in rows.items()}}
+
+
 def completeness_table(years: dict) -> pd.DataFrame:
-    """Per year: the three complete flags' share of weeks and check 6's residual, unknown and upper shares
-    of top-250 slots (written to completeness_by_year.csv and printed at the end of a run)."""
+    """Per year: the three complete flags' share of weeks and check 6's residual (the model), calibrated
+    and upper shares of top-250 slots with the unknown name-weeks (written to completeness_by_year.csv and
+    printed at the end of a run); check_6_pass is the model's 2% rule."""
     rows = []
     for year, f in years.items():
         six = f["check_6"]
@@ -3344,8 +3512,10 @@ def completeness_table(years: dict) -> pd.DataFrame:
                      "after_pending_ex_sib": f["complete_250_after_pending_ex_sibling_classes_share"],
                      "top250_closed": f["top250_close_in_week_share"],
                      "residual_low": six["lower_share_bin0_zero"], "residual": six["residual_share"],
-                     "unknown_nw": six["unknown_name_weeks"], "upper": six["upper_share"],
-                     "check_6_pass": six["pass"], "pass_known_only": six["pass_known_evidence_only"],
+                     "unknown_nw": six["unknown_name_weeks"],
+                     "calibrated": six.get("calibrated_share", np.nan), "upper": six["upper_share"],
+                     "check_6_pass": six["pass"], "pass_calibrated": six.get("pass_calibrated", np.nan),
+                     "pass_upper": six.get("pass_upper", np.nan), "pass_known_only": six["pass_known_evidence_only"],
                      "unfillable_only": six["unfillable_only_share"],
                      "residual_mcap_first": (six.get("market_cap_first_binning") or {}).get("residual_share", np.nan)})
     return pd.DataFrame(rows)

@@ -59,7 +59,8 @@ def test_the_validator_has_no_dynamic_import_and_no_network_call():
                     for c in ast.walk(node))
             if n:
                 writers[node.name] = n
-    assert writers == {"write_outputs": 2, "write_validation_summary": 1}
+    # the review batch writer writes one new review file on request (--write-multi-source-batch) and nothing else
+    assert writers == {"write_outputs": 2, "write_validation_summary": 1, "write_multi_source_batch": 1}
 
 
 def test_every_check_is_one_function_named_like_its_result():
@@ -192,6 +193,36 @@ def test_multi_source_agreement_needs_the_share_and_no_unresolved_day(ctx):
     _panel(ctx, rows)
     out = va.check_multi_source_agreement(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
     assert not out["passed"] and out["numbers"]["share"] == 0.995 and out["numbers"]["disagree_unresolved"] == 1
+
+
+def test_multi_source_batch_lists_universe_unresolved_days_under_their_moves_items(ctx, tmp_path):
+    _universe(ctx, [{"week_end": "2015-01-09", "security_id": "1", "dv50_rank": 10},
+                    {"week_end": "2015-01-09", "security_id": "2", "dv50_rank": 20}])
+    _master(ctx, [{"security_id": "1"}, {"security_id": "2"}])
+    _write(ctx.inputs / "terminal_returns_2012_2026.csv", pd.DataFrame(
+        columns=["security_id", "ticker", "terminal_type", "status", "last_price_date"]))
+    days = list(ctx.sessions_between("2015-01-02", "2015-03-31").strftime("%Y-%m-%d"))
+    rows = [{"security_id": sid, "date": d} for sid in ("1", "2") for d in days]
+    for r in rows:
+        if (r["security_id"], r["date"]) in {("1", "2015-01-06"), ("2", "2015-01-07"), ("1", "2015-03-30")}:
+            r.update(n_sources=2, max_src_diff=0.01, flags="disagree_unresolved", src_primary="tiingo")
+    _panel(ctx, rows)
+    moves = ctx.cache / "review" / "round10" / "moves"
+    _write(moves / "batch_09.csv", pd.DataFrame([
+        {"item_id": "moves-09-002", "security_id": "1", "ticker": "A", "rule": "R3", "event_date": "2015-01-05",
+         "end_date": "2015-01-06", "verdict_path": str(moves / "verdict_09.csv")},
+        {"item_id": "moves-09-003", "security_id": "1", "ticker": "A", "rule": "R1", "event_date": "2015-01-06",
+         "end_date": "", "verdict_path": str(moves / "verdict_09.csv")}]))
+    frame = va.write_multi_source_batch(ctx, tmp_path / "batch_01.csv")
+    # 2015-03-30 lies after the hold weeks of the one universe week: not a universe day
+    assert sorted(zip(frame["security_id"], frame["universe_day"], frame["item_id"])) == [
+        ("1", "2015-01-06", "moves-09-002"), ("1", "2015-01-06", "moves-09-003"), ("2", "2015-01-07", "multi-01-001")]
+    assert frame.set_index("item_id").loc[["moves-09-002", "moves-09-003"], "match_kind"].tolist() == [
+        "inside_item_range", "event_date"]
+    new = frame[frame["item_id"] == "multi-01-001"].iloc[0]
+    assert new["in_moves_batch"] == "N" and new["verdict_path"].endswith("multi_source/verdict_01.csv")
+    assert set(frame.loc[frame["in_moves_batch"] == "Y", "verdict_path"]) == {str(moves / "verdict_09.csv")}
+    assert pd.read_csv(tmp_path / "batch_01.csv", dtype=str).shape[0] == 3
 
 
 def test_panel_integrity_flags_non_sessions_duplicates_and_stored_rows(ctx):
@@ -365,6 +396,32 @@ def test_dividends_compare_the_nasdaq_sample_with_the_canonical_dividends(ctx, m
     assert lists["amount_gaps"][0]["date"] == "2015-09-09" and lists["only_nasdaq"][0]["date"] == "2015-12-01"
     # the Cash/Stock day with a canonical split factor passes; the one without is listed
     assert [r["date"] for r in out["details"]["nasdaq_stock_dividend_days_without_split"]] == ["2015-12-01"]
+    assert pair["usable_names"] == 1 and out["numbers"]["nasdaq_usable_names_by_pair"]["canonical_nasdaq"] == 1
+    # A second name whose only canonical "dividend" is a distribution and Nasdaq knows none compares nothing:
+    # the sample has 2 names but 1 usable comparison, so a 2-name sample is not complete.
+    monkeypatch.setattr(va, "NASDAQ_DIV_SAMPLE", 2)
+    _panel(ctx, [{"security_id": sid, "date": d, "split_factor": 1.05 if (sid, d) == ("1", "2015-11-24") else 1.0}
+                 for sid in ("1", "2") for d in days])
+    canonical = pd.read_csv(ctx.cache / "dividends.csv", dtype=str, keep_default_na=False)
+    _write(ctx.cache / "dividends.csv", pd.concat([canonical, pd.DataFrame(
+        [{"security_id": "2", "ex_date": "2015-06-10", "cash_as_paid": "3.0", "sources": "yahoo", "special": "Y"}])]))
+    _write(folder / "sample.csv", pd.DataFrame([{"security_id": "1", "ticker": "AAA", "stratum": "R_seeded_draw"},
+                                                {"security_id": "2", "ticker": "BBB", "stratum": "R_seeded_draw"}]))
+    (folder / "BBB.json.gz").write_bytes(gzip.compress(json.dumps({"data": {"dividends": {"rows": []}}}).encode()))
+    out = va.check_dividends(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))
+    pair = out["numbers"]["nasdaq_pairs"]["canonical_nasdaq"]
+    assert out["numbers"]["nasdaq_sample_names"] == 2 and pair["securities"] == 2
+    assert pair["usable_names"] == 1 and pair["nothing_to_compare_tickers"] == ["BBB"]
+    assert not out["numbers"]["nasdaq_sample_complete"]
+    # Both judged pairs need the sample's usable names (the plan's row names Tiingo against Nasdaq): with no
+    # month-1 Tiingo file Tiingo-Nasdaq compares nothing and is the larger shortfall.
+    by_pair = out["numbers"]["nasdaq_usable_names_short_of_sample_by_pair"]
+    assert by_pair["canonical_nasdaq"] == 1 and by_pair["tiingo_nasdaq"] == 2 - pair_usable(out, "tiingo_nasdaq")
+    assert out["numbers"]["nasdaq_usable_names_short_of_sample"] == max(by_pair.values())
+
+
+def pair_usable(out, key):
+    return out["numbers"]["nasdaq_usable_names_by_pair"][key]
 
 
 def test_review_queue_fails_on_any_unreviewed_item(ctx):
@@ -620,8 +677,45 @@ def test_unfillable_impact_fails_on_weeks_of_unknown_size(ctx):
                                                           "needed_end": "2015-12-31", "est_weeks_in_top250": "1",
                                                           "proxy": "none"}]))
     out = va.check_universe_unfillable(ctx)
-    assert not out["passed"] and out["numbers"]["unknown_size_name_weeks"] == 1
-    assert out["numbers"]["years_over_2pct"] == [] and out["numbers"]["rows_with_proxy_none"] == 1
+    n = out["numbers"]
+    # the 2% rule reads the model (plan section 0): one unknown week does not fail it, it is reported beside it
+    assert out["passed"] and n["unknown_size_name_weeks"] == 1
+    assert n["years_over_2pct"] == [] and n["rows_with_proxy_none"] == 1
+    year = n["by_year"][2015]
+    assert year["unknown_rate"] == va.UNKNOWN_SAMPLE_POOLED_RATE and year["unknown_rate_basis"] == "pooled (year not sampled)"
+    assert year["calibrated_name_weeks"] == round(va.UNKNOWN_SAMPLE_POOLED_RATE, 2) and year["upper_name_weeks"] == 1
+    assert n["three_estimates"]["name_weeks"]["model"] == 0 and n["three_estimates"]["name_weeks"]["upper"] == 1
+    assert n["three_estimates"]["years_over_2pct"] == {"model": [], "calibrated": [], "upper": []}
+    assert n["three_estimates"]["calibration_sample"]["matches"] is False        # no sample file in the fixture
+
+
+def test_unfillable_impact_reports_calibrated_and_upper_beside_the_model(ctx, monkeypatch):
+    weeks = ctx.week_ends[ctx.week_ends.year == 2022]
+    known = pd.DataFrame({"security_id": "k", "week_end": weeks, "vendor": False, "above": True, "outside": False,
+                          "proxy_known": True, "dv_above": False, "unknown_size": False})
+    unknown = [known.assign(security_id=f"u{i}", above=False, proxy_known=False, unknown_size=True) for i in range(5)]
+    monkeypatch.setattr(va, "_proxy_table", lambda c: (pd.concat([known, *unknown]), "test"))
+    _write(ctx.inputs / "unfillable.csv", pd.DataFrame([{"security_id": s, "needed_start": "2022-01-01",
+                                                          "needed_end": "2022-12-31", "est_weeks_in_top250": "0"}
+                                                         for s in ["k"] + [f"u{i}" for i in range(5)]]))
+    out = va.check_universe_unfillable(ctx)
+    year = out["numbers"]["by_year"][2022]
+    slots = 250 * len(weeks)
+    assert year["unknown_rate"] == 0.001898 and year["unknown_size_name_weeks"] == 5 * len(weeks)
+    assert year["share"] == round(len(weeks) / slots, 5)                                  # model 0.4%
+    assert year["share_upper"] == round(6 * len(weeks) / slots, 5)                         # upper 2.4%
+    assert year["share_calibrated"] < 0.005
+    assert out["passed"] and out["numbers"]["three_estimates"]["years_over_2pct"] == {
+        "model": [], "calibrated": [], "upper": [2022]}
+
+
+def test_the_validator_unknown_size_rates_equal_step12s():
+    from scripts import reversal_data_universe as un
+    assert va.UNKNOWN_SAMPLE_SHA256 == un.UNKNOWN_SAMPLE_SHA256 and va.UNKNOWN_SAMPLE_PATH == un.UNKNOWN_SAMPLE_PATH
+    assert va.UNKNOWN_SAMPLE_POOLED_RATE == un.UNKNOWN_SAMPLE_POOLED_RATE
+    assert va.UNKNOWN_SAMPLE_RATES == {v["years"]: v["rate"] for v in un.UNKNOWN_SAMPLE_STRATA.values()}
+    for year in range(2012, 2027):
+        assert va._unknown_rate(year)[0] == un.unknown_rate(year)[0]
 
 
 def test_listed_gaps_fail_on_series_gaps_and_unknown_reasons_only(ctx):
@@ -646,10 +740,57 @@ def test_listed_gaps_fail_on_series_gaps_and_unknown_reasons_only(ctx):
     assert not out["passed"] and out["numbers"]["unknown_reasons"] == ["something_new"]
 
 
+def test_short_window_weeks_block_only_when_their_evidence_could_reach_the_top_250(ctx):
+    base = {"week_end": "2020-09-04", "ticker": "", "missing_reason": "short_window", "proxy_above": False}
+    rows = [{**base, "security_id": "kdp", "evidence": "dv", "pf_ge_cut250": True},      # step-6 dv at the cut
+            {**base, "security_id": "prx", "evidence": "proxy", "proxy_above": True},   # proxy alone at the median
+            {**base, "security_id": "unk", "evidence": "unknown"},
+            {**base, "security_id": "sml", "evidence": "dv"},                            # dv under the cut
+            {**base, "security_id": "low", "evidence": "price_lt_10"},
+            {**base, "security_id": "pbl", "evidence": "proxy"}]                         # proxy under the median
+    listed = pd.DataFrame(rows).assign(eligible=True)
+    listed["pf_ge_cut250"] = listed["pf_ge_cut250"].fillna(False).astype(bool)
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed)
+    out = va.check_universe_listed_gaps(ctx)
+    n = out["numbers"]
+    assert not out["passed"] and n["blocking_by_reason"] == {"short_window_top250_evidence": 3}
+    assert n["short_window"]["blocking_by_kind"] == {"step6_dv_ge_cut250": 1, "proxy_only_at_band_median": 1, "unknown": 1,
+                                                     "own_dv20_rank_le300": 0, "own_dv20_rank_le300_only": 0}
+    assert n["short_window"]["judged_small_not_blocking"] == 3 and n["short_window"]["name_weeks"] == 6
+    assert {r["security_id"] for r in out["details"]["short_window_judged_small"]} == {"sml", "low", "pbl"}
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", listed[listed["security_id"].isin(["sml", "low", "pbl"])])
+    assert va.check_universe_listed_gaps(va.Context(inputs=ctx.inputs, cache=ctx.cache, main=ctx.main))["passed"]
+
+
+def test_a_short_window_week_whose_own_dv20_rank_is_near_the_top_250_blocks(ctx):
+    # Round-10 merge review: APA 2020-07-02 ranked 101st on its own canonical dv20 with step-6 dv under the cut
+    # and a proxy under the median; it was judged small. Its own window now blocks it (rank 300 with margin).
+    base = {"week_end": "2020-07-02", "ticker": "", "missing_reason": "short_window", "proxy_above": False,
+            "pf_ge_cut250": False, "evidence": "proxy"}
+    rows = [{**base, "security_id": "apa", "dv20_rank": 100, "dv20_rank_any_price": 101},
+            {**base, "security_id": "chk", "dv20_rank": np.nan, "dv20_rank_any_price": 300},   # at the margin
+            {**base, "security_id": "sml", "dv20_rank": 301, "dv20_rank_any_price": 320},
+            {**base, "security_id": "nor", "dv20_rank": np.nan, "dv20_rank_any_price": np.nan}]
+    _write(ctx.cache / "universe" / "weekly_listed.csv.gz", pd.DataFrame(rows).assign(eligible=True))
+    out = va.check_universe_listed_gaps(ctx)
+    n = out["numbers"]["short_window"]
+    assert not out["passed"] and out["numbers"]["blocking_name_weeks"] == 2
+    assert n["blocking_by_kind"]["own_dv20_rank_le300"] == 2 and n["blocking_by_kind"]["own_dv20_rank_le300_only"] == 2
+    assert n["judged_small_not_blocking"] == 2 and n["own_dv20_rank_limit"] == 300
+    assert {r["security_id"] for r in out["details"]["short_window_judged_small"]} == {"sml", "nor"}
+    # step 12 reads the same rows the same way
+    from scripts import reversal_data_universe as un
+    frame = pd.DataFrame(rows).assign(pf_dv_ok=False, pf_price_low=False)
+    assert un.blocks_week(frame).tolist() == va.short_window_blocks(frame).tolist() == [True, True, False, False]
+    # the own rank counts only for short_window weeks in step 12
+    assert not un.blocks_week(frame.assign(missing_reason="series_gap", evidence="dv")).any()
+
+
 def test_the_validator_knows_every_missing_reason_step12_emits():
     from scripts import reversal_data_universe as un
     assert set(un.MISSING_REASONS) <= va.KNOWN_MISSING
     assert {"answer_not_in_panel", "series_gap", "fetched_pending_reconcile"} <= va.BLOCKING_MISSING
+    assert va.SHORT_WINDOW in un.MISSING_REASONS and va.SHORT_WINDOW not in va.BLOCKING_MISSING   # judged by evidence
     assert set(va.PENDING_SOURCES) | {"fetched_pending_reconcile"} == un.PENDING_REASONS
 
 

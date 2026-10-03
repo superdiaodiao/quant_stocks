@@ -67,7 +67,7 @@ import pandas as pd
 
 from scripts import reversal_data_common as common
 
-CODE_VERSION = "2026-10-03.1"
+CODE_VERSION = "2026-10-03.2"
 
 # ------------------------------------------------------------------ constants (plan sections 1, 3, 5, 6)
 
@@ -104,11 +104,22 @@ CAPTURE_TOP, CAPTURE_SHARE = 200, 0.99                  # plan 3.3 check 2
 MCAP_COVER_BEFORE_2023, MCAP_COVER_FROM_2023 = 0.97, 0.99
 FORM25_FLOAT, FORM25_SESSIONS = 1e9, 5                  # plan 3.3 check 4
 UNFILLABLE_SLOT_SHARE = 0.02                            # plan 3.3 check 6
+# Calibrated top-250 rate of unknown-size name-weeks from the round-10 hand sample (40 names sized from SEC
+# filings; reversal_data_universe.UNKNOWN_SAMPLE_*, kept equal by a test): per stratum of years, the pooled rate
+# for years not sampled. Check 6 reports it beside the model and the all-unknown upper bound; the 2% rule reads
+# the model.
+UNKNOWN_SAMPLE_PATH = ("review", "round10", "gaps", "unknown_size_sample.csv")   # under CACHE
+UNKNOWN_SAMPLE_SHA256 = "be4a3827a2ad5554b102f722390866ba5510c973f9ec66e3a7d5cc73b106996a"
+UNKNOWN_SAMPLE_RATES = {(2021, 2022, 2023): 0.001898, (2018, 2019, 2020, 2024): 0.01035}
+UNKNOWN_SAMPLE_POOLED_RATE = 0.004439
 LIST_LIMIT = 40
 # step 12's missing_reason values (reversal_data_universe.MISSING_REASONS, kept equal by a test; not_in_step6 is an
 # older build's); these block completeness by themselves
-# short_window: a week with a canonical close whose 50-session window is short (no row lacking; judged by its
-# evidence like not_candidate, step 12 round 10)
+# short_window: a week with a canonical close whose 50-session window is short (no row lacking, step 12 round 10).
+# It is not in BLOCKING_MISSING as a whole, but universe_listed_gaps blocks each short_window week whose evidence
+# could put it in the top 250 (SHORT_WINDOW_BLOCKS: step 6's dollar volume at the rank-250 cut, a proxy alone at
+# the band median, or no evidence at all) and lists the rest; universe_proxy_margin does not see these weeks
+# (they have a vendor close), so this is the only check that reads them.
 KNOWN_MISSING = {"tiingo_pending", "yahoo_pending", "fetched_pending_reconcile", "answer_not_in_panel", "unfillable",
                  "no_vendor_source", "series_gap", "short_window", "candidate_other", "not_candidate", "not_in_step6"}
 TIER_BB, TIER_BC_SAMPLE, TIER_BC_REST = "B_B_float_500M_1B", "B_C_sample_300M_500M", "B_C_rest_300M_500M"
@@ -116,6 +127,9 @@ FETCH_DATA = {"done", "done_review", "partial"}         # a Tiingo answer with r
 FETCH_EMPTY = {"wrong_entity", "no_data"}               # a Tiingo answer (or range check) with no usable rows
 # answer_not_in_panel: an answer step 9 read but left out of the panel (SMCI, CHRD after their Form 25 cuts)
 BLOCKING_MISSING = {"series_gap", "fetched_pending_reconcile", "answer_not_in_panel", "no_vendor_source", "not_in_step6"}
+SHORT_WINDOW = "short_window"
+# a short_window week blocks when its own canonical dv20 rank is within this (as step 12's SHORT_WINDOW_OWN_RANK)
+SHORT_WINDOW_OWN_RANK = 300
 # a pending reason is not blocking only in weeks an open candidate row of this planned source needs
 PENDING_SOURCES = {"tiingo_pending": "tiingo", "yahoo_pending": "yahoo"}
 NEED_WEEK_DAYS = 6          # a need window covers a week when it reaches into the week's seven days
@@ -1520,6 +1534,63 @@ def check_multi_source_agreement(ctx: Context) -> dict:
                   note="sources: Tiingo, Yahoo, WIKI and the stored file's vote where valid (n_sources as the reconcile step counts)")
 
 
+MULTI_SOURCE_BATCH = ("review", "round10", "multi_source", "batch_01.csv")   # under CACHE
+
+
+def multi_source_batch(ctx: Context) -> pd.DataFrame:
+    """The extra review batch for multi_source_agreement: one row per universe name-day (the formation week
+    and the HOLD_WEEKS weeks after it) the panel flags disagree_unresolved, joined to every round-10 moves
+    item (CACHE/review/round10/moves/batch_*.csv) of that security whose session range holds the day
+    (``match_kind`` event_date when the item starts that day, else inside_item_range: an R7 run). A day
+    already in a moves item keeps that item's id and verdict_path (its verdict goes in the moves verdict
+    file, so nothing is judged twice); a day with no moves item gets a new id ``multi-01-NNN`` and the verdict
+    file CACHE/review/round10/multi_source/verdict_01.csv. The moves columns are carried as they are."""
+    p, days = ctx.panel, _universe_name_days(ctx)
+    columns = ["item_id", "universe_day", "security_id", "universe_canon_src", "universe_canon_n_sources",
+               "universe_canon_max_src_diff", "universe_canon_flags", "in_moves_batch", "match_kind", "source_batch",
+               "verdict_path"]
+    if p is None or days is None:
+        return pd.DataFrame(columns=columns)
+    sub = p.merge(days[["security_id", "pos"]].drop_duplicates(), on=["security_id", "pos"], how="inner")
+    sub = sub[sub["flags"].str.contains("disagree_unresolved", regex=False)].sort_values(["security_id", "date"])
+    root = ctx.cache / "review" / "round10"
+    frames = [ctx.read_frame(f, dtype=str, keep_default_na=False).assign(source_batch=f.name)
+              for f in sorted((root / "moves").glob("batch_*.csv")) if f.stat().st_size]
+    moves = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+        columns=["item_id", "security_id", "event_date", "end_date", "verdict_path", "source_batch"])
+    by_sid = {sid: g for sid, g in moves.groupby("security_id")}
+    rows, new = [], 0
+    for r in sub.itertuples(index=False):
+        head = {"universe_day": r.date, "security_id": r.security_id, "universe_canon_src": r.src_primary,
+                "universe_canon_n_sources": int(r.n_sources), "universe_canon_max_src_diff": r.max_src_diff,
+                "universe_canon_flags": r.flags}
+        mine = by_sid.get(r.security_id)
+        hits = (mine[(mine["event_date"] <= r.date) & (mine["end_date"].where(mine["end_date"] != "", mine["event_date"])
+                                                       >= r.date)] if mine is not None else [])
+        if len(hits):
+            for item in hits.to_dict("records"):
+                rows.append({**item, **head, "in_moves_batch": "Y",
+                             "match_kind": "event_date" if item["event_date"] == r.date else "inside_item_range"})
+        else:
+            new += 1
+            rows.append({**head, "item_id": f"multi-01-{new:03d}", "in_moves_batch": "N", "match_kind": "new_item",
+                         "source_batch": "",
+                         "rule": "R3", "event_date": r.date, "end_date": r.date,
+                         "verdict_path": str(root / "multi_source" / "verdict_01.csv")})
+    out = pd.DataFrame(rows)
+    if not len(out):
+        return pd.DataFrame(columns=columns)
+    rest = [c for c in moves.columns if c not in columns]
+    return out[columns + [c for c in rest if c in out.columns]]
+
+
+def write_multi_source_batch(ctx: Context, path: Path) -> pd.DataFrame:
+    """Write ``multi_source_batch`` to ``path`` (a new review file; nothing else is written)."""
+    frame = multi_source_batch(ctx)
+    common.atomic_write(path, frame.to_csv(index=False).encode("utf-8"))
+    return frame
+
+
 def _source_returns(frame: pd.DataFrame, close: str, split: str, div: str, sessions: pd.DatetimeIndex) -> pd.Series:
     """One source's own daily returns, indexed by date string, only between consecutive XNAS sessions."""
     f = frame.sort_values("date").reset_index(drop=True)
@@ -2035,7 +2106,8 @@ def _nasdaq_sample_pairs(ctx: Context) -> dict:
         p = ctx.panel
         moved = p[p["security_id"].isin(set(sample["security_id"])) & (p["split_factor"] != 1.0) & (p["pos"] >= 0)]
         splits = {sid: set(g["pos"]) for sid, g in moved.groupby("security_id")}
-    totals = {k: {"securities": 0, "matched": 0, "either": 0, "skipped": 0} for k in DIV_PAIRS}
+    totals = {k: {"securities": 0, "matched": 0, "either": 0, "skipped": 0, "usable": [], "nothing_to_compare": []}
+              for k in DIV_PAIRS}
     lists = {k: {"amount_gaps": [], "only_nasdaq": [], "only_other": []} for k in DIV_PAIRS}
     answers: Counter = Counter()
     for row in sample.itertuples(index=False):
@@ -2077,6 +2149,8 @@ def _nasdaq_sample_pairs(ctx: Context) -> dict:
             t["matched"] += got["matched"]
             t["either"] += got["either"]
             t["skipped"] += got["skipped"]
+            # usable: at least one cash ex-date (distribution dates left out) on either side in the window
+            (t["usable"] if got["either"] else t["nothing_to_compare"]).append(row.ticker)
             lists[key]["amount_gaps"] += [{"security_id": row.security_id, "ticker": row.ticker, "date": d, "diff": _round(v)}
                                           for d, v in got["gaps"]]
             lists[key]["only_nasdaq"] += [{"security_id": row.security_id, "ticker": row.ticker, "date": d}
@@ -2092,7 +2166,10 @@ def _nasdaq_sample_pairs(ctx: Context) -> dict:
     for key in DIV_PAIRS:
         t, lst = totals[key], lists[key]
         share = _share(t["matched"], t["either"])
-        out["pairs"][key] = {"securities": t["securities"], "ex_dates_matched": t["matched"], "ex_dates_either": t["either"],
+        out["pairs"][key] = {"securities": t["securities"], "usable_names": len(t["usable"]),
+                             "names_with_nothing_to_compare": len(t["nothing_to_compare"]),
+                             "nothing_to_compare_tickers": sorted(t["nothing_to_compare"])[:LIST_LIMIT],
+                             "ex_dates_matched": t["matched"], "ex_dates_either": t["either"],
                              "share": share, "amounts_over_0.001": len(lst["amount_gaps"]),
                              "only_nasdaq": len(lst["only_nasdaq"]), "only_other": len(lst["only_other"]),
                              "distribution_dates_left_out": t["skipped"],
@@ -2107,7 +2184,7 @@ def check_dividends(ctx: Context) -> dict:
     2013-08) against Tiingo and against the canonical dividends; Yahoo against Nasdaq is reported."""
     name, dataset, plan = "dividends", "dividends", "6 Dividends; step 7b"
     threshold = (f"ex-date match >= {DIV_MATCH} and amounts within ${DIV_AMOUNT_TOL} for the Tiingo-Yahoo pairs, and for "
-                 f"Tiingo-Nasdaq and canonical-Nasdaq over a Nasdaq sample of {NASDAQ_DIV_SAMPLE} names from "
+                 f"Tiingo-Nasdaq and canonical-Nasdaq, each over at least {NASDAQ_DIV_SAMPLE} usable names of the Nasdaq sample from "
                  f"{NASDAQ_DIV_FROM} (distribution ex-dates only one side has left out of the Nasdaq pairs)")
     tiingo = _tiingo_files(ctx)
     spans = ctx.panel_spans
@@ -2135,7 +2212,15 @@ def check_dividends(ctx: Context) -> dict:
     yahoo_ok = share is not None and share >= DIV_MATCH and not amount_bad
     nasdaq = _nasdaq_sample_pairs(ctx)
     judged = [nasdaq["pairs"].get(k, {}).get("meets_threshold", False) for k in DIV_PAIRS_JUDGED]
-    sample_complete = nasdaq["sample"] >= NASDAQ_DIV_SAMPLE and nasdaq["answers"].get("missing_file", 0) == 0
+    # The plan's Validation row reads "Tiingo against Nasdaq (100-name sample, from 2013-08)"; the canonical
+    # dividends are judged against the same sample. Until the owner says which pair the 100 names belong to,
+    # both judged pairs need 100 names with a usable comparison (a not_nasdaq answer, a name with no panel
+    # series or no month-1 Tiingo file, or one whose only "dividends" are distributions compares nothing):
+    # the stricter reading, so neither pair can pass on fewer names than the plan names.
+    usable = {k: nasdaq["pairs"].get(k, {}).get("usable_names", 0) for k in DIV_PAIRS}
+    short_of = {k: max(0, NASDAQ_DIV_SAMPLE - usable[k]) for k in DIV_PAIRS_JUDGED}
+    sample_complete = (nasdaq["sample"] >= NASDAQ_DIV_SAMPLE and nasdaq["answers"].get("missing_file", 0) == 0
+                       and not any(short_of.values()))
     passed = yahoo_ok and sample_complete and all(judged)
     lists = {k: {kind: v[:LIST_LIMIT] for kind, v in got.items()} for k, got in nasdaq["lists"].items()}
     return result(name, dataset, plan, threshold, passed,
@@ -2144,6 +2229,10 @@ def check_dividends(ctx: Context) -> dict:
                            "amounts_over_0.001_in_panel_window": sum(r["in_panel_window"] for r in amount_bad),
                            "nasdaq_sample_files": nasdaq["files"], "nasdaq_sample_names": nasdaq["sample"],
                            "nasdaq_sample_needed": NASDAQ_DIV_SAMPLE, "nasdaq_sample_strata": nasdaq["strata"],
+                           "nasdaq_usable_names_by_pair": usable,
+                           "nasdaq_sample_complete": bool(sample_complete),
+                           "nasdaq_usable_names_short_of_sample": max(short_of.values()),
+                           "nasdaq_usable_names_short_of_sample_by_pair": short_of,
                            "nasdaq_answers": nasdaq["answers"], "nasdaq_pairs": nasdaq["pairs"],
                            "nasdaq_stock_dividend_days_without_split": len(nasdaq["stock_without_split"])},
                   details={"amounts_over_0.001": amount_bad[:LIST_LIMIT], "nasdaq_pairs": lists,
@@ -2154,6 +2243,12 @@ def check_dividends(ctx: Context) -> dict:
                         if not nasdaq["sample"] else
                         "Yahoo dividends are compared as restored (already scaled by later splits); Nasdaq amounts are as "
                         "declared (Cash and Cash/Stock rows); a not_nasdaq answer carries no history and is left out; "
+                        "usable_names per pair = sample names with at least one cash ex-date on either side in the window "
+                        "(distribution-only names such as LBTYA, LBTYK and ZG compare nothing); the plan's row names Tiingo "
+                        "against Nasdaq on a 100-name sample, and the canonical dividends are judged on the same sample: "
+                        "until the owner confirms which pair the 100 names belong to, both Tiingo-Nasdaq and "
+                        "canonical-Nasdaq need 100 usable names (Tiingo-Nasdaq is usable only where a month-1 Tiingo "
+                        "file exists, so the sample needs more such names or the owner's reading); "
                         "nasdaq_stock_dividend_days_without_split = Cash/Stock ex-dates with no canonical split factor "
                         "within one session (a stock dividend the canonical series may miss)"))
 
@@ -2773,6 +2868,38 @@ def _in_windows(security: pd.Series, week_end: pd.Series, windows: dict) -> np.n
                     dtype=bool)
 
 
+def _flag(frame: pd.DataFrame, column: str) -> np.ndarray:
+    """A True/False column of a step-12 file as bools (False where the column is absent)."""
+    if column not in frame:
+        return np.zeros(len(frame), dtype=bool)
+    return (frame[column].astype(str) == "True").to_numpy()
+
+
+def short_window_blocks(rows: pd.DataFrame) -> np.ndarray:
+    """short_window name-weeks whose evidence could put them in the top 250, as step 12's ``blocks_week``
+    reads it: step 6's dollar volume at or above the rank-250 cut (``pf_ge_cut250``), only a proxy that
+    reaches the band median (``evidence`` proxy and ``proxy_above``), or no evidence at all (``unknown``).
+    The series' own short window also counts (``short_window_own_rank``: its canonical dv20 rank, the better
+    of ``dv20_rank`` and ``dv20_rank_any_price``, within ``SHORT_WINDOW_OWN_RANK``). The other short_window
+    weeks (step-6 dollar volume under the cut, a raw close under $10, a proxy under the median, no own dv20
+    rank within 300) are judged small and listed, not blocking."""
+    evidence = rows["evidence"].astype(str).to_numpy() if "evidence" in rows else np.full(len(rows), "unknown")
+    return (_flag(rows, "pf_ge_cut250") | (evidence == "unknown")
+            | ((evidence == "proxy") & _flag(rows, "proxy_above")) | short_window_own_rank(rows))
+
+
+def short_window_own_rank(rows: pd.DataFrame) -> np.ndarray:
+    """Rows whose own canonical dv20 rank (the better of ``dv20_rank`` and ``dv20_rank_any_price``) is
+    within ``SHORT_WINDOW_OWN_RANK``; False where neither column is present or the rank is empty."""
+    ranks = [pd.to_numeric(rows[c], errors="coerce").to_numpy(dtype=float)
+             for c in ("dv20_rank", "dv20_rank_any_price") if c in rows]
+    if not ranks or not len(rows):
+        return np.zeros(len(rows), dtype=bool)
+    best = np.fmin.reduce(ranks) if len(ranks) > 1 else ranks[0]
+    with np.errstate(invalid="ignore"):
+        return best <= SHORT_WINDOW_OWN_RANK
+
+
 def check_universe_listed_gaps(ctx: Context) -> dict:
     """Listed universe-base names the step-12 build marks missing for a reason that no fetch decision
     covers: a series that stops short (series_gap), an answer step 9 has not read (fetched_pending_reconcile)
@@ -2782,7 +2909,9 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
     price in the terminal table) are counted apart and do not block."""
     name, dataset, plan = "universe_listed_gaps", "universe", "3.1 listed set; 3.3 (completeness); 6 Universe"
     threshold = ("0 eligible name-weeks in CACHE/universe/weekly_listed.csv.gz whose missing_reason is "
-                 + " / ".join(sorted(BLOCKING_MISSING)) + " or not one of the known reasons, or is "
+                 + " / ".join(sorted(BLOCKING_MISSING)) + " or not one of the known reasons, or is short_window with "
+                 "top-250 evidence (step-6 dv at the rank-250 cut, a proxy alone at the band median, its own canonical "
+                 f"dv20 rank within {SHORT_WINDOW_OWN_RANK}, or none), or is "
                  + " / ".join(sorted(PENDING_SOURCES)) + " without an open candidate row of that planned source "
                  "whose need reaches the week; weeks that start after the series' last price (terminal table) or "
                  "delisting do not count; securities and week spans listed")
@@ -2808,9 +2937,34 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
             backed[rows] = _in_windows(missing["security_id"][rows], missing["week_end"][rows], windows.get(source, {}))
     unbacked = pending & ~backed
     missing.loc[unbacked, "missing_reason"] = missing.loc[unbacked, "missing_reason"] + "_without_open_candidate"
-    blocking_mask = (reasons.isin(BLOCKING_MISSING).to_numpy() | unknown_reason.to_numpy() | unbacked) & ~after_end
+    # short_window: a canonical close with a short window; only the weeks whose evidence could reach the top 250 block.
+    short = (reasons == SHORT_WINDOW).to_numpy()
+    short_blocks = short & short_window_blocks(missing)
+    missing.loc[short_blocks, "missing_reason"] = SHORT_WINDOW + "_top250_evidence"
+    flagged = reasons.isin(BLOCKING_MISSING).to_numpy() | unknown_reason.to_numpy() | unbacked | short_blocks
+    blocking_mask = flagged & ~after_end
     blocking = missing[blocking_mask]
-    tail = missing[after_end & (reasons.isin(BLOCKING_MISSING).to_numpy() | unknown_reason.to_numpy() | unbacked)]
+    tail = missing[after_end & flagged]
+    live_short = short & ~after_end
+    short_small = missing[live_short & ~short_blocks]
+    evidence = (missing["evidence"].astype(str).to_numpy() if "evidence" in missing
+                else np.full(len(missing), "unknown", dtype=object))
+    short_numbers = {
+        "name_weeks": int(live_short.sum()),
+        "blocking_top250_evidence": int((live_short & short_blocks).sum()),
+        "blocking_by_kind": {"step6_dv_ge_cut250": int((live_short & _flag(missing, "pf_ge_cut250")).sum()),
+                             "proxy_only_at_band_median": int((live_short & (evidence == "proxy")
+                                                               & _flag(missing, "proxy_above")).sum()),
+                             "unknown": int((live_short & (evidence == "unknown")).sum()),
+                             f"own_dv20_rank_le{SHORT_WINDOW_OWN_RANK}": int((live_short
+                                                                         & short_window_own_rank(missing)).sum()),
+                             f"own_dv20_rank_le{SHORT_WINDOW_OWN_RANK}_only": int(
+                                 (live_short & short_window_own_rank(missing) & ~_flag(missing, "pf_ge_cut250")
+                                  & (evidence != "unknown") & ~((evidence == "proxy")
+                                                                & _flag(missing, "proxy_above"))).sum())},
+        "own_dv20_rank_limit": SHORT_WINDOW_OWN_RANK,
+        "judged_small_not_blocking": int(len(short_small)),
+        "by_evidence": {str(k): int(v) for k, v in pd.Series(evidence[live_short]).value_counts().items()}}
     by_reason = reasons.value_counts().to_dict()
     spans = {}
     if len(blocking):
@@ -2843,8 +2997,15 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
                            "pending_name_weeks": int(len(pending_rows)),
                            "pending_without_open_candidate": int(len(unbacked_rows)),
                            "pending_without_open_candidate_securities": int(unbacked_rows["security_id"].nunique()),
+                           "short_window": short_numbers,
                            "blocking_by_year": year_counts},
                   details={"blocking_spans_by_reason": spans,
+                           "short_window_judged_small": [
+                               {"security_id": sid, "ticker": str(g["ticker"].iloc[-1]) if "ticker" in g else "",
+                                "weeks": int(len(g)), "first": g["week_end"].min().strftime("%Y-%m-%d"),
+                                "last": g["week_end"].max().strftime("%Y-%m-%d"),
+                                "evidence": g["evidence"].astype(str).value_counts().to_dict() if "evidence" in g else {}}
+                               for sid, g in sorted(short_small.groupby("security_id"), key=lambda kv: -len(kv[1]))[:LIST_LIMIT]],
                            "after_series_end": [{"security_id": s, "week_end": w.strftime("%Y-%m-%d"),
                                                  "series_end": ends.get(s, ""), "missing_reason": r}
                                                 for s, w, r in zip(tail["security_id"], tail["week_end"],
@@ -2852,7 +3013,12 @@ def check_universe_listed_gaps(ctx: Context) -> dict:
                   basis=basis,
                   note=("reasons other than these are judged elsewhere: tiingo_pending / yahoo_pending backed by an open "
                         "candidate row (candidates_resolved), unfillable (universe_unfillable), not_candidate / "
-                        "candidate_other / short_window (universe_proxy_margin and the unknown-size count); a series_gap name has a "
+                        "candidate_other (universe_proxy_margin and the unknown-size count); short_window weeks (a canonical "
+                        "close whose 50-session window is short; universe_proxy_margin skips them as vendor weeks) are judged "
+                        "here: those with step 6's dollar volume at the rank-250 cut, a proxy alone at the band median, their "
+                        f"own canonical dv20 rank within {SHORT_WINDOW_OWN_RANK} or no "
+                        "evidence block as short_window_top250_evidence, the rest are listed under short_window_judged_small; "
+                        "a series_gap name has a "
                         "series that does not reach the week; answer_not_in_panel is an answer step 9 read but left out "
                         "(SMCI, CHRD); a pending week with no open candidate row of its source whose need reaches the week "
                         "is reported as <reason>_without_open_candidate and blocks; the weeks after a series' last price "
@@ -2971,14 +3137,34 @@ def check_universe_fetch_margin(ctx: Context) -> dict:
                         "not read are pending, as are those the Tiingo run has not reached"))
 
 
+def _unknown_rate(year: int) -> tuple[float, str]:
+    """Calibrated top-250 rate of an unknown-size name-week in a year (UNKNOWN_SAMPLE_RATES) and its basis."""
+    for years, rate in UNKNOWN_SAMPLE_RATES.items():
+        if year in years:
+            return rate, "sample stratum " + ",".join(map(str, years))
+    return UNKNOWN_SAMPLE_POOLED_RATE, "pooled (year not sampled)"
+
+
+def _unknown_sample_state(ctx: Context) -> dict:
+    """Whether the round-10 sample file is there and is the one the rates were written down from."""
+    path = ctx.cache.joinpath(*UNKNOWN_SAMPLE_PATH)
+    digest = common.sha256_file(path) if path.exists() else None
+    return {"file": str(path), "sha256_written": UNKNOWN_SAMPLE_SHA256, "sha256": digest,
+            "matches": digest == UNKNOWN_SAMPLE_SHA256}
+
+
 def check_universe_unfillable(ctx: Context) -> dict:
-    """Plan 3.3 check 6: estimated top-250 name-weeks held by unfillable names <= 2% of the slots in any year.
-    A week of an unfillable name whose size is unknown cannot be estimated, so it fails the check."""
+    """Plan 3.3 check 6: estimated top-250 name-weeks held by unfillable names <= 2% of the slots in any year,
+    read on the model (plan section 0: a year above is reported as survivor bias, not used to judge the
+    strategy). A week of an unfillable name whose size is unknown gets nothing in the model; it is counted
+    in two readings beside it: calibrated (times the round-10 sample's rate for the year) and upper (every
+    such week a top-250 week)."""
     name, dataset, plan = "universe_unfillable", "universe", "3.3 check 6"
-    threshold = (f"estimated unfillable name-weeks / (250 x weeks) <= {UNFILLABLE_SLOT_SHARE:.0%} in every year (else reported "
-                 "as survivor bias; a week counts when its proxy reaches the band median, a float at it counting even "
-                 "with a market cap below, or when step 6's dollar volume reaches the rank-250 cut whatever the proxy "
-                 "says); 0 unpriced unfillable name-weeks of unknown size (no proxy, no step-6 dollar volume)")
+    threshold = (f"model: estimated unfillable name-weeks / (250 x weeks) <= {UNFILLABLE_SLOT_SHARE:.0%} in every year (else "
+                 "reported as survivor bias; a week counts when its proxy reaches the band median, a float at it counting "
+                 "even with a market cap below, or when step 6's dollar volume reaches the rank-250 cut whatever the proxy "
+                 "says; unknown-size weeks get nothing); the calibrated reading (unknown-size weeks x the round-10 "
+                 "sample's rate) and the upper bound (unknown-size weeks counted in full) are reported beside it")
     u = ctx.csv("unfillable.csv")
     frame, basis = _proxy_table(ctx)
     if u is None or frame is None:
@@ -3006,10 +3192,22 @@ def check_universe_unfillable(ctx: Context) -> dict:
     weeks_per_year = pd.Series(ctx.week_ends.year).value_counts()
     per_year = est.groupby(pd.to_datetime(est["week_end"]).dt.year).size() if len(est) else pd.Series(dtype=int)
     unk_year = unk.groupby(pd.to_datetime(unk["week_end"]).dt.year).size() if len(unk) else pd.Series(dtype=int)
-    shares = {int(y): {"name_weeks": int(per_year.get(y, 0)), "slots": int(UNIVERSE_N * n),
-                       "share": _share(int(per_year.get(y, 0)), UNIVERSE_N * n),
-                       "unknown_size_name_weeks": int(unk_year.get(y, 0))} for y, n in sorted(weeks_per_year.items())}
+    shares = {}
+    for y, n in sorted(weeks_per_year.items()):
+        model, unknown_weeks, slots = int(per_year.get(y, 0)), int(unk_year.get(y, 0)), int(UNIVERSE_N * n)
+        rate, rate_basis = _unknown_rate(int(y))
+        calibrated = model + unknown_weeks * rate
+        shares[int(y)] = {"name_weeks": model, "slots": slots, "share": _share(model, slots),
+                          "unknown_size_name_weeks": unknown_weeks,
+                          "unknown_rate": rate, "unknown_rate_basis": rate_basis,
+                          "calibrated_name_weeks": round(calibrated, 2),
+                          "share_calibrated": round(calibrated / slots, 5) if slots else None,
+                          "upper_name_weeks": model + unknown_weeks,
+                          "share_upper": _share(model + unknown_weeks, slots)}
     over = [y for y, r in shares.items() if (r["share"] or 0) > UNFILLABLE_SLOT_SHARE]
+    over_calibrated = [y for y, r in shares.items() if (r["share_calibrated"] or 0) > UNFILLABLE_SLOT_SHARE]
+    over_upper = [y for y, r in shares.items() if (r["share_upper"] or 0) > UNFILLABLE_SLOT_SHARE]
+    sample = _unknown_sample_state(ctx)
     # The same count without the weeks step 12 caps by the class's own dollar volume (reported only).
     capped_keys = set(zip(frame.loc[frame["class_capped"], "security_id"], frame.loc[frame["class_capped"], "week_end"])) \
         if "class_capped" in frame else set()
@@ -3021,8 +3219,15 @@ def check_universe_unfillable(ctx: Context) -> dict:
     over_cap = [int(y) for y, v in shares_cap.items() if (v or 0) > UNFILLABLE_SLOT_SHARE]
     no_proxy_rows = u[u["proxy"].isin(["", "none"])] if "proxy" in u else u.iloc[:0]
     unk_names = unk.groupby("security_id").size().sort_values(ascending=False)
-    return result(name, dataset, plan, threshold, not over and not len(unk),
+    return result(name, dataset, plan, threshold, not over,
                   numbers={"unfillable_rows": int(len(u)), "estimated_name_weeks": int(len(est)),
+                           "three_estimates": {
+                               "rule": "2% of slots per year, read on the model (plan section 0)",
+                               "years_over_2pct": {"model": over, "calibrated": over_calibrated, "upper": over_upper},
+                               "name_weeks": {"model": int(len(est)),
+                                              "calibrated": round(sum(r["calibrated_name_weeks"] for r in shares.values()), 2),
+                                              "upper": int(len(est)) + int(len(unk))},
+                               "calibration_sample": sample},
                            "estimated_name_weeks_plan_proxy_rule": int(len(est_plan)),
                            "estimated_by_security": {s: int(n) for s, n in est.groupby("security_id").size()
                                                      .sort_values(ascending=False).head(LIST_LIMIT).items()} if len(est) else {},
@@ -3046,7 +3251,12 @@ def check_universe_unfillable(ctx: Context) -> dict:
                         "ranks 200-250 median (market cap, or a float at the median when the market cap, often carried from "
                         "an old company list, is below it), or its step-6 dollar volume reaches the rank-250 cut whatever the "
                         "proxy says (LAZR, PARA); estimated_name_weeks_plan_proxy_rule keeps the earlier count (market cap "
-                        "first, dollar volume only without a proxy); a week with no evidence is of unknown size (fails). "
+                        "first, dollar volume only without a proxy); a week with no evidence is of unknown size: the model "
+                        "gives it nothing, the calibrated reading gives it the round-10 sample's rate (2021-2023 0.19%, "
+                        "2018-2020 and 2024 1.04%, other years the pooled 0.44%; a model figure from ordinary names, "
+                        "while most unknown names are in merger or bankruptcy limbo), the upper bound counts it in full; "
+                        "pass reads the model; calibration_sample says whether the sample file is the one the rates were "
+                        "written down from. "
                         "step12_class_capped: the weeks of a class of a multi-class company that step 12's expected count "
                         "caps by the class's own dollar volume (the company-level float is not the class's size, QRTEB "
                         "2018-2019), and the shares without them; reported only, pass / fail keeps the plan's proxy rule"))
@@ -3428,8 +3638,19 @@ def main(argv=None) -> int:
                              "file read from DIR) instead of the published INPUTS and CACHE/universe files")
     parser.add_argument("--out-dir", type=Path, default=None,
                         help="write validation_summary.json and manifest.json here instead of INPUTS")
+    parser.add_argument("--write-multi-source-batch", nargs="?", const="", default=None, metavar="PATH",
+                        help="write the multi_source_agreement review batch (default CACHE/review/round10/multi_source/"
+                             "batch_01.csv) and stop; no check is run")
     args = parser.parse_args(argv)
     ctx = Context(universe_dir=args.universe_dir, out_dir=args.out_dir)
+    if args.write_multi_source_batch is not None:
+        target = (Path(args.write_multi_source_batch) if args.write_multi_source_batch
+                  else ctx.cache.joinpath(*MULTI_SOURCE_BATCH))
+        frame = write_multi_source_batch(ctx, target)
+        name_days = len(frame[["security_id", "universe_day"]].drop_duplicates()) if len(frame) else 0
+        log(f"multi-source batch: {len(frame)} rows, {name_days} name-days "
+            f"({int((frame['in_moves_batch'] == 'N').sum()) if len(frame) else 0} rows not in a moves item) -> {target}")
+        return 0
     if args.out_dir:
         Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     only = {s.strip() for s in args.only.split(",") if s.strip()} or None

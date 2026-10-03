@@ -506,8 +506,48 @@ def test_check_6_counts_every_non_pending_reason_and_unknown_names_as_top250():
     six = un.check_6(settled, settled, slots=250)
     assert six["unfillable_only_share"] == 0.004 and six["pass_unfillable_only"]
     assert six["residual_share"] == 0.02 and six["pass_known_evidence_only"]
-    assert six["unknown_name_weeks"] == 1 and six["upper_share"] == 0.024 and not six["pass"]
+    assert six["unknown_name_weeks"] == 1 and six["upper_share"] == 0.024 and not six["pass_upper"]
+    assert six["pass"]                                   # the 2% rule reads the model (plan section 0)
     assert six["range_share"] == [0.016, 0.02, 0.024]
+    assert "estimates" not in six                        # no year: no calibrated reading
+    six = un.check_6(settled, settled, slots=250, year=2022)
+    est = six["estimates"]
+    assert est["unknown_rate"] == un.UNKNOWN_SAMPLE_STRATA["A"]["rate"] and est["unknown_rate_basis"] == "stratum A"
+    assert est["name_weeks"] == {"model": 5.0, "calibrated": round(5.0 + est["unknown_rate"], 2), "upper": 6.0}
+    # the model sits exactly at 2%; the calibrated reading adds the unknown week's 0.19% of a name-week
+    assert est["over_2pct"] == {"model": False, "calibrated": True, "upper": True}
+    assert six["pass"] and not six["pass_calibrated"] and not six["pass_upper"]
+    assert six["unfillable_only_estimates"]["name_weeks"]["model"] == 1.0
+
+
+def test_unknown_rate_takes_the_sample_stratum_and_the_pooled_rate_outside_it():
+    assert un.unknown_rate(2019) == (un.UNKNOWN_SAMPLE_STRATA["B"]["rate"], "stratum B")
+    assert un.unknown_rate(2023)[1] == "stratum A"
+    assert un.unknown_rate(2014) == (un.UNKNOWN_SAMPLE_POOLED_RATE, "pooled (year not sampled)")
+    a, b = un.UNKNOWN_SAMPLE_STRATA["A"], un.UNKNOWN_SAMPLE_STRATA["B"]
+    pooled = (a["population_name_weeks"] * a["rate"] + b["population_name_weeks"] * b["rate"]) / (
+        a["population_name_weeks"] + b["population_name_weeks"])
+    assert abs(pooled - un.UNKNOWN_SAMPLE_POOLED_RATE) < 1e-6          # about 0.44%, not 100%
+    assert un.calibration_rate(5.27) == 0.00079 and un.calibration_rate(0.5) == 0.0 and un.calibration_rate(500) == 0.7684
+    assert un.calibration_rate(float("nan")) is None
+
+
+def test_unknown_size_calibration_checks_the_sample_file_it_was_written_from(tmp_path):
+    missing = un.unknown_size_calibration(tmp_path)
+    assert not missing["sample_present"] and not missing["sample_matches"]
+    assert missing["pooled_rate"] == un.UNKNOWN_SAMPLE_POOLED_RATE    # the written-down rates are used anyway
+    path = tmp_path.joinpath(*un.UNKNOWN_SAMPLE_PATH)
+    path.parent.mkdir(parents=True)
+    rows = [{"stratum": "A", "mv_max_over_cut": "3.0", "could_rank_top250": "implausible", "expected_rate_used": "0.00027"},
+            {"stratum": "A", "mv_max_over_cut": "12", "could_rank_top250": "no", "expected_rate_used": "0.0"},
+            {"stratum": "B", "mv_max_over_cut": "60", "could_rank_top250": "possible", "expected_rate_used": "0.0908"}]
+    pd.DataFrame(rows).to_csv(path, index=False)
+    got = un.unknown_size_calibration(tmp_path)
+    assert got["sample_present"] and got["rows_rate_recomputed_agree"] and not got["sample_matches"]   # other sha256
+    assert got["strata_from_file"]["A"] == {"names": 2, "rate": 0.000135}
+    rows[0]["expected_rate_used"] = "0.5"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    assert not un.unknown_size_calibration(tmp_path)["rows_rate_recomputed_agree"]
 
 
 def test_month2_leads_take_active_unknown_names_but_not_delisted_ones():
@@ -611,6 +651,17 @@ def test_a_week_with_a_close_and_a_short_window_is_short_window_not_a_lacking_ro
     big = big.set_index("security_id")
     assert big.loc["kdp", "proxy_above"] and un.blocks_week(big.loc[["kdp"]]).all()
     assert "short_window" in un.MISSING_REASONS and "n_missing_short_window" in un.SUMMARY_COLUMNS
+    # Its own window speaks too: a dv20 rank within 300 blocks with no step-6 dv and a proxy under the median.
+    small = listed.assign(mcap=1e8, float_usd=1e8)   # a proxy far under the band median: evidence proxy, not above
+    own = un.mark_missing(small.assign(dv20_rank=101.0, dv20_rank_any_price=101.0), spans,
+                          {"kdp": "series_gap", "gap": "series_gap"}, cut).set_index("security_id")
+    assert own.loc["kdp", "evidence"] == "proxy" and not own.loc["kdp", "proxy_above"]
+    assert not own.loc["kdp", "pf_ge_cut250"] and un.blocks_week(own.loc[["kdp"]]).all()
+    assert not un.short_window_own_top(own.loc[["gap"]]).any()
+    far = un.mark_missing(small.assign(dv20_rank=301.0, dv20_rank_any_price=320.0), spans,
+                          {"kdp": "series_gap", "gap": "series_gap"}, cut).set_index("security_id")
+    assert not un.blocks_week(far.loc[["kdp"]]).any()
+    assert "n_missing_short_window_own_dv20_top" in un.SUMMARY_COLUMNS
 
 
 def test_weeks_between_a_documented_relist_junctions_old_and_new_shares_are_outside_trading():

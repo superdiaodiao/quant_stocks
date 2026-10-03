@@ -1713,7 +1713,8 @@ def test_a_documented_halt_is_kept_not_cut_as_filler_and_its_r4_entry_is_settled
     close[30:] = close[29]
     volume[30:] = 0.0
     start = str(SESSIONS[30].date())
-    monkeypatch.setitem(rc.HALTED_SPANS, "H", {"start": start, "classification": "flat_genuine",
+    monkeypatch.setitem(rc.HALTED_SPANS, "H", {"start": start, "documented_to": str(SESSIONS[n - 1].date()),
+                                              "classification": "flat_genuine",
                                               "evidence": "yahoo+stored", "url": "https://www.sec.gov/Archives/h.htm",
                                               "note": "halted"})
     result = rc.reconcile_security("H", {"yahoo": _frame(close, volume=volume)}, _ctx())
@@ -1724,6 +1725,31 @@ def test_a_documented_halt_is_kept_not_cut_as_filler_and_its_r4_entry_is_settled
     assert r4 and all(m["classification"] == "flat_genuine" and m["source_url"] for m in r4)
     plain = rc.reconcile_security("X", {"yahoo": _frame(close, volume=volume)}, _ctx())
     assert plain["summary"]["filler_cut"] == 10
+
+
+def test_halt_rows_after_the_last_documented_day_stay_flagged_and_their_r4_entry_open(monkeypatch):
+    n = 40
+    close = _walk(n)
+    volume = np.full(n, 1000.0)
+    close[30:] = close[29]
+    volume[30:] = 0.0
+    start, documented = str(SESSIONS[30].date()), str(SESSIONS[33].date())
+    monkeypatch.setitem(rc.HALTED_SPANS, "H", {"start": start, "documented_to": documented,
+                                              "classification": "flat_genuine", "evidence": "yahoo+stored",
+                                              "url": "https://www.sec.gov/Archives/h.htm", "note": "suspended"})
+    result = rc.reconcile_security("H", {"yahoo": _frame(close, volume=volume)}, _ctx())
+    assert result["summary"]["filler_cut"] == 0  # every halted row is kept
+    assert "halt_end_undocumented" not in _flags(result["canonical"], documented)
+    assert "halt_end_undocumented" in _flags(result["canonical"], str(SESSIONS[34].date()))
+    r4 = sorted((m["event_date"], m["classification"]) for m in result["moves"] if m["rule"] == "R4")
+    # the flat run (from the last traded close, session 29) is split at the documented day: settled, then open
+    assert r4 == [(str(SESSIONS[29].date()), "flat_genuine"), (str(SESSIONS[34].date()), "unreviewed")]
+    assert any("no document shows the halt after" in m["notes"] for m in result["moves"] if m["rule"] == "R4")
+
+
+def test_the_halted_spans_name_the_last_documented_day():
+    for entry in rc.HALTED_SPANS.values():
+        assert entry["start"] <= entry["documented_to"]
 
 
 def test_review_overrides_read_the_merged_moves_verdicts(tmp_path, monkeypatch):
@@ -1751,11 +1777,332 @@ def test_a_continuing_predecessor_keeps_its_tiingo_rows_to_the_successor_window_
     status = tmp_path / "fetch_status.csv"
     pd.DataFrame([{"security_id": "P", "status": "done", "prices_path": str(path)}]).to_csv(status, index=False)
     monkeypatch.setattr(rc, "TIINGO_STATUS", status)
-    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {"successor": "S", "ticker": "ASRT", "last_session": "2020-05-19",
-                                                  "continues": True})
+    link = {"successor": "S", "ticker": "ASRT", "last_session": "2020-05-19", "continues": True}
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", {**link, "tiingo_to_successor_end": "gap review"})
     windows = {"P": (pd.Timestamp("2020-01-01"), pd.Timestamp("2020-06-18")),
                "S": (pd.Timestamp("2020-03-01"), pd.Timestamp("2020-08-14"))}
-    rows, facts = rc.load_new_tiingo_rows({"mapping": pd.DataFrame(columns=["security_id", "ticker", "list_start", "list_end"])},
-                                          {"P"}, windows)
+    identity = {"mapping": pd.DataFrame(columns=["security_id", "ticker", "list_start", "list_end"])}
+    rows, facts = rc.load_new_tiingo_rows(identity, {"P"}, windows)
     assert rows["date"].max() == pd.Timestamp("2020-08-14")
     assert "P" in facts["predecessor_windows_extended"]
+    # a continuing link without the mark keeps the predecessor's own window (merge review: LBTYB, SBGI, VNOM, QVCB)
+    monkeypatch.setitem(rc.SUCCESSOR_LINKS, "P", link)
+    rows, facts = rc.load_new_tiingo_rows(identity, {"P"}, windows)
+    assert rows["date"].max() == pd.Timestamp("2020-06-18") and facts["predecessor_windows_extended"] == []
+
+
+def test_only_the_gap_reviews_two_links_hand_the_predecessors_tiingo_answer_on():
+    marked = sorted(p for p, link in rc.SUCCESSOR_LINKS.items() if link.get("tiingo_to_successor_end"))
+    assert marked == ["1005201", "1355096.T-QRTEA"]
+    assert all(rc.SUCCESSOR_LINKS[p]["continues"] for p in marked)
+
+
+# ------------------------------------------------------------------ verdicts that change S or D (round-10 merge review)
+
+_SEC = "https://www.sec.gov/Archives/edgar/data/1/x.htm"
+_SPLIT_VERDICT = {"security_id": "1", "ticker": "T", "split_factor": "", "ex_date_confirmed": "", "event_type": "",
+                  "source_url": _SEC, "evidence_sources": "", "verified_at": "2026-10-03T00:00:00Z", "reviewer": "hand",
+                  "notes": "8-K"}
+_DIST_VERDICT = {"security_id": "1", "ticker": "T", "distribution_type": "", "ratio": "", "cash_per_share": "",
+                 "distributed_security": "", "ex_date_confirmed": "", "source_url": _SEC,
+                 "verified_at": "2026-10-03T00:00:00Z", "reviewer": "hand", "notes": "8-K"}
+
+
+def _plan(tmp_path, monkeypatch, **tables):
+    _write_review(tmp_path, monkeypatch, **tables)
+    monkeypatch.setattr(rc, "_EVENT_PLAN", {})
+    monkeypatch.setattr(rc, "REVIEW_EVENT_EXCEPTIONS", {})
+    return rc.review_event_plan().set_index("item_id")
+
+
+def _day(k):
+    return str(SESSIONS[k].date())
+
+
+def _events_ctx(plan):
+    items = [{"date": r["date"], "split": r["split"], "cash": r["cash"], "item_id": i, "source": r["source"],
+              "mode": r["mode"], "scale": r["scale"]}
+             for i, r in plan[plan["action"] == "apply"].iterrows()]
+    return {**_ctx(), "review": {"source": [], "flag": [], "events": items}}
+
+
+def test_a_corrected_split_sets_s_on_the_confirmed_day_and_clears_the_vendors_day(tmp_path, monkeypatch):
+    close = _walk(30)
+    close[12:] = close[12:] * 10.0  # a real 1-for-10 on session 12; the vendor books 1-for-30 on session 14
+    split = np.ones(30)
+    split[14] = 1 / 30
+    plan = _plan(tmp_path, monkeypatch, split_verdicts=[
+        {**_SPLIT_VERDICT, "ex_date": _day(14), "verdict": "corrected", "split_factor": "0.1",
+         "ex_date_confirmed": _day(12), "item_id": "splits-01-001"}])
+    assert plan["action"].tolist() == ["apply", "apply"]
+    result = rc.reconcile_security("1", {"yahoo": _frame(close, split=split)}, _events_ctx(plan))
+    c = result["canonical"].set_index("date")
+    assert c.loc[_day(12), "split_factor"] == pytest.approx(0.1)
+    assert c.loc[_day(12), "tr"] == pytest.approx(close[12] * 0.1 / close[11] - 1)
+    assert c.loc[_day(14), "tr"] == pytest.approx(close[14] / close[13] - 1)
+    assert c.loc[_day(14), "split_factor"] == 1.0
+    assert "review_event:splits-01-001" in c.loc[_day(14), "flags"]
+    assert [e["item_id"] for e in result["summary"]["review_events"]["applied"]] == ["splits-01-001", "splits-01-001"]
+
+
+def test_a_not_a_split_verdict_removes_the_vendors_factor(tmp_path, monkeypatch):
+    close = _walk(30)
+    split = np.ones(30)
+    split[10] = 1 / 6  # the abandoned 1-for-6 (WHLR): the closes show no jump
+    plan = _plan(tmp_path, monkeypatch, split_verdicts=[
+        {**_SPLIT_VERDICT, "ex_date": _day(10), "verdict": "not_a_split", "split_factor": "1", "item_id": "splits-01-002"}])
+    result = rc.reconcile_security("1", {"yahoo": _frame(close, split=split)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert row["split_factor"] == 1.0 and row["tr"] == pytest.approx(close[10] / close[9] - 1)
+    assert "reverse_split" not in row["flags"]
+
+
+def test_corrected_cash_and_a_removed_duplicate_booking(tmp_path, monkeypatch):
+    close = _walk(30)
+    close[20:] = close[20:] * 0.7
+    div = np.zeros(30)
+    div[15] = 0.3 * close[14]  # a misdated copy (no drop that day: LENZ 2024-03-15)
+    div[20] = 2.0 * 0.3 * close[19]  # the real one, booked in the wrong units (LENZ 7.21 for 1.03)
+    plan = _plan(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(15), "verdict": "not_a_distribution", "item_id": "distributions-01-001"},
+        {**_DIST_VERDICT, "ex_date": _day(20), "verdict": "corrected", "distribution_type": "special_cash",
+         "cash_per_share": f"{0.3 * close[19]:.6f}", "item_id": "distributions-01-002"}])
+    result = rc.reconcile_security("1", {"yahoo": _frame(close, div=div)}, _events_ctx(plan))
+    c = result["canonical"].set_index("date")
+    assert c.loc[_day(15), "div_cash"] == 0.0 and c.loc[_day(15), "tr"] == pytest.approx(close[15] / close[14] - 1)
+    assert abs(c.loc[_day(20), "tr"] - (close[20] / close[19] - 0.7)) < 1e-6
+    assert [d["ex_date"] for d in result["dividends"]] == [_day(20)]
+
+
+def test_a_stock_dividend_with_cash_sets_both(tmp_path, monkeypatch):
+    close = _walk(30)
+    close[10:] = close[10:] / 1.05
+    div = np.zeros(30)
+    div[10] = 0.2
+    plan = _plan(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "corrected", "distribution_type": "stock_dividend",
+         "ratio": "1.05", "cash_per_share": "0.5", "item_id": "distributions-01-003"}])
+    assert (plan.loc["distributions-01-003", "split"], plan.loc["distributions-01-003", "cash"]) == (1.05, 0.5)
+    result = rc.reconcile_security("1", {"yahoo": _frame(close, div=div)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert (row["split_factor"], row["div_cash"]) == (1.05, 0.5)
+    assert row["tr"] == pytest.approx((close[10] * 1.05 + 0.5) / close[9] - 1)
+
+
+def test_a_reverse_split_booked_as_a_distribution_gets_the_documents_exact_ratio(tmp_path, monkeypatch):
+    close = _walk(30)
+    close[10:] = close[10:] * 7.7
+    split = np.ones(30)
+    split[10] = 0.129
+    plan = _plan(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "not_a_distribution", "ratio": "0.1298701299",
+         "item_id": "distributions-01-004"}])
+    result = rc.reconcile_security("1", {"yahoo": _frame(close, split=split)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert row["split_factor"] == pytest.approx(1 / 7.7)
+    assert row["tr"] == pytest.approx(close[10] / 7.7 / close[9] - 1, abs=1e-8)
+
+
+def test_an_unrecorded_reverse_split_is_applied_and_a_spinoff_share_count_is_not(tmp_path, monkeypatch):
+    plan = _plan(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": _day(10), "rule": "R1/R2", "classification": "unrecorded_event",
+         "event_type": "reverse_split", "split_factor": "0.04", "source_url": _SEC, "item_id": "moves-01-001"},
+        {**_MOVE_VERDICT, "event_date": _day(12), "rule": "R1c", "classification": "unrecorded_event",
+         "event_type": "spinoff", "split_factor": "0.125", "source_url": _SEC, "item_id": "moves-01-002"},
+        {**_MOVE_VERDICT, "event_date": _day(14), "rule": "R1", "classification": "unrecorded_event",
+         "event_type": "reverse_split", "split_factor": "0.5", "source_url": "https://ir.example.com/x",
+         "item_id": "moves-01-003"}])
+    assert plan.loc["moves-01-001", "action"] == "apply" and plan.loc["moves-01-001", "split"] == 0.04
+    assert plan.loc["moves-01-002", "action"] == "not_applied" and "need a value" in plan.loc["moves-01-002", "reason"]
+    assert plan.loc["moves-01-003", "action"] == "not_applied"  # no primary document
+    close = _walk(30)
+    close[10:] = close[10:] * 25
+    result = rc.reconcile_security("1", {"yahoo": _frame(close)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert row["split_factor"] == 0.04 and abs(row["tr"]) < 0.05
+    status = rc.review_event_status({"1": result})
+    assert status["moves-01-001"]["status"] == "applied" and status["moves-01-002"]["status"] == "not_applied"
+    base = {"ticker": "T", "classification": "unreviewed", "source_url": "", "verified_at": "", "security_id": "1",
+            "listed": True, "sources_agreeing": "", "notes": "[R1] x"}
+    frame = pd.DataFrame([{**base, "event_date": _day(10), "rule": "R1/R2"},
+                          {**base, "event_date": _day(12), "rule": "R1c"}])
+    facts = rc.apply_move_verdicts(frame, status)
+    assert frame["classification"].tolist() == ["unrecorded_event", "unreviewed"]  # not applied: the row stays open
+    assert "not applied to the series" in frame["notes"].iloc[1] and "applied to the series" in frame["notes"].iloc[0]
+    assert (facts["applied"], facts["open_not_applied"], facts["series_changed"]) == (1, 1, 1)
+
+
+def test_a_verdict_not_applied_keeps_its_split_and_distribution_rows_open(tmp_path, monkeypatch):
+    plan = _plan(tmp_path, monkeypatch, split_verdicts=[
+        {**_SPLIT_VERDICT, "ex_date": _day(10), "verdict": "confirmed", "item_id": "splits-01-001"},
+        {**_SPLIT_VERDICT, "ex_date": _day(20), "verdict": "not_a_split", "item_id": "splits-01-002"},
+        {**_SPLIT_VERDICT, "ex_date": _day(25), "verdict": "reclassify_distribution", "item_id": "splits-01-003"}],
+        distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "corrected", "distribution_type": "spinoff",
+         "item_id": "distributions-01-001"}])
+    assert plan.loc["distributions-01-001", "action"] == "not_applied"  # a spin-off without a factor: no value
+    status = {"distributions-01-001": {"status": "not_applied", "reason": "no value", "change": ""},
+              "splits-01-002": {"status": "unused", "reason": "planned, but the day has no kept row", "change": ""},
+              "splits-01-003": {"status": "type_only", "reason": "", "change": ""}}
+    split = pd.DataFrame({"security_id": "1", "ex_date": [_day(10), _day(20), _day(25)], "sec_url": "",
+                          "verified_at": "", "notes": "", "event_type": "split"})
+    facts = rc.apply_event_verdicts(split, "split_events", status)
+    # the confirmed split verdict does not close a row another verdict leaves open; an unused plan stays open too
+    assert split["sec_url"].tolist() == ["", "", _SEC] and split["verified_at"].tolist()[:2] == ["", ""]
+    assert split["event_type"].tolist() == ["split", "split", "distribution"]
+    assert "not applied to the series: no value; open" in split["notes"].iloc[0]
+    assert (facts["open_not_applied"], facts["rows_open_by_verdict"], facts["type_only"]) == (2, 2, 1)
+    special = pd.DataFrame({"security_id": ["1"], "ex_date": [_day(10)], "sec_url": [""], "notes": [""]})
+    rc.apply_event_verdicts(special, "special_distributions", status)
+    assert special["sec_url"].iloc[0] == ""
+
+
+def test_an_exception_restates_the_action_and_a_source_guard_leaves_another_sources_row_unused(tmp_path, monkeypatch):
+    _write_review(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "corrected", "distribution_type": "stock_dividend",
+         "ratio": "1.05", "cash_per_share": "1.73", "item_id": "distributions-06-019"}],
+        moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": _day(10), "rule": "R3", "classification": "unrecorded_event",
+         "event_type": "stock_dividend", "split_factor": "3", "source_url": _SEC, "item_id": "moves-11-010"}])
+    monkeypatch.setattr(rc, "_EVENT_PLAN", {})
+    monkeypatch.setattr(rc, "REVIEW_EVENT_EXCEPTIONS", {
+        "distributions-06-019": {"split": 1.05, "cash": 1.73 / 1.05, "source": "yahoo", "why": "units"},
+        "moves-11-010": {"apply": False, "same_as": "distributions-06-019", "why": "booked by the other"}})
+    plan = rc.review_event_plan().set_index("item_id")
+    assert plan.loc["distributions-06-019", "cash"] == pytest.approx(1.73 / 1.05)
+    close = _walk(30)
+    result = rc.reconcile_security("1", {"wiki": _frame(close)}, _events_ctx(plan))  # a WIKI row, not Yahoo's
+    assert result["summary"]["review_events"]["unused"] == ["distributions-06-019"]
+    status = rc.review_event_status({"1": result})
+    assert status["distributions-06-019"]["status"] == "unused" and status["moves-11-010"]["status"] == "not_applied"
+    result = rc.reconcile_security("1", {"yahoo": _frame(close)}, _events_ctx(plan))
+    status = rc.review_event_status({"1": result})
+    assert status["distributions-06-019"]["status"] == "applied"
+    assert status["moves-11-010"]["status"] == "applied" and "with distributions-06-019" in status["moves-11-010"]["change"]
+
+
+def test_the_round10_exceptions_name_merged_items_and_carry_a_reason():
+    for item, entry in rc.REVIEW_EVENT_EXCEPTIONS.items():
+        assert re.match(r"^(moves|splits|distributions)-\d\d-\d{3}$", item)
+        assert entry["why"] and (entry.get("apply") is False or "split" in entry or "cash" in entry)
+
+
+@pytest.mark.parametrize("given, exact", [(0.0074074, 1 / 135), (0.003333, 1 / 300), (0.001333, 1 / 750),
+                                          (0.181818, 1 / 5.5), (0.056022, 1 / 17.85), (0.0066667, 1 / 150),
+                                          (0.1298701299, 1 / 7.7), (1.9365, 1.9365), (2.4484, 2.4484), (0.63, 0.63)])
+def test_a_rounded_reverse_ratio_is_read_as_the_exact_one(given, exact):
+    assert rc.snap_reverse_ratio(given) == pytest.approx(exact, rel=1e-12)
+
+
+def test_a_confirmed_ratio_only_verdict_drops_the_double_counted_cash_and_keeps_a_single_booking(tmp_path, monkeypatch):
+    # LBRDA 2025-07-15: Tiingo books the spin-off factor and its cash value together (+2.7%); the verdict confirms
+    # the ratio, no cash, "apply one, not both". LBTYA: the canonical row carries only the cash, and is kept
+    note = "Tiingo carries both factor 1.067 and cash: together +2.7%, either alone about -3.5%; apply one, not both."
+    plan = _plan(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "confirmed", "distribution_type": "spinoff",
+         "ratio": "1.067", "notes": note, "item_id": "distributions-04-036"},
+        {**_DIST_VERDICT, "security_id": "2", "ex_date": _day(10), "verdict": "confirmed",
+         "distribution_type": "spinoff", "ratio": "1.058", "notes": "Tiingo carries both (+4.0%), a double count.",
+         "item_id": "distributions-04-018"},
+        {**_DIST_VERDICT, "security_id": "3", "ex_date": _day(10), "verdict": "confirmed",
+         "distribution_type": "stock_dividend", "ratio": "1.05", "notes": "5% stock dividend",
+         "item_id": "distributions-06-021"}])
+    assert plan.loc["distributions-04-036", "action"] == "apply"
+    assert plan.loc["distributions-04-036", "mode"] == rc.DROP_DOUBLE_CASH
+    assert "distributions-06-021" not in plan.index  # a confirmed verdict without the double-count note changes nothing
+    close = _walk(30)
+    close[10:] = close[10:] / 1.067 * 0.97  # the spin-off's value and a 3% fall
+    split, div = np.ones(30), np.zeros(30)
+    split[10], div[10] = 1.067, 0.063 * close[9]
+    result = rc.reconcile_security("1", {"tiingo": _frame(close, split=split, div=div)}, _events_ctx(plan.iloc[:1]))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert (row["split_factor"], row["div_cash"]) == (1.067, 0.0)
+    assert row["tr"] == pytest.approx(close[10] * 1.067 / close[9] - 1)
+    applied = result["summary"]["review_events"]["applied"]
+    assert applied[0]["cash"].endswith(">0") and "review_event:distributions-04-036" in row["flags"]
+    # one booking (cash only, LBTYA) is left as it is, and the item counts as applied (the series carries one)
+    cash_only = np.zeros(30)
+    cash_only[10] = 0.055 * close[9]
+    plan2 = plan.loc[["distributions-04-018"]]
+    other = rc.reconcile_security("2", {"wiki": _frame(close, div=cash_only)}, _events_ctx(plan2))
+    row2 = other["canonical"].set_index("date").loc[_day(10)]
+    assert (row2["split_factor"], row2["div_cash"]) == (1.0, pytest.approx(0.055 * close[9]))
+    status = rc.review_event_status({"1": result, "2": other})
+    assert status["distributions-04-036"]["status"] == "applied"
+    assert status["distributions-04-018"]["status"] == "applied"
+    table = pd.DataFrame({"security_id": ["1"], "ex_date": [_day(10)], "sec_url": [""], "notes": [""]})
+    rc.apply_event_verdicts(table, "special_distributions", status)
+    assert table["sec_url"].iloc[0] == _SEC and "applied to the series" in table["notes"].iloc[0]
+    # the day has no kept row: the item is unused and the row stays open
+    status = rc.review_event_status({"2": other})
+    assert status["distributions-04-036"]["status"] == "unused"
+    table = pd.DataFrame({"security_id": ["1"], "ex_date": [_day(10)], "sec_url": [""], "notes": [""]})
+    rc.apply_event_verdicts(table, "special_distributions", status)
+    assert table["sec_url"].iloc[0] == ""
+
+
+def test_a_yahoo_row_in_adjusted_units_is_restated_as_traded(tmp_path, monkeypatch):
+    # CBSH 2012-11-28: the Yahoo row's close and cash are the as-traded values / 1.05; after tr they are restated
+    _write_review(tmp_path, monkeypatch, distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "corrected", "distribution_type": "stock_dividend",
+         "ratio": "1.05", "cash_per_share": "1.73", "item_id": "distributions-06-019"}])
+    monkeypatch.setattr(rc, "_EVENT_PLAN", {})
+    monkeypatch.setattr(rc, "REVIEW_EVENT_EXCEPTIONS", {"distributions-06-019": {
+        "split": 1.05, "cash": 1.73 / 1.05, "source": "yahoo", "scale": 1.05, "why": "units"}})
+    plan = rc.review_event_plan().set_index("item_id")
+    close = _walk(30) / 1.05  # Yahoo's levels: as traded / 1.05
+    close[10:] = close[10:] / 1.05 * 0.99
+    result = rc.reconcile_security("1", {"yahoo": _frame(close)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert row["close_raw"] == pytest.approx(close[10] * 1.05)
+    assert (row["split_factor"], row["div_cash"]) == (1.05, pytest.approx(1.73))
+    assert row["tr"] == pytest.approx((close[10] * 1.05 + 1.73 / 1.05) / close[9] - 1)
+
+
+def test_a_day_the_review_calls_doubtful_is_flagged_and_its_queue_rows_stay_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(rc, "DOUBTFUL_PRICE_DAYS", {("1", _day(10)): "only one source", ("1", _day(11)): "after it"})
+    plan = _plan(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": _day(10), "rule": "R1/R2", "classification": "unrecorded_event",
+         "event_type": "reverse_split", "split_factor": "0.04", "source_url": _SEC, "item_id": "moves-01-004"},
+        {**_MOVE_VERDICT, "event_date": _day(11), "rule": "R1", "classification": "market_move_second_source",
+         "evidence_sources": "yahoo+stored", "item_id": "moves-05-006"}])
+    close = _walk(30)
+    close[10:] = close[10:] * 70
+    result = rc.reconcile_security("1", {"yahoo": _frame(close)}, _events_ctx(plan))
+    c = result["canonical"].set_index("date")
+    assert c.loc[_day(10), "split_factor"] == 0.04  # the documented factor is applied
+    assert "doubtful_price" in c.loc[_day(10), "flags"] and "doubtful_price" in c.loc[_day(11), "flags"]
+    status = rc.review_event_status({"1": result})
+    base = {"ticker": "T", "classification": "unreviewed", "source_url": "", "verified_at": "", "security_id": "1",
+            "listed": True, "sources_agreeing": "", "notes": "[R1] x"}
+    frame = pd.DataFrame([{**base, "event_date": _day(10), "rule": "R1/R2"},
+                          {**base, "event_date": _day(11), "rule": "R1"}])
+    facts = rc.apply_move_verdicts(frame, status)
+    assert frame["classification"].tolist() == ["unreviewed", "unreviewed"]
+    assert frame["verified_at"].tolist() == ["", ""]
+    assert "doubtful_price" in frame["notes"].iloc[0] and "applied to the series" in frame["notes"].iloc[0]
+    assert facts["open_doubtful_price"] == 2 and facts["applied"] == 0
+
+
+def test_the_data_change_lists_take_applied_from_the_build(tmp_path, monkeypatch):
+    change = {"security_id": "1", "ticker": "T", "date": "", "change": "", "applied": "N",
+              "how": "owner: no per-event S/D override in the build", "source_url": _SEC, "evidence_sources": ""}
+    _write_review(tmp_path, monkeypatch, split_data_changes=[
+        {**change, "queue": "splits", "item_id": "splits-01-001", "verdict": "not_a_split"},
+        {**change, "queue": "distributions", "item_id": "distributions-01-002", "verdict": "corrected"}],
+        moves_data_changes=[
+        {**change, "queue": "moves", "item_id": "moves-01-009", "verdict": "vendor_error", "applied": "Y",
+         "how": "reconcile source_overrides"}])
+    events = pd.DataFrame([
+        {"item_id": "splits-01-001", "queue": "splits", "status": "applied", "change": "S 0.2>1", "reason": ""},
+        {"item_id": "distributions-01-002", "queue": "distributions", "status": "not_applied", "change": "",
+         "reason": "no value"},
+        {"item_id": "distributions-04-036", "queue": "distributions", "status": "applied", "change": "D removed",
+         "reason": "", "security_id": "1", "ticker": "T", "date": "2025-07-15", "verdict": "confirmed",
+         "kind": "spinoff", "mode": rc.DROP_DOUBLE_CASH, "source_url": _SEC}])
+    frame, facts = rc.review_data_changes(events)
+    got = frame.set_index("item_id")
+    assert got.loc["splits-01-001", "applied"] == "Y" and "applied" in got.loc["splits-01-001", "how"]
+    assert got.loc["distributions-01-002", "applied"] == "N" and "no value" in got.loc["distributions-01-002", "how"]
+    assert got.loc["moves-01-009", "how"] == "reconcile source_overrides"
+    assert got.loc["distributions-04-036", "applied"] == "Y" and facts["added_by_build"] == 1

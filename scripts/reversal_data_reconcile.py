@@ -200,13 +200,28 @@ Tables:
   A ``vendor_error`` verdict with a ``correct_source`` picks the day's canonical source (an R7 run: every session to
   its end_date; flags ``review_source:<src>`` and, on a day the vote left unresolved, ``disagree_reviewed`` instead of
   ``disagree_unresolved``); one without a correct_source flags the day ``review_vendor_error``. The queue's R3 and R7
-  rules still read the vote, so the rows the verdicts answer stay in the queue. Verdicts that would change S or D (an
-  unrecorded event, a corrected or rejected split or distribution) are not applied: they are listed in
-  ``merged/moves_data_changes.csv`` and ``merged/split_data_changes.csv`` for the owner.
+  rules still read the vote, so the rows the verdicts answer stay in the queue. Verdicts that change S or D (an
+  unrecorded event, a corrected or rejected split or distribution; ``merged/moves_data_changes.csv`` and
+  ``merged/split_data_changes.csv``) are applied to the canonical row of their day (``review_event_plan``: S and/or D
+  set, tr recomputed against the same prior close, flag ``review_event:<item>``) when their evidence is an SEC
+  document and they state S and D as numbers; the others (a spin-off whose distributed shares need a value, a package
+  with an unvalued part; ``REVIEW_EVENT_EXCEPTIONS``) are not applied and leave their queue rows open (no sec_url or
+  verified_at, classification ``unreviewed``), so the validate step's open counts match the series.
+  ``reconcile/review_event_changes.csv`` lists every such verdict with its status (applied / unused / not_applied /
+  type_only) and summary.json ``review_event_changes`` counts them. A confirmed distribution verdict that gives a
+  ratio, no cash, and says a vendor books both (``DOUBLE_COUNT_NOTE``) drops the cash from a canonical row that
+  carries the factor and the cash. ``reconcile/review_data_changes.csv`` is the merge's two data-change lists with
+  ``applied`` / ``how`` written from this build (the merged files stay as the merge wrote them). A day whose close
+  the review calls doubtful while one build source has it (``DOUBTFUL_PRICE_DAYS``: COSM 2022-12-16 and -19) is
+  flagged ``doubtful_price`` and its queue rows stay open. A Yahoo row in another unit (``scale`` in an exception:
+  CBSH 2012-11-28) has its close and cash restated as traded after tr.
 - ``HALTED_SPANS``: a documented halt after the last trade (UCFI, NUTR): its listed zero-volume rows are kept
-  (flag ``halt``) instead of cut as R5 filler, and their R4 entries are classified by the evidence named.
-- The predecessor of a continuing SUCCESSOR_LINKS link keeps its Tiingo answer to its successor's window end, so the
-  successor gets the same shares' rows it lacks (ASRT from 2020-06-19; QVCGA from 2025-03-03 via QRTEA's QVCAQ file).
+  (flag ``halt``) instead of cut as R5 filler, and their R4 entries are classified by the evidence named up to the
+  last day a document shows the halt (``documented_to``); the rows after it are flagged ``halt_end_undocumented`` and
+  their R4 entry (the run is split at that day) stays open.
+- The predecessor of a continuing SUCCESSOR_LINKS link marked ``tiingo_to_successor_end`` keeps its Tiingo answer to its
+  successor's window end, so the successor gets the same shares' rows it lacks (ASRT from 2020-06-19; QVCGA from
+  2025-03-03 via QRTEA's QVCAQ file); only those two links (round-10 gap review), so no other series changes source.
 - ``CACHE/dividends.csv`` (plan 1.2): every cash dividend the canonical series books, as paid on the ex-date
   (security_id, ex_date, cash_as_paid, sources: the vendors with the same amount that day within $0.001;
   then ticker, src_primary, other_amounts, special).
@@ -267,7 +282,7 @@ from scripts import reversal_data_common as common
 from scripts import reversal_data_prefilter as pf
 from scripts import reversal_data_review as review_merge
 
-CODE_VERSION = "2026-10-02.6"
+CODE_VERSION = "2026-10-03.1"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
 CODE_HASH = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 MAIN = common.MAIN_CHECKOUT
@@ -369,15 +384,20 @@ KNOWN_DISAGREEMENTS = [("NFLX", "2013-10-22"), ("KLAC", "2015-01-23"), ("MNST", 
 _SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/"
 # Halts R5 must not cut as filler (plan 4.4 R4: identical closes with zero volume that a second independent source
 # shows are kept and flagged): listed sessions after the last trade where the series stays listed and halted. Rows
-# from ``start`` are kept (flag ``halt``) and their R4 queue entries are classified by the evidence named here.
+# from ``start`` are kept (flag ``halt``) and their R4 queue entries are classified by the evidence named here, but
+# only up to ``documented_to``, the last day a document shows the halt in effect (round-10 merge review: no document
+# dates the end of either halt). Kept rows after it are flagged ``halt_end_undocumented`` and their R4 entry stays
+# open for the owner (UCFI from 2026-07-22, NUTR after the SEC suspension's 2025-10-22 end).
 # Round-10 gap review (universe_listed_gaps), checked on 2026-10-03 against the cached 8-Ks named.
 HALTED_SPANS = {
-    "1901203": {"start": "2025-10-02", "classification": "flat_genuine", "evidence": "yahoo+stored",
+    "1901203": {"start": "2025-10-02", "documented_to": "2026-07-21", "classification": "flat_genuine",
+                "evidence": "yahoo+stored",
                 "url": _SEC_ARCHIVE + "1901203/000121390026080024/ea0298572-8k_cnhealthy.htm",
                 "note": "UCFI: Yahoo and the stored file both show one constant close and zero volume on every session "
                         "from 2025-10-02; the 8-K of 2026-07-21 (Item 3.01, Nasdaq delisting determination) names 'the "
                         "trading halt currently in effect' (its start is not stated)"},
-    "2006468": {"start": "2025-10-09", "classification": "flat_genuine", "evidence": "yahoo+stored",
+    "2006468": {"start": "2025-10-09", "documented_to": "2025-10-22", "classification": "flat_genuine",
+                "evidence": "yahoo+stored",
                 "url": _SEC_ARCHIVE + "2006468/000149315225018007/form8-k.htm",
                 "note": "NUTR: the 8-K of 2025-10-14 (Item 8.01) reports the SEC order suspending trading 2025-10-09 to "
                         "2025-10-22 and a Nasdaq information request; Yahoo and the stored file both show one constant "
@@ -502,7 +522,227 @@ def review_overrides() -> dict[str, list[dict]]:
     moves = review_table("moves_verdicts.csv")
     choose = review_merge.source_overrides(moves) if APPLY_REVIEW_SOURCE_OVERRIDES else {}
     flags = review_merge.reviewed_days(moves)
-    return {sid: {"source": choose.get(sid, []), "flag": flags.get(sid, [])} for sid in set(choose) | set(flags)}
+    events = review_event_plan()
+    applied = events[events["action"] == "apply"]
+    per_sid: dict[str, list[dict]] = {}
+    for r in applied.to_dict("records"):
+        per_sid.setdefault(r["security_id"], []).append(
+            {"date": r["date"], "split": r["split"], "cash": r["cash"], "item_id": r["item_id"], "source": r["source"],
+             "mode": r["mode"], "scale": r["scale"]})
+    out = {sid: {"source": choose.get(sid, []), "flag": flags.get(sid, [])} for sid in set(choose) | set(flags)}
+    for sid, items in per_sid.items():
+        out.setdefault(sid, {"source": [], "flag": []})["events"] = sorted(items, key=lambda e: (e["date"], e["item_id"]))
+    return out
+
+
+# Round-10 verdicts that change S or D on one day (the merge lists them in merged/moves_data_changes.csv and
+# merged/split_data_changes.csv). ``review_event_plan`` turns each into an action on the canonical row of that day:
+# ``apply`` (set S and/or D: ``split`` / ``cash``, NaN = unchanged; tr is recomputed from the same prior close),
+# ``type_only`` (the verdict changes the event's type, not S or D: LSXMB's reclassification) or ``not_applied``
+# (``reason``; the queue row stays open). A verdict is applied only when its evidence is a primary document (an SEC
+# URL) and it states the day's S and D as numbers: a split or exchange ratio, a stock dividend of the same class (or
+# of a class the document values at one common share: ATRO's Class B), cash, or a factor that values distributed
+# shares at a close two vendors agree on (ZG, FLEX). A spin-off or reclassification whose verdict gives only the
+# number of another security's shares (UNTD/FTD, LMCA/LMCK/LSXMK, LBTYK/LILAK, SPWR/MAXN, QRTEA's preferred, GLIBA's
+# GLIBP leg, QVCA/LVNTA) needs a value no document gives: not applied. The rules, by queue and verdict:
+# - splits corrected: S = split_factor on ex_date_confirmed (else ex_date); a moved date also sets S = 1 on ex_date.
+# - splits not_a_split: S = 1. splits reclassify_distribution: type only (event_type distribution).
+# - distributions corrected: special_cash: D = cash_per_share and S = ratio when given (LENZ's 1:7 the same day);
+#   stock_dividend: S = ratio, D = cash_per_share (0 when none); spinoff with a ratio: S = ratio, D = 0; spinoff or
+#   other without a factor: not applied.
+# - distributions not_a_distribution: with a ratio (an ordinary or share-exchange ratio the vendor booked as a
+#   distribution): S = ratio (the document's exact ratio), D = 0; without one: the booking is removed (S = 1, D = 0).
+# - distributions confirmed with a ratio, no cash, and a note that a vendor books the factor and the cash together
+#   ("apply one, not both", "a double count": LBTYK 2015, LBRDA/LBRDK 2025; LBTYA and ATRO, whose canonical rows
+#   carry one of them, stay as they are): a canonical row with S != 1 and D > 0 keeps S and gets D = 0
+#   (``mode`` drop_double_cash). The other confirmed verdicts whose rows carry both (a stock dividend paid with the
+#   regular cash dividend: CBSH, CZFS, HWBK, PEBK, CASS; a reverse split with a special dividend: JBIO, BOTA, CMCT;
+#   EXPE's 1-for-2 with the TripAdvisor value as cash, which the note calls consistent) are what the documents say.
+# - moves unrecorded_event: split / reverse_split / stock_dividend: S = split_factor, D = cash_per_share when given
+#   (else unchanged); spinoff: not applied (split_factor is the distributed shares per share).
+# ``REVIEW_EVENT_EXCEPTIONS`` overrides these rules per item, each read against the verdict's note and the vendor rows.
+REVIEW_EVENT_EXCEPTIONS = {
+    # the note: the IPO split was before listing, so the factor on 2012-02-13 should be 1 (the ratio field is the
+    # split's ratio, not the day's factor)
+    "distributions-08-033": {"split": 1.0, "cash": 0.0, "why": "CZR: the 1.742 split was before the listing; S = 1"},
+    # the note: WIKI's closes already carry the split (no step on 2011-11-03 or 2011-11-09), so 0.2 on the WIKI raw row
+    # would create a false move; the vendor's 0.2 on 2011-11-09 is removed and nothing is booked on 2011-11-03
+    "splits-10-002": {"split": 1.0, "cash": None,
+                      "why": "GEVA: WIKI's closes are already split-adjusted (the note): S = 1 on 2011-11-09; the "
+                             "verdict's 2011-11-03 ex-date is not booked on those closes"},
+    # CBSH 2012-11-28: the canonical row is Yahoo's, whose levels are the as-traded close / 1.05 (Yahoo lacks the 2016
+    # 5% factor: the verifier's note), so the declared 1.73 is 1.73 / 1.05 in that row's units (tr +0.67%, as on the
+    # WIKI closes; stored +0.70%). Only on a Yahoo row
+    # ``scale``: after tr, the row's close and cash are restated in as-traded units (close x 1.05 = WIKI's raw
+    # close; cash 1.73), so close_raw is raw; tr is unchanged
+    "distributions-06-019": {"split": 1.05, "cash": 1.73 / 1.05, "source": "yahoo", "scale": 1.05,
+                             "why": "CBSH: 5% stock dividend and 1.73 cash, in the Yahoo row's units (close / 1.05); "
+                                    "the close and cash are then restated as traded"},
+    # cash plus notes (principal 1.08 per pre-split share): the notes have no value in any document
+    "distributions-01-040": {"apply": False, "why": "CBIO: the Pre-Closing Dividend was cash plus notes; the notes "
+                                                    "have no documented value"},
+    # GLIBA: 0.63 GLIBA plus 0.2 GLIBP per Class A-1 share; the GLIBP leg has no local price
+    "moves-08-005": {"apply": False, "why": "GLIBA: the 0.2 GLIBP leg per share has no value (the note)"},
+    # LMCA 2014: factor 3 counts LMCK at par with LMCA; the note's own board value (convertible notes) implies 2.823
+    "moves-05-022": {"apply": False, "why": "LMCA: factor 3 counts the 2 LMCK shares at par; the note's board value "
+                                            "implies 2.823, so the value is not fixed by the document"},
+    # ZG 2015-08-17: the distributions verdict (04-038) values the 2 Class C shares at the Z close WIKI and the stored
+    # file agree on (2.941292); the moves verdicts' factor 3 counts them at par. One action per day: the distributions
+    # verdict, and the moves verdicts close with it
+    "moves-11-010": {"apply": False, "same_as": "distributions-04-038",
+                     "why": "ZG: booked by distributions-04-038 (2.941292, Class C at its own close); this verdict's "
+                            "factor 3 counts Class C at par"},
+    "moves-11-011": {"apply": False, "same_as": "distributions-04-038",
+                     "why": "ZG: booked by distributions-04-038 (2.941292, Class C at its own close); this verdict's "
+                            "factor 3 counts Class C at par"},
+}
+_EVENT_PLAN: dict[str, pd.DataFrame] = {}
+EVENT_PLAN_COLUMNS = ["item_id", "queue", "security_id", "ticker", "date", "verdict", "kind", "split", "cash", "source",
+                      "action", "reason", "same_as", "source_url", "mode", "scale"]
+
+
+# a confirmed distribution verdict whose note says a vendor carries the factor and the cash together, a double
+# count ("apply one, not both"; "a double count")
+DOUBLE_COUNT_NOTE = re.compile(r"apply one, not both|double count", re.IGNORECASE)
+DROP_DOUBLE_CASH = "drop_double_cash"
+# Days whose close the hand review itself calls doubtful while one build source has them: the row is flagged
+# ``doubtful_price`` and its reviewed_moves rows stay open (whatever their verdicts) until another source or a
+# document gives the close. COSM 2022-12-16: moves-01-004 applies the documented 1-for-25 (S = 0.04) but says the
+# day's Yahoo close is doubtful (+179% with the factor, then -67% on 2022-12-19). moves-05-006's second source for
+# 2022-12-19 ('yahoo+stored') is the repo's Stooq file his_data/us/nasdaq/stocks_price/1/cosm.us.txt (the
+# cleaned stored cosm.csv starts 2023-01-03); it has the same closes on both days, so it agrees with Yahoo but is
+# not a source of this build, and the 2022-12-19 return is measured from the doubtful close
+DOUBTFUL_PRICE_DAYS = {
+    ("1474167", "2022-12-16"): "COSM: moves-01-004 calls the Yahoo close doubtful; only Yahoo (and the repo's "
+                               "Stooq his_data file, not a build source) has the day",
+    ("1474167", "2022-12-19"): "COSM: the return is measured from the doubtful 2022-12-16 close; moves-05-006's "
+                               "'stored' evidence is the repo's Stooq his_data file (the stored cosm.csv starts "
+                               "2023-01-03)",
+}
+
+
+def _primary_document(url: str) -> bool:
+    host = re.sub(r"^https?://", "", str(url or "")).split("/")[0].lower()
+    return host in ("www.sec.gov", "sec.gov")
+
+
+def _review_num(value) -> float:
+    try:
+        return float(value) if value is not None and str(value).strip() != "" else np.nan
+    except ValueError:
+        return np.nan
+
+
+def snap_reverse_ratio(value: float, tolerance: float = 5e-4) -> float:
+    """A reverse-split factor a verdict gives rounded (0.0074074 for 1-for-135, 0.003333 for 1-for-300) as the exact
+    1/m, m an integer or a one- or two-decimal number (1-for-5.5, 1-for-17.85), when 1/value is within ``tolerance``
+    of it; any other value (and every value of 1 or more) is kept as given."""
+    if not np.isfinite(value) or value <= 0 or value >= 1:
+        return value
+    m = 1.0 / value
+    for digits in (0, 1, 2):
+        near = round(m, digits)
+        if near > 0 and abs(m / near - 1.0) <= tolerance:
+            return 1.0 / near
+    return value
+
+
+def event_actions(queue: str, v: dict) -> list[dict]:
+    """The S/D actions one verdict states (before the exceptions and the primary-document check): a list of
+    {date, split, cash} (NaN = unchanged), or [] with ``kind`` 'type_only' / 'open' in the first element's place.
+    Returns [{"kind": ..., "date": ..., "split": ..., "cash": ..., "reason": ...}]."""
+    verdict = v.get("verdict") or v.get("classification", "")
+    day = v.get("ex_date") or v.get("event_date", "")
+    confirmed = v.get("ex_date_confirmed") or day
+    ratio = snap_reverse_ratio(_review_num(v.get("ratio", "")))
+    factor = snap_reverse_ratio(_review_num(v.get("split_factor", "")))
+    cash = _review_num(v.get("cash_per_share", ""))
+    nan = np.nan
+    if queue == "splits":
+        if verdict == "corrected" and np.isfinite(factor):
+            out = [{"kind": "apply", "date": confirmed, "split": factor, "cash": nan}]
+            if confirmed != day:
+                out.insert(0, {"kind": "apply", "date": day, "split": 1.0, "cash": nan})
+            return out
+        if verdict == "not_a_split":
+            return [{"kind": "apply", "date": day, "split": 1.0, "cash": nan}]
+        if verdict == "reclassify_distribution":
+            return [{"kind": "type_only", "date": day, "split": nan, "cash": nan,
+                     "reason": "a distribution, not a split: event_type distribution; S and D unchanged"}]
+        return []
+    if queue == "distributions":
+        kind = v.get("distribution_type", "")
+        if verdict == "corrected":
+            if kind == "special_cash" and np.isfinite(cash):
+                return [{"kind": "apply", "date": confirmed, "split": ratio if np.isfinite(ratio) else nan, "cash": cash}]
+            if kind == "stock_dividend" and np.isfinite(ratio):
+                return [{"kind": "apply", "date": confirmed, "split": ratio, "cash": cash if np.isfinite(cash) else 0.0}]
+            if kind == "spinoff" and np.isfinite(ratio):
+                return [{"kind": "apply", "date": confirmed, "split": ratio, "cash": 0.0}]
+            return [{"kind": "open", "date": confirmed, "split": nan, "cash": nan,
+                     "reason": f"{kind or 'distribution'} without a documented factor (the distributed security needs "
+                               "a value)"}]
+        if verdict == "confirmed" and np.isfinite(ratio) and not np.isfinite(cash) \
+                and DOUBLE_COUNT_NOTE.search(str(v.get("notes", ""))):
+            # the verdict confirms a ratio, no cash, and says a vendor books both (LBTYK, LBRDA, LBRDK): a canonical
+            # row that carries a factor and cash keeps its factor and loses the cash; a row with one of them is kept
+            return [{"kind": "apply", "date": confirmed, "split": nan, "cash": nan, "mode": DROP_DOUBLE_CASH}]
+        if verdict == "not_a_distribution":
+            if np.isfinite(ratio):
+                return [{"kind": "apply", "date": day, "split": ratio, "cash": 0.0}]
+            return [{"kind": "apply", "date": day, "split": 1.0, "cash": 0.0}]
+        return []
+    if queue == "moves" and verdict == "unrecorded_event":
+        kind = v.get("event_type", "")
+        if kind in ("split", "reverse_split", "stock_dividend") and np.isfinite(factor):
+            return [{"kind": "apply", "date": day, "split": factor, "cash": cash if np.isfinite(cash) else nan}]
+        return [{"kind": "open", "date": day, "split": nan, "cash": nan,
+                 "reason": f"{kind or 'event'}: split_factor is the distributed shares per share, which need a value"}]
+    return []
+
+
+def review_event_plan() -> pd.DataFrame:
+    """Every verdict that changes S or D (or an event's type), with its action (EVENT_PLAN_COLUMNS)."""
+    key = str(REVIEW_DIR) if APPLY_REVIEW else ""
+    if key in _EVENT_PLAN:
+        return _EVENT_PLAN[key]
+    rows = []
+    sources = [("splits", review_table("split_verdicts.csv")), ("distributions", review_table("distribution_verdicts.csv")),
+               ("moves", review_table("moves_verdicts.csv"))]
+    for queue, table in sources:
+        if table is None or not len(table):
+            continue
+        for v in table.to_dict("records"):
+            actions = event_actions(queue, v)
+            if not actions:
+                continue
+            exception = REVIEW_EVENT_EXCEPTIONS.get(v["item_id"], {})
+            if exception and exception.get("apply") is not False:
+                # the exception restates the day's single action (on ex_date unless it names another date)
+                actions = [{"kind": "apply", "date": exception.get("date") or v.get("ex_date") or v.get("event_date"),
+                            "split": np.nan if exception.get("split") is None else exception["split"],
+                            "cash": np.nan if exception.get("cash") is None else exception["cash"],
+                            "reason": exception["why"]}]
+            primary = _primary_document(v.get("source_url", ""))
+            for a in actions:
+                action, reason = a["kind"], a.get("reason", "")
+                if exception.get("apply") is False:
+                    action, reason = "not_applied", exception["why"]
+                if action == "open":
+                    action = "not_applied"
+                if action == "apply" and not primary:
+                    action, reason = "not_applied", "no primary document (the verdict's source is not an SEC URL)"
+                rows.append({"item_id": v["item_id"], "queue": queue, "security_id": v["security_id"],
+                             "ticker": v.get("ticker", ""), "date": a["date"],
+                             "verdict": v.get("verdict") or v.get("classification", ""),
+                             "kind": v.get("distribution_type") or v.get("event_type", ""),
+                             "split": a["split"], "cash": a["cash"], "source": exception.get("source", ""),
+                             "action": action, "reason": reason,
+                             "same_as": exception.get("same_as", ""), "source_url": v.get("source_url", ""),
+                             "mode": a.get("mode", ""), "scale": exception.get("scale", np.nan)})
+    frame = pd.DataFrame(rows, columns=EVENT_PLAN_COLUMNS)
+    _EVENT_PLAN[key] = frame
+    return frame
 
 # Successor links (``security_master.successor_security_id``) of target securities whose series ended at the link
 # (series_ends.csv ``successor_link`` in round 8: 26 pairs). Every predecessor is cut at its real last session,
@@ -628,7 +868,9 @@ SUCCESSOR_LINKS = {
                 "url": _SUCC + "1005201/000110465920065440/tm2020220-1_8k.htm",
                 "note": "Assertio Therapeutics -> Assertio Holdings (DGCL 251(g) holding company, 2020-05-19), one share "
                         "per share; the Nasdaq listing passed to Assertio Holdings 'effective as of May 20, 2020' (Item "
-                        "3.01; Nasdaq's Form 25 for the old shares is dated 2020-05-19)"},
+                        "3.01; Nasdaq's Form 25 for the old shares is dated 2020-05-19)",
+                "tiingo_to_successor_end": "round-10 gap review: Assertio Holdings has no Tiingo answer of its own; "
+                                           "the answer fetched for 1005201 (ticker ASRT) runs on to 2026-06"},
     "912752": {"successor": "1971213", "ticker": "SBGI", "last_session": "2023-05-31", "continues": True,
                "basis": "effective_before_open_stated_in_closing_8k",
                "url": _SUCC + "912752/000119312523158935/d530850d8k.htm",
@@ -689,7 +931,11 @@ SUCCESSOR_LINKS = {
                         "basis": "session_before_stated_successor_start",
                         "url": _SUCC + "1355096/000110465925016368/tm257272d1_8k.htm",
                         "note": "rename QRTEA -> QVCGA (QVC Group), 'effective as of open of trading on February 24, "
-                                "2025'"},
+                                "2025'",
+                        "tiingo_to_successor_end": "round-10 gap review: QVCGA has 5 rows of its own; the QVCAQ answer "
+                                                   "fetched for QRTEA covers 2025-02-20..2026-06-30 and agrees with "
+                                                   "the repo's stored qvcga.csv (290 common days, 97.9% of daily "
+                                                   "returns within 1e-3)"},
     "1355096.T-QRTEB": {"successor": "1355096.T-QVCGB", "ticker": "QRTEB", "last_session": "2025-02-21", "continues": True,
                         "basis": "session_before_stated_successor_start",
                         "url": _SUCC + "1355096/000110465925016368/tm257272d1_8k.htm",
@@ -1133,10 +1379,14 @@ def load_old_tiingo_rows(identity: dict, targets: set[str]) -> pd.DataFrame:
 def load_new_tiingo_rows(identity: dict, targets: set[str], windows: dict) -> tuple[pd.DataFrame, dict]:
     """The month-1 run's answers, through each security's own status row. A file shared by several
     securities is cut to each one's own listing spans; otherwise to its window, which for the predecessor of a
-    continuing SUCCESSOR_LINKS link runs to its successor's window end: the file fetched for the predecessor's
-    ticker carries the same shares on after the 1:1 reorganisation or rename, and link_frames hands those rows to
-    the successor where it has none of its own (ASRT: the Tiingo answer fetched for 1005201 to 2026-06; QVCGA: the
-    QVCAQ answer fetched for QRTEA; round-10 gap review)."""
+    continuing SUCCESSOR_LINKS link with ``tiingo_to_successor_end`` runs to its successor's window end: the file
+    fetched for the predecessor's ticker carries the same shares on after the 1:1 reorganisation or rename, and
+    link_frames hands those rows to the successor where it has none of its own (ASRT: the Tiingo answer fetched for
+    1005201 to 2026-06; QVCGA: the QVCAQ answer fetched for QRTEA; round-10 gap review). Only those two links: for the
+    other continuing links the extension rewrote series that already had their own vendor rows (merge review of
+    round 10: LBTYB moved from Yahoo to Tiingo and started earlier, SBGI 1971213 and VNOM 2074176 moved to Tiingo,
+    QVCB gained a 2017-11-14 row with another class's volume, the predecessor 1316631.B gained 68 thin rows), which no
+    review asked for."""
     facts = {"status_rows": 0, "status_counts": {}, "files_read": 0, "files_unreadable": [], "shared_files": 0}
     if not TIINGO_STATUS.exists():
         return _empty_rows(), facts
@@ -1148,7 +1398,8 @@ def load_new_tiingo_rows(identity: dict, targets: set[str], windows: dict) -> tu
     users = usable.groupby("prices_path")["security_id"].nunique()
     mapping = identity["mapping"]
     continued_to = {pred: (pd.Timestamp(link["last_session"]), windows[link["successor"]][1])
-                    for pred, link in SUCCESSOR_LINKS.items() if link.get("continues") and link["successor"] in windows}
+                    for pred, link in SUCCESSOR_LINKS.items()
+                    if link.get("continues") and link.get("tiingo_to_successor_end") and link["successor"] in windows}
     facts["predecessor_windows_extended"] = sorted(continued_to)
     out, cache = [], {}
     order = {"done": 0, "done_review": 1, "partial": 2}
@@ -1801,9 +2052,11 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     keep &= ~leading
     # a documented halt (HALTED_SPANS): its listed zero-volume rows are kept (R4), not cut as filler (R5)
     halted = np.zeros(n, dtype=bool)
+    halt_documented = np.zeros(n, dtype=bool)
     halt_entry = HALTED_SPANS.get(sid)
     if halt_entry:
         halted = (grid >= pd.Timestamp(halt_entry["start"])) & listed
+        halt_documented = halted & (grid <= pd.Timestamp(halt_entry.get("documented_to") or halt_entry["start"]))
     filler_cut, filler_tiny = 0, np.zeros(0, dtype=int)
     for s in np.unique(seg[keep]):
         part = keep & (seg == s)
@@ -1896,7 +2149,36 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
         if no_trade[span].all() and (Cp[before] == Cp[j]).all():
             quote_start[k] = True
     tr[quote_start] = np.nan
-    n_sources = np.where(quote_start | gap_blank | (link_first & ~np.isfinite(tr)), 0, choice["n_valid"])
+    # the hand review's S/D verdicts (``ctx["review"]["events"]``, review_event_plan): the day's S and/or D are set to
+    # the reviewed values on the kept row and tr is recomputed against the same prior close (so a cross-source or
+    # gap return keeps its basis); a blank tr stays blank. An item whose day has no kept row (or, with ``source``, a
+    # row from another source) is unused and its queue row stays open
+    review_event_item = np.full(n, "", dtype=object)
+    review_events_applied, review_events_unused = [], []
+    kept_at = {day_str[k]: k for k in idx}
+    for item in review.get("events", ()):
+        k = kept_at.get(item["date"])
+        if k is None or (item.get("source") and SRC[p[k]] != item["source"]):
+            review_events_unused.append(item["item_id"])
+            continue
+        s_new = Sp[k] if not np.isfinite(_review_num(item.get("split"))) else float(item["split"])
+        d_new = Dp[k] if not np.isfinite(_review_num(item.get("cash"))) else float(item["cash"])
+        if item.get("mode") == DROP_DOUBLE_CASH:
+            # a confirmed ratio-only verdict: a row with a factor and cash drops the cash (the double count)
+            s_new, d_new = Sp[k], (0.0 if Sp[k] != 1.0 and Dp[k] > 0 else Dp[k])
+        old = (float(Sp[k]), float(Dp[k]), float(tr[k]))
+        if np.isfinite(tr[k]) and 1.0 + tr[k] != 0.0:
+            prior_close = (Cp[k] * Sp[k] + Dp[k]) / (1.0 + tr[k])
+            tr[k] = total_return(Cp[k], s_new, d_new, prior_close)
+        Sp[k], Dp[k] = s_new, d_new
+        scale = _review_num(item.get("scale"))
+        if np.isfinite(scale) and scale > 0:
+            Cp[k], Dp[k] = Cp[k] * scale, Dp[k] * scale  # restated as traded: tr is unchanged
+        review_event_item[k] = "+".join(x for x in (review_event_item[k], item["item_id"]) if x)
+        review_events_applied.append({"item_id": item["item_id"], "date": item["date"],
+                                      "split": f"{old[0]:.6g}>{s_new:.6g}", "cash": f"{old[1]:.6g}>{d_new:.6g}",
+                                      "tr": (f"{old[2]:+.4f}>{tr[k]:+.4f}" if np.isfinite(old[2]) else "blank")})
+    n_sources =np.where(quote_start | gap_blank | (link_first & ~np.isfinite(tr)), 0, choice["n_valid"])
     with np.errstate(invalid="ignore"):
         diffs = np.where(valid, np.abs(r - tr[None, :]), np.nan)
     max_diff = np.where(np.isfinite(diffs).any(axis=0), np.nanmax(np.where(np.isfinite(diffs), diffs, -1), axis=0), np.nan)
@@ -2016,6 +2298,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             t.append("zero_volume")
         if halted[k]:
             t.append("halt")  # HALTED_SPANS: a documented halt kept, not cut as filler
+            if not halt_documented[k]:
+                t.append("halt_end_undocumented")  # after the last day a document shows the halt: R4 stays open
         if cross[k]:
             t.append("cross_source_return")
         if abs(Sp[k] - 1.0) > 1e-9:
@@ -2058,6 +2342,10 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
                 t.append(f"gap_before:{int(gap_rows[k])}")
         if str(grid[k].date()) in terminal_div_days:
             t.append("div_in_terminal_value")  # a vendor's booking of a closing special dividend, dropped
+        if review_event_item[k]:
+            t.append(f"review_event:{review_event_item[k]}")  # the hand review's S/D verdict set this row's S or D
+        if (sid, day_str[k]) in DOUBTFUL_PRICE_DAYS:
+            t.append("doubtful_price")  # the hand review calls the close doubtful: its queue rows stay open
 
     canonical = pd.DataFrame({
         "date": grid[idx].strftime("%Y-%m-%d"), "close_raw": Cp[idx], "volume_raw": Vp[idx],
@@ -2071,6 +2359,7 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
                  "stored_excluded": stored_excluded, "cash_split": cash_split, "seg": seg,
                  "relist_first": relist_first, "relist_jump": relist_jump, "break_agree": break_agree,
                  "relists": ctx.get("relists", ()), "Cp_vote": Cp_vote, "p_vote": p_vote, "halted": halted,
+                 "halt_documented": halt_documented,
                  "halt_entry": halt_entry or {}}
     result["events"] = split_events_of(sid, ctx_local, ticker_of)
     result["specials"] = specials_of(sid, ctx_local, ticker_of)
@@ -2130,6 +2419,8 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
             "flagged": int((keep & review_flag & (review_pick < 0)).sum()), "unused_items": review_unused,
             "changed_days": [f"{grid[k].date()} {SRC[p_vote[k]]}>{SRC[p[k]]}" for k in
                              np.flatnonzero(kept_pick & (p != p_vote))][:LIST_REVIEW_DAYS]}
+    if review.get("events"):
+        result["summary"]["review_events"] = {"applied": review_events_applied, "unused": review_events_unused}
     if link_cut:
         k0 = int(idx[0]) if len(idx) else -1
         result["summary"]["successor_link"] = {
@@ -2380,6 +2671,7 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
     out = []
 
     halted = x.get("halted", np.zeros(n, dtype=bool))
+    halt_documented = x.get("halt_documented", halted)
     halt_entry = x.get("halt_entry") or {}
 
     def entry(k, rule, note, agreeing_sources=None):
@@ -2391,9 +2683,20 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
 
     def settle_halt(days):  # an R4 run inside a documented halt (HALTED_SPANS): settled by its evidence
         if halt_entry and halted[days].any():
-            out[-1].update({"classification": halt_entry["classification"], "source_url": halt_entry["url"],
-                            "verified_at": HALTED_REVIEWED_AT})
-            out[-1]["notes"] += f" | HALTED_SPANS (evidence: {halt_entry['evidence']}): {halt_entry['note']}"
+            if halt_documented[days][halted[days]].all():  # days before the start (the last close) do not count
+                out[-1].update({"classification": halt_entry["classification"], "source_url": halt_entry["url"],
+                                "verified_at": HALTED_REVIEWED_AT})
+                out[-1]["notes"] += f" | HALTED_SPANS (evidence: {halt_entry['evidence']}): {halt_entry['note']}"
+            else:
+                out[-1]["notes"] += (f" | HALTED_SPANS: halted from {halt_entry['start']}, but no document shows the "
+                                     f"halt after {halt_entry.get('documented_to', halt_entry['start'])}: open")
+
+    def halt_parts(days):  # an R4 run split at the halt's last documented day (each part its own entry)
+        undocumented = halted[days] & ~halt_documented[days]
+        if not (halt_entry and halt_documented[days].any() and undocumented.any()):
+            return [days]
+        cut = int(np.flatnonzero(halt_documented[days])[-1]) + 1
+        return [days[:cut], days[cut:]]
 
     keep = x["keep"]
     tr = x["tr"]
@@ -2471,12 +2774,15 @@ def moves_of(sid: str, x: dict, ticker_of, *, choice, move_2x, move_big, hidden,
         zero = bool(zero_vol[days].any())
         if confirmed and not zero:
             continue  # a second vendor shows the same flat run with volume: genuine, flagged only
-        entry(s0, "R4", f"{len(days)} identical raw closes to {grid[s1].date()}" + ("; zero volume" if zero else "") +
-              ("; no second source" if not confirmed else ""), "+".join(confirmed))
-        settle_halt(days)
+        for part in halt_parts(days):
+            entry(int(part[0]), "R4", f"{len(part)} identical raw closes to {grid[part[-1]].date()}" +
+                  ("; zero volume" if zero else "") + ("; no second source" if not confirmed else ""),
+                  "+".join(confirmed))
+            settle_halt(part)
     for s0, s1 in run_lengths(zero_vol & ~flat):
-        entry(s0, "R4", f"zero volume on {s1 - s0 + 1} session(s) to {grid[s1].date()}", "")
-        settle_halt(np.arange(s0, s1 + 1))
+        for part in halt_parts(np.arange(s0, s1 + 1)):
+            entry(int(part[0]), "R4", f"zero volume on {len(part)} session(s) to {grid[part[-1]].date()}", "")
+            settle_halt(part)
     if len(idx):
         inside = np.zeros(len(grid), dtype=bool)
         inside[idx[0]: idx[-1] + 1] = True
@@ -2993,7 +3299,7 @@ def build_split_table(states: dict[str, dict], identity: dict) -> tuple[pd.DataF
             frame.loc[hit, "sec_url"] = row.source_url
             frame.loc[hit, "verified_at"] = row.verified_at
             frame.loc[hit, "notes"] = (frame.loc[hit, "notes"] + "; confirmed_price_adjustments.csv").str.strip("; ")
-    facts["hand_review"] = apply_event_verdicts(frame, "split_events")
+    facts["hand_review"] = apply_event_verdicts(frame, "split_events", review_event_status(states))
     cik_of = dict(zip(identity["master"]["security_id"], identity["master"]["cik"]))
     frame["sec_candidates"] = [sec_candidates(cik_of.get(sid, ""), day) if kind != "unit_break" else ""
                                for sid, day, kind in zip(frame["security_id"], frame["ex_date"], frame["event_type"])]
@@ -3031,19 +3337,162 @@ def event_verdict_note(v: dict, queue: str) -> str:
     return f"hand review {v['item_id']}: {v['verdict']}" + (f" ({', '.join(terms)})" if terms else "")
 
 
-def apply_event_verdicts(frame: pd.DataFrame, table: str) -> dict:
+def review_event_status(states: dict[str, dict] | None) -> dict[str, dict]:
+    """Per verdict item that changes S or D (review_event_plan): {"status", "reason", "change"}. ``applied``: the
+    series carries it (the security's summary ``review_events.applied``); ``unused``: planned, but the day has no kept
+    row (or a row from another source than the exception names); ``not_applied``: the plan's reason; ``type_only``;
+    ``same_as``: closed with the item it names when that one is applied (ZG's moves verdicts), else open."""
+    plan = review_event_plan()
+    if not len(plan):
+        return {}
+    applied, unused = {}, set()
+    for state in (states or {}).values():
+        info = state.get("summary", {}).get("review_events") or {}
+        for e in info.get("applied", ()):
+            applied.setdefault(e["item_id"], []).append(f"{e['date']} S {e['split']}, {_cash_text(e['cash'])}, "
+                                                        f"tr {_tr_text(e['tr'])}")
+        unused.update(info.get("unused", ()))
+    out = {}
+    for r in plan.to_dict("records"):
+        item = r["item_id"]
+        if r["action"] == "apply":
+            if item in applied and item not in unused:
+                out[item] = {"status": "applied", "reason": "", "change": "; ".join(applied[item])}
+            else:
+                out[item] = {"status": "unused", "change": "",
+                             "reason": "planned, but the day has no kept row" + (f" from {r['source']}" if r["source"]
+                                                                                else "")}
+        elif r["action"] == "type_only":
+            out[item] = {"status": "type_only", "reason": r["reason"], "change": ""}
+        elif r["same_as"]:
+            out[item] = {"status": "same_as", "reason": r["reason"], "change": "", "same_as": r["same_as"]}
+        else:
+            out[item] = {"status": "not_applied", "reason": r["reason"], "change": ""}
+    for item, st in out.items():
+        if st["status"] == "same_as":
+            if out.get(st["same_as"], {}).get("status") == "applied":
+                st.update(status="applied", change=f"with {st['same_as']}: {out[st['same_as']]['change']}")
+            else:
+                st["status"] = "not_applied"
+    return out
+
+
+OPEN_EVENT_STATES = ("not_applied", "unused")
+
+
+def review_event_table(states: dict[str, dict]) -> tuple[pd.DataFrame, dict]:
+    """reconcile/review_event_changes.csv: every verdict that changes S or D, its plan and what the series carries
+    (status applied / unused / not_applied / type_only), and the counts for summary.json."""
+    plan = review_event_plan()
+    status = review_event_status(states)
+    if not len(plan):
+        return pd.DataFrame(columns=EVENT_PLAN_COLUMNS + ["status", "change"]), {"items": 0}
+    frame = plan.copy()
+    frame["status"] = [status.get(i, {}).get("status", "") for i in frame["item_id"]]
+    frame["change"] = [status.get(i, {}).get("change", "") for i in frame["item_id"]]
+    items = frame.drop_duplicates("item_id")
+    facts = {"items": int(len(items)), "rows": int(len(frame)),
+             "by_queue_status": {q: {k: int(v) for k, v in g["status"].value_counts().items()}
+                                 for q, g in items.groupby("queue")},
+             "open_items": sorted(items.loc[items["status"].isin(OPEN_EVENT_STATES), "item_id"]),
+             "rule": "a verdict that changes S or D is applied to the canonical row of its day when its evidence is an "
+                     "SEC document and it states S and D as numbers (REVIEW_EVENT_EXCEPTIONS aside); one not applied "
+                     "keeps its queue row open"}
+    return frame, facts
+
+
+DATA_CHANGE_COLUMNS = ["queue", "item_id", "security_id", "ticker", "date", "verdict", "change", "applied", "how",
+                       "source_url", "evidence_sources"]
+
+
+def review_data_changes(event_changes: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """reconcile/review_data_changes.csv: the merge's two data-change lists (merged/moves_data_changes.csv and
+    merged/split_data_changes.csv) with ``applied`` and ``how`` written from this build: an item that changes S or D
+    (``event_changes``, review_event_changes.csv) is Y when the series carries it (applied, or type_only for a
+    retyped event) and N otherwise, with the status and the change or reason; a source choice or a vendor-error
+    flag keeps the merge's Y (reconcile source_overrides / flag review_vendor_error). Items the build applies that
+    the merge does not list (a confirmed ratio-only verdict over a double-counted vendor row) are added. The merged
+    files are left as the merge wrote them."""
+    frames = [t for t in (review_table("moves_data_changes.csv"), review_table("split_data_changes.csv"))
+              if t is not None and len(t)]
+    merged = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=DATA_CHANGE_COLUMNS)
+    merged = merged.reindex(columns=DATA_CHANGE_COLUMNS).fillna("").astype(str)
+    by_item = {}
+    if len(event_changes):
+        for r in event_changes.to_dict("records"):
+            by_item.setdefault(r["item_id"], []).append(r)
+    rows = []
+    seen = set()
+    for r in merged.to_dict("records"):
+        found = by_item.get(r["item_id"])
+        if found:
+            st = found[0]["status"]
+            text = "; ".join(x for x in (found[0]["change"] if st == "applied" else found[0]["reason"],) if x)
+            r["applied"] = "Y" if st in ("applied", "type_only") else "N"
+            r["how"] = f"reconcile review_event: {st}" + (f" ({text})" if text else "")
+            seen.add(r["item_id"])
+        rows.append(r)
+    for item, found in by_item.items():
+        if item in seen:
+            continue
+        f = found[0]
+        st = f["status"]
+        text = f["change"] if st == "applied" else f["reason"]
+        rows.append({"queue": f["queue"], "item_id": item, "security_id": f["security_id"], "ticker": f["ticker"],
+                     "date": f["date"], "verdict": f["verdict"],
+                     "change": "confirmed ratio, no cash: a vendor row with both keeps the factor and drops the cash"
+                     if f.get("mode") == DROP_DOUBLE_CASH else f"{f['kind']}".strip(),
+                     "applied": "Y" if st in ("applied", "type_only") else "N",
+                     "how": f"reconcile review_event: {st}" + (f" ({text})" if text else ""),
+                     "source_url": f["source_url"], "evidence_sources": ""})
+    frame = pd.DataFrame(rows, columns=DATA_CHANGE_COLUMNS)
+    facts = {"rows": int(len(frame)), "added_by_build": int(len(frame) - len(merged)),
+             "by_queue_applied": {q: {k: int(v) for k, v in g["applied"].value_counts().items()}
+                                  for q, g in frame.groupby("queue")} if len(frame) else {}}
+    return frame, facts
+
+
+def _cash_text(change: str) -> str:
+    """'a>b' cash change in words (the committed tables carry no vendor amounts that would show a price level)."""
+    old, new = (float(x) for x in change.split(">"))
+    return "D unchanged" if abs(old - new) < 1e-12 else "D removed" if new == 0 else "D set to the reviewed cash"
+
+
+def _tr_text(change: str) -> str:
+    if change == "blank":
+        return "blank"
+    old, new = (float(x) for x in change.split(">"))
+    return f"{old:+.1%} > {new:+.1%}"
+
+
+def apply_event_verdicts(frame: pd.DataFrame, table: str, status: dict[str, dict] | None = None) -> dict:
     """Fill sec_url (and verified_at in split_events.csv) from the hand review's merged verdicts, keyed
-    (security_id, ex_date): split verdicts on split_events rows, distribution verdicts on both tables (a split
-    verdict wins on a split_events row both answer). ``sec_url`` is the verdict's source_url, or 'evidence: ' and
-    the sources for a two-source verdict; an ``unresolved`` verdict fills nothing (the row stays open) and adds its
-    note. A row confirmed_price_adjustments.csv already filled keeps its values. In place; returns counts."""
+    (security_id, ex_date): distribution verdicts on both tables, then split verdicts on split_events rows (the
+    first verdict to fill a row's sec_url, a distribution verdict where both answer one row, gives it; a later one
+    adds only a missing verified_at). ``sec_url`` is the verdict's source_url, or 'evidence: ' and the sources for a
+    two-source verdict; an ``unresolved`` verdict fills nothing (the row stays open) and adds its note. A verdict
+    that changes S or D (``status``, review_event_status) closes the row only when the series carries it
+    (``applied``; its note says what changed) or it only retypes the event (``type_only``: event_type distribution);
+    one that is ``not_applied`` or ``unused`` leaves the row open (no sec_url, no verified_at) with the reason in the
+    note, and keeps it open whatever another verdict on the same row says. A row confirmed_price_adjustments.csv
+    already filled keeps its values. In place; returns counts."""
+    status = status or {}
     tables = [("distributions", review_table("distribution_verdicts.csv"))]
     if table == "split_events":
         tables.append(("splits", review_table("split_verdicts.csv")))
-    facts = {"rows_matched": 0, "filled": 0, "unresolved": 0, "by_verdict": {}, "verdicts_unmatched": {}}
+    facts = {"rows_matched": 0, "filled": 0, "unresolved": 0, "by_verdict": {}, "verdicts_unmatched": {},
+             "series_changed": 0, "type_only": 0, "open_not_applied": 0, "open_items": []}
     if not len(frame):
         return facts
     position = {key: k for k, key in zip(frame.index, zip(frame["security_id"], frame["ex_date"]))}
+    open_rows = set()
+    for queue, verdicts in tables:
+        if verdicts is None or not len(verdicts):
+            continue
+        for v in verdicts.to_dict("records"):
+            k = position.get((v["security_id"], v["ex_date"]))
+            if k is not None and status.get(v["item_id"], {}).get("status") in OPEN_EVENT_STATES:
+                open_rows.add(k)
     for queue, verdicts in tables:
         if verdicts is None or not len(verdicts):
             continue
@@ -3056,18 +3505,35 @@ def apply_event_verdicts(frame: pd.DataFrame, table: str) -> dict:
             facts["rows_matched"] += 1
             facts["by_verdict"][v["verdict"]] = facts["by_verdict"].get(v["verdict"], 0) + 1
             note = event_verdict_note(v, queue)
-            if v["verdict"] == "unresolved":
+            st = status.get(v["item_id"], {})
+            if st.get("status") in OPEN_EVENT_STATES:
+                facts["open_not_applied"] += 1
+                facts["open_items"].append(v["item_id"])
+                note += f" (not applied to the series: {st['reason']}; open)"
+            elif v["verdict"] == "unresolved":
                 facts["unresolved"] += 1
-            elif not str(frame.at[k, "sec_url"]):
-                evidence = v.get("evidence_sources", "")
-                frame.at[k, "sec_url"] = v["source_url"] or (f"evidence: {evidence}" if evidence else "")
-                if "verified_at" in frame:
+            elif k in open_rows:
+                note += " (the row stays open: another verdict on it is not applied)"
+            else:
+                if st.get("status") == "applied":
+                    facts["series_changed"] += 1
+                    note += f" (applied to the series: {st['change']})"
+                elif st.get("status") == "type_only":
+                    facts["type_only"] += 1
+                    if "event_type" in frame:
+                        frame.at[k, "event_type"] = "distribution"
+                    note += " (type only: event_type distribution)"
+                if not str(frame.at[k, "sec_url"]):
+                    evidence = v.get("evidence_sources", "")
+                    frame.at[k, "sec_url"] = v["source_url"] or (f"evidence: {evidence}" if evidence else "")
+                    if "verified_at" in frame:
+                        frame.at[k, "verified_at"] = v["verified_at"]
+                    facts["filled"] += 1
+                elif queue == "splits" and "verified_at" in frame and not str(frame.at[k, "verified_at"]):
                     frame.at[k, "verified_at"] = v["verified_at"]
-                facts["filled"] += 1
-            elif queue == "splits" and "verified_at" in frame and not str(frame.at[k, "verified_at"]):
-                frame.at[k, "verified_at"] = v["verified_at"]
             frame.at[k, "notes"] = "; ".join(x for x in (str(frame.at[k, "notes"]), note) if x)
         facts["verdicts_unmatched"][queue] = unmatched
+    facts["rows_open_by_verdict"] = int(len(open_rows))
     if frame["notes"].str.contains(LEVEL_IN_NOTE).any():  # the merged notes were checked; this is a code guard
         raise ValueError(f"{table}: a hand-review note carries a price level")
     return facts
@@ -3081,7 +3547,7 @@ def build_special_table(states: dict[str, dict], identity: dict) -> tuple[pd.Dat
     frame = frame[frame["listed"]].sort_values(["security_id", "ex_date"], kind="stable")
     if "sec_url" not in frame:
         frame["sec_url"] = ""
-    facts["hand_review"] = apply_event_verdicts(frame, "special_distributions")
+    facts["hand_review"] = apply_event_verdicts(frame, "special_distributions", review_event_status(states))
     cik_of = dict(zip(identity["master"]["security_id"], identity["master"]["cik"]))
     frame["sec_candidates"] = [sec_candidates(cik_of.get(sid, ""), day) for sid, day in zip(frame["security_id"], frame["ex_date"])]
     facts.update({"rows": int(len(frame)), "with_sec_candidates": int((frame["sec_candidates"] != "").sum()),
@@ -3115,15 +3581,18 @@ def relevant_spans(dv_weeks: dict[str, pd.DatetimeIndex]) -> dict[str, list[tupl
     return out
 
 
-def apply_move_verdicts(frame: pd.DataFrame) -> dict:
+def apply_move_verdicts(frame: pd.DataFrame, status: dict[str, dict] | None = None) -> dict:
     """The hand review's merged moves verdicts (moves_verdicts.csv), keyed (security_id, event_date, rule): a
     verdict sets classification, source_url and verified_at and adds a short note (classification, item, and the
     URL or the agreeing sources); an ``unresolved`` verdict leaves the row ``unreviewed`` (open) and adds its item
-    to the notes. A row with two queue entries on one key (two vendors' R7 runs) gets the verdict on both. In
-    place; returns counts."""
+    to the notes. A row with two queue entries on one key (two vendors' R7 runs) gets the verdict on both. An
+    ``unrecorded_event`` verdict (it changes S or D) closes its row only when the series carries it (``status``,
+    review_event_status: ``applied``); one that is not applied leaves the row ``unreviewed`` (open) with the reason
+    in the notes. In place; returns counts."""
+    status = status or {}
     verdicts = review_table("moves_verdicts.csv")
     facts = {"verdicts": 0, "rows_matched": 0, "applied": 0, "unresolved": 0, "verdicts_unmatched": 0,
-             "by_classification": {}}
+             "by_classification": {}, "open_not_applied": 0, "open_items": [], "series_changed": 0}
     if verdicts is None or not len(verdicts) or not len(frame):
         return facts
     facts["verdicts"] = int(len(verdicts))
@@ -3144,9 +3613,33 @@ def apply_move_verdicts(frame: pd.DataFrame) -> dict:
             facts["unresolved"] += 1
             frame.at[k, "notes"] += f" | hand review {items}: unresolved, open (moves_verdicts.csv)"
             continue
+        states_of = [status.get(x["item_id"], {}) for x in found]
+        doubtful = DOUBTFUL_PRICE_DAYS.get((key[0], key[1]))
+        if doubtful:
+            changed = [st["change"] for st in states_of if st.get("status") == "applied"]
+            facts["open_doubtful_price"] = facts.get("open_doubtful_price", 0) + 1
+            facts["open_items"] += [x["item_id"] for x in found]
+            frame.at[k, "notes"] += (f" | hand review {items}: {v['classification']}"
+                                     + (f", applied to the series ({changed[0]})" if changed else "")
+                                     + f"; the close is doubtful ({doubtful}): flag doubtful_price, open until "
+                                       "another source or a document gives the close (moves_verdicts.csv)")
+            if changed:
+                facts["series_changed"] += 1
+            continue
+        if any(st.get("status") in OPEN_EVENT_STATES for st in states_of):
+            reason = next(st["reason"] for st in states_of if st.get("status") in OPEN_EVENT_STATES)
+            facts["open_not_applied"] += 1
+            facts["open_items"] += [x["item_id"] for x in found]
+            frame.at[k, "notes"] += (f" | hand review {items}: {v['classification']}, not applied to the series "
+                                     f"({reason}); open (moves_verdicts.csv)")
+            continue
+        changed = [st["change"] for st in states_of if st.get("status") == "applied"]
         frame.loc[k, ["classification", "source_url", "verified_at"]] = [v["classification"], v["source_url"],
                                                                          v["verified_at"]]
         frame.at[k, "notes"] += " | " + review_merge.move_note({**v, "item_id": items})
+        if changed:
+            facts["series_changed"] += 1
+            frame.at[k, "notes"] += f" (applied to the series: {changed[0]})"
         facts["applied"] += 1
         facts["by_classification"][v["classification"]] = facts["by_classification"].get(v["classification"], 0) + 1
     facts["verdicts_unmatched"] = int(sum(len(v) for key, v in by_key.items() if key not in matched))
@@ -3189,14 +3682,17 @@ def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFr
                 frame.loc[k, ["classification", "source_url", "verified_at"]] = \
                     [row.classification, row.source_url, row.verified_at]
                 frame.at[k, "notes"] += f" | reviewed_market_moves.csv: {row.notes}"
-    facts["hand_review"] = apply_move_verdicts(frame)
+    facts["hand_review"] = apply_move_verdicts(frame, review_event_status(states))
     # plan 4.4 R1 resolves a big move with a second source within 0.5% (or a document): with the stored files
     # counted as a second source (owner convention of 2026-10-02), an R1 entry that two or more sources confirm
     # (``sources_agreeing``: the day's own source and at least one other, vendor or stored) is resolved by the
     # plan's own rule. It is classified mechanically, with that basis written in the notes; every other entry
     # (R1/R2, R1b, R1c, R3, ...) stays unreviewed for the hand review
     agreeing = frame["sources_agreeing"].fillna("").map(lambda s: [x for x in s.split("+") if x])
-    mechanical = frame["rule"].eq("R1") & frame["classification"].eq("unreviewed") & agreeing.map(len).ge(2)
+    doubtful = pd.Series([(a, b) in DOUBTFUL_PRICE_DAYS for a, b in zip(frame["security_id"], frame["event_date"])],
+                         index=frame.index)
+    mechanical = (frame["rule"].eq("R1") & frame["classification"].eq("unreviewed") & agreeing.map(len).ge(2)
+                  & ~doubtful)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     for k in frame.index[mechanical]:
         sources = agreeing[k]
@@ -3873,6 +4369,11 @@ def summarize_tables(states, prep, ids, args) -> dict:
     write_csv(DIVIDENDS, dividends)
     links, link_facts = successor_link_table(states, identity["master"])
     write_csv(OUT / "successor_links.csv", links)
+    event_changes, event_facts = review_event_table(states)
+    write_csv(OUT / "review_event_changes.csv", event_changes)
+    data_changes, data_change_facts = review_data_changes(event_changes)
+    write_csv(OUT / "review_data_changes.csv", data_changes)
+    event_facts = {**event_facts, "data_changes": data_change_facts}
     log(f"dividends.csv {len(dividends)} rows; successor_links.csv {link_facts['by_status']}")
     securities = pd.DataFrame([{**{k: (json.dumps(v) if isinstance(v, list) else v) for k, v in s["summary"].items()
                                    if not isinstance(v, dict)},
@@ -3908,6 +4409,7 @@ def summarize_tables(states, prep, ids, args) -> dict:
                     "without_series_by_reason": {k: int(v) for k, v in missing["reason"].value_counts().items()}
                     if len(missing) else {},
                     "vendor_sources_per_security": {str(k): int(v) for k, v in sorted(sources_per_security.items())}},
+        "review_event_changes": event_facts,
         "sources": prep["facts"],
         "tiingo_waiting_rows": int(len(tiingo_waiting())),
         "coverage_ranked": cover,

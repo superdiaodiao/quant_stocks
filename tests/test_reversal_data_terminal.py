@@ -1442,3 +1442,40 @@ def test_a_merged_verdict_label_reaches_the_reading_but_not_the_guards_note(monk
                                                     "election": False})
     assert decided["review_note"] == "hand review t-1 (approve)"
     assert "hand review" not in decided["note"]
+
+
+def _decided():
+    return {"terminal_type": "unknown", "event_subtype": "", "cash": None, "shares": None, "source_url": "",
+            "note": "", "cvr": False, "election": False}
+
+
+def test_a_verdict_that_restates_the_terms_replaces_the_codes_note_in_the_output_only(monkeypatch):
+    code = {"type": "mixed", "sub": "election", "cash": 3.00, "shares": 1.0, "note": "one New Match share plus $3.00 cash"}
+    monkeypatch.setattr(tr, "CODE_REVIEWED", {"7": dict(code)})
+    monkeypatch.setattr(tr, "REVIEWED", {"7": {"type": "stock_merger", "sub": "election", "shares": 1.0337,
+                                               "note": code["note"], "review": "hand review t-2 (correct)"}})
+    decided = tr.apply_review({"security_id": "7"}, _decided())
+    assert decided["note"] == "reviewed: one New Match share plus $3.00 cash"  # the guards still read the code's note
+    assert "$3.00" not in decided["output_note"] and "New Match" not in decided["output_note"]
+    assert decided["output_note"] == ("reviewed: terms as the hand-review verdict restates them "
+                                      "(type stock_merger, sub election, cash none, shares 1.0337)")
+
+
+def test_a_verdict_with_the_codes_terms_keeps_the_codes_note(monkeypatch):
+    entry = {"type": "cash_merger", "cash": 14.0, "note": "$14.00 cash per share"}
+    monkeypatch.setattr(tr, "CODE_REVIEWED", {"8": dict(entry)})
+    monkeypatch.setattr(tr, "REVIEWED", {"8": {**entry, "review": "hand review t-3 (approve)", "approved": "t-3: ok"}})
+    decided = tr.apply_review({"security_id": "8"}, _decided())
+    assert decided["output_note"] == decided["note"] == "reviewed: $14.00 cash per share"
+    monkeypatch.setattr(tr, "REVIEWED", {"8": {**entry, "cash": 5.04, "review": "hand review t-3 (correct)"}})
+    assert tr.apply_review({"security_id": "8"}, _decided())["output_note"] == \
+        "reviewed: terms as the hand-review verdict restates them (type cash_merger, cash 5.04)"
+    monkeypatch.setattr(tr, "REVIEWED", {"8": dict(entry)})  # the code's own entry, no verdict merged
+    assert tr.apply_review({"security_id": "8"}, _decided())["output_note"] == "reviewed: $14.00 cash per share"
+
+
+def test_a_verdict_that_only_fills_in_the_subtype_keeps_the_codes_note(monkeypatch):
+    entry = {"type": "cash_merger", "cash": 42.0, "note": "$42.00 cash per share"}
+    monkeypatch.setattr(tr, "CODE_REVIEWED", {"9": dict(entry)})
+    monkeypatch.setattr(tr, "REVIEWED", {"9": {**entry, "sub": "merger", "review": "hand review t-4 (approve)"}})
+    assert tr.apply_review({"security_id": "9"}, _decided())["output_note"] == "reviewed: $42.00 cash per share"

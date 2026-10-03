@@ -2700,8 +2700,32 @@ def apply_review(row: dict, decided: dict) -> dict:
     if review.get("type") in ("exchange_move", "bankruptcy_otc", "unknown"):
         out["cash"], out["shares"] = review.get("cash"), review.get("shares")
     out["note"] = ("reviewed: " + review.get("note", "")).strip()
+    # the output note: the code's note describes the code's terms, so once a hand-review verdict restates them the
+    # output says the verdict's terms instead (the code's note stays in ``note`` for the guards, which read it)
+    restated = restated_terms(row["security_id"], review)
+    out["output_note"] = (f"reviewed: terms as the hand-review verdict restates them ({restated})" if restated
+                          else out["note"])
     out["reviewed"] = True
     return out
+
+
+RESTATED_KEYS = ("type", "sub", "cash", "shares", "value", "rule", "stock_value")
+
+
+def restated_terms(sid: str, review: dict) -> str:
+    """The terms a merged hand-review verdict changed against the code's own entry (CODE_REVIEWED), as a short line
+    ('type stock_merger, cash none, shares 1.0337'), or '' when no verdict was merged or none of the terms changed
+    (a subtype the verdict only fills in does not count: the code's note still describes the terms)."""
+    if not review.get("review"):
+        return ""
+    code = CODE_REVIEWED.get(sid) or {}
+    same = lambda a, b: (a == b) or (isinstance(a, (int, float)) and isinstance(b, (int, float))
+                                     and not isinstance(a, bool) and abs(float(a) - float(b)) < 1e-12)
+    changed = [key for key in RESTATED_KEYS if not same(review.get(key), code.get(key))]
+    if not [key for key in changed if key != "sub"]:  # a subtype filled in alone leaves the code's note true
+        return ""
+    return ", ".join(f"{key} {_fmt(review[key]) if review.get(key) is not None else 'none'}"
+                     for key in RESTATED_KEYS if key in changed or review.get(key) is not None)
 
 
 def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, existing: dict[str, dict],
@@ -2735,7 +2759,8 @@ def build_rows(scope: pd.DataFrame, evidence: pd.DataFrame, book: PriceBook, exi
         })
         if not out["source_url"]:  # no SEC document read: the listing evidence the end comes from
             out["source_url"] = row.get("listing_source_url") or ""
-        notes = [decided["note"]] if decided["note"] else []
+        output_note = decided.get("output_note", decided["note"])
+        notes = [output_note] if output_note else []
         if decided.get("review_note"):  # the hand-review verdict merged into REVIEWED (load_review_verdicts)
             notes.append(decided["review_note"])
         holds = [decided["hold"]] if decided.get("hold") else []  # reasons to hold a computed value for review
