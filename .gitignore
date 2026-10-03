@@ -40,3 +40,4 @@ logs/v50r3_scheduler.log
 
 # Local secrets (API keys)
 .env*
+output/research_only/reversal_2012_2026/inputs/special_distributions.csv
