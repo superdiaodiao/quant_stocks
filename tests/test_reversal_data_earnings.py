@@ -1066,7 +1066,17 @@ def test_built_late_and_moved_rows_are_consistent():
     assert (moved["event_kind_basis"] == "item202_text").all()
     releases = moved[moved["event_kind"] == "results_release"]
     by_text = releases[releases["release_check"].str.startswith("moved_from:")]
-    assert by_text["item202_kind"].eq("results_release").all()   # the text says it reports results
+    # the text says it reports results; or, when the pick is a letter to shareholders or a dividend notice
+    # (sent after the release) and no earlier 8-K of the quarter reports results, it furnishes preliminary
+    # results (First Citizens Banc Corp 0001193125-12-295858 'announced today preliminary unaudited earnings
+    # for the second quarter 2012', then 0001193125-12-327754, a dividend letter to shareholders)
+    assert by_text["item202_kind"].isin(["results_release", "preliminary"]).all()
+    pick_kind = events.set_index("accession")["item202_kind"]
+    for row in by_text[by_text["item202_kind"] == "preliminary"].itertuples():
+        assert pick_kind[row.release_check.split(":")[1]] in er.AFTER_RELEASE_KINDS
+        quarter = events[(events["cik"] == row.cik) & (events["fiscal_quarter_end"] == row.fiscal_quarter_end)]
+        before = quarter[quarter["acceptance_et"] < row.acceptance_et]
+        assert not before["item202_kind"].eq("results_release").any()
     # a re-furnishing's release: accepted on or after the date the old pick gives, first traded on it
     old = events.set_index("accession")
     for row in releases[releases["release_check"].str.startswith("moved_from_refurnished:")].itertuples():

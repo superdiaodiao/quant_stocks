@@ -28,11 +28,20 @@ Owner decisions so far, all made before any returns were seen:
 - 2026-10-02, no waiting for more fills:
   - **Data version 1** is frozen once the rebuild, the checks and the hand reviews pass, whatever Tiingo has fetched by then. The test runs on it.
   - Later free Tiingo months build **data version 2**. The test rules say in advance that version 2 is only a robustness check, with the rules unchanged. If it changes the conclusion, the conclusion counts as unreliable.
-  - A year whose missing share exceeds 2% of top-250 slots is reported, but it is not used to judge the strategy.
+  - A year whose missing share exceeds 2% of top-250 slots is reported, but it is not used to judge the strategy. The share is read on the **model** estimate of §3.3 check 6, in which a week of unknown size counts for nothing. Two other readings are reported beside it: the **calibrated** reading and the **upper** bound. Neither decides pass or fail. *(How the checks read this rule, written down 2026-10-03 for the owner to confirm.)*
   - No further sources are sought after the free-source survey of 2026-10-02.
 - 2026-10-02, two conventions (both follow CRSP practice; set before any returns were seen):
   - A 1:1 holding-company reorganisation or reincorporation (Google to Alphabet, 2015-10) continues the same security, as CRSP keeps one PERMNO. Dollar-volume windows and returns run across the successor link; no day is counted twice.
   - When a large daily move is reviewed, the repo's own stored price files count as a second source beside the vendors.
+- 2026-10-03, how the completeness checks read the missing weeks. These are code conventions from the round-10 review, for the owner to confirm. They were set before any returns were seen.
+  - **2% rule on the model.** §3.3 check 6 compares only the model estimate with the 2% limit. A week with no size evidence gets nothing in the model. The calibrated reading gives such a week the round-10 sample's rate. The upper bound counts it as a full top-250 week.
+  - **short_window weeks.** In a short_window week the name has a canonical close, but its 50-session window holds fewer than 25 rows and no young-listing rule applies. Such a week is judged by its evidence, the same way as a name with no price. It blocks completeness when any of these could put it in the top 250:
+    - step 6's dollar volume reaches the rank-250 cut;
+    - a size proxy alone reaches the band median;
+    - the series' own canonical dv20 rank is within 300;
+    - it has no evidence at all.
+
+    The other short_window weeks are judged small and are listed (§6).
 
 ---
 
@@ -204,7 +213,12 @@ Public float is checked for unit errors: it is flagged when float ÷ (shares out
 3. **Nasdaq-100 check.** Every year-end member in `holdout_2011_2019/inputs/nasdaq100_members_wikipedia_yearend.json` (2011–2019) has prices for that whole year: 100%. Optionally, extend 2020–2025 from Wikipedia revisions [not in repo].
 4. **Form 25 check.** Every Nasdaq Form 25 for common stock with float ≥ $1B has one of two things: a vendor series ending within 5 sessions of the effective date (or of the merger close), or a documented exclusion.
 5. **Fetch-margin check.** Among names fetched in month 1, count how many land at rank ≤ 250. If tier B or C names land in the top 250, the screen is too tight, so lower it one tier in month 2.
-6. **Unfillable impact.** For each year, report the estimated number of top-250 name-weeks held by unfillable names, estimated from the proxy. Acceptance: ≤ 2% of slots in any year. If a year is above that, it is reported as known survivor bias in the data report.
+6. **Unfillable impact.** For each year, estimate how many top-250 name-weeks are held by unfillable names. An unfillable name-week is one inside the name's `unfillable.csv` window with no vendor price. Step 12 gives the same three readings for every missing reason except the pending ones, with the unfillable-only share beside them. The three readings are:
+   - **model**: a week counts when the name's size proxy reaches the median of ranks 200–250 that week. The proxy is the market cap, or the float when the float is at the median and the market cap is below it. A week also counts when step 6's dollar volume reaches the rank-250 cut, whatever the proxy says. A week with no size evidence ("unknown size") counts for nothing.
+   - **calibrated**: the model, plus each unknown-size week times the round-10 hand-review sample's top-250 rate for that year. The rates are 0.19% for 2021–2023, 1.04% for 2018–2020 and 2024, and the pooled 0.44% for the other years. They are written in the code with the SHA-256 of the sample file, and validate reports whether the file still matches.
+   - **upper**: the model, plus every unknown-size week counted as a top-250 week.
+
+   Acceptance: the **model** is ≤ 2% of slots (250 × weeks) in every year. The calibrated and upper readings are reported beside it and do not decide pass or fail. A year above 2% on the model is reported as known survivor bias in the data report. Under §0 it is not used to judge the strategy.
 7. **Optional independent volume check [unverified; test ≤ 5 requests first].** FINRA daily short-sale volume files (`cdn.finra.org/equity/regsho/daily/CNMSshvol{YYYYMMDD}.txt`, reportedly from 2018-08; per-facility files earlier). They give an off-exchange share-volume rank for every symbol, including delisted ones. Any symbol in that list's top 500 by share volume that is Nasdaq-listed and has no prices gets flagged. This would take about 2,000 requests for 2018–2024.
 
 ---
@@ -305,7 +319,8 @@ Public float is checked for unit errors: it is flagged when float ÷ (shares out
 | Dataset | Check | Accept |
 |---|---|---|
 | Listings | Snapshot counts by year; age ≤ 160 days; parsed rows ≥ 1,000 per symbol file | Every week has a snapshot; long gaps listed |
-| Universe | §3.3 checks 1–6 | As stated there |
+| Universe | §3.3 checks 1–6 | As stated there. Check 6 is read on the model; the calibrated and upper readings are reported beside it |
+| Universe | Listed name-weeks that step 12 marks missing (`missing_reason`) | 0 blocking name-weeks. A week blocks when its reason is one of these: `series_gap`, `fetched_pending_reconcile`, `answer_not_in_panel`, `no_vendor_source`, or a reason the validator does not know. A pending week blocks when no open candidate row of its source covers it. A `short_window` week blocks when it has top-250 evidence (§0: step 6's dollar volume at the rank-250 cut, a size proxy alone at the band median, its own canonical dv20 rank within 300, or no evidence). Other `short_window` weeks are listed as judged small. Weeks after the series' last price or delisting do not count |
 | Universe | Every universe name-day comes from a vendor raw source (Tiingo, Yahoo or WIKI) | 100% |
 | Prices | Tiingo row check (formula) | Maximum error ≤ 1e-8 |
 | Prices | Days with two or more sources: r agrees within 0.5% | ≥ 99.5% of name-days; 0 unresolved after majority vote |

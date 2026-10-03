@@ -1821,7 +1821,7 @@ def _day(k):
 
 def _events_ctx(plan):
     items = [{"date": r["date"], "split": r["split"], "cash": r["cash"], "item_id": i, "source": r["source"],
-              "mode": r["mode"], "scale": r["scale"]}
+              "mode": r["mode"], "scale": r["scale"], "at_close": r["at_close"]}
              for i, r in plan[plan["action"] == "apply"].iterrows()]
     return {**_ctx(), "review": {"source": [], "flag": [], "events": items}}
 
@@ -1978,13 +1978,104 @@ def test_an_exception_restates_the_action_and_a_source_guard_leaves_another_sour
     result = rc.reconcile_security("1", {"yahoo": _frame(close)}, _events_ctx(plan))
     status = rc.review_event_status({"1": result})
     assert status["distributions-06-019"]["status"] == "applied"
-    assert status["moves-11-010"]["status"] == "applied" and "with distributions-06-019" in status["moves-11-010"]["change"]
+    # ZG: the moves verdict's own factor (3, Class C at par) is not what the series carries: it is superseded
+    # (closed with the named item), not applied, and the data-change list says N
+    st = status["moves-11-010"]
+    assert st["status"] == "superseded" and st["change"] == ""
+    assert "closed with distributions-06-019" in st["reason"] and "booked by the other" in st["reason"]
+    events, facts = rc.review_event_table({"1": result})
+    row = events.set_index("item_id").loc["moves-11-010"]
+    assert (row["status"], row["change"]) == ("superseded", "")
+    assert "moves-11-010" not in facts["open_items"]
+    changes, _ = rc.review_data_changes(events)
+    got = changes.set_index("item_id").loc["moves-11-010"]
+    assert got["applied"] == "N" and got["how"].startswith("reconcile review_event: superseded (closed with")
+    base = {"ticker": "T", "classification": "unreviewed", "source_url": "", "verified_at": "", "security_id": "1",
+            "listed": True, "sources_agreeing": "", "notes": "[R3] x", "event_date": _day(10), "rule": "R3"}
+    queue = pd.DataFrame([base])
+    rc.apply_move_verdicts(queue, status)
+    assert queue["classification"].iloc[0] == "unrecorded_event"  # closed
+    assert "(superseded: closed with distributions-06-019" in queue["notes"].iloc[0]
+    assert "applied to the series" not in queue["notes"].iloc[0]
+
+
+def test_a_same_as_item_whose_named_item_is_not_applied_stays_open(tmp_path, monkeypatch):
+    _write_review(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": _day(10), "rule": "R3", "classification": "unrecorded_event",
+         "event_type": "spinoff", "split_factor": "0.05", "source_url": _SEC, "item_id": "moves-11-005"}],
+        distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "confirmed", "distribution_type": "spinoff",
+         "ratio": "1.073", "notes": "a double count: apply one, not both", "item_id": "distributions-04-022"}])
+    monkeypatch.setattr(rc, "_EVENT_PLAN", {})
+    monkeypatch.setattr(rc, "REVIEW_EVENT_EXCEPTIONS", {
+        "distributions-04-022": {"apply": False, "same_as": "moves-11-005", "why": "booked by the moves verdict"}})
+    status = rc.review_event_status({})
+    assert status["moves-11-005"]["status"] == "not_applied"  # a spin-off share count without a value
+    st = status["distributions-04-022"]
+    assert st["status"] == "not_applied" and st["reason"].startswith("moves-11-005 is not applied (not_applied)")
+
+
+def _lbtyk(close_ex=47.60):
+    """LBTYK around 2015-07-02 (session 10) as the vendors give it: Yahoo's factor 1.073 and Tiingo's factor plus
+    cash; the ex-day close is ``close_ex`` against a prior close of 51.10."""
+    close = _walk(30)
+    close[:10] = close[:10] / close[9] * 51.10
+    close[10:] = close[10:] / close[10] * close_ex
+    split, div = np.ones(30), np.zeros(30)
+    split[10], div[10] = 1.073, 0.0684 * 51.10
+    return close, split, div
+
+
+def test_lbtyk_2015_values_the_lilak_bonus_issue_at_its_own_close_and_closes_the_confirmed_ratio(tmp_path,
+                                                                                                    monkeypatch):
+    _write_review(tmp_path, monkeypatch, moves_verdicts=[
+        {**_MOVE_VERDICT, "event_date": _day(10), "rule": "R3", "classification": "unrecorded_event",
+         "event_type": "spinoff", "split_factor": "0.05", "source_url": _SEC, "item_id": "moves-11-005"}],
+        distribution_verdicts=[
+        {**_DIST_VERDICT, "ex_date": _day(10), "verdict": "confirmed", "distribution_type": "spinoff",
+         "ratio": "1.073", "notes": "a double count (+6.8%): apply one, not both", "item_id": "distributions-04-022"}])
+    monkeypatch.setattr(rc, "_EVENT_PLAN", {})
+    monkeypatch.setattr(rc, "REVIEW_EVENT_EXCEPTIONS", {k: rc.REVIEW_EVENT_EXCEPTIONS[k]
+                                                        for k in ("moves-11-005", "distributions-04-022")})
+    plan = rc.review_event_plan().set_index("item_id")
+    assert plan.loc["moves-11-005", "action"] == "apply"
+    assert plan.loc["moves-11-005", "split"] == pytest.approx(1.050525, abs=1e-6)
+    assert plan.loc["moves-11-005", "at_close"] == 47.60
+    assert plan.loc["distributions-04-022", "action"] == "not_applied"
+    assert plan.loc["distributions-04-022", "same_as"] == "moves-11-005"
+    close, split, div = _lbtyk()
+    result = rc.reconcile_security("1", {"tiingo": _frame(close, split=split, div=div)}, _events_ctx(plan))
+    row = result["canonical"].set_index("date").loc[_day(10)]
+    assert (row["split_factor"], row["div_cash"]) == (pytest.approx(1.050525, abs=1e-6), 0.0)
+    # (LBTYK + LILAK / 20) / prior LBTYK - 1: the verdict's "about -2.1%"
+    assert row["tr"] == pytest.approx((47.60 + 48.10 / 20) / 51.10 - 1, abs=1e-9)
+    assert row["tr"] == pytest.approx(-0.0214, abs=5e-4)
+    status = rc.review_event_status({"1": result})
+    assert status["moves-11-005"]["status"] == "applied"
+    assert status["distributions-04-022"]["status"] == "superseded"
+    assert "closed with moves-11-005" in status["distributions-04-022"]["reason"]
+    # a canonical row with another close (another unit) leaves the factor unused: the item stays open
+    close2, split2, div2 = _lbtyk(close_ex=47.60 / 2.0)
+    other = rc.reconcile_security("1", {"tiingo": _frame(close2, split=split2, div=div2)}, _events_ctx(plan))
+    assert other["summary"]["review_events"]["unused"] == ["moves-11-005"]
+    status = rc.review_event_status({"1": other})
+    assert status["moves-11-005"]["status"] == "unused" and status["distributions-04-022"]["status"] == "not_applied"
+
+
+def test_lbtya_2015_values_the_lila_bonus_issue_at_its_own_close():
+    entry = rc.REVIEW_EVENT_EXCEPTIONS["distributions-04-018"]
+    assert entry["cash"] == 0.0 and entry["at_close"] == 50.70
+    assert entry["split"] == pytest.approx(1 + 49.61 / 20 / 50.70)
+    assert 50.70 * entry["split"] / 54.47 - 1 == pytest.approx(-0.0237, abs=5e-4)
 
 
 def test_the_round10_exceptions_name_merged_items_and_carry_a_reason():
     for item, entry in rc.REVIEW_EVENT_EXCEPTIONS.items():
         assert re.match(r"^(moves|splits|distributions)-\d\d-\d{3}$", item)
         assert entry["why"] and (entry.get("apply") is False or "split" in entry or "cash" in entry)
+        assert not rc.LEVEL_IN_NOTE.search(entry["why"])  # the reason reaches the committed tables' notes
+        assert not entry.get("same_as") or entry["same_as"] in rc.REVIEW_EVENT_EXCEPTIONS \
+            or re.match(r"^(moves|splits|distributions)-\d\d-\d{3}$", entry["same_as"])
 
 
 @pytest.mark.parametrize("given, exact", [(0.0074074, 1 / 135), (0.003333, 1 / 300), (0.001333, 1 / 750),

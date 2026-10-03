@@ -208,7 +208,8 @@ Tables:
   with an unvalued part; ``REVIEW_EVENT_EXCEPTIONS``) are not applied and leave their queue rows open (no sec_url or
   verified_at, classification ``unreviewed``), so the validate step's open counts match the series.
   ``reconcile/review_event_changes.csv`` lists every such verdict with its status (applied / unused / not_applied /
-  type_only) and summary.json ``review_event_changes`` counts them. A confirmed distribution verdict that gives a
+  type_only / superseded: closed with the item its exception names, which the series carries, its own S/D not
+  applied: ZG's moves verdicts, LBTYK's confirmed 1.073) and summary.json ``review_event_changes`` counts them. A confirmed distribution verdict that gives a
   ratio, no cash, and says a vendor books both (``DOUBLE_COUNT_NOTE``) drops the cash from a canonical row that
   carries the factor and the cash. ``reconcile/review_data_changes.csv`` is the merge's two data-change lists with
   ``applied`` / ``how`` written from this build (the merged files stay as the merge wrote them). A day whose close
@@ -528,7 +529,7 @@ def review_overrides() -> dict[str, list[dict]]:
     for r in applied.to_dict("records"):
         per_sid.setdefault(r["security_id"], []).append(
             {"date": r["date"], "split": r["split"], "cash": r["cash"], "item_id": r["item_id"], "source": r["source"],
-             "mode": r["mode"], "scale": r["scale"]})
+             "mode": r["mode"], "scale": r["scale"], "at_close": r["at_close"]})
     out = {sid: {"source": choose.get(sid, []), "flag": flags.get(sid, [])} for sid in set(choose) | set(flags)}
     for sid, items in per_sid.items():
         out.setdefault(sid, {"source": [], "flag": []})["events"] = sorted(items, key=lambda e: (e["date"], e["item_id"]))
@@ -595,10 +596,33 @@ REVIEW_EVENT_EXCEPTIONS = {
     "moves-11-011": {"apply": False, "same_as": "distributions-04-038",
                      "why": "ZG: booked by distributions-04-038 (2.941292, Class C at its own close); this verdict's "
                             "factor 3 counts Class C at par"},
+    # LiLAC bonus issue 2015-07-02 (8-K of 2015-07-01, the verdicts' SEC URL): 1 LiLAC share of the corresponding
+    # class per 20 Liberty Global shares, distributed after the close on 2015-07-01, regular way from 2015-07-02.
+    # Valued as ZG was: S = 1 + (1/20) x the distributed class's 2015-07-02 close / the parent's 2015-07-02 close.
+    # Both vendor bookings value LiLAC at the thin when-issued close of 2015-07-01 (LILAK 69.89 on 200 shares, LILA
+    # 60.00 on 100: Yahoo's 1.073 / 1.058 and WIKI's 3.00 cash are 1/20 of those), not at the first regular-way close.
+    # ``at_close``: the parent's raw close the factor is computed on; a canonical row with another close leaves the
+    # item unused (open).
+    # LBTYK: LILAK 48.10 on 2015-07-02 in Yahoo, Tiingo (the 1712184.C file starts that day) and the stored lilak.csv;
+    # LBTYK 47.60 (Tiingo = Yahoo). S = 1.050525, tr -2.14% (the verdict's "about -2.1%"). One action per day:
+    # moves-11-005, and distributions-04-022 (confirmed 1.073, its double-count note) closes with it
+    "moves-11-005": {"split": 1.0 + 48.10 / 20.0 / 47.60, "cash": 0.0, "at_close": 47.60,
+                     "why": "LBTYK: 1 LILAK per 20 LBTYK valued at the 2015-07-02 LILAK close Yahoo, Tiingo and the "
+                            "stored file agree on (0.9413x the prior LBTYK close); D = 0"},
+    "distributions-04-022": {"apply": False, "same_as": "moves-11-005",
+                             "why": "LBTYK: booked by moves-11-005 (LILAK at its own 2015-07-02 close); the 1.073 "
+                                    "confirmed here values LILAK at the 2015-07-01 when-issued close"},
+    # LBTYA, checked the same way: LILA 49.61 on 2015-07-02 in Yahoo and the stored lila.csv (two sources, as ZG's
+    # WIKI and stored; Tiingo and WIKI have no LILA file); LBTYA 50.70 (WIKI = Yahoo). S = 1.048925 replaces WIKI's
+    # 3.00 cash (D = 0): tr -1.41% > -2.37%
+    "distributions-04-018": {"split": 1.0 + 49.61 / 20.0 / 50.70, "cash": 0.0, "at_close": 50.70,
+                             "why": "LBTYA: 1 LILA per 20 LBTYA valued at the 2015-07-02 LILA close Yahoo and the "
+                                    "stored file agree on; Yahoo's 1.058 and WIKI's cash value LILA at the 2015-07-01 "
+                                    "when-issued close; D = 0"},
 }
 _EVENT_PLAN: dict[str, pd.DataFrame] = {}
 EVENT_PLAN_COLUMNS = ["item_id", "queue", "security_id", "ticker", "date", "verdict", "kind", "split", "cash", "source",
-                      "action", "reason", "same_as", "source_url", "mode", "scale"]
+                      "action", "reason", "same_as", "source_url", "mode", "scale", "at_close"]
 
 
 # a confirmed distribution verdict whose note says a vendor carries the factor and the cash together, a double
@@ -739,7 +763,8 @@ def review_event_plan() -> pd.DataFrame:
                              "split": a["split"], "cash": a["cash"], "source": exception.get("source", ""),
                              "action": action, "reason": reason,
                              "same_as": exception.get("same_as", ""), "source_url": v.get("source_url", ""),
-                             "mode": a.get("mode", ""), "scale": exception.get("scale", np.nan)})
+                             "mode": a.get("mode", ""), "scale": exception.get("scale", np.nan),
+                             "at_close": exception.get("at_close", np.nan)})
     frame = pd.DataFrame(rows, columns=EVENT_PLAN_COLUMNS)
     _EVENT_PLAN[key] = frame
     return frame
@@ -2152,13 +2177,15 @@ def reconcile_security(sid: str, frames: dict[str, pd.DataFrame], ctx: dict) -> 
     # the hand review's S/D verdicts (``ctx["review"]["events"]``, review_event_plan): the day's S and/or D are set to
     # the reviewed values on the kept row and tr is recomputed against the same prior close (so a cross-source or
     # gap return keeps its basis); a blank tr stays blank. An item whose day has no kept row (or, with ``source``, a
-    # row from another source) is unused and its queue row stays open
+    # row from another source, or, with ``at_close``, a row with another close) is unused and its queue row stays open
     review_event_item = np.full(n, "", dtype=object)
     review_events_applied, review_events_unused = [], []
     kept_at = {day_str[k]: k for k in idx}
     for item in review.get("events", ()):
         k = kept_at.get(item["date"])
-        if k is None or (item.get("source") and SRC[p[k]] != item["source"]):
+        at_close = _review_num(item.get("at_close"))
+        if k is None or (item.get("source") and SRC[p[k]] != item["source"]) \
+                or (np.isfinite(at_close) and abs(Cp[k] / at_close - 1.0) > 1e-6):
             review_events_unused.append(item["item_id"])
             continue
         s_new = Sp[k] if not np.isfinite(_review_num(item.get("split"))) else float(item["split"])
@@ -3340,8 +3367,10 @@ def event_verdict_note(v: dict, queue: str) -> str:
 def review_event_status(states: dict[str, dict] | None) -> dict[str, dict]:
     """Per verdict item that changes S or D (review_event_plan): {"status", "reason", "change"}. ``applied``: the
     series carries it (the security's summary ``review_events.applied``); ``unused``: planned, but the day has no kept
-    row (or a row from another source than the exception names); ``not_applied``: the plan's reason; ``type_only``;
-    ``same_as``: closed with the item it names when that one is applied (ZG's moves verdicts), else open."""
+    row (or a row from another source or close than the exception names); ``not_applied``: the plan's reason;
+    ``type_only``; ``superseded``: an item with ``same_as`` whose named item is applied: its own S/D is not applied
+    (ZG's moves verdicts, factor 3 at par; LBTYK's confirmed 1.073), the day carries the named item's, and the item
+    is closed (not open); when the named item is not applied it is ``not_applied`` (open)."""
     plan = review_event_plan()
     if not len(plan):
         return {}
@@ -3370,10 +3399,15 @@ def review_event_status(states: dict[str, dict] | None) -> dict[str, dict]:
             out[item] = {"status": "not_applied", "reason": r["reason"], "change": ""}
     for item, st in out.items():
         if st["status"] == "same_as":
-            if out.get(st["same_as"], {}).get("status") == "applied":
-                st.update(status="applied", change=f"with {st['same_as']}: {out[st['same_as']]['change']}")
+            named = out.get(st["same_as"], {})
+            if named.get("status") == "applied":
+                st.update(status="superseded",
+                          reason=f"closed with {st['same_as']}, which the series carries ({named['change']}); "
+                                 f"this verdict's own S/D is not applied: {st['reason']}")
             else:
-                st["status"] = "not_applied"
+                st.update(status="not_applied",
+                          reason=f"{st['same_as']} is not applied ({named.get('status') or 'not in the plan'}): "
+                                 f"{st['reason']}")
     return out
 
 
@@ -3390,6 +3424,8 @@ def review_event_table(states: dict[str, dict]) -> tuple[pd.DataFrame, dict]:
     frame = plan.copy()
     frame["status"] = [status.get(i, {}).get("status", "") for i in frame["item_id"]]
     frame["change"] = [status.get(i, {}).get("change", "") for i in frame["item_id"]]
+    # the status's reason when it gives one (unused; superseded / not_applied for a same_as item name the other item)
+    frame["reason"] = [status.get(i, {}).get("reason") or r for i, r in zip(frame["item_id"], frame["reason"])]
     items = frame.drop_duplicates("item_id")
     facts = {"items": int(len(items)), "rows": int(len(frame)),
              "by_queue_status": {q: {k: int(v) for k, v in g["status"].value_counts().items()}
@@ -3518,6 +3554,9 @@ def apply_event_verdicts(frame: pd.DataFrame, table: str, status: dict[str, dict
                 if st.get("status") == "applied":
                     facts["series_changed"] += 1
                     note += f" (applied to the series: {st['change']})"
+                elif st.get("status") == "superseded":
+                    facts["superseded"] = facts.get("superseded", 0) + 1
+                    note += f" (superseded: {st['reason']})"
                 elif st.get("status") == "type_only":
                     facts["type_only"] += 1
                     if "event_type" in frame:
@@ -3640,6 +3679,11 @@ def apply_move_verdicts(frame: pd.DataFrame, status: dict[str, dict] | None = No
         if changed:
             facts["series_changed"] += 1
             frame.at[k, "notes"] += f" (applied to the series: {changed[0]})"
+        else:
+            superseded = [st["reason"] for st in states_of if st.get("status") == "superseded"]
+            if superseded:
+                facts["superseded"] = facts.get("superseded", 0) + 1
+                frame.at[k, "notes"] += f" (superseded: {superseded[0]})"
         facts["applied"] += 1
         facts["by_classification"][v["classification"]] = facts["by_classification"].get(v["classification"], 0) + 1
     facts["verdicts_unmatched"] = int(sum(len(v) for key, v in by_key.items() if key not in matched))

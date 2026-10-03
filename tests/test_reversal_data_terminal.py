@@ -374,6 +374,17 @@ def built():
     return tr.read_csv_text(tr.OUTPUT)
 
 
+def _approved_as_built() -> set:
+    """The approvals the build used: the code's REVIEWED with the merged hand-review verdicts folded in, as main
+    does unless --no-review-verdicts (load_review_verdicts). REVIEWED is restored to the code's entries after."""
+    try:
+        tr.load_review_verdicts()
+        return {sid for sid, r in tr.REVIEWED.items() if r.get("approved") and r.get("url")}
+    finally:
+        tr.REVIEWED.clear()
+        tr.REVIEWED.update({sid: dict(entry) for sid, entry in tr.CODE_REVIEWED.items()})
+
+
 def test_built_file_columns_and_values(built):
     assert list(built.columns[:12]) == ["ticker", "last_price_date", "terminal_return", "consideration_per_share",
                                         "source_url", "verified_at", "security_id", "delist_date", "terminal_type",
@@ -1092,7 +1103,7 @@ def test_built_file_round_6_cases(built):
     computed = rows[rows["status"].eq("computed") & ~rows["terminal_type"].eq("bankruptcy_otc")]
     beyond = computed[pd.to_numeric(computed["terminal_return"]).abs() > tr.GUARD_RETURN]
     flagged = computed[computed["cvr"].eq("Y") | computed["election"].eq("Y")]
-    approved = {sid for sid, r in tr.REVIEWED.items() if r.get("approved") and r.get("url")}
+    approved = _approved_as_built()
     assert set(beyond.index) <= approved and set(flagged.index) <= approved
     queue_path = tr.MANUAL_REVIEW_QUEUE
     if queue_path.exists():
@@ -1120,7 +1131,7 @@ def test_built_file_has_no_unapproved_computed_value_far_from_its_last_close():
     computed = rows[rows["status"] == "computed"]
     returns = pd.to_numeric(computed["terminal_return"], errors="coerce")
     far = computed[returns.abs() > t.GUARD_RETURN]
-    approved = {sid for sid, r in t.REVIEWED.items() if r.get("approved") and r.get("url")}
+    approved = _approved_as_built()
     assert set(far["security_id"]) <= approved
 
 
