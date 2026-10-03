@@ -130,6 +130,18 @@ def load_dtb3(end: str = DEV_END) -> pd.Series:
     return pd.Series(df["dtb3"].values / 100.0, index=pd.DatetimeIndex(df["date"]))
 
 
+def fill_rf(rf: pd.Series, dtb3: pd.Series, sessions: pd.DatetimeIndex) -> pd.Series:
+    """KF daily RF on the sessions; sessions after the last KF row use DTB3 / 252 (the KF file lags ~1 month).
+
+    In development runs KF covers every session, so this is the plain KF series.
+    """
+    out = rf.reindex(sessions)
+    after = sessions > rf.index.max()
+    if after.any():
+        out[after] = (dtb3.reindex(sessions).ffill() / TRADING_DAYS)[after]
+    return out.ffill().fillna(0.0)
+
+
 @dataclass
 class DevData:
     sessions: pd.DatetimeIndex          # NDX sessions before 1999-03-10, QQQ sessions from then on
@@ -164,7 +176,7 @@ def load_dev_data(end: str = DEV_END) -> DevData:
     r1 = pd.concat([r_ndx, r_qqq]).fillna(0.0)
     price = pd.Series(np.nan, index=sessions)
     price.loc[idx_qqq] = qqq["close"].values
-    rf_s = rf.reindex(sessions).ffill().fillna(0.0)
+    rf_s = fill_rf(rf, dtb3, sessions)
     qld_level = pd.Series(qld["adjclose"].values, index=pd.DatetimeIndex(qld["date"]))
     qld_r = qld_level.pct_change().dropna()
 
@@ -565,9 +577,104 @@ def run(args) -> dict:
     return summary
 
 
+# ======================================================================== one-shot test (approved 2026-10-03)
+
+ONESHOT_RULE = Rule("T01", 200, 0.02)          # frozen in docs/research_ledger_qqq_timing.md
+ONESHOT_REPORT_ONLY = Rule("T02", 200, 0.02)
+ONESHOT_ENTRY_CLOSE = "2014-12-31"             # enter at this close, so the first return is 2015-01-02
+ONESHOT_FIRST_RETURN = "2015-01-02"
+FROZEN_SPREAD = 0.0069599408878067825          # calibrated on QLD 2006-06-22 .. 2014-12-31 (dev run)
+OUT_ONESHOT = ROOT / "output/research_only/qqq_timing_oneshot"
+
+
+def latest_complete_month_end(today: pd.Timestamp) -> pd.Timestamp:
+    return (pd.Timestamp(today).normalize().replace(day=1) - pd.Timedelta(days=1))
+
+
+def evaluate_criteria(rule: dict, qqq: dict) -> dict:
+    """The three pass criteria written before the test (all net of costs; all must hold)."""
+    c1 = abs(rule["max_dd"]) <= abs(qqq["max_dd"]) - 0.10
+    c2 = rule["calmar"] > qqq["calmar"]
+    c3 = rule["cagr"] >= qqq["cagr"] - 0.03
+    return {"c1_maxdd_at_least_10pp_shallower": bool(c1), "c2_calmar_higher": bool(c2),
+            "c3_cagr_shortfall_at_most_3pp": bool(c3), "pass": bool(c1 and c2 and c3)}
+
+
+def qld_tracking(data: DevData, spread: float, start: str, end: str) -> dict:
+    real = data.qld.loc[start:end]
+    syn = synthetic_2x(data.r1.reindex(real.index), data.rf.reindex(real.index), spread)
+    d = syn - real
+    by = {int(y): float(np.prod(1 + syn[real.index.year == y]) - np.prod(1 + real[real.index.year == y]))
+          for y in sorted(set(real.index.year))}
+    return {"window": [str(real.index[0].date()), str(real.index[-1].date())], "sessions": int(len(real)),
+            "cagr_real": cagr_of(real), "cagr_synthetic": cagr_of(syn), "cagr_gap_syn_minus_real": cagr_of(syn) - cagr_of(real),
+            "tracking_error_daily_ann": float(d.std() * math.sqrt(TRADING_DAYS)),
+            "tracking_error_monthly_ann": float((monthly(syn) - monthly(real)).std() * math.sqrt(12)),
+            "corr": float(np.corrcoef(syn, real)[0, 1]), "gap_by_year": by}
+
+
+def run_oneshot(args) -> dict:
+    end = pd.Timestamp(args.test_end) if args.test_end else latest_complete_month_end(pd.Timestamp.today())
+    end_s = str(end.date())
+    data = load_dev_data(end_s)
+    last = data.sessions.max()
+    if last > end or (end - last).days > 4:
+        raise ValueError(f"last session {last.date()} does not close the month ending {end_s}")
+    print("ONE-SHOT TEST: frames truncated at", end_s, {k: v["last"] for k, v in data.guard.items() if isinstance(v, dict)})
+    kf_last = data.guard["kf_rf"]["last"]
+    cal = calibrate_spread(data, QLD_CAL_START, DEV_END)       # same dev window: must reproduce the frozen value
+    if abs(cal["spread_calibrated"] - FROZEN_SPREAD) > 1e-6:
+        raise ValueError(f"calibrated spread {cal['spread_calibrated']} differs from the frozen {FROZEN_SPREAD}")
+    spread = FROZEN_SPREAD
+    p = (1 + data.r1).cumprod()
+    r1 = data.r1
+    rc = data.rf - CASH_ETF_FEE / TRADING_DAYS
+    r2 = synthetic_2x(r1, data.rf, spread)
+    const1 = pd.Series(1.0, index=data.sessions)
+    bench = simulate(const1, r1, r2, rc, data.price, ONESHOT_ENTRY_CLOSE, end_s)
+    assert str(bench["ret"].index[0].date()) == ONESHOT_FIRST_RETURN
+    res = {"window": [ONESHOT_FIRST_RETURN, str(bench["ret"].index[-1].date())], "sessions": int(len(bench["ret"])),
+           "kf_rf_last": kf_last, "rf_after_kf": "DTB3 / 252", "spread": spread}
+    m_q = metrics(bench, bench, data.rf)
+    res["QQQ_buyhold"] = m_q
+    by_year = {"QQQ_buyhold": yearly(bench["ret"])}
+    mon = {"QQQ_buyhold": monthly(bench["ret"])}
+    for rule in (ONESHOT_RULE, ONESHOT_REPORT_ONLY):
+        tgt = target_exposure(rule, p, r1)
+        sim = simulate(tgt, r1, r2, rc, data.price, ONESHOT_ENTRY_CLOSE, end_s)
+        m = metrics(sim, bench, data.rf)
+        m["state_at_entry_close"] = float(tgt.loc[ONESHOT_ENTRY_CLOSE])
+        m["switches"] = int(sim["rebalances"])
+        e = sim["exposure_held"]
+        m["switch_dates_effective"] = [str(d.date()) for d in e.index[1:][e.values[1:] != e.values[:-1]]]
+        res[rule.name] = m
+        by_year[rule.name] = yearly(sim["ret"])
+        mon[rule.name] = monthly(sim["ret"])
+    res["criteria_" + ONESHOT_RULE.name] = evaluate_criteria(res[ONESHOT_RULE.name], m_q)
+    res["qld_tracking_2015_on"] = qld_tracking(data, spread, ONESHOT_FIRST_RETURN, end_s)
+    OUT_ONESHOT.mkdir(parents=True, exist_ok=True)
+    (OUT_ONESHOT / "results.json").write_text(json.dumps(res, indent=2, default=float))
+    pd.DataFrame(by_year).to_csv(OUT_ONESHOT / "by_year.csv", float_format="%.6f")
+    mk = pd.DataFrame(mon)
+    mk.index = mk.index.astype(str)
+    mk.to_csv(OUT_ONESHOT / "monthly_returns.csv", float_format="%.6f")
+    crit = res["criteria_" + ONESHOT_RULE.name]
+    print(json.dumps({"criteria": crit, **{k: {x: res[k][x] for x in ("cagr", "max_dd", "calmar")}
+                                           for k in ("QQQ_buyhold", ONESHOT_RULE.name, ONESHOT_REPORT_ONLY.name)}},
+                     indent=1, default=float))
+    return res
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    run(ap.parse_args(argv))
+    ap.add_argument("--mode", choices=["dev", "oneshot"], default="dev",
+                    help="dev: 1999-2014 grid behind the 2014-12-31 guard; oneshot: the frozen rule on 2015-01..")
+    ap.add_argument("--test-end", default=None, help="oneshot only: last date (default: latest complete month end)")
+    args = ap.parse_args(argv)
+    if args.mode == "oneshot":
+        run_oneshot(args)
+    else:
+        run(args)
 
 
 if __name__ == "__main__":

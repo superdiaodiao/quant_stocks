@@ -171,3 +171,31 @@ def test_vol_target_band_suppresses_small_trades():
                       str(idx[-1].date()), lag=0, continuous=True)
     # 1.0 -> 1.1 and 1.2 stay (below 0.25), 1.3 trades, 1.0 trades (0.3 away), 0.0 exits
     assert sim["rebalances"] == 3
+
+
+# ---------------------------------------------------------------- one-shot test mode
+
+def test_oneshot_frozen_rule_and_dates():
+    assert qt.ONESHOT_RULE.name == "T01_L200_b2"
+    assert qt.ONESHOT_REPORT_ONLY.name == "T02_L200_b2"
+    assert str(qt.latest_complete_month_end(pd.Timestamp("2026-10-03")).date()) == "2026-09-30"
+    assert str(qt.latest_complete_month_end(pd.Timestamp("2026-03-31")).date()) == "2026-02-28"
+
+
+def test_evaluate_criteria():
+    q = {"max_dd": -0.35, "calmar": 0.50, "cagr": 0.175}
+    ok = qt.evaluate_criteria({"max_dd": -0.24, "calmar": 0.60, "cagr": 0.15}, q)
+    assert ok["pass"]
+    assert not qt.evaluate_criteria({"max_dd": -0.26, "calmar": 0.60, "cagr": 0.15}, q)["c1_maxdd_at_least_10pp_shallower"]
+    assert not qt.evaluate_criteria({"max_dd": -0.24, "calmar": 0.50, "cagr": 0.15}, q)["c2_calmar_higher"]
+    bad3 = qt.evaluate_criteria({"max_dd": -0.10, "calmar": 1.4, "cagr": 0.14}, q)
+    assert not bad3["c3_cagr_shortfall_at_most_3pp"] and not bad3["pass"]
+
+
+def test_fill_rf_uses_dtb3_only_after_kf_ends():
+    sessions = pd.bdate_range("2026-08-27", "2026-09-03")
+    rf = pd.Series(0.0002, index=pd.bdate_range("2026-08-27", "2026-08-31"))
+    dtb3 = pd.Series(0.0378, index=sessions)
+    out = qt.fill_rf(rf, dtb3, sessions)
+    assert (out.loc[:"2026-08-31"] == 0.0002).all()
+    np.testing.assert_allclose(out.loc["2026-09-01":].values, 0.0378 / 252)
