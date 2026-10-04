@@ -313,3 +313,18 @@ PYTHONPATH=. /Users/bytedance/code/quant_stocks/.venv/bin/python scripts/researc
 - **Pass criteria (unchanged from section 4), judged against ONEQ total return on 2014-2016 and on 2023-01..2026-08** (2017-2022 was O10's development period and is only reported):
   - A: net CAGR above ONEQ in each window, and monthly-excess t >= 2 on the two windows combined;
   - or B: max drawdown at least 10 points shallower than ONEQ, with CAGR no more than 3 points behind.
+
+### 8.1 Result (QuantConnect backtest "O10 wide v2", project 37347310, run 2026-10-05)
+
+- **Correction before the reported run:** the first cloud run had a code bug. Market-on-close orders still waiting to fill were not counted as taken slots, so orders were repeated and some were rejected for lack of cash. That run is discarded. The fix counts open orders and the cash they reserve; the rule itself is unchanged.
+- **Sanity check:** QuantConnect's own benchmark figures match the local data. 2014-2026 CAGR is ONEQ 16.88% here vs 17.07% locally, and QQQ 19.38% vs 19.2%.
+
+| Window | Strategy CAGR | ONEQ | QQQ | Strategy max DD |
+|---|---|---|---|---|
+| 2014-2016 (judged) | 2.90% | 10.32% | 12.11% | -28.9% |
+| 2017-2022 (O10 dev period, reported only) | 6.15% | 12.57% | 15.34% | -42.4% |
+| 2023-01..2026-08 (judged) | 15.66% | 31.07% | 33.74% | -17.9% |
+| 2014-01..2026-08 | 7.92% | 16.88% | 19.38% | -42.4% |
+
+- **Costs:** fees were $896 over 12.7 years.
+- **Verdict: fail.** The strategy is behind ONEQ in both judged windows, by 7.4 and 15.4 points a year (criteria A and B both missed). Widening the universe to the owner's original scope (>= $300M market cap, delisted names included) does not rescue O10.

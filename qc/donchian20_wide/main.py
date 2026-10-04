@@ -77,21 +77,30 @@ class Donchian20Wide(QCAlgorithm):
                 elif not held and close > max(prior) and sym in self.members:
                     buys.append(sym)
             dq.append(close)
-        # exits first (filled at the next close), then fill free slots by dollar volume
+        # exits first (filled at the next close), then fill free slots by dollar volume;
+        # names with an unfilled order count as taken, so nothing is ordered twice
+        pending = {o.symbol for o in self.transactions.get_open_orders()}
         for sym in sells:
-            self.market_on_close_order(sym, -self.portfolio[sym].quantity)
-        held = [s for s in self.portfolio.keys() if self.portfolio[s].invested and s not in (self.oneq, self.qqq)]
-        free = self.MAX_NAMES - (len(held) - len(sells))
+            if sym not in pending:
+                self.market_on_close_order(sym, -self.portfolio[sym].quantity)
+        taken = {s for s in self.portfolio.keys()
+                 if self.portfolio[s].invested and s not in (self.oneq, self.qqq)} | pending
+        free = self.MAX_NAMES - len(taken - set(sells))
         if free > 0 and buys:
+            buys = [s for s in buys if s not in taken]
             buys.sort(key=lambda s: self.dollar_volume.get(s, 0), reverse=True)
             equity = self.portfolio.total_portfolio_value
+            budget = self.portfolio.cash_book["USD"].amount - sum(
+                o.quantity * self.securities[o.symbol].price
+                for o in self.transactions.get_open_orders() if o.quantity > 0)
             for sym in buys[:free]:
                 price = self.securities[sym].price
                 if price <= 0:
                     continue
-                qty = int((equity / self.MAX_NAMES) // price)
+                qty = int(min(equity / self.MAX_NAMES, budget * 0.98) // price)
                 if qty >= 1:
                     self.market_on_close_order(sym, qty)
+                    budget -= qty * price
         oneq = self.securities[self.oneq].price
         qqq = self.securities[self.qqq].price
         self.daily.append((self.time.date(), self.portfolio.total_portfolio_value, oneq, qqq))
@@ -110,8 +119,8 @@ class Donchian20Wide(QCAlgorithm):
             for r in rows:
                 peak = max(peak, r[1])
                 mdd = min(mdd, r[1] / peak - 1)
-            self.log(f"RESULT {start}..{end}: strategy CAGR {s:.2%}, ONEQ {o:.2%}, QQQ {q:.2%}, "
-                     f"excess vs ONEQ {s - o:+.2%}, strategy max drawdown {mdd:.1%}")
+            self.set_runtime_statistic(f"{start.year}-{end.year} strat/ONEQ/QQQ/MDD",
+                                       f"{s:.2%} / {o:.2%} / {q:.2%} / {mdd:.1%}")
 
         from datetime import date
         window(date(2014, 1, 1), date(2016, 12, 31))
@@ -121,5 +130,6 @@ class Donchian20Wide(QCAlgorithm):
         for y in range(2014, 2027):
             rows = [r for r in self.daily if r[0].year == y and r[2] > 0 and r[3] > 0]
             if len(rows) > 1:
-                self.log(f"YEAR {y}: strategy {rows[-1][1] / rows[0][1] - 1:+.1%}, "
-                         f"ONEQ {rows[-1][2] / rows[0][2] - 1:+.1%}, QQQ {rows[-1][3] / rows[0][3] - 1:+.1%}")
+                self.set_runtime_statistic(f"Y{y} strat/ONEQ/QQQ",
+                                           f"{rows[-1][1] / rows[0][1] - 1:+.1%} / {rows[-1][2] / rows[0][2] - 1:+.1%} / "
+                                           f"{rows[-1][3] / rows[0][3] - 1:+.1%}")
