@@ -298,3 +298,18 @@ PYTHONPATH=. /Users/bytedance/code/quant_stocks/.venv/bin/python scripts/researc
 - "开发期优势剩下多少"：以网格中位数为参照，开发期最优点比中位数多 4–29 个点；检验期只剩 −7 到 +12 个点，个股均线（夏普选）、指数唐奇安都是负的。
   个股唐奇安 18/20 在 2023–26 保住了一部分（+12 点，对 ONEQ +5.8%），2014–16 几乎全部消失（+1 点，对 ONEQ −6.9%）。
 - 结论不变：网格搜索在同一段历史上挑最好的参数，挑出来的主要是运气；它不能把这些规则变成能稳定跑赢 ONEQ 的策略。
+
+## 8. Wider-universe re-test on QuantConnect (registered 2026-10-05, before the run)
+
+- **Question:** does the frozen stock rule O10 still lose once the universe is widened to the owner's original scope?
+- **Rule:** the frozen stock rule O10 (Donchian 20/20), unchanged; no new variants.
+- **Universe:** Nasdaq-listed common stocks with market cap >= $300M and price >= $10. It comes from QuantConnect's point-in-time fundamentals, which keep delisted names (no survivorship bias).
+- **Execution:** fills at the next close (market-on-close), up to 5 names, IBKR fees, cash account, $10,000.
+- **Code:** `qc/donchian20_wide/main.py`, run once in the QuantConnect web IDE (free account).
+- **Known differences from the local engine:**
+  - candidates are ordered by daily dollar volume, not dv50 rank;
+  - whole shares only;
+  - QuantConnect's own adjusted prices and fee model.
+- **Pass criteria (unchanged from section 4), judged against ONEQ total return on 2014-2016 and on 2023-01..2026-08** (2017-2022 was O10's development period and is only reported):
+  - A: net CAGR above ONEQ in each window, and monthly-excess t >= 2 on the two windows combined;
+  - or B: max drawdown at least 10 points shallower than ONEQ, with CAGR no more than 3 points behind.
