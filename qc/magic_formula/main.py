@@ -4,6 +4,8 @@ from AlgorithmImports import *
 import math
 from datetime import date, timedelta
 
+DATA_FILTER = False   # True only in the registered data-error sensitivity run (ledger section 2)
+
 
 class MagicFormula(QCAlgorithm):
     """S1, registered in docs/research_ledger_qc_smallcap.md before the run. Textbook, untuned.
@@ -50,6 +52,8 @@ class MagicFormula(QCAlgorithm):
         self.need_sells = False
         self.buy_days_left = 0
         self.daily = []            # (date, equity, oneq close, qqq close)
+        self.fl = {"picks": 0, "flagged": 0, "a": 0, "b": 0, "c": 0}
+        self.fl_names = []
 
     # ----- universe -------------------------------------------------------------------------
     def is_rebalance_month(self, month):
@@ -130,13 +134,55 @@ class MagicFormula(QCAlgorithm):
             capital = nwc + ppe
             if capital <= 0:
                 continue
-            rows.append((f.symbol, ebit / ev, ebit / capital))
+            rows.append((f.symbol, ebit / ev, ebit / capital, f))
         if not rows:
             return []
         ey_rank = {r[0]: k for k, r in enumerate(sorted(rows, key=lambda r: r[1], reverse=True))}
         roc_rank = {r[0]: k for k, r in enumerate(sorted(rows, key=lambda r: r[2], reverse=True))}
         rows.sort(key=lambda r: (ey_rank[r[0]] + roc_rank[r[0]], -r[1]))
+        for r in rows[:self.TOP_N]:   # flagged share among the raw (unfiltered) picks
+            fl = self.flags(r[3])
+            self.fl["picks"] += 1
+            if fl:
+                self.fl["flagged"] += 1
+                for c in fl:
+                    self.fl[c] += 1
+                self.fl_names.append(f"{r[0].value}{self.time.year % 100:02d}{self.time.month:02d}{fl}")
+        if DATA_FILTER:
+            rows = [r for r in rows if not self.flags(r[3])]
         return [r[0] for r in rows[:self.TOP_N]]
+
+    @staticmethod
+    def off2(x, y):
+        """True when x and y differ by more than a factor of 2 (or have opposite signs)."""
+        if x is None or y is None or x == 0 or y == 0:
+            return False
+        r = x / y
+        return r < 0.5 or r > 2.0
+
+    def flags(self, f):
+        """Data-error flags (ledger section 2.2): a = EBIT vs operating income, b = market cap vs
+        shares outstanding x price, c = listed < 12 months (first QuantConnect date). d not applied."""
+        out = ""
+        try:
+            inc = f.financial_statements.income_statement
+            if self.off2(self.num(inc.ebit.twelve_months), self.num(inc.operating_income.twelve_months)):
+                out += "a"
+        except Exception:
+            pass
+        try:
+            so = self.num(f.company_profile.shares_outstanding)
+            p = float(f.price)
+            if so and so > 0 and p > 0 and self.off2(float(f.market_cap), so * p):
+                out += "b"
+        except Exception:
+            pass
+        try:
+            if (self.time.date() - f.symbol.id.date.date()).days < 365:
+                out += "c"
+        except Exception:
+            pass
+        return out
 
     # ----- trading --------------------------------------------------------------------------
     def bar_date(self):
@@ -267,3 +313,11 @@ class MagicFormula(QCAlgorithm):
         excess_t([m for m in monthly if m[0] <= 2019], "2014-2019")
         excess_t([m for m in monthly if m[0] >= 2020], "2020-2026")
         excess_t(monthly, "2014-2026")
+        fl = self.fl
+        self.set_runtime_statistic("FLAG picks/flagged/a/b/c/share", "{}/{}/{}/{}/{}/{:.1%} filter {}".format(
+            fl["picks"], fl["flagged"], fl["a"], fl["b"], fl["c"],
+            fl["flagged"] / fl["picks"] if fl["picks"] else 0.0, int(DATA_FILTER)))
+        txt = " ".join(self.fl_names)
+        for i in range(3):
+            if txt[i * 190:(i + 1) * 190]:
+                self.set_runtime_statistic(f"FLAGGED{i + 1}", txt[i * 190:(i + 1) * 190])

@@ -4,6 +4,8 @@ from AlgorithmImports import *
 import math
 from datetime import date, timedelta
 
+DATA_FILTER = False   # True only in the registered data-error sensitivity run (ledger section 2)
+
 
 class PiotroskiValue(QCAlgorithm):
     """S2, registered in docs/research_ledger_qc_smallcap.md before the run. Textbook, untuned.
@@ -58,6 +60,8 @@ class PiotroskiValue(QCAlgorithm):
         self.need_sells = False
         self.buy_days_left = 0
         self.daily = []            # (date, equity, oneq close, qqq close)
+        self.fl = {"picks": 0, "flagged": 0, "a": 0, "b": 0, "c": 0}
+        self.fl_names = []
 
     # ----- universe -------------------------------------------------------------------------
     def is_rebalance_month(self, month):
@@ -209,9 +213,53 @@ class PiotroskiValue(QCAlgorithm):
                      + int(c["gp"] / c["rev"] > p1["gp"] / p1["rev"])
                      + int(c["rev"] / p1["ta"] > p1["rev"] / p2["ta"]))
             if score >= self.MIN_F:
-                scored.append((score, bm, f.symbol))
+                scored.append((score, bm, f.symbol, f))
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return [s for _, _, s in scored[:self.TOP_N]]
+        for r in scored[:self.TOP_N]:   # flagged share among the raw (unfiltered) picks
+            fl = self.flags(r[3], r[1])
+            self.fl["picks"] += 1
+            if fl:
+                self.fl["flagged"] += 1
+                for c in fl:
+                    self.fl[c] += 1
+                self.fl_names.append(f"{r[2].value}{self.time.year % 100:02d}{fl}")
+        if DATA_FILTER:
+            scored = [r for r in scored if not self.flags(r[3], r[1])]
+        return [r[2] for r in scored[:self.TOP_N]]
+
+    @staticmethod
+    def off2(x, y):
+        """True when x and y differ by more than a factor of 2 (or have opposite signs)."""
+        if x is None or y is None or x == 0 or y == 0:
+            return False
+        r = x / y
+        return r < 0.5 or r > 2.0
+
+    def flags(self, f, bm):
+        """Data-error flags (ledger section 2.2): a = implied book (market cap x B/M) vs annual
+        stockholders' equity, b = market cap vs shares outstanding x price, c = listed < 12 months
+        (first QuantConnect date). d not applied."""
+        out = ""
+        mcap = float(f.market_cap)
+        try:
+            eq = self.num(f.financial_statements.balance_sheet.stockholders_equity.twelve_months)
+            if self.off2(bm * mcap, eq):
+                out += "a"
+        except Exception:
+            pass
+        try:
+            so = self.num(f.company_profile.shares_outstanding)
+            p = float(f.price)
+            if so and so > 0 and p > 0 and self.off2(mcap, so * p):
+                out += "b"
+        except Exception:
+            pass
+        try:
+            if (self.time.date() - f.symbol.id.date.date()).days < 365:
+                out += "c"
+        except Exception:
+            pass
+        return out
 
     # ----- trading --------------------------------------------------------------------------
     def bar_date(self):
@@ -342,3 +390,11 @@ class PiotroskiValue(QCAlgorithm):
         excess_t([m for m in monthly if m[0] <= 2019], "2014-2019")
         excess_t([m for m in monthly if m[0] >= 2020], "2020-2026")
         excess_t(monthly, "2014-2026")
+        fl = self.fl
+        self.set_runtime_statistic("FLAG picks/flagged/a/b/c/share", "{}/{}/{}/{}/{}/{:.1%} filter {}".format(
+            fl["picks"], fl["flagged"], fl["a"], fl["b"], fl["c"],
+            fl["flagged"] / fl["picks"] if fl["picks"] else 0.0, int(DATA_FILTER)))
+        txt = " ".join(self.fl_names)
+        for i in range(3):
+            if txt[i * 190:(i + 1) * 190]:
+                self.set_runtime_statistic(f"FLAGGED{i + 1}", txt[i * 190:(i + 1) * 190])

@@ -44,6 +44,8 @@
 - `audit_timing_studies.md`（择时类）；
 - `audit_stock_studies.md`（选股类，含逐日按实盘方式模拟的交叉核对）。
 
+去掉可疑财务数据后的复核（只作对照，原判定不改）：神奇公式、Piotroski、全市场 18 个财务指标重跑后，仍然 0 个通过。详见 research_ledger_qc_smallcap.md 第 2 节、research_ledger_qc_factors.md 第 5 节。
+
 ## 规律
 
 - 择时类：能少亏，但总在急跌后的反弹里踏空。扣成本后，打不过一直持有。

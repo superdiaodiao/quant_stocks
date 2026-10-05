@@ -1,6 +1,7 @@
 # region imports
 from AlgorithmImports import *
 # endregion
+import gc
 import math
 from datetime import date, timedelta
 
@@ -12,6 +13,9 @@ FACTORS = [
     ("NSI", -1), ("ACC", -1), ("DE", -1), ("CR", 1), ("AT", 1),
 ]
 BENCH = ("QQQ", "ONEQ", "SPY")
+# True only in the registered data-error sensitivity run (ledger section 5): raw ("_r") and
+# filtered ("_t") top-10 paper portfolios are then kept side by side.
+DATA_FILTER = False
 
 
 class FactorZoo(QCAlgorithm):
@@ -56,6 +60,8 @@ class FactorZoo(QCAlgorithm):
         self.delist_px = {}
         self.trim = False
         self.rows = []             # (ym, meta, bench returns, portfolio returns, n_noentry, n_noexit)
+        self.fl = {code: [0, 0, 0, 0] for code, _ in FACTORS}   # top10 picks, flagged, decile picks, flagged
+        self.flc = {"a": 0, "b": 0, "c": 0}                     # criteria hits among flagged raw top-10 picks
 
     # ----- helpers --------------------------------------------------------------------------
     @staticmethod
@@ -137,6 +143,72 @@ class FactorZoo(QCAlgorithm):
             out["NSI"] = None
         return out
 
+    @staticmethod
+    def off2(x, y):
+        """True when x and y differ by more than a factor of 2 (or have opposite signs)."""
+        if x is None or y is None or x == 0 or y == 0:
+            return False
+        r = x / y
+        return r < 0.5 or r > 2.0
+
+    def a_check(self, code, f, x, mc):
+        """(a) the factor's implied fundamental vs the latest reported annual value (ledger 5.2)."""
+        fs = f.financial_statements
+        inc, bs, cf = fs.income_statement, fs.balance_sheet, fs.cash_flow_statement
+        orat = f.operation_ratios
+        n = self.num
+
+        def ann(field):
+            return n(field.twelve_months)
+        if code == "EP":
+            return self.off2(x * mc, ann(inc.net_income))
+        if code == "CFP":
+            return self.off2(x * mc, ann(cf.operating_cash_flow))
+        if code == "FCFY":
+            return self.off2(x * mc, ann(cf.free_cash_flow))
+        if code == "SP":
+            return self.off2(x * mc, ann(inc.total_revenue))
+        if code == "BM":
+            return self.off2(x * mc, ann(bs.stockholders_equity))
+        if code == "EBITEV":
+            return self.off2(ann(inc.ebit), ann(inc.operating_income))
+        if code in ("ROE", "ROA", "OM", "CR", "DE", "AT"):
+            base = {"ROE": bs.stockholders_equity, "ROA": bs.total_assets, "OM": inc.total_revenue,
+                    "CR": bs.current_liabilities, "DE": bs.stockholders_equity, "AT": bs.total_assets}[code]
+            ref = {"ROE": inc.net_income, "ROA": inc.net_income, "OM": inc.operating_income,
+                   "CR": bs.current_assets, "DE": bs.total_debt, "AT": inc.total_revenue}[code]
+            b = ann(base)
+            return b is not None and self.off2(x * b, ann(ref))
+        if code in ("GPA", "GM"):
+            gm = n(orat.gross_margin.one_year)
+            rev = ann(inc.total_revenue)
+            return gm is not None and rev is not None and self.off2(gm * rev, ann(inc.gross_profit))
+        return False   # SG, EPSG, AG, ROIC, ACC, NSI: (a) not applicable
+
+    def flags(self, code, row):
+        x, mc, sym, f = row
+        bc = self.bc_cache.get(sym)
+        if bc is None:
+            bc = ""
+            try:
+                so = self.num(f.company_profile.shares_outstanding)
+                p = float(f.price)
+                if so and so > 0 and p > 0 and self.off2(mc, so * p):
+                    bc += "b"
+            except Exception:
+                pass
+            try:
+                if (self.time.date() - sym.id.date.date()).days < 365:
+                    bc += "c"
+            except Exception:
+                pass
+            self.bc_cache[sym] = bc
+        try:
+            a = "a" if self.a_check(code, f, x, mc) else ""
+        except Exception:
+            a = ""
+        return a + bc
+
     def current_symbols(self):
         syms = set()
         if self.current is not None:
@@ -202,17 +274,39 @@ class FactorZoo(QCAlgorithm):
             for code, _ in FACTORS:
                 x = v.get(code)
                 if x is not None and math.isfinite(x):
-                    vals[code].append((x, mc, f.symbol))
+                    vals[code].append((x, mc, f.symbol, f))
         ports = {}
         counts = []
+        self.bc_cache = {}
+        count_fl = DATA_FILTER and ym >= (2003, 1) and ym <= (2026, 6)
         for code, sign in FACTORS:
             rows = vals[code]
             counts.append(len(rows))
             if len(rows) < self.MIN_VALID:
                 continue
             rows.sort(key=lambda r: (sign * r[0], r[1]), reverse=True)
-            ports[code + "_t"] = [r[2] for r in rows[:self.TOP_N]]
-            ports[code + "_d"] = [r[2] for r in rows[:int(math.ceil(len(rows) / 10.0))]]
+            nd = int(math.ceil(len(rows) / 10.0))
+            if not DATA_FILTER:
+                ports[code + "_t"] = [r[2] for r in rows[:self.TOP_N]]
+                ports[code + "_d"] = [r[2] for r in rows[:nd]]
+                continue
+            # filter mode keeps only the top-10 portfolios (raw "_r", filtered "_t"); the decile
+            # portfolios were dropped after the first two filter runs ran out of memory
+            ports[code + "_r"] = [r[2] for r in rows[:self.TOP_N]]
+            good = []
+            for i, r in enumerate(rows):
+                if len(good) >= self.TOP_N and i >= self.TOP_N:
+                    break
+                fl = self.flags(code, r)
+                if count_fl and i < self.TOP_N:
+                    c = self.fl[code]
+                    c[0] += 1
+                    c[1] += bool(fl)
+                    for ch in fl:
+                        self.flc[ch] += 1
+                if not fl and len(good) < self.TOP_N:
+                    good.append(r[2])
+            ports[code + "_t"] = good
         self.pending = ports
         self.pending_ym = ym
         self.pending_meta = (n_price, n_fund, len(cand), counts)
@@ -220,6 +314,9 @@ class FactorZoo(QCAlgorithm):
         syms = set()
         for lst in ports.values():
             syms.update(lst)
+        if DATA_FILTER:   # release the Fundamental objects (memory; first filter run ran out of memory)
+            vals = rows = cand = fundamental = None
+            gc.collect()
         return list(syms | self.current_symbols())
 
     # ----- paper accounting -----------------------------------------------------------------
@@ -394,6 +491,9 @@ class FactorZoo(QCAlgorithm):
         for i in range(2):
             self.set_runtime_statistic(f"BENCH{i + 1}", " ".join(
                 f"{lab} J{bwin(a, b, 'J')} Q{bwin(a, b, 'QQQ')} S{bwin(a, b, 'SPY')}" for lab, a, b in wins[2 * i:2 * i + 2]))
+        if DATA_FILTER:
+            self.filter_output()
+            return
         for code, _ in FACTORS:
             for kind in ("_t", "_d"):
                 key = code + kind
@@ -421,3 +521,32 @@ class FactorZoo(QCAlgorithm):
             self.log(f"{ym[0]}{ym[1]:02d} {meta[0]} {meta[1]} {meta[2]} {bp(brets['QQQ'])} {bp(brets['ONEQ'])} "
                      f"{bp(brets['SPY'])} " + ",".join(f"{bp(rets.get(c + '_t'))},{bp(rets.get(c + '_d'))}"
                                                        for c, _ in FACTORS))
+
+    def filter_output(self):
+        """Data-error sensitivity (ledger section 5): raw vs filtered, judged windows only."""
+        def p(x):
+            return f"{x * 100:.1f}"
+
+        def seg(key, cost, full):
+            h1 = self.stats(self.pairs(key, 200301, 201212, cost))
+            h2 = self.stats(self.pairs(key, 201301, 202606, cost))
+            fu = self.stats(self.pairs(key, 200301, 202606, cost))
+            if not (h1 and h2 and fu):
+                return "x"
+            out = f"{p(h1['c'])},{p(h2['c'])},{p(fu['c'])},{fu['t']:.2f},{p(fu['mdd'])}"
+            if full:
+                flags = "".join(str(int(self.passes(key, 200301, c))) for c in (0.005, 0.01, 0.015))
+                out += f",{fu['sh']:.2f} P{flags}"
+            return out
+        tot = [0, 0, 0, 0]
+        fl_t = []
+        for code, _ in FACTORS:
+            c = self.fl[code]
+            for i in range(4):
+                tot[i] += c[i]
+            fl_t.append(f"{code}{100.0 * c[1] / c[0] if c[0] else 0:.1f}")
+            txt = f"T {seg(code + '_t', 0.01, True)} R {seg(code + '_r', 0.01, True)}"
+            self.set_runtime_statistic(code, txt[:200])
+        self.set_runtime_statistic("FLT", " ".join(fl_t)[:200])
+        self.set_runtime_statistic("FLC", "top10 picks {} flagged {} a {} b {} c {}".format(
+            tot[0], tot[1], self.flc["a"], self.flc["b"], self.flc["c"]))
