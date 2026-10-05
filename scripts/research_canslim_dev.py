@@ -53,6 +53,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts import research_reversal_dev as rev  # noqa: E402  (cost model, index, deflated Sharpe)
+from scripts import stop_rules  # noqa: E402  (optional stop-loss overrides; research_ledger_stops.md)
 
 NORM = NormalDist()
 DEV_START = "2017-01-01"
@@ -432,12 +433,12 @@ def attach_eps(feat: pd.DataFrame, states: pd.DataFrame, prefix: str = "") -> pd
     return out
 
 
-def build_features(data: DevData, states: dict) -> pd.DataFrame:
+def build_features(data: DevData, states: dict, first_signal: str = FIRST_SIGNAL) -> pd.DataFrame:
     pf = price_features(data.close_adj, data.vol_adj, data.sig_idx)
     uni = data.universe
     ok = (uni["price_ge_10"] == "Y") & (uni["close_on_week_end"] == "Y") & (uni["foreign_filer"] != "Y") & \
         uni["dv50_rank"].notna() & uni["security_id"].isin(data.close_adj.columns) & \
-        (uni["week_end"] >= pd.Timestamp(FIRST_SIGNAL))
+        (uni["week_end"] >= pd.Timestamp(first_signal))
     u = uni.loc[ok, ["week_end", "security_id", "ticker", "cik", "dv50_rank"]].copy()
     sess = data.sessions
     pos = sess.searchsorted(u["week_end"], side="right") - 1
@@ -513,7 +514,8 @@ def screen(feat: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     return out.sort_values(["week_end", "rs_pct", "security_id"], ascending=[True, False, True])
 
 
-def signal_schedule(feat_weeks, sessions: pd.DatetimeIndex, m_on: pd.Series, rebalance: str) -> list:
+def signal_schedule(feat_weeks, sessions: pd.DatetimeIndex, m_on: pd.Series, rebalance: str,
+                    start: str = DEV_START, end: str = DEV_END) -> list:
     """(week_end t, execution session e, is_rebalance, m_on) for each week; e is the next session after t."""
     weeks = sorted(pd.to_datetime(pd.Series(list(feat_weeks)).unique()))
     out = []
@@ -522,7 +524,7 @@ def signal_schedule(feat_weeks, sessions: pd.DatetimeIndex, m_on: pd.Series, reb
         if not len(later):
             continue
         e = later[0]
-        if e < pd.Timestamp(DEV_START):
+        if e < pd.Timestamp(start):
             continue
         if rebalance == "weekly":
             reb = True
@@ -530,7 +532,7 @@ def signal_schedule(feat_weeks, sessions: pd.DatetimeIndex, m_on: pd.Series, reb
             reb = i == len(weeks) - 1 or weeks[i + 1].month != t.month
         sig_session = sessions[sessions <= t][-1]
         out.append((t, e, reb, bool(m_on.loc[sig_session])))
-    assert_window([e for _, e, _, _ in out], DEV_START, DEV_END, "execution sessions")
+    assert_window([e for _, e, _, _ in out], start, end, "execution sessions")
     return out
 
 
@@ -544,13 +546,22 @@ def order_cost(value: float, price: float, sell: bool, hs: float) -> float:
 
 def simulate(cfg: Config, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: pd.DataFrame, last_row: pd.Series,
              qqq_idx: pd.Series, qqq_close: pd.Series, sched: list, picks: dict, rank_of: dict,
-             account: float) -> dict:
+             account: float, stops=None, sigma: pd.DataFrame | None = None, start: str = DEV_START,
+             end: str = DEV_END) -> dict:
     """Daily simulation of the CAN SLIM sleeve with ``account`` dollars.
 
     ``picks``: week_end -> list of passing security ids, best first. ``rank_of``: week_end -> {sid: dv50 rank}.
     Positions are held as units of the total-return index (value = units x idx). Returns daily NAV etc.
+    Optional (defaults keep the original behaviour): ``stops`` replaces ``cfg.stop`` with a stop_rules.StopSpec (or
+    one per simulated session); ``sigma`` (20-day return stdev frame) is required for vol stops; ``start`` / ``end``
+    set the simulated window.
     """
-    perf = sessions[(sessions >= pd.Timestamp(DEV_START)) & (sessions <= pd.Timestamp(DEV_END))]
+    perf = sessions[(sessions >= pd.Timestamp(start)) & (sessions <= pd.Timestamp(end))]
+    stop_sched = stop_rules.schedule(stops, len(perf)) if stops is not None else None
+    SIG = sigma.reindex(index=perf, columns=idx.columns).to_numpy() if sigma is not None else None
+    if stop_sched is not None and any(s_.kind == "vol" for s_ in stop_sched) and SIG is None:
+        raise ValueError("vol stops need ``sigma``")
+    extra: dict = {}        # sid -> [peak_idx, sigma at entry] (only used with ``stops``)
     col = {s: i for i, s in enumerate(idx.columns)}
     I = idx.reindex(perf).to_numpy()
     P = close.reindex(perf).to_numpy()
@@ -598,7 +609,7 @@ def simulate(cfg: Config, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: 
 
         for sid in sorted(pending):
             if sid in pos:
-                reason = "stop" if I[i, col[sid]] / pos[sid][2] - 1 < 0 else "profit"
+                reason = "stop" if I[i, col[sid]] / pos[sid][2] - 1 < 0 or stop_sched is not None else "profit"
                 sell(sid, "pending_" + reason)
         pending = set()
         stock_val = sum(u * I[i, col[s]] for s, (u, _, _) in pos.items())
@@ -636,6 +647,7 @@ def simulate(cfg: Config, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: 
                         break
                     k = order_cost(amt, P[i, c], False, hs(sid, P[i, c]))
                     pos[sid] = [(amt - k) / I[i, c], i, I[i, c]]
+                    extra[sid] = [I[i, c], SIG[i, c] if SIG is not None else np.nan]
                     cash -= amt
                     avail -= amt
                     day_cost += k
@@ -657,10 +669,16 @@ def simulate(cfg: Config, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: 
                 n_qqq += 1
         # stop / profit triggers at today's close -> sell at the next session's close
         for sid, (u, ei, eidx) in pos.items():
+            if stop_sched is not None and np.isfinite(I[i, col[sid]]):
+                extra[sid][0] = max(extra[sid][0], I[i, col[sid]])
             if ei == i:
                 continue
             r = I[i, col[sid]] / eidx - 1
-            if cfg.stop is not None and r <= -cfg.stop:
+            if stop_sched is not None:
+                hit = stop_rules.triggered(stop_sched[i], I[i, col[sid]], eidx, extra[sid][0], extra[sid][1])
+            else:
+                hit = cfg.stop is not None and r <= -cfg.stop
+            if hit:
                 pending.add(sid)
                 n_stop += 1
             elif cfg.profit is not None and r >= cfg.profit:

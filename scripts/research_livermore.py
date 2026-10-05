@@ -51,6 +51,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts import research_canslim_dev as cs  # noqa: E402  (date guard helpers, QQQ benchmark, order cost)
 from scripts import research_reversal_dev as rev  # noqa: E402  (cost model, index, deflated Sharpe)
+from scripts import stop_rules  # noqa: E402  (optional stop-loss overrides; research_ledger_stops.md)
 
 NORM = NormalDist()
 INPUTS = cs.INPUTS
@@ -318,12 +319,19 @@ RULE_FIELDS = [f for f in Config.__dataclass_fields__ if f not in ("spread_mult"
 # ======================================================================== engine
 
 def simulate(cfg: Config, data: WinData, leaders: pd.DataFrame, brk: pd.DataFrame, trail_fr: pd.DataFrame | None,
-             m_on: pd.Series, rank_of: dict, account: float | None = None) -> dict:
-    """Daily simulation. Decisions at the close of session d, orders filled at the close of session d+1."""
+             m_on: pd.Series, rank_of: dict, account: float | None = None, stops=None,
+             sigma: pd.DataFrame | None = None, start: str | None = None) -> dict:
+    """Daily simulation. Decisions at the close of session d, orders filled at the close of session d+1.
+
+    Optional (defaults keep the original behaviour): ``stops`` replaces ``cfg.stop`` with a stop_rules.StopSpec (or one
+    per simulated session); ``sigma`` is the 20-day return stdev frame for vol stops (computed from ``data.sig_idx``
+    when needed); ``start`` starts the simulation (from cash) at a later session than ``perf_start``."""
     account = cfg.account if account is None else account
     sessions = data.sessions
     eff_end = pd.Timestamp(data.spec["effective_end"])
-    perf = sessions[(sessions >= pd.Timestamp(data.spec["perf_start"])) & (sessions <= eff_end)]
+    first = pd.Timestamp(start or data.spec["perf_start"])
+    assert first >= pd.Timestamp(data.spec["perf_start"])
+    perf = sessions[(sessions >= first) & (sessions <= eff_end)]
     cs.assert_window(perf, data.spec["perf_start"], data.spec["effective_end"], "simulation sessions")
     cols = list(data.perf_idx.columns)
     col = {s: i for i, s in enumerate(cols)}
@@ -339,6 +347,11 @@ def simulate(cfg: Config, data: WinData, leaders: pd.DataFrame, brk: pd.DataFram
     lr = data.last_row.reindex(cols)
     lr_arr = lr.to_numpy()
     pct_trail = float(cfg.trail[3:]) / 100 if cfg.trail.startswith("pct") else None
+    stop_sched = stop_rules.schedule(stops, len(perf)) if stops is not None else None
+    SIG = None
+    if stop_sched is not None and any(s.kind == "vol" for s in stop_sched):
+        sg = stop_rules.sigma20(data.sig_idx) if sigma is None else sigma
+        SIG = sg.reindex(index=perf, columns=cols).to_numpy()
 
     # leaders known at the close of each session: those of the latest Friday on or before it
     lead_by_week = {t: list(zip(g["security_id"], g["rs"])) for t, g in leaders.groupby("week_end")}
@@ -444,7 +457,8 @@ def simulate(cfg: Config, data: WinData, leaders: pd.DataFrame, brk: pd.DataFram
                 day_cost += kq
                 traded += need
             pos[sid] = {"units": (amt - k) / I[i, c], "entry_i": i, "entry_idx": I[i, c], "peak_idx": I[i, c],
-                        "full": full, "filled": 1, "cost_basis": amt}
+                        "full": full, "filled": 1, "cost_basis": amt,
+                        "sigma": SIG[i, c] if SIG is not None else np.nan}
             cash -= amt
             day_cost += k
             traded += amt
@@ -474,7 +488,11 @@ def simulate(cfg: Config, data: WinData, leaders: pd.DataFrame, brk: pd.DataFram
                 if p["entry_i"] == i:
                     continue
                 r = I[i, c] / p["entry_idx"] - 1
-                if cfg.stop is not None and r <= -cfg.stop:
+                if stop_sched is not None:
+                    hit = stop_rules.triggered(stop_sched[i], I[i, c], p["entry_idx"], p["peak_idx"], p["sigma"])
+                else:
+                    hit = cfg.stop is not None and r <= -cfg.stop
+                if hit:
                     pend_sell[sid] = "stop"
                     counts["stop"] += 1
                 elif (T is not None and T[i, c]) or (pct_trail is not None and I[i, c] / p["peak_idx"] - 1 <= -pct_trail):

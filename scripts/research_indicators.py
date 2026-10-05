@@ -37,6 +37,7 @@ from scripts import research_qqq_timing as qt  # noqa: E402  (Yahoo parser + dat
 from scripts import research_livermore as lv  # noqa: E402  (stock windows loader, universe, metrics)
 from scripts import research_canslim_dev as cs  # noqa: E402  (order cost, QQQ benchmark)
 from scripts import research_reversal_dev as rev  # noqa: E402  (half spread, deflated Sharpe)
+from scripts import stop_rules  # noqa: E402  (optional stop-loss overlay; research_ledger_stops.md)
 
 NORM = NormalDist()
 OUT = ROOT / "output/research_only/indicators"
@@ -458,11 +459,18 @@ def stock_signals(rule: Rule, bars: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def stock_sim(rule: Rule, data, buy: pd.DataFrame, sell: pd.DataFrame, elig: dict, rank_of: dict,
-              account: float = 10_000.0, k: int = K_STOCKS) -> dict:
-    """Daily engine. Decisions at the close of d (sells for held names, buys for eligible names), fills at d+1."""
+              account: float = 10_000.0, k: int = K_STOCKS, stops=None, sigma: pd.DataFrame | None = None,
+              start: str | None = None) -> dict:
+    """Daily engine. Decisions at the close of d (sells for held names, buys for eligible names), fills at d+1.
+
+    Optional (defaults keep the original behaviour): ``stops`` adds a stop_rules.StopSpec (or one per simulated
+    session) checked before the rule's own exit; ``sigma`` is the 20-day return stdev frame for vol stops (from
+    ``data.sig_idx`` when needed); ``start`` starts the simulation (from cash) after ``perf_start``."""
     sessions = data.sessions
     eff_end = pd.Timestamp(data.spec["effective_end"])
-    perf = sessions[(sessions >= pd.Timestamp(data.spec["perf_start"])) & (sessions <= eff_end)]
+    first = pd.Timestamp(start or data.spec["perf_start"])
+    assert first >= pd.Timestamp(data.spec["perf_start"])
+    perf = sessions[(sessions >= first) & (sessions <= eff_end)]
     lv.cs.assert_window(perf, data.spec["perf_start"], data.spec["effective_end"], "simulation sessions")
     cols = list(data.perf_idx.columns)
     col = {s: i for i, s in enumerate(cols)}
@@ -481,6 +489,13 @@ def stock_sim(rule: Rule, data, buy: pd.DataFrame, sell: pd.DataFrame, elig: dic
     traded = 0.0
     counts = {"buy": 0, "sell": 0, "take_profit": 0, "delisted": 0}
     trades = []
+    stop_sched = stop_rules.schedule(stops, len(perf)) if stops is not None else None
+    SIG = None
+    if stop_sched is not None:
+        counts["stop"] = 0
+        if any(s_.kind == "vol" for s_ in stop_sched):
+            sg = stop_rules.sigma20(data.sig_idx) if sigma is None else sigma
+            SIG = sg.reindex(index=perf, columns=cols).to_numpy()
 
     def hs(sid, price, i):
         w = weeks[wk_pos[i]] if wk_pos[i] >= 0 else None
@@ -521,7 +536,8 @@ def stock_sim(rule: Rule, data, buy: pd.DataFrame, sell: pd.DataFrame, elig: dic
             if amt < 100:
                 break
             kc = cs.order_cost(amt, P[i, c], False, hs(sid, P[i, c], i))
-            pos[sid] = {"units": (amt - kc) / I[i, c], "entry_i": i, "entry_idx": I[i, c], "cost_basis": amt}
+            pos[sid] = {"units": (amt - kc) / I[i, c], "entry_i": i, "entry_idx": I[i, c], "cost_basis": amt,
+                        "peak_idx": I[i, c], "sigma": SIG[i, c] if SIG is not None else np.nan}
             cash -= amt
             day_cost += kc
             traded += amt
@@ -529,10 +545,16 @@ def stock_sim(rule: Rule, data, buy: pd.DataFrame, sell: pd.DataFrame, elig: dic
         pend_buy = []
         if i < len(perf) - 1:
             for sid, p in pos.items():
+                c = col[sid]
+                if np.isfinite(I[i, c]):
+                    p["peak_idx"] = max(p["peak_idx"], I[i, c])
                 if p["entry_i"] == i:
                     continue
-                c = col[sid]
-                if rule.take_profit is not None and I[i, c] / p["entry_idx"] - 1 >= rule.take_profit:
+                if stop_sched is not None and stop_rules.triggered(stop_sched[i], I[i, c], p["entry_idx"],
+                                                                   p["peak_idx"], p["sigma"]):
+                    pend_sell[sid] = "stop"
+                    counts["stop"] += 1
+                elif rule.take_profit is not None and I[i, c] / p["entry_idx"] - 1 >= rule.take_profit:
                     pend_sell[sid] = "take_profit"
                     counts["take_profit"] += 1
                 elif S[i, c]:
