@@ -38,6 +38,9 @@
 | 市销率最低的 10 只，真实交易复核 | research_ledger_qc_factors.md 第 3–4 节 | 统计显著性 3.09，刚过门槛；去掉错误数据后 2.84，不过线；最惨跌掉 70%；已列为未来观察对象 |
 | 神奇公式、Piotroski、小盘股动量（QuantConnect） | research_ledger_qc_smallcap.md | 没通过 |
 | 中小盘财报超预期、价值加动量（QuantConnect） | research_ledger_qc_round2.md | 没通过 |
+| QQQ 波动率控仓（8 种设置） | research_ledger_voltarget.md | 1 种形式上通过，但其实是一直拿 1.37 倍杠杆；和同倍数不择时相比都没多赚，只是回撤浅 |
+| 短线超跌反弹 RSI(2)（QQQ 和前 100 大股票） | research_ledger_mean_reversion.md | 没通过；QQQ 加杠杆版的"通过"来自 QQQ 本身强于 ONEQ |
+| 大盘股财报事件（公告溢价、公告反应漂移） | research_ledger_earnings_events.md | 两折都没通过 |
 | 因子基金、IBD 50（FFTY）、sell put 指数 | 只是对比，没有台账 | 这十几年都跑输 QQQ |
 
 两轮独立审计没有发现会改变结论的方法错误：
