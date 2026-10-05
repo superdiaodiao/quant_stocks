@@ -38,10 +38,11 @@ from scripts import research_indicators as ind  # noqa: E402  (ONEQ on sessions,
 from scripts import research_livermore as lv  # noqa: E402  (window loader)
 from scripts import research_reversal_dev as rev  # noqa: E402  (IBKR order cost, half spread, terminal values)
 
-OUT = ROOT / "output/research_only/osap/backtest"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/osap") / "backtest"
 LEDGER = ROOT / "docs/research_ledger_osap.md"
 FROZEN = ROOT / "output/research_only/osap/frozen_prereg.json"
-CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/osap")
+CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/osap")   # raw OSAP files: version independent
 DateGuardError = cs.DateGuardError
 
 PERIODS = {
@@ -179,7 +180,7 @@ def fundamental_states(facts: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=cols)
 
 
-def build_states(ciks, cache: Path | None = CACHE / "fundamental_states.csv.gz") -> pd.DataFrame:
+def build_states(ciks, cache: Path | None = dv.versioned(CACHE / "fundamental_states.csv.gz")) -> pd.DataFrame:
     if cache is not None and cache.is_file():
         return pd.read_csv(cache, dtype={"filed": str, "gp_fy_end": str, "opr_fy_end": str})
     parts = [fundamental_states(extract_annual_facts(int(c))) for c in sorted(set(int(x) for x in ciks))]

@@ -62,8 +62,11 @@ PRICE_START = "2015-10-01"     # signal warm-up only (52-week high, 12-month RS,
 UNIVERSE_START = "2016-01-01"
 FIRST_SIGNAL = "2016-12-30"    # its trades execute at the close of 2017-01-03
 
-INPUTS = ROOT / "output/research_only/reversal_2012_2026/inputs"
-CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/reversal_2012_2026")
+# data version: REVERSAL_DATA_VERSION=v2 reads the v2 copies and writes <OUT>_v2 (docs/robustness_data_v2.md)
+from scripts import study_data_version as dv  # noqa: E402
+
+INPUTS = dv.INPUTS
+CACHE = dv.CACHE
 MAIN = Path("/Users/bytedance/code/quant_stocks")
 CF_DIRS = [MAIN / "research_cache/canslim_dev/sec_companyfacts",
            MAIN / "cleaned_stocks_data/financial/sec_companyfacts_cache",
@@ -71,8 +74,8 @@ CF_DIRS = [MAIN / "research_cache/canslim_dev/sec_companyfacts",
            MAIN / "research_cache/sue_lt_2020_2026/sec_companyfacts",
            CACHE / "raw/sec/companyfacts"]
 CF_FETCH_DIR = CF_DIRS[0]
-EPS_CACHE = MAIN / "research_cache/canslim_dev"
-OUT = ROOT / "output/research_only/canslim_dev_2017_2022"
+EPS_CACHE = dv.versioned(MAIN / "research_cache/canslim_dev")   # derived from INPUTS earnings_events: per version
+OUT = dv.versioned(ROOT / "output/research_only/canslim_dev_2017_2022")
 
 EPS_CONCEPTS = ("EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted", "EarningsPerShareBasic")
 QQQ_HALF_SPREAD = 0.0001

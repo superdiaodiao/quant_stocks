@@ -37,10 +37,12 @@ from scripts import research_megacap as mc  # noqa: E402
 from scripts import research_indicators as ind  # noqa: E402
 from scripts import research_reversal_dev as rev  # noqa: E402
 
-OUT = ROOT / "output/research_only/fundamentals"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT_V1 = ROOT / "output/research_only/fundamentals"
+OUT = dv.versioned(OUT_V1)
 LEDGER = ROOT / "docs/research_ledger_fundamentals.md"
-FROZEN = OUT / "frozen_prereg.json"
-FCACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/fundamentals")
+FROZEN = OUT_V1 / "frozen_prereg.json"   # frozen rules are never versioned
+FCACHE = dv.versioned(Path("/Users/bytedance/code/quant_stocks/research_cache/fundamentals"))
 LISTED = lv.CACHE / "universe/weekly_listed.csv.gz"
 SECFACTS = lv.CACHE / "prefilter/security_facts.csv.gz"
 SUBMISSIONS = lv.CACHE / "raw/sec/submissions"

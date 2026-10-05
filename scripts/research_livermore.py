@@ -56,9 +56,11 @@ from scripts import stop_rules  # noqa: E402  (optional stop-loss overrides; res
 NORM = NormalDist()
 INPUTS = cs.INPUTS
 CACHE = cs.CACHE
-OUT = ROOT / "output/research_only/livermore"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT_V1 = ROOT / "output/research_only/livermore"
+OUT = dv.versioned(OUT_V1)
 LEDGER = ROOT / "docs/research_ledger_livermore.md"
-FROZEN = OUT / "frozen_rule.json"
+FROZEN = OUT_V1 / "frozen_rule.json"   # frozen rules are never versioned
 DateGuardError = cs.DateGuardError
 
 WINDOWS = {

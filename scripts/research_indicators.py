@@ -40,9 +40,11 @@ from scripts import research_reversal_dev as rev  # noqa: E402  (half spread, de
 from scripts import stop_rules  # noqa: E402  (optional stop-loss overlay; research_ledger_stops.md)
 
 NORM = NormalDist()
-OUT = ROOT / "output/research_only/indicators"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT_V1 = ROOT / "output/research_only/indicators"
+OUT = dv.versioned(OUT_V1)
 LEDGER = ROOT / "docs/research_ledger_indicators.md"
-FROZEN = OUT / "frozen_rules.json"
+FROZEN = OUT_V1 / "frozen_rules.json"   # frozen rules are never versioned
 RAW = Path("/Users/bytedance/code/quant_stocks/research_cache/indicators/raw")
 BENCH_DIR = Path("/Users/bytedance/code/quant_stocks/research_cache/benchmarks")
 QQQ_RAW = qt.CACHE

@@ -29,8 +29,9 @@ from scripts import research_indicators as ri  # noqa: E402
 from scripts import research_livermore as lv  # noqa: E402
 from scripts import stop_rules as sr  # noqa: E402
 
-OUT = ROOT / "output/research_only/stops"
-EPS_ALL = Path("/Users/bytedance/code/quant_stocks/research_cache/stops/eps_states_filed_all.csv.gz")
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/stops")
+EPS_ALL = dv.versioned(Path("/Users/bytedance/code/quant_stocks/research_cache/stops/eps_states_filed_all.csv.gz"))
 ACCOUNT = 10_000.0
 WINDOW = {"perf_start": "2015-01-01", "perf_end": "2026-08-31", "price_start": "2013-06-01",
           "universe_start": "2014-01-01", "judged_from": "2018-01-01"}

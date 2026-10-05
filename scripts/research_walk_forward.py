@@ -34,7 +34,8 @@ from scripts import research_grid_check as gc  # noqa: E402
 from scripts import research_indicators as ri  # noqa: E402
 
 qt, lv, cs, rev = ri.qt, ri.lv, ri.cs, ri.rev
-OUT = ROOT / "output/research_only/walk_forward"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/walk_forward")
 FutureDataError = ri.FutureDataError
 
 LOOKBACKS = (1, 3, 5)

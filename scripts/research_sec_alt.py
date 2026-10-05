@@ -55,7 +55,8 @@ RAW_FRAMES = CACHE / "raw/frames"
 RAW_13F = CACHE / "raw/13f"
 BENCH_DIR = MAIN / "research_cache/benchmarks"
 INPUTS = cs.INPUTS
-OUT = ROOT / "output/research_only/sec_alt"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/sec_alt")
 LEDGER = ROOT / "docs/research_ledger_sec_alt.md"
 
 START = "2013-12-31"          # $10,000 cash at this close; first return 2014-01-02

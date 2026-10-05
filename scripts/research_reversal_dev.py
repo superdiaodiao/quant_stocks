@@ -47,9 +47,12 @@ WARMUP_START = "2011-06-01"
 EVAL_START = "2012-01-01"
 JUDGED_YEARS = (2014, 2015, 2016)   # 2012 and 2013 exceed the 2% missing-slot rule (data report): reported only
 
-INPUTS = ROOT / "output/research_only/reversal_2012_2026/inputs"
-CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/reversal_2012_2026")
-OUT = ROOT / "output/research_only/reversal_dev_2012_2016"
+# data version: REVERSAL_DATA_VERSION=v2 reads the v2 copies and writes <OUT>_v2 (docs/robustness_data_v2.md)
+from scripts import study_data_version as dv  # noqa: E402
+
+INPUTS = dv.INPUTS
+CACHE = dv.CACHE
+OUT = dv.versioned(ROOT / "output/research_only/reversal_dev_2012_2016")
 
 # ---------------------------------------------------------------- cost assumptions (IBKR Pro Tiered, 2012-2016)
 EXCHANGE_FEE_PER_SHARE = 0.0010    # Nasdaq closing-cross (MOC/LOC) fee order of magnitude, passed through by Tiered

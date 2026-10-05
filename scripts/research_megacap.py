@@ -40,8 +40,9 @@ from scripts import research_indicators as ind  # noqa: E402  (ONEQ on sessions)
 from scripts import research_canslim_dev as cs  # noqa: E402  (companyfacts cache dirs, date guard)
 from scripts import research_reversal_dev as rev  # noqa: E402  (IBKR order cost, half spread, rebalance band)
 
-OUT = ROOT / "output/research_only/megacap"
-SHARES_CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/megacap/sec_share_facts.csv.gz")
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/megacap")
+SHARES_CACHE = dv.versioned(Path("/Users/bytedance/code/quant_stocks/research_cache/megacap/sec_share_facts.csv.gz"))
 LISTS = lv.CACHE / "prefilter/lists.csv.gz"
 ACCOUNT = 10_000.0
 WINDOW = "megacap"

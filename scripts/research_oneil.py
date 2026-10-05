@@ -39,10 +39,12 @@ from scripts import research_livermore as lv  # noqa: E402  (window loader, univ
 from scripts import research_indicators as ind  # noqa: E402  (ONEQ on sessions, metrics vs ONEQ, criteria)
 from scripts import research_reversal_dev as rev  # noqa: E402  (half spread, max drawdown)
 
-OUT = ROOT / "output/research_only/oneil"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT_V1 = ROOT / "output/research_only/oneil"
+OUT = dv.versioned(OUT_V1)
 LEDGER = ROOT / "docs/research_ledger_oneil.md"
 RAW = Path("/Users/bytedance/code/quant_stocks/research_cache/oneil/raw")
-EPS_CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/oneil/eps_states_filed.csv.gz")
+EPS_CACHE = dv.versioned(Path("/Users/bytedance/code/quant_stocks/research_cache/oneil/eps_states_filed.csv.gz"))
 DateGuardError = cs.DateGuardError
 
 PERIODS = {
@@ -830,7 +832,7 @@ def write_frozen(fold: str, variant: int) -> None:
 
 
 def frozen_config(fold: str) -> tuple[Config, dict]:
-    p = OUT / f"frozen_{fold}.json"
+    p = (OUT_V1 if dv.IS_V2 else OUT) / f"frozen_{fold}.json"   # v2 reads the v1 frozen rule (never versioned)
     if not p.is_file():
         raise SystemExit(f"no frozen rule at {p}: freeze the rule in the ledger first")
     fr = json.loads(p.read_text())

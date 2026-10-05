@@ -38,7 +38,8 @@ from scripts import research_livermore as lv  # noqa: E402  (window loader, univ
 from scripts import research_indicators as ind  # noqa: E402  (ONEQ on sessions, metrics vs ONEQ, criteria)
 from scripts import research_reversal_dev as rev  # noqa: E402  (half spread, D5 terminal values)
 
-OUT = ROOT / "output/research_only/earnings_events"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/earnings_events")
 INPUTS = cs.INPUTS
 ACCOUNT = 10_000.0
 N_UNIVERSE = 250

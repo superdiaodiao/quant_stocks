@@ -35,7 +35,8 @@ from scripts import research_reversal_dev as rev  # noqa: E402  (half spread, te
 from scripts import research_indicators as ind  # noqa: E402  (rsi, ONEQ on sessions, stock metrics, criteria)
 
 END = "2026-09-30"
-OUT = ROOT / "output/research_only/mean_reversion"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/mean_reversion")
 QLD_PATH = Path("/Users/bytedance/code/quant_stocks/research_cache/qqq_timing/raw/chart_QLD.json")
 ETF_HALF_SPREAD = {"QQQ": 1e-4, "QLD": 2e-4, "ONEQ": 2e-4, "CASH": 0.0}
 ONEQ_HALF_SPREAD = 2e-4

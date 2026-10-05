@@ -31,7 +31,8 @@ sys.path.insert(0, str(ROOT))
 from scripts import research_indicators as ri  # noqa: E402
 from scripts import research_qqq_timing as qt  # noqa: E402
 
-OUT = ROOT / "output/research_only/grid_check"
+from scripts import study_data_version as dv  # noqa: E402  (REVERSAL_DATA_VERSION; docs/robustness_data_v2.md)
+OUT = dv.versioned(ROOT / "output/research_only/grid_check")
 MA_SHORT, MA_LONG = range(3, 11), range(20, 61)
 DC_ENTRY, DC_EXIT = range(10, 61), range(5, 31, 5)
 OWNER_REF = {"ma": (5, 20), "donchian": (20, 20)}
