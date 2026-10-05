@@ -1507,6 +1507,10 @@ TIINGO_DATA = {"done", "done_review", "partial"}       # step 8 statuses whose r
 TIINGO_FINAL_EMPTY = {"wrong_entity", "no_data", "no_data_in_window", "refused"}
 YAHOO_ACCEPTED = {"ok", "partial", "review"}
 VENDOR_ORDER = ("tiingo_step8", "tiingo", "wiki", "yahoo_step7", "yahoo")  # preference on the same session
+if common.DATA_VERSION == "v2":
+    # data version 2 (plan section 0, 2026-10-05): archived Yahoo rows rank after every v1 source; ``archive_otc`` are
+    # the OTC tickers (T+Q, T+F) of the D5 names, read only after the Nasdaq ticker's last row
+    VENDOR_ORDER = VENDOR_ORDER + ("archive", "archive_otc")
 SNAPSHOT_END_SLACK_DAYS = 45  # a snapshot-dated end can come before the last trade by up to a capture gap
 # A vendor filler row (plan rule R5): the close repeats the previous session's close on a volume below
 # this share of the median volume of the last FILLER_LOOKBACK real sessions (ATVI 2023-10-13: 1 share
@@ -1554,6 +1558,38 @@ def filler_flags(close: np.ndarray, volume: np.ndarray) -> np.ndarray:
         elif v > 0:
             recent.append(v)
     return flags
+
+
+def archive_rows(sid: str, frames: list[pd.DataFrame]) -> list[pd.DataFrame]:
+    """Version 2: the archived Yahoo rows of ``sid`` (reversal_data_v2_archive.py ``series/archive``): the Nasdaq
+    ticker's rows as ``archive``, and the OTC tickers' rows (``otc``) as ``archive_otc`` only after the last row any
+    source has under the Nasdaq ticker (an OTC close follows the last Nasdaq trade; never the other way round)."""
+    path = common.V2_FILL / "series" / "archive" / f"{sid}.csv.gz"
+    a = pd.read_csv(path) if path.exists() else pd.DataFrame()
+    y = common.V2_FILL / "series" / "yahoo_otc" / f"{sid}.csv.gz"  # live Yahoo charts of the OTC tickers (T+Q, T+F)
+    if y.exists():
+        yo = pd.read_csv(y)
+        if len(yo):
+            yo = yo.assign(capture="yahoo_live", otc=True)[["date", "capture", "otc", "close_raw", "volume_raw"]]
+            a = pd.concat([a, yo], ignore_index=True) if len(a) else yo
+    if a.empty:
+        return []
+    a["date"] = pd.to_datetime(a["date"])
+    a = a.sort_values(["date", "capture"], ascending=[True, False]).drop_duplicates("date", keep="first")
+    otc = a["otc"].astype(str).str.lower().eq("true")
+    nas = a[~otc]
+    out = []
+    if len(nas):
+        out.append(pd.DataFrame({"date": nas["date"], "close": nas["close_raw"], "volume": nas["volume_raw"],
+                                 "src": "archive"}))
+    last = max([pd.to_datetime(f["date"]).max() for f in frames + out if len(f)], default=None)
+    o = a[otc]
+    if len(o) and last is not None:
+        o = o[o["date"] > last]
+        if len(o):
+            out.append(pd.DataFrame({"date": o["date"], "close": o["close_raw"], "volume": o["volume_raw"],
+                                     "src": "archive_otc"}))
+    return out
 
 
 class PriceBook:
@@ -1609,6 +1645,8 @@ class PriceBook:
                 data = pd.read_csv(path, usecols=["date", "close", "volume"])
                 frames.append(pd.DataFrame({"date": pd.to_datetime(data["date"].str[:10]), "close": data["close"],
                                             "volume": data["volume"], "src": "tiingo_step8"}))
+        if common.DATA_VERSION == "v2":
+            frames += archive_rows(sid, frames)
         if frames:
             out = pd.concat(frames, ignore_index=True)
             out["date"] = pd.to_datetime(out["date"]).dt.normalize()
@@ -1812,6 +1850,7 @@ def last_trade(book: PriceBook, sid: str, limit: str, anchor: str = "") -> dict:
     filler sessions after the last trade and on or before ``limit``.
     """
     rows = book.rows(sid)
+    rows = rows[rows["src"] != "archive_otc"]  # v2: an OTC ticker's close is never the last Nasdaq trade
     fillers = book.filler_dates(sid)
     inside = rows[(rows["date"] <= pd.Timestamp(limit)) & (rows["volume"].fillna(0) > 0)]
     traded = inside[~inside["date"].isin(fillers)]
@@ -1931,6 +1970,11 @@ PRICE_SOURCE_URLS = {
     "wiki": "https://data.nasdaq.com/api/v3/datatables/WIKI/PRICES (raw close; CACHE/wiki/by_ticker)",
     "yahoo_step7": "https://query1.finance.yahoo.com/v8/finance/chart/{ticker} (split-restored raw close; CACHE/yahoo)",
     "yahoo": "https://query1.finance.yahoo.com/v8/finance/chart/{ticker} (split-restored raw close; holdout yahoo_nominal)",
+    # version 2 (2026-10-05): archived Yahoo captures and the OTC tickers' captures / live charts
+    "archive": "https://web.archive.org/ (archived Yahoo table.csv / history page of {ticker}; raw close restored; "
+               "research_cache/reversal_2012_2026_v2_fill/series/archive)",
+    "archive_otc": "https://web.archive.org/ or https://query1.finance.yahoo.com/v8/finance/chart/ (OTC ticker of "
+                   "{ticker}: T+Q / T+F; research_cache/reversal_2012_2026_v2_fill/series)",
 }
 NON_NASDAQ = {"NYSE", "NYSE American", "NYSE Arca", "Cboe BZX", "CBOE"}
 
@@ -3281,6 +3325,42 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+if common.DATA_VERSION == "v2":
+    # version 2 (2026-10-05): two D5 rows whose SEC filings state a fixed per-share consideration (the SEC review in
+    # inputs_v2/v2_d5_sec_evidence.csv); booked as the plan's cash merger rule (4.5). Other "recovery" rows (ranges,
+    # CVRs, pro rata residuals) have no fixed value and stay with the D5 rule.
+    REVIEWED.update({
+        "1354513": {"type": "cash_merger", "sub": "merger", "cash": 2.0503,
+                    "url": _SEC + "1354513/000110465916122229/a16-11800_18k.htm",
+                    "approved": "v2 SEC review: cash-out merger completed 2016-05-20, 2.0503 USD per share",
+                    "note": "ChinaCache (CTCM): merger closing 8-K; each share cancelled for 2.0503 USD cash"},
+        "1596946": {"type": "cash_merger", "sub": "merger", "cash": 0.01,
+                    "url": _SEC + "1596946/000143774923017339/qtntq20230605_8k.htm",
+                    "approved": "v2 SEC review: Jersey merger paid 0.01 USD cash per ordinary share",
+                    "note": "Quotient (QTNT): merger closing 8-K 2023-06-14; ordinary shares cancelled for 0.01 USD each"},
+    })
+    # the code's own table, which load_review_verdicts restores before merging the hand-review verdicts
+    CODE_REVIEWED.update({sid: dict(REVIEWED[sid]) for sid in ("1354513", "1596946")})
+D5_EVIDENCE = common.INPUTS / "v2_d5_sec_evidence.csv"  # version 2: what the SEC filings say the old equity got
+
+
+def attach_d5_evidence(frame: pd.DataFrame) -> pd.DataFrame:
+    """Version 2 (plan section 0, 2026-10-05): the hand-read SEC evidence on the old common stock of the D5 names
+    (``inputs_v2/v2_d5_sec_evidence.csv``) beside each row. It decides nothing by itself: an OTC close found by the
+    price rules above still values the row (plan 4.5), and with none the owner's D5 rule (-55%) stays; a plan that
+    cancels the old equity without a distribution is the evidence for the -100% stress test."""
+    for c in ("sec_equity_decision", "sec_equity_accession", "sec_equity_url"):
+        frame[c] = ""
+    if not D5_EVIDENCE.exists():
+        return frame
+    ev = read_csv_text(D5_EVIDENCE).set_index("security_id")
+    hit = frame["security_id"].isin(ev.index)
+    frame.loc[hit, "sec_equity_decision"] = frame.loc[hit, "security_id"].map(ev["decision"])
+    frame.loc[hit, "sec_equity_accession"] = frame.loc[hit, "security_id"].map(ev["accession"])
+    frame.loc[hit, "sec_equity_url"] = frame.loc[hit, "security_id"].map(ev["doc_url"])
+    return frame
+
+
 def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     """Read the cached documents and prices, decide every row, write the outputs."""
     evidence, leads = gather_evidence(scope, filings)
@@ -3295,6 +3375,8 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     log(f"existing terminal rows: {len(existing)}, {len(matched)} matched to scoped securities")
     verified_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     frame, used = build_rows(scope, evidence, book, matched, NameIndex(master), read_csv_text(CANDIDATES), verified_at)
+    if common.DATA_VERSION == "v2":
+        frame = attach_d5_evidence(frame)
     common.atomic_write(OUTPUT, frame.to_csv(index=False).encode())
     common.atomic_write(OUT / "prices_used.csv", used.to_csv(index=False).encode())
     handoff = reconcile_handoff(frame, used)

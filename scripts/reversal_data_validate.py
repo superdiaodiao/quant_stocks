@@ -83,6 +83,9 @@ UNIVERSE_N = 250
 PRICE_RANK = 300
 MIN_PRICE = 10.0
 VENDORS = ("tiingo", "yahoo", "wiki")
+if common.DATA_VERSION == "v2":
+    # version 2 (plan section 0, 2026-10-05): the archived Yahoo fill rows are a vendor raw source too
+    VENDORS = VENDORS + ("archive",)
 MISSING_CODES = (-99.99, -999.0)
 SNAPSHOT_MAX_AGE = 160
 SYMBOL_FILE_MIN_ROWS = 1000
@@ -136,7 +139,7 @@ NEED_WEEK_DAYS = 6          # a need window covers a week when it reaches into t
 CANDIDATE_COVERED = 0.95    # candidates_resolved: a vendor series over 95% of the needed sessions
 BREAK_DAY = "2025-06-24"                                # plan 4.2 / 6: the stored files' unit break
 HOLD_WEEKS = 4                                          # plan D3: a hold of up to 4 weeks after the formation week
-CACHE_KEY_PREFIX = "research_cache/reversal_2012_2026/"  # manifest keys of cache files (plan 1.1: relative paths)
+CACHE_KEY_PREFIX = f"research_cache/{common.CACHE.name}/"  # manifest keys of cache files (plan 1.1: relative paths)
 # Files the running Tiingo fetch keeps writing: read once per run, their growth during the run is reported only.
 LIVE_FILES = ("tiingo/fetch_status.csv", "raw_index.csv.gz", "quota_ledger.csv")
 
@@ -380,6 +383,8 @@ class Context:
         cache_prefix = str(common.CACHE)
         if text.startswith(cache_prefix):
             return self.cache / text[len(cache_prefix):].lstrip("/")
+        if text.startswith(CACHE_KEY_PREFIX):
+            return self.cache / text[len(CACHE_KEY_PREFIX):]
         if text.startswith("research_cache/reversal_2012_2026/"):
             return self.cache / text[len("research_cache/reversal_2012_2026/"):]
         path = Path(text)

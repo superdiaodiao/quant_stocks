@@ -25,8 +25,18 @@ from urllib.request import Request, urlopen
 from src.io.sec_contact import sec_user_agent
 
 MAIN_CHECKOUT = Path("/Users/bytedance/code/quant_stocks")
-CACHE = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026"
-INPUTS = Path("output/research_only/reversal_2012_2026/inputs")
+# Data version (plan section 0): v1 is frozen and read only. ``REVERSAL_DATA_VERSION=v2`` points every step at the
+# version-2 copies instead (a copy-on-write clone of the v1 cache and of the v1 inputs, built 2026-10-05), so a v2
+# rebuild never writes a v1 file.
+DATA_VERSION = os.environ.get("REVERSAL_DATA_VERSION", "v1").strip().lower() or "v1"
+if DATA_VERSION not in ("v1", "v2"):
+    raise ValueError(f"REVERSAL_DATA_VERSION must be v1 or v2, not {DATA_VERSION!r}")
+V1_CACHE = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026"
+V1_INPUTS = Path("output/research_only/reversal_2012_2026/inputs")
+CACHE = V1_CACHE if DATA_VERSION == "v1" else MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2"
+INPUTS = V1_INPUTS if DATA_VERSION == "v1" else Path("output/research_only/reversal_2012_2026/inputs_v2")
+# the v2 fill sources (archive.org Yahoo captures, companiesmarketcap, QuantQuote, QuantConnect), local only
+V2_FILL = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2_fill"
 RAW = CACHE / "raw"
 RAW_INDEX = CACHE / "raw_index.csv.gz"
 QUOTA_LEDGER = CACHE / "quota_ledger.csv"

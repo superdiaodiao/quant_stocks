@@ -4725,6 +4725,13 @@ def main(argv=None) -> int:
     ids = sorted(set(prep["targets"]["security_id"]) if only is None else set(only))
     states = run_securities(ids, prep["bundles"], prep["identity"], prep["windows"], prep["sessions"], args.rebuild)
     mark = phase("securities", mark)
+    v2_facts = None
+    if common.DATA_VERSION == "v2" and only is None:
+        # data version 2 (plan section 0, 2026-10-05): fixes, archive fills and third votes on the canonical files
+        from scripts import reversal_data_v2_fill as v2fill
+        ids, states, v2_facts = v2fill.apply_v2(ids, states, prep, PRICES_DIR, OUT, INPUTS, CACHE, prep["bundles"],
+                                                frames_for)
+        mark = phase("v2_fill", mark)
     superseded = []
     if only is None and args.rebuild:  # price files of securities that are no longer targets: moved aside
         superseded = supersede_non_targets(ids)
@@ -4744,6 +4751,10 @@ def main(argv=None) -> int:
         return 0
     summary = summarize_tables(states, prep, ids, args)
     summary["hand_review_sources"] = review_source_summary(states)
+    if v2_facts is not None:
+        from scripts import reversal_data_v2_fill as v2fill
+        v2_facts["tables"] = v2fill.post_tables(SPLIT_EVENTS, REVIEWED_MOVES, OUT, INPUTS, PRICES_DIR)
+        summary["v2"] = v2_facts
     mark = phase("tables_and_panel", mark)
     stale = sorted(path.stem for path in PRICES_DIR.glob("*.csv") if path.stem not in set(ids))
     summary["price_files"] = {"superseded_this_run": superseded, "not_targets_left": stale,

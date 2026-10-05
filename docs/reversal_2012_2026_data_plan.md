@@ -44,6 +44,10 @@ Owner decisions so far, all made before any returns were seen:
     - it has no evidence at all.
 
     The other short_window weeks are judged small and are listed (§6).
+- 2026-10-05, **data version 2 fill sources** (after the free-source survey `docs/data_sources_survey.md`; decided before any returns were seen; version 2 stays a robustness check with the rules unchanged):
+  - (a) All three new fill sources are used: archive.org Wayback captures of old Yahoo history pages and `table.csv` files; companiesmarketcap.com daily market cap; the QuantQuote free S&P 500 daily pack (the archive.org copy). The owner accepts their terms risk (companiesmarketcap ToS §5; QuantQuote has no licence text; the archived pages' content is Yahoo's, covered by the 2026-10-02 Yahoo decision).
+  - (b) QuantConnect: the owner accepts the risk under its terms v1.4 §2.6, which bans exporting platform data via runtime statistics. Pulling QC values back to this machine is allowed when useful (lowest precedence, or a tie-break vote). Uploading local data to QC stays off.
+  - Precedence and second-source rules for v2 are those of the survey's §5: v1's order first, then the archived `table.csv`, the archived history pages (latest capture holding the session), QuantQuote, companiesmarketcap (QuantConnect last). Two sources within 0.5% confirm each other; captures of the same Yahoo page are one source, and archived Yahoo is the same source as live Yahoo; rows are looked up by the ticker in use on each date; a capture that shows more than 5 sessions after the delisting is dropped; a week counts as priced only when every session has a row.
 
 ---
 
