@@ -1,0 +1,13 @@
+fix_id,security_id,ticker,ex_date,applied,reason,children_sources,children_second_source
+F01,1560385.T-LMCA,LMCA,2014-07-24,Y,distribution_value,FWONK:yahoo,FWONK:-
+F02,1560385.T-LMCA,LMCA,2014-11-04,Y,distribution_value,LBRDA:canonical,LBRDA:-
+F03,866374,FLEX,2024-01-03,Y,distribution_value,NXT:canonical,NXT:Y
+F04,1828318,ENVX,2025-07-17,N,no close for ENVXW on the ex-date,,
+F05,1035748,CALD,2018-04-04,by_fill,"rows come from the archive fill, if any",,
+F06,1142701,UNTD,2013-11-01,Y,distribution_value,FTD:canonical,FTD:Y
+F07,1560385.T-LMCA,LMCA,2016-04-18,Y,distribution_value,LSXMA:canonical BATRA:yahoo,LSXMA:- BATRA:-
+F08,1560385.T-LMCK,LMCK,2016-04-18,Y,distribution_value,LSXMK:canonical BATRK:yahoo,LSXMK:- BATRK:-
+F09,808461,GLIBA,2018-03-12,N,no close for GLIBP|LBRDP on the ex-date,,
+F10,867773.COMMON,SPWR,2020-08-27,Y,distribution_value,MAXNQ:yahoo,MAXNQ:-
+F11,1355096.T-QRTEA,QRTEA,2020-09-15,N,no close for QRTEP|QVCGP on the ex-date,,
+F12,1560385.T-LSXMK,LSXMK,2023-08-04,Y,distribution_value,LLYVK:yahoo,LLYVK:-

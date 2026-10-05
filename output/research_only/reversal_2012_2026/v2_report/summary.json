@@ -1,0 +1,683 @@
+{
+ "built_utc": "2026-10-05T20:54:26+00:00",
+ "no_returns_aggregated": true,
+ "note": "counts of name-weeks, slots, rows, statuses and checks only; no vendor price level",
+ "missing_share_by_year": [
+  {
+   "year": 2012,
+   "v1_B_model": 0.050308,
+   "v1_B_calibrated": 0.05031,
+   "v1_B_upper": 0.051,
+   "v1_B_name_weeks": 654,
+   "v1_A_model": 0.04875,
+   "v1_A_calibrated": 0.04876,
+   "v1_A_upper": 0.0509,
+   "v2_B_model": 0.026308,
+   "v2_B_calibrated": 0.02631,
+   "v2_B_upper": 0.026769,
+   "v2_B_name_weeks": 342,
+   "v2_A_model": 0.02576,
+   "v2_A_calibrated": 0.02577,
+   "v2_A_upper": 0.02784,
+   "v2_B_over_2pct": true,
+   "v1_B_over_2pct": true
+  },
+  {
+   "year": 2013,
+   "v1_B_model": 0.031923,
+   "v1_B_calibrated": 0.03192,
+   "v1_B_upper": 0.031923,
+   "v1_B_name_weeks": 415,
+   "v1_A_model": 0.02704,
+   "v1_A_calibrated": 0.02704,
+   "v1_A_upper": 0.02719,
+   "v2_B_model": 0.019077,
+   "v2_B_calibrated": 0.01908,
+   "v2_B_upper": 0.019077,
+   "v2_B_name_weeks": 248,
+   "v2_A_model": 0.0137,
+   "v2_A_calibrated": 0.0137,
+   "v2_A_upper": 0.0137,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": true
+  },
+  {
+   "year": 2014,
+   "v1_B_model": 0.010154,
+   "v1_B_calibrated": 0.01016,
+   "v1_B_upper": 0.010538,
+   "v1_B_name_weeks": 132,
+   "v1_A_model": 0.01224,
+   "v1_A_calibrated": 0.01225,
+   "v1_A_upper": 0.01348,
+   "v2_B_model": 0.003077,
+   "v2_B_calibrated": 0.00308,
+   "v2_B_upper": 0.003462,
+   "v2_B_name_weeks": 40,
+   "v2_A_model": 0.00527,
+   "v2_A_calibrated": 0.00528,
+   "v2_A_upper": 0.0065,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2015,
+   "v1_B_model": 0.006717,
+   "v1_B_calibrated": 0.00672,
+   "v1_B_upper": 0.006717,
+   "v1_B_name_weeks": 89,
+   "v1_A_model": 0.00707,
+   "v1_A_calibrated": 0.0071,
+   "v1_A_upper": 0.01311,
+   "v2_B_model": 0.00083,
+   "v2_B_calibrated": 0.00083,
+   "v2_B_upper": 0.00083,
+   "v2_B_name_weeks": 11,
+   "v2_A_model": 0.0022,
+   "v2_A_calibrated": 0.00223,
+   "v2_A_upper": 0.00824,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2016,
+   "v1_B_model": 0.007846,
+   "v1_B_calibrated": 0.00785,
+   "v1_B_upper": 0.007846,
+   "v1_B_name_weeks": 102,
+   "v1_A_model": 0.00822,
+   "v1_A_calibrated": 0.00823,
+   "v1_A_upper": 0.00869,
+   "v2_B_model": 0.006692,
+   "v2_B_calibrated": 0.00669,
+   "v2_B_upper": 0.006692,
+   "v2_B_name_weeks": 87,
+   "v2_A_model": 0.00675,
+   "v2_A_calibrated": 0.00675,
+   "v2_A_upper": 0.00721,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2017,
+   "v1_B_model": 0.009154,
+   "v1_B_calibrated": 0.00915,
+   "v1_B_upper": 0.009154,
+   "v1_B_name_weeks": 119,
+   "v1_A_model": 0.01117,
+   "v1_A_calibrated": 0.01118,
+   "v1_A_upper": 0.01317,
+   "v2_B_model": 0.009077,
+   "v2_B_calibrated": 0.00908,
+   "v2_B_upper": 0.009077,
+   "v2_B_name_weeks": 118,
+   "v2_A_model": 0.01095,
+   "v2_A_calibrated": 0.01096,
+   "v2_A_upper": 0.01295,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2018,
+   "v1_B_model": 0.026692,
+   "v1_B_calibrated": 0.02673,
+   "v1_B_upper": 0.029923,
+   "v1_B_name_weeks": 347,
+   "v1_A_model": 0.02474,
+   "v1_A_calibrated": 0.02506,
+   "v1_A_upper": 0.05597,
+   "v2_B_model": 0.016538,
+   "v2_B_calibrated": 0.01656,
+   "v2_B_upper": 0.018846,
+   "v2_B_name_weeks": 215,
+   "v2_A_model": 0.01686,
+   "v2_A_calibrated": 0.01706,
+   "v2_A_upper": 0.03586,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": true
+  },
+  {
+   "year": 2019,
+   "v1_B_model": 0.018846,
+   "v1_B_calibrated": 0.01889,
+   "v1_B_upper": 0.023,
+   "v1_B_name_weeks": 245,
+   "v1_A_model": 0.01826,
+   "v1_A_calibrated": 0.0186,
+   "v1_A_upper": 0.05087,
+   "v2_B_model": 0.007231,
+   "v2_B_calibrated": 0.00724,
+   "v2_B_upper": 0.007846,
+   "v2_B_name_weeks": 94,
+   "v2_A_model": 0.00558,
+   "v2_A_calibrated": 0.00575,
+   "v2_A_upper": 0.02227,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2020,
+   "v1_B_model": 0.00966,
+   "v1_B_calibrated": 0.00973,
+   "v1_B_upper": 0.016453,
+   "v1_B_name_weeks": 128,
+   "v1_A_model": 0.01481,
+   "v1_A_calibrated": 0.01531,
+   "v1_A_upper": 0.06274,
+   "v2_B_model": 0.003094,
+   "v2_B_calibrated": 0.00314,
+   "v2_B_upper": 0.007623,
+   "v2_B_name_weeks": 41,
+   "v2_A_model": 0.00744,
+   "v2_A_calibrated": 0.00781,
+   "v2_A_upper": 0.04374,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2021,
+   "v1_B_model": 0.007,
+   "v1_B_calibrated": 0.00703,
+   "v1_B_upper": 0.020923,
+   "v1_B_name_weeks": 91,
+   "v1_A_model": 0.01593,
+   "v1_A_calibrated": 0.0161,
+   "v1_A_upper": 0.11046,
+   "v2_B_model": 0.000154,
+   "v2_B_calibrated": 0.00018,
+   "v2_B_upper": 0.012846,
+   "v2_B_name_weeks": 2,
+   "v2_A_model": 0.00613,
+   "v2_A_calibrated": 0.00628,
+   "v2_A_upper": 0.08552,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2022,
+   "v1_B_model": 0.005846,
+   "v1_B_calibrated": 0.00586,
+   "v1_B_upper": 0.011923,
+   "v1_B_name_weeks": 76,
+   "v1_A_model": 0.00966,
+   "v1_A_calibrated": 0.00992,
+   "v1_A_upper": 0.14597,
+   "v2_B_model": 0.002231,
+   "v2_B_calibrated": 0.00224,
+   "v2_B_upper": 0.007692,
+   "v2_B_name_weeks": 29,
+   "v2_A_model": 0.00535,
+   "v2_A_calibrated": 0.00558,
+   "v2_A_upper": 0.13004,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2023,
+   "v1_B_model": 0.004923,
+   "v1_B_calibrated": 0.00493,
+   "v1_B_upper": 0.010615,
+   "v1_B_name_weeks": 64,
+   "v1_A_model": 0.00601,
+   "v1_A_calibrated": 0.00638,
+   "v1_A_upper": 0.1994,
+   "v2_B_model": 0.000846,
+   "v2_B_calibrated": 0.00086,
+   "v2_B_upper": 0.006538,
+   "v2_B_name_weeks": 11,
+   "v2_A_model": 0.00222,
+   "v2_A_calibrated": 0.00257,
+   "v2_A_upper": 0.1843,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2024,
+   "v1_B_model": 0.003846,
+   "v1_B_calibrated": 0.00386,
+   "v1_B_upper": 0.005615,
+   "v1_B_name_weeks": 50,
+   "v1_A_model": 0.00415,
+   "v1_A_calibrated": 0.00487,
+   "v1_A_upper": 0.07384,
+   "v2_B_model": 0.000308,
+   "v2_B_calibrated": 0.00033,
+   "v2_B_upper": 0.002077,
+   "v2_B_name_weeks": 4,
+   "v2_A_model": 0.00063,
+   "v2_A_calibrated": 0.0013,
+   "v2_A_upper": 0.0654,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2025,
+   "v1_B_model": 0.002308,
+   "v1_B_calibrated": 0.00231,
+   "v1_B_upper": 0.002308,
+   "v1_B_name_weeks": 30,
+   "v1_A_model": 0.00225,
+   "v1_A_calibrated": 0.00226,
+   "v1_A_upper": 0.0044,
+   "v2_B_model": 0.002308,
+   "v2_B_calibrated": 0.00231,
+   "v2_B_upper": 0.002308,
+   "v2_B_name_weeks": 30,
+   "v2_A_model": 0.00225,
+   "v2_A_calibrated": 0.00226,
+   "v2_A_upper": 0.0044,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  },
+  {
+   "year": 2026,
+   "v1_B_model": 0.0,
+   "v1_B_calibrated": 0.0,
+   "v1_B_upper": 0.000138,
+   "v1_B_name_weeks": 0,
+   "v1_A_model": 0.00016,
+   "v1_A_calibrated": 0.00017,
+   "v1_A_upper": 0.00292,
+   "v2_B_model": 0.0,
+   "v2_B_calibrated": 0.0,
+   "v2_B_upper": 0.000138,
+   "v2_B_name_weeks": 0,
+   "v2_A_model": 0.00018,
+   "v2_A_calibrated": 0.00019,
+   "v2_A_upper": 0.00293,
+   "v2_B_over_2pct": false,
+   "v1_B_over_2pct": false
+  }
+ ],
+ "gap_slots_closed_by_year": [
+  {
+   "year": 2012,
+   "v1_missing_name_weeks": 51188,
+   "closed_name_weeks": 1312,
+   "v1_expected_top250_slots": 678.44,
+   "expected_slots_closed": 275.41,
+   "closed_and_ranked_top250": 428
+  },
+  {
+   "year": 2013,
+   "v1_missing_name_weeks": 44712,
+   "closed_name_weeks": 969,
+   "v1_expected_top250_slots": 435.95,
+   "expected_slots_closed": 170.02,
+   "closed_and_ranked_top250": 239
+  },
+  {
+   "year": 2014,
+   "v1_missing_name_weeks": 41820,
+   "closed_name_weeks": 330,
+   "v1_expected_top250_slots": 247.94,
+   "expected_slots_closed": 101.85,
+   "closed_and_ranked_top250": 42
+  },
+  {
+   "year": 2015,
+   "v1_missing_name_weeks": 41034,
+   "closed_name_weeks": 314,
+   "v1_expected_top250_slots": 165.93,
+   "expected_slots_closed": 79.06,
+   "closed_and_ranked_top250": 15
+  },
+  {
+   "year": 2016,
+   "v1_missing_name_weeks": 35997,
+   "closed_name_weeks": 58,
+   "v1_expected_top250_slots": 143.92,
+   "expected_slots_closed": 9.74,
+   "closed_and_ranked_top250": 5
+  },
+  {
+   "year": 2017,
+   "v1_missing_name_weeks": 32694,
+   "closed_name_weeks": 243,
+   "v1_expected_top250_slots": 175.15,
+   "expected_slots_closed": 2.17,
+   "closed_and_ranked_top250": 21
+  },
+  {
+   "year": 2018,
+   "v1_missing_name_weeks": 31276,
+   "closed_name_weeks": 4226,
+   "v1_expected_top250_slots": 370.97,
+   "expected_slots_closed": 97.93,
+   "closed_and_ranked_top250": 105
+  },
+  {
+   "year": 2019,
+   "v1_missing_name_weeks": 29891,
+   "closed_name_weeks": 8763,
+   "v1_expected_top250_slots": 295.09,
+   "expected_slots_closed": 177.49,
+   "closed_and_ranked_top250": 212
+  },
+  {
+   "year": 2020,
+   "v1_missing_name_weeks": 28261,
+   "closed_name_weeks": 5670,
+   "v1_expected_top250_slots": 264.71,
+   "expected_slots_closed": 125.63,
+   "closed_and_ranked_top250": 109
+  },
+  {
+   "year": 2021,
+   "v1_missing_name_weeks": 29212,
+   "closed_name_weeks": 4162,
+   "v1_expected_top250_slots": 261.83,
+   "expected_slots_closed": 129.33,
+   "closed_and_ranked_top250": 149
+  },
+  {
+   "year": 2022,
+   "v1_missing_name_weeks": 30602,
+   "closed_name_weeks": 2653,
+   "v1_expected_top250_slots": 137.23,
+   "expected_slots_closed": 54.55,
+   "closed_and_ranked_top250": 47
+  },
+  {
+   "year": 2023,
+   "v1_missing_name_weeks": 26649,
+   "closed_name_weeks": 975,
+   "v1_expected_top250_slots": 78.87,
+   "expected_slots_closed": 49.03,
+   "closed_and_ranked_top250": 46
+  },
+  {
+   "year": 2024,
+   "v1_missing_name_weeks": 19386,
+   "closed_name_weeks": 442,
+   "v1_expected_top250_slots": 54.16,
+   "expected_slots_closed": 45.9,
+   "closed_and_ranked_top250": 47
+  },
+  {
+   "year": 2025,
+   "v1_missing_name_weeks": 10658,
+   "closed_name_weeks": 1,
+   "v1_expected_top250_slots": 35.19,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0
+  },
+  {
+   "year": 2026,
+   "v1_missing_name_weeks": 2086,
+   "closed_name_weeks": 0,
+   "v1_expected_top250_slots": 7.9,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0
+  }
+ ],
+ "gap_slots_closed_by_reason": [
+  {
+   "missing_reason": "answer_not_in_panel",
+   "v1_name_weeks": 20,
+   "closed": 0,
+   "v1_expected": 8.65
+  },
+  {
+   "missing_reason": "no_vendor_source",
+   "v1_name_weeks": 238,
+   "closed": 59,
+   "v1_expected": 0.97
+  },
+  {
+   "missing_reason": "not_candidate",
+   "v1_name_weeks": 427854,
+   "closed": 24187,
+   "v1_expected": 511.26
+  },
+  {
+   "missing_reason": "series_gap",
+   "v1_name_weeks": 204,
+   "closed": 135,
+   "v1_expected": 16.08
+  },
+  {
+   "missing_reason": "short_window",
+   "v1_name_weeks": 422,
+   "closed": 5,
+   "v1_expected": 57.28
+  },
+  {
+   "missing_reason": "tiingo_pending",
+   "v1_name_weeks": 10965,
+   "closed": 1123,
+   "v1_expected": 612.57
+  },
+  {
+   "missing_reason": "unfillable",
+   "v1_name_weeks": 15763,
+   "closed": 4609,
+   "v1_expected": 2146.47
+  }
+ ],
+ "name_weeks_missing_in_v2_not_in_v1": 14,
+ "panel_v2_rows_by_source": {
+  "yahoo": 4565681,
+  "wiki": 1705879,
+  "tiingo": 680236,
+  "archive": 150498
+ },
+ "archive_rows": {
+  "rows": 150498,
+  "securities": 474,
+  "by_year": {
+   "2011": 3470,
+   "2012": 6741,
+   "2013": 4686,
+   "2014": 1722,
+   "2015": 1523,
+   "2016": 284,
+   "2017": 1317,
+   "2018": 22151,
+   "2019": 41531,
+   "2020": 27383,
+   "2021": 20343,
+   "2022": 12660,
+   "2023": 4663,
+   "2024": 2024
+  },
+  "with_second_source_flag_free": null
+ },
+ "v2_flags": {
+  "v2_fix:": 8,
+  "v2_third_vote:": 59,
+  "v2_splice_blank": 1,
+  "v2_majority:quantquote": 0,
+  "archive_csv": 10300,
+  "archive_page": 140198,
+  "disagree_unresolved": 1889
+ },
+ "v1_disagree_unresolved_days": 1890,
+ "d5": {
+  "names": 50,
+  "status_v2": {
+   "awaiting_d5": 45,
+   "needs_review": 3,
+   "computed": 1,
+   "no_vendor_price": 1
+  },
+  "sec_decision": {
+   "not_bankruptcy": 19,
+   "zero_recovery": 17,
+   "recovery": 7,
+   "pending_or_no_plan": 7
+  }
+ },
+ "terminal_status_v1": {
+  "computed": 582,
+  "no_terminal_return": 131,
+  "no_vendor_price": 82,
+  "awaiting_d5": 50,
+  "needs_acquirer_price": 44,
+  "pending_price": 30,
+  "needs_review": 29,
+  "unknown": 2
+ },
+ "terminal_status_v2": {
+  "computed": 608,
+  "no_terminal_return": 131,
+  "needs_review": 58,
+  "needs_acquirer_price": 49,
+  "awaiting_d5": 45,
+  "no_vendor_price": 39,
+  "pending_price": 18,
+  "unknown": 2
+ },
+ "fixes": [
+  {
+   "fix_id": "F01",
+   "security_id": "1560385.T-LMCA",
+   "ticker": "LMCA",
+   "ex_date": "2014-07-24",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "FWONK:yahoo",
+   "children_second_source": "FWONK:-"
+  },
+  {
+   "fix_id": "F02",
+   "security_id": "1560385.T-LMCA",
+   "ticker": "LMCA",
+   "ex_date": "2014-11-04",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "LBRDA:canonical",
+   "children_second_source": "LBRDA:-"
+  },
+  {
+   "fix_id": "F03",
+   "security_id": "866374",
+   "ticker": "FLEX",
+   "ex_date": "2024-01-03",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "NXT:canonical",
+   "children_second_source": "NXT:Y"
+  },
+  {
+   "fix_id": "F04",
+   "security_id": "1828318",
+   "ticker": "ENVX",
+   "ex_date": "2025-07-17",
+   "applied": "N",
+   "reason": "no close for ENVXW on the ex-date",
+   "children_sources": "",
+   "children_second_source": ""
+  },
+  {
+   "fix_id": "F05",
+   "security_id": "1035748",
+   "ticker": "CALD",
+   "ex_date": "2018-04-04",
+   "applied": "by_fill",
+   "reason": "rows come from the archive fill, if any",
+   "children_sources": "",
+   "children_second_source": ""
+  },
+  {
+   "fix_id": "F06",
+   "security_id": "1142701",
+   "ticker": "UNTD",
+   "ex_date": "2013-11-01",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "FTD:canonical",
+   "children_second_source": "FTD:Y"
+  },
+  {
+   "fix_id": "F07",
+   "security_id": "1560385.T-LMCA",
+   "ticker": "LMCA",
+   "ex_date": "2016-04-18",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "LSXMA:canonical BATRA:yahoo",
+   "children_second_source": "LSXMA:- BATRA:-"
+  },
+  {
+   "fix_id": "F08",
+   "security_id": "1560385.T-LMCK",
+   "ticker": "LMCK",
+   "ex_date": "2016-04-18",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "LSXMK:canonical BATRK:yahoo",
+   "children_second_source": "LSXMK:- BATRK:-"
+  },
+  {
+   "fix_id": "F09",
+   "security_id": "808461",
+   "ticker": "GLIBA",
+   "ex_date": "2018-03-12",
+   "applied": "N",
+   "reason": "no close for GLIBP|LBRDP on the ex-date",
+   "children_sources": "",
+   "children_second_source": ""
+  },
+  {
+   "fix_id": "F10",
+   "security_id": "867773.COMMON",
+   "ticker": "SPWR",
+   "ex_date": "2020-08-27",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "MAXNQ:yahoo",
+   "children_second_source": "MAXNQ:-"
+  },
+  {
+   "fix_id": "F11",
+   "security_id": "1355096.T-QRTEA",
+   "ticker": "QRTEA",
+   "ex_date": "2020-09-15",
+   "applied": "N",
+   "reason": "no close for QRTEP|QVCGP on the ex-date",
+   "children_sources": "",
+   "children_second_source": ""
+  },
+  {
+   "fix_id": "F12",
+   "security_id": "1560385.T-LSXMK",
+   "ticker": "LSXMK",
+   "ex_date": "2023-08-04",
+   "applied": "Y",
+   "reason": "distribution_value",
+   "children_sources": "LLYVK:yahoo",
+   "children_second_source": "LLYVK:-"
+  }
+ ],
+ "validate": {
+  "v1": {
+   "pass": 17,
+   "fail": 17,
+   "no_input": 1
+  },
+  "v2": {
+   "pass": 17,
+   "fail": 17,
+   "no_input": 1
+  },
+  "changed": [],
+  "v2_generated_utc": "2026-10-05T20:54:23+00:00"
+ },
+ "archive_fetch": {
+  "securities_done": 1186,
+  "securities_total": 1186,
+  "pages_ok": 990,
+  "pages_failed": 0,
+  "pages_cached_or_404": 95,
+  "started_utc": "2026-10-05T16:05:18+00:00",
+  "last_batch": [
+   "1830029",
+   "1845459"
+  ],
+  "position": 1186,
+  "todo_at_start": 1186,
+  "updated_utc": "2026-10-05T19:24:00+00:00",
+  "target_securities": 1186
+ }
+}
