@@ -42,6 +42,7 @@
 | 短线超跌反弹 RSI(2)（QQQ 和前 100 大股票） | research_ledger_mean_reversion.md | 没通过；QQQ 加杠杆版的"通过"来自 QQQ 本身强于 ONEQ |
 | 大盘股财报事件（公告溢价、公告反应漂移） | research_ledger_earnings_events.md | 两折都没通过 |
 | 反复做T（QQQ、QLD，5 条规则） | research_ledger_intraday_t.md | 10 个配置全部不如"拿着不动"；每次来回毛利接近 0，成本 5–7 bp |
+| 卖期权（QQQ 卖看跌、备兑看涨、轮动；前 10 大股票卖看跌，QuantConnect） | research_ledger_qc_options.md | 测的是 30 天、0.25 delta、持有到期这一种设定，4 个都不通过；只在下跌年赢 |
 | 因子基金、IBD 50（FFTY）、sell put 指数 | 只是对比，没有台账 | 这十几年都跑输 QQQ |
 
 两轮独立审计没有发现会改变结论的方法错误：
