@@ -41,7 +41,8 @@
 | QQQ 波动率控仓（8 种设置） | research_ledger_voltarget.md | 1 种形式上通过，但其实是一直拿 1.37 倍杠杆；和同倍数不择时相比都没多赚，只是回撤浅 |
 | 短线超跌反弹 RSI(2)（QQQ 和前 100 大股票） | research_ledger_mean_reversion.md | 没通过；QQQ 加杠杆版的"通过"来自 QQQ 本身强于 ONEQ |
 | 大盘股财报事件（公告溢价、公告反应漂移） | research_ledger_earnings_events.md | 两折都没通过 |
-| 反复做T（QQQ、QLD，5 条规则） | research_ledger_intraday_t.md | 10 个配置全部不如"拿着不动"；每次来回毛利接近 0，成本 5–7 bp |
+| 每天机械做T、当天了结（QQQ、QLD，5 条规则） | research_ledger_intraday_t.md | 10 个配置全部不如"拿着不动"；每次来回毛利接近 0，成本 5–7 bp |
+| 有条件 / 跨天做T（涨过头卖、高开卖、大跌加买；QQQ 和 18 只超大市值股） | research_ledger_selective_t.md | 18 个配置 17 个不通过；"涨过头先卖"最确定地亏（卖飞）；个股"低于均线 10% 加买"形式上通过但和同仓位持有几乎无差，可能是幸存者偏差，只列入观察 |
 | 卖期权（QQQ 卖看跌、备兑看涨、轮动；前 10 大股票卖看跌，QuantConnect） | research_ledger_qc_options.md | 测的是 30 天、0.25 delta、持有到期这一种设定，4 个都不通过；只在下跌年赢 |
 | 因子基金、IBD 50（FFTY）、sell put 指数 | 只是对比，没有台账 | 这十几年都跑输 QQQ |
 

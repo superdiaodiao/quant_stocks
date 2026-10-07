@@ -7,6 +7,10 @@
 > 读数复用 `scripts/research_calendar.py`（`parse_ohlc`、指标函数）和 `scripts/research_qqq_timing.py`（`load_kf_rf` 等），
 > 成本复用 `scripts/research_reversal_dev.py`（IBKR Tiered `order_cost`）。不使用 QuantConnect。
 
+> **适用范围说明（2026-10-07 补记）**：本台账的结论只覆盖这里登记的**机械规则**——每天都挂单（1% 或 0.5×ATR 的限价、或开盘卖收盘买），
+> 而且**当天收盘前了结**。它**不**说明"有条件才做、跨好几天了结"的做T（例如涨过头才卖、大幅高开才卖、大跌才加，等回到均线 / 补缺口 / 到期再了结）是否有用；
+> 那一类做法另行事先登记、单独检验，见 `research_ledger_selective_t.md`。下文"不建议用"的结论请只按上面这个范围理解。
+
 ## 0. 事先登记（2026-10-07，写代码和算任何结果之前写下）
 
 ### 0.1 先说清楚：这些年份不是"没见过的"
