@@ -43,6 +43,7 @@
 | 大盘股财报事件（公告溢价、公告反应漂移） | research_ledger_earnings_events.md | 两折都没通过 |
 | 每天机械做T、当天了结（QQQ、QLD，5 条规则） | research_ledger_intraday_t.md | 10 个配置全部不如"拿着不动"；每次来回毛利接近 0，成本 5–7 bp |
 | 有条件 / 跨天做T（涨过头卖、高开卖、大跌加买；QQQ 和 18 只超大市值股） | research_ledger_selective_t.md | 18 个配置 17 个不通过；"涨过头先卖"最确定地亏（卖飞）；个股"低于均线 10% 加买"形式上通过但和同仓位持有几乎无差，可能是幸存者偏差，只列入观察 |
+| 做T 参数全网格（184,320 个配置：方向、指标、门槛、了结、比例、备用金、趋势过滤 × QQQ/18 只大股/每月前 10） | research_ledger_t_grid.md | 两折 + 逐年滚动挑选后 6 个组合全部不通过；最稳定的一片（QQQ 上 RSI2 极低时加买）每年只多 0.3–0.6 点，t ≤ 1.6 |
 | 卖期权（QQQ 卖看跌、备兑看涨、轮动；前 10 大股票卖看跌，QuantConnect） | research_ledger_qc_options.md | 测的是 30 天、0.25 delta、持有到期这一种设定，4 个都不通过；只在下跌年赢 |
 | 因子基金、IBD 50（FFTY）、sell put 指数 | 只是对比，没有台账 | 这十几年都跑输 QQQ |
 
