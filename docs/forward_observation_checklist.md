@@ -68,13 +68,46 @@ This file makes the monthly update mechanical. The protocol itself lives in `doc
 
 **Decision (2026-10-09):** the owner chose to observe both candidates, with the rules frozen exactly as below. B2 is recorded as two separate lines, SEL-A (config 29876) and SEL-P (config 29916).
 
-- **Forward window:** data after the 2026-10-09 close. The first possible trade is at the 2026-10-12 open. Accounts start at the 2026-10-12 close.
+- **Forward window:** data after the 2026-10-09 close. Accounts start at the 2026-10-12 close, as the frozen simulators do. The first possible T-trade is therefore at the 2026-10-14 open. The earlier phrase "first trade at the 2026-10-12 open" was a wording slip, corrected 2026-10-09 before any forward data. Month 1 is the partial 2026-10, so month 36 is 2029-09.
 - **Recording:** each month, append the month's T-trades and returns for the strategy, H_base, H_match and ONEQ to `docs/forward_observation_log.md`.
 - **Evaluation (fixed now, before any forward data):**
   - The main comparison is H_match.
   - There is no verdict before 24 months.
   - At 36 months the verdict is positive only if the cumulative excess over H_match is > 0 **and** the monthly-excess t is ≥ 2.
   - These are small-edge candidates, so there is no early abandon rule. They are observed, not traded.
+
+### B0. Monthly run (mechanical)
+
+The runner `scripts/forward_observation.py` does the whole monthly update for B1, SEL-A and SEL-P. It imports the frozen simulators (`research_selective_t.run_one` for S3-Yb; `research_t_grid.make_inst` / `exact_run` / `hmatch_series` / `hbase_of` / `oneq_for` for configs 29876 and 29916) and does not reimplement them. Tests: `tests/test_forward_observation.py` (synthetic data).
+
+1. **When:** after 18:00 New York time on the first trading day of the new month, or later. A month's row is `final` only once the data hold a session of a later month. The frozen simulators treat the window's last session specially: an open T-trade is closed at that close, and there is no month-end reset and no new signal. So the month holding the last session is `provisional`, and the next run replaces it.
+2. **Run** from the repo root:
+
+   ```
+   PYTHONPATH=. .venv/bin/python scripts/forward_observation.py --fetch
+   ```
+
+   - `--fetch` re-downloads the 20 Yahoo v8 charts (18 names, QQQ from 1999, ONEQ), one request per 2 s, and stops at the first 401/403/429.
+   - Raw bodies go to `research_cache/forward_observation/raw/` (local only, never in Git). The request log is `research_cache/forward_observation/fetch_log.csv`.
+   - The default as-of date is the last complete New York session. `--as-of YYYY-MM-DD` sets it explicitly, and a later date is clamped to that session.
+   - Every vendor frame is truncated at the as-of date right after parsing, and this is asserted.
+3. **Check the console:**
+   - `DATA`: first and last date and row count per symbol, plus `DATA FLAGS` if any OHLC are missing or inconsistent.
+   - `OVERLAP`: fresh closes vs the research caches through 2026-09-30. Before the start these matched exactly for all 20 symbols.
+   - `WARNING ... a final row changed`: this means a vendor revision. Note it in this checklist for the owner. Do not edit the log by hand: the runner rewrites it on every run.
+4. **Output:** `docs/forward_observation_log.md`, with one table per line (B1, SEL-A, SEL-P) and one row per month.
+   - Each run recomputes every forward month from the 2026-10-12 start and replaces the rows of the months it computes. Rerunning for the same month replaces that row and never adds a duplicate.
+   - The runner refuses to write the log for an as-of date earlier than the log's last "data through" date. Use `--dry-run`, which prints the log and writes nothing, to test an earlier date.
+   - Daily returns, exposures and trades per run are saved locally in `research_cache/forward_observation/runs/` (not in Git).
+5. **H_match (fixed 2026-10-09, before any forward data):**
+   - For month m, each account's w_m is the mean daily exposure that the frozen simulator reports for the account run from the start through the last forward session of month m, or through the as-of date for the latest month. This is the exposure realised to date.
+   - H_match's daily return in month m = w_m × the instrument's daily total return. For B1, H_match is computed per account and the basket is the mean.
+   - No later data enter a month's H_match, so final rows do not change.
+   - The console also prints the whole-window H_match (one w over the full window, the research definition) for reference.
+6. **Account start:** the accounts open at the 2026-10-12 close, so the first forward return session is 2026-10-13.
+   - Under the frozen code a signal is read at a close and acted on at the next open. The first forward signal is therefore at the 2026-10-13 close, and the earliest T-entry is the 2026-10-14 open.
+   - **Resolved 2026-10-09:** accounts start at the 2026-10-12 close and the first T-trade is at the 2026-10-14 open, as the runner already does.
+7. **Month count:** 2026-10, a partial month from 10-13, is month 1. Month 24 is 2028-09 and month 36 is 2029-09.
 
 These were named as the only possible forward-observation candidates in their ledgers. Nothing below starts until the owner decides. If observation starts, the rule must be used exactly as written here, with no parameter changes. The forward window would start at the first month after the decision.
 
