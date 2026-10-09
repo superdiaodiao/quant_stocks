@@ -313,6 +313,30 @@ t = 2003–2026 月超额 t；门槛 3.02。
   - **Positive verdict at 36 months:** cumulative excess > 0 with a monthly-excess t >= 2, and no data-error month that drives the result.
   - **Abandon** if the strategy is 25 points or more behind ONEQ cumulatively at any time.
 
+### 4.1 Forward log (append only; the protocol above is not edited)
+
+- Frozen code: `qc/sp_top10_trade/main.py` as committed in `9f4516b22` (the `<this commit>` above), SHA-256 `f1362c4c…`. The only permitted change for a monthly update is `set_end_date`.
+
+- **2026-10-09: months 2026-08 and 2026-09 pending — data not yet available on QC as of 2026-10-09.**
+  - Frozen code checked:
+    - The local file and the file at `9f4516b22` both hash to `f1362c4cbb3c1a52…`.
+    - The QC project 37374631 `main.py` hashes to the same value. It was read, not changed.
+  - Data check: a read-only probe in the new project `ForwardObs_DataProbe` (37583373), backtest `54ffc78dd8a0610b4259222bea516cd9`.
+    - The probe ran from 2026-06-15 to 2026-10-08. It placed no orders and computed no strategy returns.
+    - The last daily bar for SPY, QQQ and ONEQ is the 2026-07-09 session (`end_time` 2026-07-10 00:00).
+    - The last universe selection with fundamentals was 2026-07-11, covering 4,760 names.
+    - So QC has neither the 2026-07-31 close, which the August selection needs, nor any August or September prices.
+  - Per the protocol (QC only), no other data source was substituted and no backtest of the frozen rule was run.
+  - Months 2026-08 and 2026-09 stay pending. They will be recorded once QC data covers 2026-09-30.
+  - The 24 / 36-month clocks start at 2026-08 regardless.
+  - Running totals: 0 months recorded. Cumulative excess vs ONEQ is n/a. Abandon rule (−25 points): not triggered, no data.
+  - Note for the first real update: the in-sample run in 3.6 ended its account on 2026-07-31 while QC prices stopped on 2026-07-09. Its July 2026 month is therefore partial; it is not part of the forward window.
+
+| Month | Picks (raw top 10, flags a/b/c/d) | Strategy raw | Strategy filtered | ONEQ | Excess raw / filtered | Cum. excess since 2026-08 raw / filtered | Abandon (≤ −25 pts)? | Note |
+|---|---|---|---|---|---|---|---|---|
+| 2026-08 | pending | — | — | — | — | — | — | QC data ends 2026-07-09 (checked 2026-10-09) |
+| 2026-09 | pending | — | — | — | — | — | — | QC data ends 2026-07-09 (checked 2026-10-09) |
+
 ## 5. 数据错误敏感性：其余 18 个因子（事先登记，2026-10-05，写完过滤代码、在任何云端运行之前写下）
 
 ### 5.1 性质
@@ -407,3 +431,8 @@ t = 2003–2026 月超额 t；门槛 3.02。
 - 成本 0.5% / 1.0% / 1.5% 三档下，过滤后的 20 个因子**全部不通过**（算法内 P 标记全为 000）。原始 SP 在 0.5% 成本下通过（P100），过滤后不再通过。
 - 读法：18 个因子里没有一个因为去掉可疑数据就变成"通过"；最大的变化是 CFP（t 1.17 → 2.16，两段都赢，但仍远低于 3.02）和 ACC、GM、SG、AG（从明显跑输变成接近基准）；
   EP、ROE、ROA、ROIC、DE 过滤后反而更差，说明这些因子原始前 10 名里有些"数据可疑"的名字其实是赚钱的。第 2.5 节"40 次检验无一通过"的结论不受影响。
+
+**4.2 Reporting conventions (decided 2026-10-09, before any forward month is observed; rule unchanged)**
+- **Cut-off:** each update sets the backtest end date to the first trading day of the following month. That month's picks and return are recorded together.
+- **Filtered return:** take the raw top-10 picks, drop the names flagged by (a)–(d), and equal-weight the rest as a paper return. No exclusion-list rerun is needed. This keeps the filter inside reporting only.
+- **Candidates:** the S3-Yb and RSI2-dip candidates in `docs/forward_observation_checklist.md` stay listed only; the owner has not decided to observe them.
