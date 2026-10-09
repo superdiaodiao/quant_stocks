@@ -64,7 +64,17 @@ This file makes the monthly update mechanical. The protocol itself lives in `doc
    - no data-error month driving the result.
 9. **Don't:** change rules, parameters, universe or costs; rerun to get a different number (only API/code errors justify a rerun, and each one is logged); delete QC projects.
 
-## B. Candidates (not being observed — owner has not decided)
+## B. Candidates — observation started (owner decision 2026-10-09)
+
+**Decision (2026-10-09):** the owner chose to observe both candidates, with the rules frozen exactly as below. B2 is recorded as two separate lines, SEL-A (config 29876) and SEL-P (config 29916).
+
+- **Forward window:** data after the 2026-10-09 close. The first possible trade is at the 2026-10-12 open. Accounts start at the 2026-10-12 close.
+- **Recording:** each month, append the month's T-trades and returns for the strategy, H_base, H_match and ONEQ to `docs/forward_observation_log.md`.
+- **Evaluation (fixed now, before any forward data):**
+  - The main comparison is H_match.
+  - There is no verdict before 24 months.
+  - At 36 months the verdict is positive only if the cumulative excess over H_match is > 0 **and** the monthly-excess t is ≥ 2.
+  - These are small-edge candidates, so there is no early abandon rule. They are observed, not traded.
 
 These were named as the only possible forward-observation candidates in their ledgers. Nothing below starts until the owner decides. If observation starts, the rule must be used exactly as written here, with no parameter changes. The forward window would start at the first month after the decision.
 
