@@ -40,7 +40,7 @@ jobs:
 
     - name: Byte-compile runtime, scripts, and tests
       run: |
-        python -m compileall -q src scripts tests archive/scripts archive/tests
+        python -m compileall -q src scripts tests archive/scripts archive/tests quant studies pipelines
 
     - name: Verify frozen prospective protocols on a clean checkout
       run: |
