@@ -1,0 +1,39 @@
+name: IBKR borrow-fee snapshot
+
+# Twice a day, saves IBKR's public short-stock file (usa.txt: fee rate and shares
+# available per symbol) for the S-MISP short-overlay forward observation
+# (docs/forward_observation_checklist.md). IBKR offers no history, so each snapshot
+# is kept as a workflow artifact (90 days) and never committed. The owner's Mac
+# syncs the artifacts into research_cache/borrow_fees/ (scripts/sync_borrow_fees.sh).
+# 22:30 UTC is after the US close; 13:00 UTC is before the US open.
+
+on:
+  schedule:
+    - cron: "30 22 * * *"
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        sparse-checkout: scripts/record_borrow_fees.py
+        sparse-checkout-cone-mode: false
+
+    - name: Fetch usa.txt
+      run: python3 scripts/record_borrow_fees.py --out borrow_fees
+
+    - name: Upload snapshot
+      uses: actions/upload-artifact@v4
+      with:
+        name: borrow-fees-${{ github.run_id }}
+        path: borrow_fees/raw/*.txt.gz
+        retention-days: 90
+        if-no-files-found: error
