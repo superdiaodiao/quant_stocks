@@ -64,3 +64,8 @@ jobs:
         mapfile -t portable < <(ls tests/test_*.py | grep -vxF -f <(printf '%s\n' "${excluded[@]}"))
         echo "portable test files: ${#portable[@]}; excluded: ${#excluded[@]}"
         python -m pytest "${portable[@]}" -o addopts='' -q -p no:cacheprovider
+
+    - name: Run the quant package tests
+      run: |
+        # Unit tests need no data; the golden checks skip without the local caches.
+        python -m pytest tests/quant -o addopts='' -q -p no:cacheprovider
