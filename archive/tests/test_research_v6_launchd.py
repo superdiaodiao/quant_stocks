@@ -4,7 +4,7 @@ from pathlib import Path
 import plistlib
 from types import SimpleNamespace
 
-from scripts.research_v6_launchd import install, launchd_status, unload
+from archive.scripts.research_v6_launchd import install, launchd_status, unload
 
 
 def _plist(path: Path) -> None:

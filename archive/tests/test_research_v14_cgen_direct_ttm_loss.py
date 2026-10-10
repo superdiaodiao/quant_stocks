@@ -3,7 +3,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from scripts import research_v14_cgen_direct_ttm_loss as cgen
+from archive.scripts import research_v14_cgen_direct_ttm_loss as cgen
 from src.financial.quarterly_fundamentals import quarterly_profit_ttm_snapshot
 
 

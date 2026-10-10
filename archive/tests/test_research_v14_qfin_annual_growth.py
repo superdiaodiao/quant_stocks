@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts.research_v14_qfin_annual_growth import (
+from archive.scripts.research_v14_qfin_annual_growth import (
     SOURCE_PATH,
     SOURCE_SHA256,
     build,

@@ -39,7 +39,7 @@ OUTPUT_DIR = Path(
 )
 
 SOURCE_V10_SCRIPT = {
-    "path": Path("scripts/research_v10_contrarian_alpha_budget.py"),
+    "path": Path("archive/scripts/research_v10_contrarian_alpha_budget.py"),
     "sha256": (
         "7f1ece283cc8800a1614bc4c0384d25d6699151b11ca86600a464b323a3ea2ba"
     ),

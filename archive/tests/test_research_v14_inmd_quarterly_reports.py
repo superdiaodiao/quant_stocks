@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_inmd_quarterly_reports import (
+from archive.scripts.research_v14_inmd_quarterly_reports import (
     _parse_statement_columns,
     parse_statement,
 )

@@ -14,10 +14,10 @@ from typing import Any
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from scripts.research_v14_sec_filing_exhibit_financials import (
+from archive.scripts.research_v14_sec_filing_exhibit_financials import (
     _parse_accounting_number,
 )
-from scripts.research_v14_team_sec_quarterly_filings import _longest_chain
+from archive.scripts.research_v14_team_sec_quarterly_filings import _longest_chain
 
 
 DEFAULT_REGISTRY = Path("stocks_list_dir/nasdaq/dox_quarterly_reports.csv")

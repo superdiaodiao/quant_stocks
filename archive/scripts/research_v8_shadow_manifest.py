@@ -34,13 +34,13 @@ RUNTIME_CODE_PATHS = (
     Path("scripts/research_v6_data_readiness.py"),
     Path("scripts/research_v6_market_refresh.py"),
     Path("scripts/research_v6_scheduled_run.py"),
-    Path("scripts/research_v8_shadow_manifest.py"),
-    Path("scripts/research_v8_forward_status.py"),
-    Path("scripts/research_v8_shadow_signal.py"),
-    Path("scripts/research_v8_weekly_mark.py"),
-    Path("scripts/research_v8_observe.py"),
-    Path("scripts/research_v8_scheduled_run.py"),
-    Path("scripts/research_v8_shadow_activate.py"),
+    Path("archive/scripts/research_v8_shadow_manifest.py"),
+    Path("archive/scripts/research_v8_forward_status.py"),
+    Path("archive/scripts/research_v8_shadow_signal.py"),
+    Path("archive/scripts/research_v8_weekly_mark.py"),
+    Path("archive/scripts/research_v8_observe.py"),
+    Path("archive/scripts/research_v8_scheduled_run.py"),
+    Path("archive/scripts/research_v8_shadow_activate.py"),
 )
 
 

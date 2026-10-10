@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.research_v14_eslt_quarterly_reports import extract_quarter
+from archive.scripts.research_v14_eslt_quarterly_reports import extract_quarter
 
 
 def test_eslt_extracts_q1_current_quarter_gaap_values() -> None:

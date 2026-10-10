@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v35_weekly_volatility_budget_development as v35
+from archive.scripts import research_v35_weekly_volatility_budget_development as v35
 
 
 def test_candidate_grid_is_small_and_training_only():

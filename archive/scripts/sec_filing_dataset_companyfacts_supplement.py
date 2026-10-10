@@ -19,7 +19,7 @@ from typing import Any
 
 import pandas as pd
 
-from scripts.sec_filing_dataset_to_companyfacts import (
+from archive.scripts.sec_filing_dataset_to_companyfacts import (
     _sha256,
     convert_zip_archive,
 )

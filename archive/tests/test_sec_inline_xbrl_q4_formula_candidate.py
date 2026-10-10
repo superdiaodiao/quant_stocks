@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.sec_inline_xbrl_q4_formula_candidate import build_formula_candidate
+from archive.scripts.sec_inline_xbrl_q4_formula_candidate import build_formula_candidate
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 

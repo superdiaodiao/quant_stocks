@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.research_v2_evaluation import evaluate
+from archive.scripts.research_v2_evaluation import evaluate
 
 
 def test_evaluate_requires_oos_cost_and_selected_data_gates() -> None:

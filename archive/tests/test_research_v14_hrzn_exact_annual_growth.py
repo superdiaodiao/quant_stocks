@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_hrzn_exact_annual_growth as hrzn_growth
-from scripts.research_v14_hrzn_exact_annual_growth import (
+import archive.scripts.research_v14_hrzn_exact_annual_growth as hrzn_growth
+from archive.scripts.research_v14_hrzn_exact_annual_growth import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     FISCAL_END,

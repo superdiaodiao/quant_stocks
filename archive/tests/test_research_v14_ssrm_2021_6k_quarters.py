@@ -1,4 +1,4 @@
-from scripts.research_v14_ssrm_2021_6k_quarters import FILINGS, _number
+from archive.scripts.research_v14_ssrm_2021_6k_quarters import FILINGS, _number
 
 
 def test_ssrm_6k_quarters_are_direct_and_contemporaneous() -> None:

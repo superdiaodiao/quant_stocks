@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_pntg_selected_quarters import EXPECTED, strict_selected_quarters
+from archive.scripts.research_v14_pntg_selected_quarters import EXPECTED, strict_selected_quarters
 
 
 def _html(q1_2018: str = "3,381") -> bytes:

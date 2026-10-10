@@ -21,9 +21,9 @@ import pandas as pd
 from scripts import research_v23_stock_only_frequency as v23
 from scripts import research_v26_large_liquid_stock_momentum as v26
 from scripts import research_v30_2019_selection_path_adjudication as v30
-from scripts import research_v35_weekly_volatility_budget_development as v35
-from scripts import research_v36_correlation_diversified_momentum as v36
-from scripts import research_v38_weekly_holding_breadth_development as v38
+from archive.scripts import research_v35_weekly_volatility_budget_development as v35
+from archive.scripts import research_v36_correlation_diversified_momentum as v36
+from archive.scripts import research_v38_weekly_holding_breadth_development as v38
 from src.conf import CLEANED_PRICE_DATA_DIR, NASDAQ_INDEX_FILE
 from src.research.can_slim import replay_can_slim_target_schedule
 from src.strategy.common import (
@@ -180,10 +180,10 @@ def freeze_protocol(path: Path = PROTOCOL_PATH) -> dict:
             ),
             "v30_manifest": _file_binding(V30_MANIFEST),
             "v35_evaluation_helpers": _file_binding(
-                Path("scripts/research_v35_weekly_volatility_budget_development.py")
+                Path("archive/scripts/research_v35_weekly_volatility_budget_development.py")
             ),
             "v36_input_helpers": _file_binding(
-                Path("scripts/research_v36_correlation_diversified_momentum.py")
+                Path("archive/scripts/research_v36_correlation_diversified_momentum.py")
             ),
             "v38_manifest": _file_binding(V38_MANIFEST),
             "target_replay": _file_binding(Path("src/research/can_slim.py")),

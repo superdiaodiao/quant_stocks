@@ -11,14 +11,14 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from scripts.research_v14_dsgx_sec_quarterly_filings import (
+from archive.scripts.research_v14_dsgx_sec_quarterly_filings import (
     _longest_chain,
     _normal,
     _period_columns,
     _row_value,
     _sha256,
 )
-from scripts.research_v14_gbdc_sec_quarterly_filings import _date_columns
+from archive.scripts.research_v14_gbdc_sec_quarterly_filings import _date_columns
 
 
 DEFAULT_OUTPUT_DIR = Path(

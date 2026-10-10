@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from scripts.research_v14_hone_cik_transition_ttm import (
+from archive.scripts.research_v14_hone_cik_transition_ttm import (
     NET_INCOME,
     parse_consolidated_usd_facts,
 )

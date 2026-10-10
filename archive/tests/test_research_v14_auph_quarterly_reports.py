@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.research_v14_auph_quarterly_reports import extract_statement, run
+from archive.scripts.research_v14_auph_quarterly_reports import extract_statement, run
 
 
 def test_auph_2017q1_preserves_reported_derivative_driven_loss() -> None:

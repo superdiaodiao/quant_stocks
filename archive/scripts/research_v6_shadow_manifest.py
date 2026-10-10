@@ -23,7 +23,7 @@ DEFAULT_QUARTERLY = Path(
 )
 DEFAULT_OUTPUT = Path("output/research_v6_walkforward_defensive_ensemble_shadow_summary.json")
 RUNTIME_CODE_PATHS = (
-    Path("scripts/research_v6_launchd.py"),
+    Path("archive/scripts/research_v6_launchd.py"),
     Path("ops/com.quant-stocks.v6-shadow.plist"),
     Path("scripts/research_v6_scheduled_run.py"),
     Path("scripts/research_v6_market_refresh.py"),

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from scripts.research_v6_market_refresh import refresh
 from scripts.research_v6_scheduled_run import latest_completed_session
-from scripts.research_v8_observe import observe
+from archive.scripts.research_v8_observe import observe
 
 
 DEFAULT_MANIFEST = Path("output/research_v8_monthly_risk_budget_blend_shadow_summary.json")

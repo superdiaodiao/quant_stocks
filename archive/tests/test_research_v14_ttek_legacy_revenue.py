@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_ttek_legacy_revenue import strict_revenue_rows
+from archive.scripts.research_v14_ttek_legacy_revenue import strict_revenue_rows
 
 
 def _payload() -> dict:

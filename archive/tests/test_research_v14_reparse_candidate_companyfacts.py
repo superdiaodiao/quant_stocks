@@ -1,4 +1,4 @@
-from scripts.research_v14_reparse_candidate_companyfacts import mapped_tickers
+from archive.scripts.research_v14_reparse_candidate_companyfacts import mapped_tickers
 
 
 def test_mapped_tickers_excludes_explicit_unresolved() -> None:

@@ -3,7 +3,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from scripts import research_v14_nesr_annual_growth as nesr
+from archive.scripts import research_v14_nesr_annual_growth as nesr
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
 
 

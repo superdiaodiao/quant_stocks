@@ -6,8 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from scripts.historicaldata_price_import import _atomic_write_json
-from scripts.sec_terminal_filing_evidence import (
+from archive.scripts.historicaldata_price_import import _atomic_write_json
+from archive.scripts.sec_terminal_filing_evidence import (
     _fetch,
     _filing_text,
     _read_cache,

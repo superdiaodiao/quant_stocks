@@ -3,7 +3,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from scripts import research_v14_bctx_annual_ttm_loss as bctx
+from archive.scripts import research_v14_bctx_annual_ttm_loss as bctx
 from src.financial.quarterly_fundamentals import (
     quarterly_growth_snapshot,
     quarterly_profit_ttm_snapshot,

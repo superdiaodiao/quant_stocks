@@ -1,4 +1,4 @@
-from scripts.companyfacts_historical_source_audit import (
+from archive.scripts.companyfacts_historical_source_audit import (
     audit_external_github_companyfacts_archive,
     audit_wayback_companyfacts_captures,
     _looks_like_companyfacts_path,

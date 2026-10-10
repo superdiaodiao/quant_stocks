@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_sohu_restated_quarters as sohu_quarters
-from scripts.research_v14_sohu_restated_quarters import (
+import archive.scripts.research_v14_sohu_restated_quarters as sohu_quarters
+from archive.scripts.research_v14_sohu_restated_quarters import (
     AUDIT_OBSERVATIONS,
     AUDITED_ANNUAL_IDENTITY_USD,
     CONTINUITY_TEXT_CHECKS,

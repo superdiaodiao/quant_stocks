@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.sec_sina_carried_alias_tail_import import _carried_suffix_validation
+from archive.scripts.sec_sina_carried_alias_tail_import import _carried_suffix_validation
 
 
 def _frame(dates, closes, volumes):

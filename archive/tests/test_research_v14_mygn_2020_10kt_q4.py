@@ -1,4 +1,4 @@
-from scripts.research_v14_mygn_2020_10kt_q4 import (
+from archive.scripts.research_v14_mygn_2020_10kt_q4 import (
     ACCESSION,
     EXPECTED,
     FILED,

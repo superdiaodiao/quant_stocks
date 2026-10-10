@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_xncr_zero_revenue import (
+from archive.scripts.research_v14_xncr_zero_revenue import (
     q4_revenue_fact,
     require_explicit_zero_revenue,
 )

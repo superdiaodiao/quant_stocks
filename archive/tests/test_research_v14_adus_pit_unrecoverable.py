@@ -6,8 +6,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_adus_pit_unrecoverable as adus_audit
-from scripts.research_v14_adus_pit_unrecoverable import (
+import archive.scripts.research_v14_adus_pit_unrecoverable as adus_audit
+from archive.scripts.research_v14_adus_pit_unrecoverable import (
     AUDIT_OBSERVATIONS,
     COMPANYFACTS_CACHE,
     OUTPUT_COLUMNS,

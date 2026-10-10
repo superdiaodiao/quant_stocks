@@ -1,6 +1,6 @@
 import pytest
 
-from scripts import research_v25_buffered_weekly_can_slim as v25
+from archive.scripts import research_v25_buffered_weekly_can_slim as v25
 
 
 def test_candidate_grid_is_small_and_stock_only():

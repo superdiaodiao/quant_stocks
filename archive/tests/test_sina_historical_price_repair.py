@@ -3,7 +3,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.sina_historical_price_repair import (
+from archive.scripts.sina_historical_price_repair import (
     _decode_response,
     _fixed_mirror_sec_cross_validation,
     _longest_stable_tail_validation,

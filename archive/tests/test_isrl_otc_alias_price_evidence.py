@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import _frame_sha256
-from scripts.otc_historical_price_repair import _parse_edgar
+from archive.scripts.historicaldata_price_import import _frame_sha256
+from archive.scripts.otc_historical_price_repair import _parse_edgar
 from src.conf import PROJECT_PATH
 
 

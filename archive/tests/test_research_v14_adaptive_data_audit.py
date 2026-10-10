@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.research_v14_adaptive_data_audit import (
+from archive.scripts.research_v14_adaptive_data_audit import (
     _snapshot_binding,
     monthly_decision_sessions,
     snapshot_age,

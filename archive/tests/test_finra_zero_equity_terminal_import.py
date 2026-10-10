@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from pypdf import PdfReader
 
-from scripts.finra_zero_equity_terminal_import import (
+from archive.scripts.finra_zero_equity_terminal_import import (
     _validate_zero_equity_notice,
     import_zero_equity_terminal,
 )
@@ -77,11 +77,11 @@ def test_zero_equity_import_writes_exact_terminal_return(
 ) -> None:
     prices, terminal = _inputs(tmp_path)
     monkeypatch.setattr(
-        "scripts.finra_zero_equity_terminal_import._load_or_fetch",
+        "archive.scripts.finra_zero_equity_terminal_import._load_or_fetch",
         lambda cache_path, source_url, refresh: (b"%PDF-test", Path(cache_path)),
     )
     monkeypatch.setattr(
-        "scripts.finra_zero_equity_terminal_import._extract_pdf_text",
+        "archive.scripts.finra_zero_equity_terminal_import._extract_pdf_text",
         lambda payload: (" ".join(NOTICE_TEXT.split()), 1),
     )
     cache = tmp_path / "notice.pdf.gz"

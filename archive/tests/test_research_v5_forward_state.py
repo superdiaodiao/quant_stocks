@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v5_forward_state import append_state
+from archive.scripts.research_v5_forward_state import append_state
 
 
 def test_v5_state_is_append_only_and_does_not_count_as_promotion(tmp_path: Path) -> None:

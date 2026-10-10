@@ -31,9 +31,9 @@ def _load(name: str, path: str):
     return module
 
 
-V7 = _load("research_v7_v10", "scripts/research_v7_qqq_targeted_core_satellite.py")
-V8 = _load("research_v8_v10", "scripts/research_v8_monthly_risk_budget_blend.py")
-ROBUST = _load("research_v8_robust_v10", "scripts/research_v8_short_horizon_robustness.py")
+V7 = _load("research_v7_v10", "archive/scripts/research_v7_qqq_targeted_core_satellite.py")
+V8 = _load("research_v8_v10", "archive/scripts/research_v8_monthly_risk_budget_blend.py")
+ROBUST = _load("research_v8_robust_v10", "archive/scripts/research_v8_short_horizon_robustness.py")
 
 
 def simulate_contrarian_core_satellite(

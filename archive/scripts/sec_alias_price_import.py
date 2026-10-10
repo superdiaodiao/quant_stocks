@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256
-from scripts.yahoo_historical_price_repair import (
+from archive.scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256
+from archive.scripts.yahoo_historical_price_repair import (
     _overlap_validation,
     _parse_yahoo,
     _read_prices,

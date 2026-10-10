@@ -1,6 +1,6 @@
 import json
 
-from scripts.research_v14_recover_commoncrawl_universe import recover
+from archive.scripts.research_v14_recover_commoncrawl_universe import recover
 
 
 def test_recover_uses_isolated_directory_and_binds_catalog(tmp_path, monkeypatch):
@@ -22,7 +22,7 @@ def test_recover_uses_isolated_directory_and_binds_catalog(tmp_path, monkeypatch
         return {"imported": [], "skipped": []}
 
     monkeypatch.setattr(
-        "scripts.research_v14_recover_commoncrawl_universe.import_nasdaq_trader_files",
+        "archive.scripts.research_v14_recover_commoncrawl_universe.import_nasdaq_trader_files",
         fake_import,
     )
     result = recover(

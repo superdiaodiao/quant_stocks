@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.research_v5_shadow_manifest import create_manifest
+from archive.scripts.research_v5_shadow_manifest import create_manifest
 
 
 def _research() -> dict:

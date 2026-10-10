@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_exact_annual_ttm_losses import (
+from archive.scripts.research_v14_exact_annual_ttm_losses import (
     exact_annual_ttm_losses,
 )
 from src.financial.quarterly_fundamentals import quarterly_profit_ttm_snapshot

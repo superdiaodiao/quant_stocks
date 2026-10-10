@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 import pdfplumber
 
-from scripts.research_v14_team_sec_quarterly_filings import _longest_chain
+from archive.scripts.research_v14_team_sec_quarterly_filings import _longest_chain
 
 
 DEFAULT_REGISTRY = Path("stocks_list_dir/nasdaq/asml_quarterly_reports.csv")

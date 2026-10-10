@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.sec_ticker_alias_price_repair import _cross_validate
+from archive.scripts.sec_ticker_alias_price_repair import _cross_validate
 
 
 def _frame(volume=(100.0, 100.0)):

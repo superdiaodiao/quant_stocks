@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
 
 
 def _daily(yearly_strategy, yearly_benchmark):

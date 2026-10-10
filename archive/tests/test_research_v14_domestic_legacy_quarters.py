@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from scripts.research_v14_domestic_legacy_quarters import (
+from archive.scripts.research_v14_domestic_legacy_quarters import (
     DIRECT_QUARTERS,
     ENSG_PRIOR_QUARTERS,
     ENSG_Q4,

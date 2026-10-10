@@ -19,7 +19,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     PRICE_COLUMNS,
     _atomic_write,
     _atomic_write_json,
@@ -32,7 +32,7 @@ from scripts.historicaldata_price_import import (
     _stooq_member_identity,
     _validate_overlap,
 )
-from scripts.sec_alias_price_import import _candidates, _membership_ends
+from archive.scripts.sec_alias_price_import import _candidates, _membership_ends
 from src.conf import CLEANED_PRICE_DATA_DIR, PROJECT_PATH
 
 

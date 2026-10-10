@@ -18,7 +18,7 @@ import warnings
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import pandas as pd
 
-from scripts.research_v14_qfin_annual_growth import (
+from archive.scripts.research_v14_qfin_annual_growth import (
     SOURCE_PATH as ANNUAL_CACHE_PATH,
     SOURCE_SHA256 as ANNUAL_CACHE_SHA256,
     _exact_fact,

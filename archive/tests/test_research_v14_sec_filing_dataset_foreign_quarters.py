@@ -2,7 +2,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.research_v14_sec_filing_dataset_foreign_quarters import (
+from archive.scripts.research_v14_sec_filing_dataset_foreign_quarters import (
     load_custom_registry,
     reconstruct_quarters,
     scan_archives,

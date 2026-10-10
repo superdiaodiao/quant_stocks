@@ -40,7 +40,7 @@ def _load(name: str, path: str):
 
 
 V5_EXEC = _load("v5_execution", "scripts/research_v5_execution_sensitivity.py")
-V7_EXEC = _load("v7_execution", "scripts/research_v7_execution_sensitivity.py")
+V7_EXEC = _load("v7_execution", "archive/scripts/research_v7_execution_sensitivity.py")
 
 
 def _schedule(frame: pd.DataFrame) -> dict[pd.Timestamp, pd.Series]:

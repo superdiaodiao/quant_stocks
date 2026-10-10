@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.research_v14_dkng_historical_cik_quarters import (
+from archive.scripts.research_v14_dkng_historical_cik_quarters import (
     CURRENT_CIK,
     AUDIT_OBSERVATIONS,
     DIRECT_TTM_METRICS,

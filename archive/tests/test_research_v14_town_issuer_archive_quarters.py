@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import pytest
 
-from scripts.research_v14_town_issuer_archive_quarters import (
+from archive.scripts.research_v14_town_issuer_archive_quarters import (
     BASELINE_GAPS,
     SIGNAL_DATES,
     SOURCES,

@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_stne_quarterly_reports import validate_statement
+from archive.scripts.research_v14_stne_quarterly_reports import validate_statement
 
 
 EVIDENCE = {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_rgld_legacy_revenue import strict_facts
+from archive.scripts.research_v14_rgld_legacy_revenue import strict_facts
 
 
 def _fact(start: str, end: str, value: float, filed: str, accn: str = "0001558370-17-006462") -> dict:

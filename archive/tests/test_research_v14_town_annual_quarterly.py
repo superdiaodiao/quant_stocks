@@ -1,4 +1,4 @@
-from scripts.research_v14_town_annual_quarterly import EXPECTED, parse_quarter_block
+from archive.scripts.research_v14_town_annual_quarterly import EXPECTED, parse_quarter_block
 
 
 def test_town_quarter_block_derives_bank_revenue_and_profit() -> None:

@@ -19,7 +19,7 @@ import pandas as pd
 
 from scripts import research_v23_stock_only_frequency as v23
 from scripts import research_v27_stock_only_2026_observation as v27
-from scripts import research_v40_inverse_volatility_weights_development as v40
+from archive.scripts import research_v40_inverse_volatility_weights_development as v40
 
 
 TRAINING_YEARS = tuple(range(2020, 2026))
@@ -117,7 +117,7 @@ def freeze_protocol(path: Path = PROTOCOL_PATH) -> dict:
             "v27_manifest": _file_binding(V27_MANIFEST),
             "v27_targets": _file_binding(V27_TARGETS),
             "v40_weight_helpers": _file_binding(
-                Path("scripts/research_v40_inverse_volatility_weights_development.py")
+                Path("archive/scripts/research_v40_inverse_volatility_weights_development.py")
             ),
             "v40_manifest": _file_binding(V40_MANIFEST),
         },

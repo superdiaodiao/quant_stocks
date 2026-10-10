@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.research_v14_newt_prebank_quarterly_filings import (
+from archive.scripts.research_v14_newt_prebank_quarterly_filings import (
     FILING_SPECS,
     parse_newt_bdc_statement,
     validate_filing_specs,

@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     _atomic_write,
     _atomic_write_json,
     _frame_sha256,
@@ -28,18 +28,18 @@ from scripts.historicaldata_price_import import (
     _sha256,
     _validate_overlap,
 )
-from scripts.otc_historical_price_repair import (
+from archive.scripts.otc_historical_price_repair import (
     EDGAR_BASE,
     _load_or_fetch,
     _parse_edgar,
 )
-from scripts.sec_alias_price_import import _membership_ends
-from scripts.sec_sina_alias_price_import import (
+from archive.scripts.sec_alias_price_import import _membership_ends
+from archive.scripts.sec_sina_alias_price_import import (
     _contiguous_sec_validation,
     _select_candidates,
 )
-from scripts.sina_historical_price_repair import _longest_stable_tail_validation
-from scripts.sina_historical_price_repair import _fixed_mirror_sec_cross_validation
+from archive.scripts.sina_historical_price_repair import _longest_stable_tail_validation
+from archive.scripts.sina_historical_price_repair import _fixed_mirror_sec_cross_validation
 from src.conf import CLEANED_PRICE_DATA_DIR, PROJECT_PATH
 
 

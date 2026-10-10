@@ -2,7 +2,7 @@ import gzip
 import json
 from pathlib import Path
 
-from scripts.cross_market_terminal_evidence import (
+from archive.scripts.cross_market_terminal_evidence import (
     ECB_ILS_URL,
     ECB_USD_URL,
     TASE_REQUEST,

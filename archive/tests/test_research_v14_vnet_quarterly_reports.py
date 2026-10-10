@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_vnet_quarterly_reports import validate_statement
+from archive.scripts.research_v14_vnet_quarterly_reports import validate_statement
 
 
 def _statement() -> bytes:

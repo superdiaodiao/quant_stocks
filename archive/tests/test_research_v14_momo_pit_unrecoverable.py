@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_momo_pit_unrecoverable as momo_audit
-from scripts.research_v14_momo_pit_unrecoverable import (
+import archive.scripts.research_v14_momo_pit_unrecoverable as momo_audit
+from archive.scripts.research_v14_momo_pit_unrecoverable import (
     AUDIT_OBSERVATIONS,
     OUTPUT_COLUMNS,
     REJECTED_LATER_FILINGS,

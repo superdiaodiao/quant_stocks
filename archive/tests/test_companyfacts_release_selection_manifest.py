@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 
-from scripts import companyfacts_release_selection_manifest as manifest
+from archive.scripts import companyfacts_release_selection_manifest as manifest
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 

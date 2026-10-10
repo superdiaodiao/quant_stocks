@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from scripts.issuer_rename_sensitivity import _annual, _target_tickers
+from archive.scripts.issuer_rename_sensitivity import _annual, _target_tickers
 
 
 def test_target_tickers_reconstructs_latest_state_at_signal_date() -> None:

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v36_correlation_diversified_momentum as v36
+from archive.scripts import research_v36_correlation_diversified_momentum as v36
 
 
 def test_candidate_grid_is_small_and_training_only():

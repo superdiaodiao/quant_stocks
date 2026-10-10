@@ -38,8 +38,8 @@ def _load_module(name: str, path: str):
     return module
 
 
-V6 = _load_module("research_v6", "scripts/research_v6_walkforward_defensive_ensemble.py")
-V7 = _load_module("research_v7", "scripts/research_v7_qqq_targeted_core_satellite.py")
+V6 = _load_module("research_v6", "archive/scripts/research_v6_walkforward_defensive_ensemble.py")
+V7 = _load_module("research_v7", "archive/scripts/research_v7_qqq_targeted_core_satellite.py")
 
 
 def _sha256(path: Path) -> str:

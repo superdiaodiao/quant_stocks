@@ -12,8 +12,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
-from scripts.research_v18_freeze_protocol import build as build_protocol
-from scripts.research_v18_source_locked_v7_core_development import (
+from archive.scripts.research_v18_freeze_protocol import build as build_protocol
+from archive.scripts.research_v18_source_locked_v7_core_development import (
     CORE_TICKER,
     source_locked_core_satellite_targets,
 )

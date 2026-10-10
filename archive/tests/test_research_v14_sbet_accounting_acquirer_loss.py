@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_sbet_accounting_acquirer_loss as sbet_loss
-from scripts.research_v14_sbet_accounting_acquirer_loss import (
+import archive.scripts.research_v14_sbet_accounting_acquirer_loss as sbet_loss
+from archive.scripts.research_v14_sbet_accounting_acquirer_loss import (
     ANNUAL_STATEMENT_HEADER,
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,

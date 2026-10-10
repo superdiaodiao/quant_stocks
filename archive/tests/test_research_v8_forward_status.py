@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v8_forward_status import build_status
+from archive.scripts.research_v8_forward_status import build_status
 
 
 def _manifest(path: Path):

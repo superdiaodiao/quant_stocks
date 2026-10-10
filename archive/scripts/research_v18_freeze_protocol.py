@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from scripts import research_v14_freeze_protocol as v14_freeze
+from archive.scripts import research_v14_freeze_protocol as v14_freeze
 from scripts import research_v15_benchmark_core_development as v15
 
 
@@ -17,7 +17,7 @@ FROZEN_AT = "2026-08-29"
 
 BINDINGS = {
     "source_v7_script": {
-        "path": Path("scripts/research_v7_qqq_targeted_core_satellite.py"),
+        "path": Path("archive/scripts/research_v7_qqq_targeted_core_satellite.py"),
         "sha256": (
             "53aa5f44812c54876a66049e7831ad643efae686fdd9b636a8e8cdb2c5f7f23e"
         ),
@@ -117,13 +117,13 @@ CODE_BINDINGS = {
         ),
     },
     "v18_development": {
-        "path": Path("scripts/research_v18_source_locked_v7_core_development.py"),
+        "path": Path("archive/scripts/research_v18_source_locked_v7_core_development.py"),
         "sha256": (
             "e9d4cea91a2e54da36d451830224d53eb0df06c4bc3fd949ab06ef9ecc13dafb"
         ),
     },
     "v18_frozen_robustness": {
-        "path": Path("scripts/research_v18_frozen_robustness.py"),
+        "path": Path("archive/scripts/research_v18_frozen_robustness.py"),
         "sha256": (
             "35e46cb1b23d7ede90f0be649ca469411f88280df8a67978823c2af78e9c9982"
         ),

@@ -6,7 +6,7 @@ import zipfile
 import pandas as pd
 import pytest
 
-from scripts.sec_business_combination_tail_import import import_tail
+from archive.scripts.sec_business_combination_tail_import import import_tail
 
 
 def test_imports_contiguous_cross_cik_tail_with_filing_binding(tmp_path: Path):

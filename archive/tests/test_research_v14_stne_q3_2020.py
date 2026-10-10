@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_stne_q3_2020 as stne_q3
-from scripts.research_v14_stne_q3_2020 import (
+import archive.scripts.research_v14_stne_q3_2020 as stne_q3
+from archive.scripts.research_v14_stne_q3_2020 import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_TTM_BRL,

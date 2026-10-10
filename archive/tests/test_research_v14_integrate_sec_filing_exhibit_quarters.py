@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.research_v14_integrate_sec_filing_exhibit_quarters import (
+from archive.scripts.research_v14_integrate_sec_filing_exhibit_quarters import (
     select_manifest_recovered_rows,
 )
 

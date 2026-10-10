@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.research_v6_shadow_manifest import build_manifest
+from archive.scripts.research_v6_shadow_manifest import build_manifest
 
 
 def test_v6_manifest_uses_staged_13_and_26_week_gates(tmp_path: Path) -> None:

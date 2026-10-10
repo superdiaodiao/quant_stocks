@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts import research_v14_yy_quarterly_reports as yy
+from archive.scripts import research_v14_yy_quarterly_reports as yy
 
 
 def _statement(

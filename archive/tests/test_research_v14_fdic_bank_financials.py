@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.research_v14_fdic_bank_financials import fdic_ytd_to_quarters
+from archive.scripts.research_v14_fdic_bank_financials import fdic_ytd_to_quarters
 
 
 def _document(name: str = "BANK OZK", cert: int = 110) -> dict:

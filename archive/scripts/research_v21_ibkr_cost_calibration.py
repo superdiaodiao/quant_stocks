@@ -11,8 +11,8 @@ from pathlib import Path
 import pandas as pd
 
 from scripts import research_v15_benchmark_core_development as v15
-from scripts import research_v19_source_locked_v10_feasibility as v19
-from scripts import research_v20_temporal_retraining as v20
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v20_temporal_retraining as v20
 from src.research.ibkr_cost_calibration import calibrate_reference_orders
 from src.research.manual_position_plan import build_manual_position_plan
 

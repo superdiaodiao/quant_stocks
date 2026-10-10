@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts import research_v14_freeze_protocol as protocol
+from archive.scripts import research_v14_freeze_protocol as protocol
 
 
 def test_protocol_build_is_deterministic_and_does_not_execute_results(

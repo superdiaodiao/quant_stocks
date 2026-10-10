@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_gds_quarterly_reports import (
+from archive.scripts.research_v14_gds_quarterly_reports import (
     NET_LABELS,
     REVENUE_LABELS,
     _longest_chain,

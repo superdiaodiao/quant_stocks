@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.research_v8_shadow_manifest import build_manifest
+from archive.scripts.research_v8_shadow_manifest import build_manifest
 
 
 def test_manifest_freezes_v8_without_enabling_runtime(tmp_path: Path):

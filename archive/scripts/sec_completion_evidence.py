@@ -32,7 +32,7 @@ from urllib.request import Request, urlopen
 from src.io.financial_update import SEC_HEADERS
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CACHE_DIR = Path("output/data_provenance/sec_completion_filing_cache")
 DEFAULT_PRICE_TRIAGE = Path("output/data_provenance/stockanalysis_price_triage.json")
 DEFAULT_OUTPUT = Path("output/data_provenance/sec_completion_evidence.json")

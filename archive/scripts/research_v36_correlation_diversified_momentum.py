@@ -23,7 +23,7 @@ from scripts import research_v23_stock_only_frequency as v23
 from scripts import research_v26_large_liquid_stock_momentum as v26
 from scripts import research_v29_recovered_2019_stock_momentum as v29
 from scripts import research_v30_2019_selection_path_adjudication as v30
-from scripts import research_v35_weekly_volatility_budget_development as v35
+from archive.scripts import research_v35_weekly_volatility_budget_development as v35
 from src.conf import CLEANED_PRICE_DATA_DIR, NASDAQ_INDEX_FILE
 from src.research.can_slim import replay_can_slim_target_schedule
 from src.research.universe_history import universe_as_of

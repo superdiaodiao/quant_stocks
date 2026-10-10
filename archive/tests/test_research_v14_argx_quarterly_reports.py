@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from scripts.research_v14_argx_quarterly_reports import (
+from archive.scripts.research_v14_argx_quarterly_reports import (
     AUDIT_PATH,
     DEFAULT_REGISTRY,
     EXPECTED_AUDIT_SHA256,

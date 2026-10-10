@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.sec_sina_alias_price_import import (
+from archive.scripts.sec_sina_alias_price_import import (
     _contiguous_sec_validation,
     _select_candidates,
 )

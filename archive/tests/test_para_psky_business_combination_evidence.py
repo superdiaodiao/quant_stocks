@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import PROJECT_PATH
 
 

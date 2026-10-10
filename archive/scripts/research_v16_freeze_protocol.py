@@ -8,7 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from scripts import research_v14_freeze_protocol as v14_freeze
+from archive.scripts import research_v14_freeze_protocol as v14_freeze
 from scripts import research_v15_benchmark_core_development as v15
 
 
@@ -84,14 +84,14 @@ CODE_BINDINGS = {
     },
     "v16_development": {
         "path": Path(
-            "scripts/research_v16_trend_confirmed_qqq_development.py"
+            "archive/scripts/research_v16_trend_confirmed_qqq_development.py"
         ),
         "sha256": (
             "89beeb34a6c63bb9d443a1a7b2f3b635dac4ab8f60f03d139ec4be9ec05a7f99"
         ),
     },
     "v16_frozen_confirmation": {
-        "path": Path("scripts/research_v16_frozen_confirmation.py"),
+        "path": Path("archive/scripts/research_v16_frozen_confirmation.py"),
         "sha256": (
             "6c49d6e60d761a7be1265ce73003476cbff0f6bf4d23635b03d067abc182773e"
         ),

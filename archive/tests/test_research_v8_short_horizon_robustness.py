@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts.research_v8_short_horizon_robustness import (
+from archive.scripts.research_v8_short_horizon_robustness import (
     moving_block_bootstrap,
     relative_returns,
     rolling_summary,

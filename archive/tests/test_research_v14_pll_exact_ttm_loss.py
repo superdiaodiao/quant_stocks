@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_pll_exact_ttm_loss as pll_loss
-from scripts.research_v14_pll_exact_ttm_loss import (
+import archive.scripts.research_v14_pll_exact_ttm_loss as pll_loss
+from archive.scripts.research_v14_pll_exact_ttm_loss import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_TTM_USD,

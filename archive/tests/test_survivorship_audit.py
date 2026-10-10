@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.survivorship_audit import audit_survivorship_by_year
+from archive.scripts.survivorship_audit import audit_survivorship_by_year
 
 
 def test_survivorship_audit_reports_later_absence_and_price_coverage():

@@ -21,7 +21,7 @@ import pandas as pd
 
 from scripts import research_v23_stock_only_frequency as v23
 from scripts import research_v30_2019_selection_path_adjudication as v30
-from scripts import research_v34_portfolio_stop_observation as v34
+from archive.scripts import research_v34_portfolio_stop_observation as v34
 from src.conf import CLEANED_PRICE_DATA_DIR, NASDAQ_INDEX_FILE
 from src.research.can_slim import replay_can_slim_target_schedule
 from src.research.data_quality import back_adjust_common_splits

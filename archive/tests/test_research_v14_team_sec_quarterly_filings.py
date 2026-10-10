@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_team_sec_quarterly_filings import (
+from archive.scripts.research_v14_team_sec_quarterly_filings import (
     _is_registry_boundary_truncation,
     _period_columns,
     _row_value,

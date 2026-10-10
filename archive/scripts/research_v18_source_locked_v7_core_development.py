@@ -33,7 +33,7 @@ OUTPUT_DIR = Path(
 )
 
 V7_SCRIPT = {
-    "path": Path("scripts/research_v7_qqq_targeted_core_satellite.py"),
+    "path": Path("archive/scripts/research_v7_qqq_targeted_core_satellite.py"),
     "sha256": (
         "53aa5f44812c54876a66049e7831ad643efae686fdd9b636a8e8cdb2c5f7f23e"
     ),

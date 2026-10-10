@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_integrate_foreign_quarters import eligible_symbols
+from archive.scripts.research_v14_integrate_foreign_quarters import eligible_symbols
 
 
 def test_eligible_symbols_requires_diagnostic_pass() -> None:

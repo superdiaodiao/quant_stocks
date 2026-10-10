@@ -1,4 +1,4 @@
-from scripts.research_v14_jblu_legacy_revenue import _strict_quarter_rows
+from archive.scripts.research_v14_jblu_legacy_revenue import _strict_quarter_rows
 
 
 def _fact(start, end, value, filed, form="10-Q", accn="a"):

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v12_quality_defensive_sleeve import quality_snapshot
+from archive.scripts.research_v12_quality_defensive_sleeve import quality_snapshot
 
 
 def test_quality_snapshot_uses_only_facts_available_by_as_of():

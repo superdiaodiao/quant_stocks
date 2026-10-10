@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v17_stock_turnover_cap_development as v17
+from archive.scripts import research_v17_stock_turnover_cap_development as v17
 from src.research.can_slim import replay_can_slim_target_schedule
 
 

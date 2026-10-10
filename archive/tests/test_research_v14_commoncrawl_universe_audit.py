@@ -1,4 +1,4 @@
-from scripts.research_v14_commoncrawl_universe_audit import archive_source_url
+from archive.scripts.research_v14_commoncrawl_universe_audit import archive_source_url
 
 
 def test_archive_source_url_binds_exact_warc_range() -> None:

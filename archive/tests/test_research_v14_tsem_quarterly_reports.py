@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_tsem_quarterly_reports import (
+from archive.scripts.research_v14_tsem_quarterly_reports import (
     _accounting_values,
     validate_statement,
 )

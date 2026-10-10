@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.research_v4_shadow_manifest import create_manifest
+from archive.scripts.research_v4_shadow_manifest import create_manifest
 
 
 def test_manifest_rejects_path_risk_for_different_daily_artifact(

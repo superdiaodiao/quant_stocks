@@ -11,8 +11,8 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-from scripts import research_v19_source_locked_v10_feasibility as v19
-from scripts import research_v20_temporal_retraining as v20
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v20_temporal_retraining as v20
 
 
 PROTOCOL_PATH = v20.OUTPUT_DIR / "frozen_protocol.json"

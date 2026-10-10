@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import PROJECT_PATH
 from src.io.terminal_returns import load_observed_terminal_returns
 

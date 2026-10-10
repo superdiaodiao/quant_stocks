@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
-import scripts.research_v14_adaptive_pretrain as pretrain_module
-from scripts.research_v14_adaptive_pretrain import research_summary
+import archive.scripts.research_v14_adaptive_pretrain as pretrain_module
+from archive.scripts.research_v14_adaptive_pretrain import research_summary
 
 
 def test_research_summary_cannot_promote_historical_pass() -> None:

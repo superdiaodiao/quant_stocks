@@ -1,6 +1,6 @@
 from pathlib import Path
 import pandas as pd
-from scripts.research_v14_zs_preipo_quarters import extract_quarters, run
+from archive.scripts.research_v14_zs_preipo_quarters import extract_quarters, run
 
 SOURCE=Path("output/data_provenance/zs_preipo/zs_2018_s1.htm")
 

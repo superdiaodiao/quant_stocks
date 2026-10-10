@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v22_regularized_walkforward as v22
+from archive.scripts import research_v22_regularized_walkforward as v22
 
 
 def _result(years, excesses):

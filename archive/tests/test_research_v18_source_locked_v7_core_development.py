@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v18_source_locked_v7_core_development as v18
+from archive.scripts import research_v18_source_locked_v7_core_development as v18
 
 
 def test_source_locked_targets_preserve_stocks_at_20_percent_and_qqq_at_80():

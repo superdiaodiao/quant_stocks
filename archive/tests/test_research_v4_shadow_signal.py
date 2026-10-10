@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import scripts.research_v4_shadow_signal as module
+import archive.scripts.research_v4_shadow_signal as module
 
 
 def test_pre_freeze_signal_is_not_written(tmp_path: Path, monkeypatch) -> None:

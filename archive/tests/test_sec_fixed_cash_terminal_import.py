@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts.sec_fixed_cash_terminal_import import import_fixed_cash_terminal
+from archive.scripts.sec_fixed_cash_terminal_import import import_fixed_cash_terminal
 
 
 def _inputs(tmp_path, *, with_cvr=False):

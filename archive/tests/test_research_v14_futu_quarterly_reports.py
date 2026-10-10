@@ -1,4 +1,4 @@
-from scripts.research_v14_futu_quarterly_reports import SOURCES, parse_quarter
+from archive.scripts.research_v14_futu_quarterly_reports import SOURCES, parse_quarter
 
 
 def test_futu_parser_uses_current_hkd_quarter_not_usd_or_ytd() -> None:

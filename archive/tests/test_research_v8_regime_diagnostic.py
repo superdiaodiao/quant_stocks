@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.research_v8_regime_diagnostic import future_compounded, regime_summary
+from archive.scripts.research_v8_regime_diagnostic import future_compounded, regime_summary
 
 
 def test_future_compounded_excludes_window_start_session():

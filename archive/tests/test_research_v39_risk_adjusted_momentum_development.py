@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v39_risk_adjusted_momentum_development as v39
+from archive.scripts import research_v39_risk_adjusted_momentum_development as v39
 
 
 def test_grid_is_small_and_keeps_base_structure_fixed():

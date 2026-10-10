@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_xpel_derived_quarters import EXPECTED, METRICS, derived_quarters
+from archive.scripts.research_v14_xpel_derived_quarters import EXPECTED, METRICS, derived_quarters
 
 
 def _payload() -> dict:

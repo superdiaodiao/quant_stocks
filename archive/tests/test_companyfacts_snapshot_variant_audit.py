@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from scripts.companyfacts_snapshot_variant_audit import audit_variants
+from archive.scripts.companyfacts_snapshot_variant_audit import audit_variants
 
 
 def _snapshot(root: Path, symbols: list[str], payload_value: int) -> Path:

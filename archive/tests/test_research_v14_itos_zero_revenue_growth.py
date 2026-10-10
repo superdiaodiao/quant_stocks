@@ -4,7 +4,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from scripts import research_v14_itos_zero_revenue_growth as itos
+from archive.scripts import research_v14_itos_zero_revenue_growth as itos
 
 
 def _payloads() -> list[bytes]:

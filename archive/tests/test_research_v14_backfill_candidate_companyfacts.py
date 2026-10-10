@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_backfill_candidate_companyfacts import (
+from archive.scripts.research_v14_backfill_candidate_companyfacts import (
     fetch_tickers,
     reparse_tickers,
 )

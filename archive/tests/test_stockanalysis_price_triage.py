@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts.stockanalysis_price_triage import (
+from archive.scripts.stockanalysis_price_triage import (
     _read_cached_page,
     parse_stockanalysis_history,
     triage_stockanalysis_prices,

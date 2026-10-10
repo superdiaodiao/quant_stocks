@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v16_frozen_confirmation import evaluate_frozen_gates
+from archive.scripts.research_v16_frozen_confirmation import evaluate_frozen_gates
 
 
 def _gates() -> dict:

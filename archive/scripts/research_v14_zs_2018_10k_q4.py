@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_adpt_preipo_quarters import integrate_candidate
+from archive.scripts.research_v14_adpt_preipo_quarters import integrate_candidate
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 CACHE = Path("output/research_only/v14/companyfacts_cache/CIK0001713683.json.gz")

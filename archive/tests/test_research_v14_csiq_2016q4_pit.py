@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_csiq_2016q4_pit import (
+from archive.scripts.research_v14_csiq_2016q4_pit import (
     EXPECTED_AUDITED,
     EXPECTED_NINE_MONTHS,
     EXPECTED_RELEASE,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.sina_historical_price_repair import _decoder_source, _parse_prices
+from archive.scripts.sina_historical_price_repair import _decoder_source, _parse_prices
 from src.conf import PROJECT_PATH
 
 

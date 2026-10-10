@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_lpro_preipo_quarters import extract_s1_values, run
+from archive.scripts.research_v14_lpro_preipo_quarters import extract_s1_values, run
 
 
 SOURCE = Path("output/data_provenance/lpro_preipo/lpro_2020_s1.htm")

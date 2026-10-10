@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.select_shadow_artifact import select_shadow_artifact
+from archive.scripts.select_shadow_artifact import select_shadow_artifact
 
 
 def _run(

@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_sblk_quarterly_reports import (
+from archive.scripts.research_v14_sblk_quarterly_reports import (
     PERIOD_EVIDENCE,
     Q3_PDF_SHA256,
     Q4_2019_PDF_SHA256,

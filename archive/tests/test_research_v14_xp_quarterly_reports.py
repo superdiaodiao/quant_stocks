@@ -5,7 +5,7 @@ from io import BytesIO
 import pandas as pd
 import pytest
 
-from scripts.research_v14_xp_quarterly_reports import parse_interim
+from archive.scripts.research_v14_xp_quarterly_reports import parse_interim
 
 
 def _statement(*, revenue: str = "2,628,041", income: str = "734,148") -> bytes:

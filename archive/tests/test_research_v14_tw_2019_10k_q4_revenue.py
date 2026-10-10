@@ -1,4 +1,4 @@
-from scripts.research_v14_tw_2019_10k_q4_revenue import (
+from archive.scripts.research_v14_tw_2019_10k_q4_revenue import (
     ANNUAL_FILED,
     ANNUAL_REVENUE,
     EXPECTED_Q4_REVENUE,

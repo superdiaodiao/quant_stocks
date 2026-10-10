@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts.research_v10_contrarian_alpha_budget import simulate_contrarian_core_satellite
+from archive.scripts.research_v10_contrarian_alpha_budget import simulate_contrarian_core_satellite
 
 
 def test_contrarian_decision_uses_only_returns_before_rebalance():

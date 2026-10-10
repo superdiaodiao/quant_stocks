@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_iclk_quarterly_pit import (
+from archive.scripts.research_v14_iclk_quarterly_pit import (
     EXPECTED_QUARTERS,
     SOURCES,
     audit_signals,

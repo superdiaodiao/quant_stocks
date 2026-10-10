@@ -139,21 +139,21 @@ CODE_BINDINGS = {
         ),
     },
     "adaptive_runner": {
-        "path": Path("scripts/research_v14_adaptive_pretrain.py"),
+        "path": Path("archive/scripts/research_v14_adaptive_pretrain.py"),
         "sha256": (
             "c2cedf7ab38da76b8aa80cff2e826ff120a27aba8fa6c243856796d650db8cd9"
         ),
     },
     "universe_exclusion": {
         "path": Path(
-            "scripts/research_v14_universe_gap_negative_evidence.py"
+            "archive/scripts/research_v14_universe_gap_negative_evidence.py"
         ),
         "sha256": (
             "b07cd214503a88e38ff2dde114a8a75edf97a41ad3527a47ef1374e3ed9a682b"
         ),
     },
     "frozen_replay": {
-        "path": Path("scripts/research_v14_frozen_replay.py"),
+        "path": Path("archive/scripts/research_v14_frozen_replay.py"),
         "sha256": (
             "71a0f86b5f584924f22eca27b071f40e3403bf838c6d3b2af5e87050c761e72c"
         ),

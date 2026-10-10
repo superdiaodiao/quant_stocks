@@ -1,4 +1,4 @@
-from scripts.sec_filing_dataset_supplement_candidate import _identity
+from archive.scripts.sec_filing_dataset_supplement_candidate import _identity
 
 
 def test_semantic_identity_normalizes_dates_and_values():

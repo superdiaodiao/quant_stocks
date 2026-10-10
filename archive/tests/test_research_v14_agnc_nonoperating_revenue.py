@@ -4,7 +4,7 @@ import gzip
 import json
 import pandas as pd
 
-from scripts.research_v14_agnc_nonoperating_revenue import (
+from archive.scripts.research_v14_agnc_nonoperating_revenue import (
     CACHE,
     EXPECTED_Q4_2020,
     SPECS,

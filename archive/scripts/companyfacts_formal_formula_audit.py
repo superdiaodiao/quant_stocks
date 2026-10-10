@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from scripts.companyfacts_release_selection_manifest import _row_sha256, _row_values
+from archive.scripts.companyfacts_release_selection_manifest import _row_sha256, _row_values
 
 from scripts.companyfacts_cache_snapshot import verify_companyfacts_cache_snapshot
 from src.io.fundamentals_update import (

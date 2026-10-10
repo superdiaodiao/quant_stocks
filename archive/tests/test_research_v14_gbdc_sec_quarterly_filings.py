@@ -1,7 +1,7 @@
 import pandas as pd
 
-from scripts.research_v14_gbdc_sec_quarterly_filings import _date_columns
-from scripts.research_v14_dsgx_sec_quarterly_filings import _row_value
+from archive.scripts.research_v14_gbdc_sec_quarterly_filings import _date_columns
+from archive.scripts.research_v14_dsgx_sec_quarterly_filings import _row_value
 
 
 def test_gbdc_annual_quarter_table_selects_exact_period() -> None:

@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from scripts import research_v16_freeze_protocol as protocol
+from archive.scripts import research_v16_freeze_protocol as protocol
 
 
 def test_v16_protocol_is_deterministic_and_pre_execution(tmp_path):

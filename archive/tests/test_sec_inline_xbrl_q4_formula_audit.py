@@ -3,7 +3,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.sec_inline_xbrl_q4_formula_audit import audit_q4_formulas
+from archive.scripts.sec_inline_xbrl_q4_formula_audit import audit_q4_formulas
 
 
 def test_formula_audit_combines_annual_xbrl_with_three_pit_quarters(tmp_path):

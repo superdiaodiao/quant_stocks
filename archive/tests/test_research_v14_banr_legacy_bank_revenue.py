@@ -1,4 +1,4 @@
-from scripts.research_v14_banr_legacy_bank_revenue import (
+from archive.scripts.research_v14_banr_legacy_bank_revenue import (
     ANNUAL_PERIODS,
     DIRECT_QUARTERS,
     _strict_quarter_rows,

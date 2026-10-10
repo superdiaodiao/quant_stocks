@@ -2,7 +2,7 @@ import gzip
 import hashlib
 import json
 
-from scripts.sec_filing_dataset_supplement_impact import (
+from archive.scripts.sec_filing_dataset_supplement_impact import (
     _parse_quarterly_with_targeted_sec_facts,
     audit_supplement_impact,
 )

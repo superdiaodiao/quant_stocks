@@ -19,7 +19,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     PRICE_COLUMNS,
     _atomic_write,
     _atomic_write_json,
@@ -30,7 +30,7 @@ from scripts.historicaldata_price_import import (
     _sha256,
     _validate_overlap,
 )
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import CLEANED_PRICE_DATA_DIR, PROJECT_PATH
 
 

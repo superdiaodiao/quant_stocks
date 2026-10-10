@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v40_inverse_volatility_weights_development as v40
+from archive.scripts import research_v40_inverse_volatility_weights_development as v40
 
 
 def test_grid_is_small_and_caps_are_fixed():

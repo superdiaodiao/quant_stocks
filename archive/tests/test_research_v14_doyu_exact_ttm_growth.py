@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
-from scripts.research_v14_doyu_exact_ttm_growth import (
+from archive.scripts.research_v14_doyu_exact_ttm_growth import (
     EXPECTED_QUARTERS,
     EXPECTED_TTM,
     QUARTER_SOURCE,

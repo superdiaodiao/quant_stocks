@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_normalize_exact_quarter_coordinates import (
+from archive.scripts.research_v14_normalize_exact_quarter_coordinates import (
     exact_coordinate_mappings,
 )
 

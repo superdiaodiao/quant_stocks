@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     MIN_OVERLAP_SESSIONS,
     PRICE_COLUMNS,
     _atomic_write,

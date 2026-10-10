@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.path_risk_report import drawdown_episodes
+from archive.scripts.path_risk_report import drawdown_episodes
 
 
 def test_drawdown_episode_records_peak_trough_and_recovery():

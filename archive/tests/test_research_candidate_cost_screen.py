@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from scripts.research_candidate_cost_screen import summarize_screen
+from archive.scripts.research_candidate_cost_screen import summarize_screen
 
 
 def _rows(config_id: int, cost: int, excess: list[float]) -> list[dict]:

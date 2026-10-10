@@ -45,9 +45,9 @@ def _load(name: str, path: str):
     return module
 
 
-V7 = _load("research_v7_v12", "scripts/research_v7_qqq_targeted_core_satellite.py")
-V8 = _load("research_v8_v12", "scripts/research_v8_monthly_risk_budget_blend.py")
-ROBUST = _load("research_v8_robust_v12", "scripts/research_v8_short_horizon_robustness.py")
+V7 = _load("research_v7_v12", "archive/scripts/research_v7_qqq_targeted_core_satellite.py")
+V8 = _load("research_v8_v12", "archive/scripts/research_v8_monthly_risk_budget_blend.py")
+ROBUST = _load("research_v8_robust_v12", "archive/scripts/research_v8_short_horizon_robustness.py")
 
 
 def load_annual(path: Path = ANNUAL_PATH) -> pd.DataFrame:

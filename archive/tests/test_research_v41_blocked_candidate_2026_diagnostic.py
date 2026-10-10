@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v41_blocked_candidate_2026_diagnostic as v41
+from archive.scripts import research_v41_blocked_candidate_2026_diagnostic as v41
 
 
 def test_training_failure_cannot_be_overridden_by_diagnostic():

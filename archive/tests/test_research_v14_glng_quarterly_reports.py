@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_glng_quarterly_reports import (
+from archive.scripts.research_v14_glng_quarterly_reports import (
     EXPECTED_ANNUALS,
     EXPECTED_QUARTERS,
     audit_signals,

@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from scripts.sec_filing_dataset_supplement_candidate import _identity, _normalize_row
+from archive.scripts.sec_filing_dataset_supplement_candidate import _identity, _normalize_row
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 

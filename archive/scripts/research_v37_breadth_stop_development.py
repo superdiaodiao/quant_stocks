@@ -22,7 +22,7 @@ from scripts import research_v23_stock_only_frequency as v23
 from scripts import research_v26_large_liquid_stock_momentum as v26
 from scripts import research_v28_stock_trailing_stop_development as v28
 from scripts import research_v30_2019_selection_path_adjudication as v30
-from scripts import research_v36_correlation_diversified_momentum as v36
+from archive.scripts import research_v36_correlation_diversified_momentum as v36
 from src.conf import CLEANED_PRICE_DATA_DIR, NASDAQ_INDEX_FILE
 
 
@@ -179,7 +179,7 @@ def freeze_protocol(path: Path = PROTOCOL_PATH) -> dict:
             ),
             "v30_manifest": _file_binding(V30_MANIFEST),
             "v36_input_helpers": _file_binding(
-                Path("scripts/research_v36_correlation_diversified_momentum.py")
+                Path("archive/scripts/research_v36_correlation_diversified_momentum.py")
             ),
             "v36_manifest": _file_binding(V36_MANIFEST),
             "price_directory": _directory_binding(

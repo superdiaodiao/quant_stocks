@@ -11,7 +11,7 @@ from typing import Any
 
 import pandas as pd
 
-from scripts.sec_filing_dataset_supplement_impact import (
+from archive.scripts.sec_filing_dataset_supplement_impact import (
     COMPARE_COLUMNS,
     _parse_quarterly_with_targeted_sec_facts,
 )

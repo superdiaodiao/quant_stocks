@@ -1,4 +1,4 @@
-from scripts.research_v14_candidate_path_audit import (
+from archive.scripts.research_v14_candidate_path_audit import (
     representative_configs,
     scenario_id,
 )

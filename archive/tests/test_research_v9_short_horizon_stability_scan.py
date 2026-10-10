@@ -1,4 +1,4 @@
-from scripts.research_v9_short_horizon_stability_scan import admissible
+from archive.scripts.research_v9_short_horizon_stability_scan import admissible
 
 
 def test_admissible_requires_return_risk_and_benchmark_constraints():

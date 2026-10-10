@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from scripts.sec_cached_submission_transition_probe import build_probe
-from scripts.sec_submission_triage import _payload_sha256
+from archive.scripts.sec_cached_submission_transition_probe import build_probe
+from archive.scripts.sec_submission_triage import _payload_sha256
 
 
 def _write_cache(path, payload, cik=123):

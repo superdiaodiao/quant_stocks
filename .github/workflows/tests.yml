@@ -40,7 +40,7 @@ jobs:
 
     - name: Byte-compile runtime, scripts, and tests
       run: |
-        python -m compileall -q src scripts tests
+        python -m compileall -q src scripts tests archive/scripts archive/tests
 
     - name: Verify frozen prospective protocols on a clean checkout
       run: |
@@ -61,7 +61,7 @@ jobs:
     - name: Run portable test files
       run: |
         mapfile -t excluded < <(grep -v '^#' tests/data_dependent_test_files.txt)
-        mapfile -t portable < <(ls tests/test_*.py | grep -vxF -f <(printf '%s\n' "${excluded[@]}"))
+        mapfile -t portable < <(ls tests/test_*.py archive/tests/test_*.py | grep -vxF -f <(printf '%s\n' "${excluded[@]}"))
         echo "portable test files: ${#portable[@]}; excluded: ${#excluded[@]}"
         python -m pytest "${portable[@]}" -o addopts='' -q -p no:cacheprovider
 

@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import PROJECT_PATH
 
 

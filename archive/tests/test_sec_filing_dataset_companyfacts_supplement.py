@@ -4,7 +4,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.sec_filing_dataset_companyfacts_supplement import (
+from archive.scripts.sec_filing_dataset_companyfacts_supplement import (
     _align_candidate_ends_to_snapshot,
     _merge_fact_payload,
     _filter_candidate_to_targets,

@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from scripts.sec_inline_xbrl_target_probe import parse_inline_xbrl
+from archive.scripts.sec_inline_xbrl_target_probe import parse_inline_xbrl
 from src.io.fundamentals_update import _coalesce_equivalent_quarter_ends
 
 

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v16_trend_confirmed_qqq_development as v16
+from archive.scripts import research_v16_trend_confirmed_qqq_development as v16
 
 
 def test_trend_schedule_uses_prior_session_and_preserves_stock_target():

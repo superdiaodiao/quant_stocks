@@ -12,8 +12,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
-from scripts.research_v14_adaptive_pretrain import run as adaptive_run
-from scripts.research_v14_freeze_protocol import build as build_protocol
+from archive.scripts.research_v14_adaptive_pretrain import run as adaptive_run
+from archive.scripts.research_v14_freeze_protocol import build as build_protocol
 from src.conf import NASDAQ_INDEX_FILE
 from src.research.can_slim import replay_can_slim_target_schedule
 from src.research.panel_data import load_panel

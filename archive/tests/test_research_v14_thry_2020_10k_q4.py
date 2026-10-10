@@ -1,4 +1,4 @@
-from scripts.research_v14_thry_2020_10k_q4 import (
+from archive.scripts.research_v14_thry_2020_10k_q4 import (
     ANNUAL_FILED,
     ANNUAL_NET_INCOME,
     EXPECTED_Q4,

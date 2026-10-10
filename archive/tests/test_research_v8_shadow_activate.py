@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from scripts.research_v8_shadow_activate import activate
+from archive.scripts.research_v8_shadow_activate import activate
 
 
 def test_activation_enables_only_local_shadow(tmp_path: Path):

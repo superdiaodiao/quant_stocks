@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_sny_quarterly_reports import (
+from archive.scripts.research_v14_sny_quarterly_reports import (
     _annual_columns,
     _row_value,
     _slot_columns,

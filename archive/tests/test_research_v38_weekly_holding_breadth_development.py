@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v38_weekly_holding_breadth_development as v38
+from archive.scripts import research_v38_weekly_holding_breadth_development as v38
 
 
 def test_grid_is_small_and_sma20_is_fixed():

@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from scripts.research_v14_cybr_quarterly_reports import (
+from archive.scripts.research_v14_cybr_quarterly_reports import (
     OUTPUT_COLUMNS,
     _longest_chain,
     _normal,

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_asml_quarterly_reports import (
+from archive.scripts.research_v14_asml_quarterly_reports import (
     _values_agree,
     parse_statement_text,
 )

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from scripts.sec_completion_evidence import (
+from archive.scripts.sec_completion_evidence import (
     FILING_SPECS,
     _cache_path,
     _html_text,

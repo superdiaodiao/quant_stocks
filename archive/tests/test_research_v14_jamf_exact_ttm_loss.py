@@ -7,8 +7,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_jamf_exact_ttm_loss as jamf_ttm
-from scripts.research_v14_jamf_exact_ttm_loss import (
+import archive.scripts.research_v14_jamf_exact_ttm_loss as jamf_ttm
+from archive.scripts.research_v14_jamf_exact_ttm_loss import (
     AUDIT_OBSERVATIONS,
     COMPANYFACTS_CACHE,
     EXPECTED_PARSED_TABLES,

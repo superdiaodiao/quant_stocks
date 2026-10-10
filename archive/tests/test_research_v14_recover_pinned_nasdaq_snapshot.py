@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts import research_v14_recover_pinned_nasdaq_snapshot as recovery
+from archive.scripts import research_v14_recover_pinned_nasdaq_snapshot as recovery
 
 
 def _payload() -> bytes:

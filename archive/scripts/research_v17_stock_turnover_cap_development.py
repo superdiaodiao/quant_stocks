@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from scripts import research_v15_benchmark_core_development as v15
-from scripts import research_v16_trend_confirmed_qqq_development as v16
+from archive.scripts import research_v16_trend_confirmed_qqq_development as v16
 from src.conf import NASDAQ_INDEX_FILE
 from src.research.data_quality import (
     back_adjust_common_splits,

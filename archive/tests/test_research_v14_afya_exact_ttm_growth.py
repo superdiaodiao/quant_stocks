@@ -6,8 +6,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_afya_exact_ttm_growth as afya_growth
-from scripts.research_v14_afya_exact_ttm_growth import (
+import archive.scripts.research_v14_afya_exact_ttm_growth as afya_growth
+from archive.scripts.research_v14_afya_exact_ttm_growth import (
     AUDIT_OBSERVATIONS,
     REJECTED_LATER_FILINGS,
     SOURCE_DOCUMENTS,

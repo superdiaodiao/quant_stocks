@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import scripts.research_v14_imab_exact_ttm as imab_exact_ttm
-from scripts.research_v14_imab_exact_ttm import (
+import archive.scripts.research_v14_imab_exact_ttm as imab_exact_ttm
+from archive.scripts.research_v14_imab_exact_ttm import (
     AUDIT_OBSERVATIONS,
     OPERANDS_RMB_THOUSANDS,
     REJECTED_LATER_FILINGS,

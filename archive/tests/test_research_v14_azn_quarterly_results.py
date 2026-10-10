@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_azn_quarterly_results import extract_period, run
+from archive.scripts.research_v14_azn_quarterly_results import extract_period, run
 
 
 SOURCE = Path("output/data_provenance/azn_quarterly")

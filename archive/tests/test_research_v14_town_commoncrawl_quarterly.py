@@ -1,4 +1,4 @@
-from scripts.research_v14_town_commoncrawl_quarterly import (
+from archive.scripts.research_v14_town_commoncrawl_quarterly import (
     parse_town_2019q3,
 )
 

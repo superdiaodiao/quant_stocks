@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_adpt_preipo_quarters import integrate_candidate
-from scripts.research_v14_cybr_quarterly_reports import _period_columns, _row_value
-from scripts.research_v14_ozk_quarterly_reports import _parse_quarter
+from archive.scripts.research_v14_adpt_preipo_quarters import integrate_candidate
+from archive.scripts.research_v14_cybr_quarterly_reports import _period_columns, _row_value
+from archive.scripts.research_v14_ozk_quarterly_reports import _parse_quarter
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 

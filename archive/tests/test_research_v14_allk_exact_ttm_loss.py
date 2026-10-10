@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.research_v14_allk_exact_ttm_loss import (
+from archive.scripts.research_v14_allk_exact_ttm_loss import (
     CACHE,
     EXPECTED_TTM,
     _load_locked_cache,

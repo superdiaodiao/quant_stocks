@@ -1,4 +1,4 @@
-from scripts.research_v8_weekly_mark import record_weekly_mark
+from archive.scripts.research_v8_weekly_mark import record_weekly_mark
 
 
 def test_weekly_mark_does_not_write_before_week_end():

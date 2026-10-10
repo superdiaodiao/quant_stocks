@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_paas_quarterly_reports import (
+from archive.scripts.research_v14_paas_quarterly_reports import (
     COMPARATIVE_RESTATEMENTS,
     _longest_chain,
     _metric_pair_from_tables,

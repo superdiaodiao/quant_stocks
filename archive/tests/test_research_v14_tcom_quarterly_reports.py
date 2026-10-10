@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.research_v14_tcom_quarterly_reports import extract_quarter, run
+from archive.scripts.research_v14_tcom_quarterly_reports import extract_quarter, run
 
 
 def test_tcom_extracts_2018q3_gaap_loss_with_parentheses() -> None:

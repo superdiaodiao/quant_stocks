@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.sec_ticker_transition_probe import (
+from archive.scripts.sec_ticker_transition_probe import (
     _display_ticker_cik,
     _display_exact_name_cik,
     _missing_cik_tickers,

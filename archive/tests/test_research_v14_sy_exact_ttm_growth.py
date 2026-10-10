@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_sy_exact_ttm_growth as sy
+import archive.scripts.research_v14_sy_exact_ttm_growth as sy
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
 
 

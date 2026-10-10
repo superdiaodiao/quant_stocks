@@ -7,8 +7,8 @@ import hashlib
 import pandas as pd
 import pytest
 
-import scripts.research_v14_eslt_exact_ttm_growth as eslt_growth
-from scripts.research_v14_eslt_exact_ttm_growth import (
+import archive.scripts.research_v14_eslt_exact_ttm_growth as eslt_growth
+from archive.scripts.research_v14_eslt_exact_ttm_growth import (
     ACCOUNTING_STANDARD,
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,

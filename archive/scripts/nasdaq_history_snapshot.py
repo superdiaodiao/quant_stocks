@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 
-from scripts.historicaldata_price_import import PRICE_COLUMNS, _atomic_write_json, _frame_sha256
+from archive.scripts.historicaldata_price_import import PRICE_COLUMNS, _atomic_write_json, _frame_sha256
 from src.io.nasdaq_update import API, fetch_history
 
 

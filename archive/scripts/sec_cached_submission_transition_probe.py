@@ -15,8 +15,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.historicaldata_price_import import _atomic_write_json, _sha256
-from scripts.sec_submission_triage import _payload_sha256
+from archive.scripts.historicaldata_price_import import _atomic_write_json, _sha256
+from archive.scripts.sec_submission_triage import _payload_sha256
 from src.conf import PROJECT_PATH
 
 

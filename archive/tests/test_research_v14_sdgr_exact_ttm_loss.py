@@ -4,8 +4,8 @@ import hashlib
 import pandas as pd
 import pytest
 
-import scripts.research_v14_sdgr_exact_ttm_loss as sdgr_ttm
-from scripts.research_v14_sdgr_exact_ttm_loss import (
+import archive.scripts.research_v14_sdgr_exact_ttm_loss as sdgr_ttm
+from archive.scripts.research_v14_sdgr_exact_ttm_loss import (
     AUDIT_OBSERVATIONS,
     OPERANDS_USD_THOUSANDS,
     REJECTED_LATER_FILINGS,

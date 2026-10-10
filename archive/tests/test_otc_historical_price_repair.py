@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.otc_historical_price_repair import (
+from archive.scripts.otc_historical_price_repair import (
     _eligible,
     _count_missing,
     _merge_missing,

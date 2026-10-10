@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v20_recent_holdout as holdout
-from scripts import research_v20_temporal_retraining as v20
+from archive.scripts import research_v20_recent_holdout as holdout
+from archive.scripts import research_v20_temporal_retraining as v20
 
 
 def _result(years, excesses):

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts import research_v34_portfolio_stop_observation as v34
+from archive.scripts import research_v34_portfolio_stop_observation as v34
 
 
 def test_training_years_are_not_observation_wins():

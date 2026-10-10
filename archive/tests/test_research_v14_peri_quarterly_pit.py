@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_peri_quarterly_pit import (
+from archive.scripts.research_v14_peri_quarterly_pit import (
     EXPECTED_ANNUALS,
     EXPECTED_CUMULATIVE,
     EXPECTED_QUARTERS,

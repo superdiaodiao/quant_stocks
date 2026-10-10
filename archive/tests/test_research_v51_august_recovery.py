@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts import research_v51_august_recovery as v51
+from archive.scripts import research_v51_august_recovery as v51
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,4 @@
-from scripts.research_v14_wb_quarterly_reports import parse_quarter
+from archive.scripts.research_v14_wb_quarterly_reports import parse_quarter
 
 
 def test_wb_parser_uses_gaap_current_quarter_columns() -> None:

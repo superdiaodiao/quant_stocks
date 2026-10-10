@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_ozk_2020q1_residual import EXPECTED_Q1, run
+from archive.scripts.research_v14_ozk_2020q1_residual import EXPECTED_Q1, run
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
 from src.io.fundamentals_update import merge_fundamentals
 

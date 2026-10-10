@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v11_monthly_trend_scaled_v7 import scale_sleeve_monthly
+from archive.scripts.research_v11_monthly_trend_scaled_v7 import scale_sleeve_monthly
 
 
 def test_trend_decision_uses_only_closes_before_rebalance():

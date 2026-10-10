@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_bbio_profit_residual import EXPECTED_Q4, run
+from archive.scripts.research_v14_bbio_profit_residual import EXPECTED_Q4, run
 from src.financial.quarterly_fundamentals import quarterly_profit_ttm_snapshot
 from src.io.fundamentals_update import merge_fundamentals, parse_companyfacts_quarterly
 

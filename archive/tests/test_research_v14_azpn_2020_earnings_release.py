@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_azpn_2020_earnings_release import (
+from archive.scripts.research_v14_azpn_2020_earnings_release import (
     CURRENT_NET_INCOME,
     CURRENT_REVENUE,
     PRIOR_NET_INCOME,

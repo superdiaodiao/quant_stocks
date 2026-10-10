@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_gmab_quarterly_reports import (
+from archive.scripts.research_v14_gmab_quarterly_reports import (
     _annual_from_flat_table,
     _number,
 )

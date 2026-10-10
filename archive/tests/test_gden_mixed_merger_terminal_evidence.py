@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from bs4 import BeautifulSoup
 
-from scripts.historicaldata_price_import import _member_sha256, _read_stooq_member
+from archive.scripts.historicaldata_price_import import _member_sha256, _read_stooq_member
 from src.conf import PROJECT_PATH
 
 

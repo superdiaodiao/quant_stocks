@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_niu_exact_ttm_growth as niu_growth
-from scripts.research_v14_niu_exact_ttm_growth import (
+import archive.scripts.research_v14_niu_exact_ttm_growth as niu_growth
+from archive.scripts.research_v14_niu_exact_ttm_growth import (
     ACCOUNTING_STANDARD,
     ADJUSTED_OR_NON_GAAP_LABELS,
     AUDIT_OBSERVATIONS,

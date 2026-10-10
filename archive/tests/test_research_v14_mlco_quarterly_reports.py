@@ -1,4 +1,4 @@
-from scripts.research_v14_mlco_quarterly_reports import parse_quarter
+from archive.scripts.research_v14_mlco_quarterly_reports import parse_quarter
 
 
 def test_mlco_parser_excludes_adjusted_and_per_share_rows() -> None:

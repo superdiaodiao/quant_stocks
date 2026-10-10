@@ -12,8 +12,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
-from scripts.research_v16_freeze_protocol import build as build_protocol
-from scripts.research_v16_trend_confirmed_qqq_development import (
+from archive.scripts.research_v16_freeze_protocol import build as build_protocol
+from archive.scripts.research_v16_trend_confirmed_qqq_development import (
     CORE_TICKER,
     trend_confirmed_target_schedule,
 )

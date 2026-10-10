@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-from scripts import research_v14_sibn_direct_ttm_loss as sibn
-from scripts.research_v14_adpt_preipo_quarters import integrate_candidate
+from archive.scripts import research_v14_sibn_direct_ttm_loss as sibn
+from archive.scripts.research_v14_adpt_preipo_quarters import integrate_candidate
 from src.financial.quarterly_fundamentals import quarterly_profit_ttm_snapshot
 
 

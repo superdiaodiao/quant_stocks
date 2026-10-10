@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.research_v6_execution_sensitivity import build_v6_targets
+from archive.scripts.research_v6_execution_sensitivity import build_v6_targets
 
 
 def test_v6_targets_scale_stock_and_average_risk_sleeves() -> None:

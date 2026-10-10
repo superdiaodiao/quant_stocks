@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.yahoo_historical_price_repair import (
+from archive.scripts.yahoo_historical_price_repair import (
     _merge_missing,
     _overlap_validation,
     _parse_yahoo,

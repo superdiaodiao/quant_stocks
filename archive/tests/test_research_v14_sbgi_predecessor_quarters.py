@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.research_v14_sbgi_predecessor_quarters import (
+from archive.scripts.research_v14_sbgi_predecessor_quarters import (
     ORIGINAL_ACCESSIONS,
     select_original_rows,
     validate_transition_filing,

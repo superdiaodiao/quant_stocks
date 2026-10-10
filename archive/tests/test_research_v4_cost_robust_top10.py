@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.research_v4_cost_robust_top10 import (
+from archive.scripts.research_v4_cost_robust_top10 import (
     challenger_config,
     validate_selection_evidence,
 )

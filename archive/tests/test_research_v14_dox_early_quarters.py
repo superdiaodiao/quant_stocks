@@ -1,4 +1,4 @@
-from scripts.research_v14_dox_early_quarters import parse_quarter
+from archive.scripts.research_v14_dox_early_quarters import parse_quarter
 
 
 def test_dox_parser_uses_current_quarter_gaap_values() -> None:

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 
-SCRIPT = Path("scripts/research_v8_monthly_risk_budget_blend.py")
+SCRIPT = Path("archive/scripts/research_v8_monthly_risk_budget_blend.py")
 SPEC = importlib.util.spec_from_file_location("research_v8", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

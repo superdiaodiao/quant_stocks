@@ -4,7 +4,7 @@ import gzip
 import json
 import pandas as pd
 
-from scripts.research_v14_mdb_2018_10k_q4 import (
+from archive.scripts.research_v14_mdb_2018_10k_q4 import (
     CACHE,
     EXPECTED_INPUTS,
     EXPECTED_Q4,

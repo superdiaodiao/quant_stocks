@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_slrc_sec_quarterly_filings import (
+from archive.scripts.research_v14_slrc_sec_quarterly_filings import (
     FILING_SPECS,
     parse_slrc_statement,
     validate_filing_specs,

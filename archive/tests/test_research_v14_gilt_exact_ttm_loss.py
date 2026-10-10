@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_gilt_exact_ttm_loss as gilt_loss
-from scripts.research_v14_gilt_exact_ttm_loss import (
+import archive.scripts.research_v14_gilt_exact_ttm_loss as gilt_loss
+from archive.scripts.research_v14_gilt_exact_ttm_loss import (
     AUDIT_OBSERVATIONS,
     OPERANDS_USD_THOUSANDS,
     OUTPUT_COLUMNS,

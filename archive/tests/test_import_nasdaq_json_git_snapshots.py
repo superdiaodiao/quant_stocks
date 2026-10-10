@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.import_nasdaq_json_git_snapshots import import_snapshots
+from archive.scripts.import_nasdaq_json_git_snapshots import import_snapshots
 
 
 def _git(repository: Path, *args: str) -> None:

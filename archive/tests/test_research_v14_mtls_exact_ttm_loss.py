@@ -6,8 +6,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_mtls_exact_ttm_loss as mtls_ttm
-from scripts.research_v14_mtls_exact_ttm_loss import (
+import archive.scripts.research_v14_mtls_exact_ttm_loss as mtls_ttm
+from archive.scripts.research_v14_mtls_exact_ttm_loss import (
     AUDIT_OBSERVATIONS,
     NON_FINANCIAL_AMENDMENT,
     OPERANDS_EUR_THOUSANDS,

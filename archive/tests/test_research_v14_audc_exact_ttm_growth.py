@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_audc_exact_ttm_growth as audc_growth
-from scripts.research_v14_audc_exact_ttm_growth import (
+import archive.scripts.research_v14_audc_exact_ttm_growth as audc_growth
+from archive.scripts.research_v14_audc_exact_ttm_growth import (
     ACCOUNTING_STANDARD,
     AUDIT_OBSERVATIONS,
     AUDIT_SIGNAL_DATES,

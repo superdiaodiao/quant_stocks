@@ -1,6 +1,6 @@
 import hashlib
 
-from scripts.research_v14_stooq_archive_discovery import archive_links, solve_pow
+from archive.scripts.research_v14_stooq_archive_discovery import archive_links, solve_pow
 
 
 def test_archive_links_select_zip_only() -> None:

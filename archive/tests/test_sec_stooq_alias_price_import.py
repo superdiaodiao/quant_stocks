@@ -3,7 +3,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts import sec_stooq_alias_price_import as importer
+from archive.scripts import sec_stooq_alias_price_import as importer
 
 
 def test_stooq_alias_import_appends_only_validated_membership_tail(tmp_path):

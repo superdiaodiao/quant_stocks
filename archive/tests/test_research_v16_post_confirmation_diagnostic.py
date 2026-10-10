@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v16_post_confirmation_diagnostic as diagnostic
+from archive.scripts import research_v16_post_confirmation_diagnostic as diagnostic
 
 
 def test_reconstruct_pre_cost_returns_inverts_replay_cost_equation():

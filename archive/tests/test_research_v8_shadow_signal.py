@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from scripts.research_v8_shadow_signal import build_v8_recommendations
+from archive.scripts.research_v8_shadow_signal import build_v8_recommendations
 
 
 def test_v8_signal_combines_overlapping_component_targets_and_cash():

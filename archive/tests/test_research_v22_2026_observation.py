@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from scripts import research_v22_2026_observation as observation
-from scripts import research_v22_2026_calendar_adjudication as adjudication
+from archive.scripts import research_v22_2026_observation as observation
+from archive.scripts import research_v22_2026_calendar_adjudication as adjudication
 
 
 def _protocol():

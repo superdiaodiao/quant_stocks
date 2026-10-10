@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_dox_quarterly_reports import _columns, _row_value
+from archive.scripts.research_v14_dox_quarterly_reports import _columns, _row_value
 
 
 def test_dox_selects_quarter_not_six_month_columns() -> None:

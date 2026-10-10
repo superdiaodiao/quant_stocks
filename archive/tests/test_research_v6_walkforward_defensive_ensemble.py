@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.research_v6_walkforward_defensive_ensemble import (
+from archive.scripts.research_v6_walkforward_defensive_ensemble import (
     combine_sleeves,
     prior_month_allocations,
     simulate_sleeve,

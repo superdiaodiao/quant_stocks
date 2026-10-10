@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.research_v14_csiq_quarterly_reports import (
+from archive.scripts.research_v14_csiq_quarterly_reports import (
     EXPECTED_ENDS,
     MAX_RECONCILIATION_DELTA_USD,
     _annual_reconciliation,

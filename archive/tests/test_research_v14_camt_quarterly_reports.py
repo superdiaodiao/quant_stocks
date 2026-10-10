@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scripts.research_v14_camt_quarterly_reports import (
+from archive.scripts.research_v14_camt_quarterly_reports import (
     extract_2019q2_discontinued_event,
     extract_statement,
     run,

@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts.research_v14_prepare_issuer_companyfacts import (
+from archive.scripts.research_v14_prepare_issuer_companyfacts import (
     DMRC_TRANSITION,
     MRVL_TRANSITION,
     TTGT_TRANSITION,

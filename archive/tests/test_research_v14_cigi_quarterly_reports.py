@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_cigi_quarterly_reports import parse_statement
+from archive.scripts.research_v14_cigi_quarterly_reports import parse_statement
 
 
 def _statement(revenue="635,123", income="5,463") -> bytes:

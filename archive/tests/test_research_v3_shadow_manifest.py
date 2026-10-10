@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from scripts.research_v3_shadow_manifest import (
+from archive.scripts.research_v3_shadow_manifest import (
     build_manifest,
     invalidate_for_data_sensitivity,
 )

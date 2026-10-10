@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.kaggle_minute_price_repair import validate_overlap
+from archive.scripts.kaggle_minute_price_repair import validate_overlap
 
 
 def test_minute_daily_overlap_allows_small_ohlc_but_not_close_drift() -> None:

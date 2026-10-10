@@ -2,7 +2,7 @@ import io
 import json
 import zipfile
 
-from scripts.sec_inline_xbrl_target_batch import batch_probe
+from archive.scripts.sec_inline_xbrl_target_batch import batch_probe
 
 
 def test_batch_probe_checkpoints_exact_inline_fact(tmp_path):

@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.sec_terminal_filing_evidence import build_evidence
+from archive.scripts.sec_terminal_filing_evidence import build_evidence
 
 
 def test_terminal_filing_evidence_caches_and_replays_exact_bytes(tmp_path):

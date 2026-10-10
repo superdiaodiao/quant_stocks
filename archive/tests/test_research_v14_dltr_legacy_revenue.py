@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_dltr_legacy_revenue import (
+from archive.scripts.research_v14_dltr_legacy_revenue import (
     EXPECTED_QUARTERS,
     _strict_quarter_rows,
 )

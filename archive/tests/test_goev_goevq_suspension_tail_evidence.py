@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import _frame_sha256
-from scripts.sec_suspension_tail_import import _read_stooq_text
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.historicaldata_price_import import _frame_sha256
+from archive.scripts.sec_suspension_tail_import import _read_stooq_text
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import PROJECT_PATH
 
 

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v8_forward_status import build_status
-from scripts.research_v8_shadow_signal import record_signal
-from scripts.research_v8_weekly_mark import record_weekly_mark
+from archive.scripts.research_v8_forward_status import build_status
+from archive.scripts.research_v8_shadow_signal import record_signal
+from archive.scripts.research_v8_weekly_mark import record_weekly_mark
 
 
 DEFAULT_MANIFEST = Path("output/research_v8_monthly_risk_budget_blend_shadow_summary.json")

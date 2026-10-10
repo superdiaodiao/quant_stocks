@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from scripts.yahoo_historical_price_repair import _overlap_validation, _read_prices
+from archive.scripts.yahoo_historical_price_repair import _overlap_validation, _read_prices
 from src.conf import PROJECT_PATH
 from src.io.security_identity import issuer_rename_transitions
 

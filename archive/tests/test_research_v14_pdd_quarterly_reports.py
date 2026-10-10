@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_pdd_quarterly_reports import _extract, _number
+from archive.scripts.research_v14_pdd_quarterly_reports import _extract, _number
 
 
 def test_number_handles_rmb_parentheses():

@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from scripts.research_v14_sec_filing_exhibit_financials import (
+from archive.scripts.research_v14_sec_filing_exhibit_financials import (
     _parse_accounting_number,
 )
 

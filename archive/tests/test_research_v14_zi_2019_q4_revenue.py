@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_zi_2019_q4_revenue import (
+from archive.scripts.research_v14_zi_2019_q4_revenue import (
     ANNUAL_ACCESSION,
     AVAILABLE_DATE,
     CONCEPT,

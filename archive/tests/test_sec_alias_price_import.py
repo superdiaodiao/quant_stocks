@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts import sec_alias_price_import as importer
+from archive.scripts import sec_alias_price_import as importer
 
 
 def _probe_row():

@@ -5,8 +5,8 @@ import hashlib
 import pandas as pd
 import pytest
 
-import scripts.research_v14_hcm_direct_ttm_loss as hcm_audit
-from scripts.research_v14_hcm_direct_ttm_loss import (
+import archive.scripts.research_v14_hcm_direct_ttm_loss as hcm_audit
+from archive.scripts.research_v14_hcm_direct_ttm_loss import (
     AUDIT_OBSERVATIONS,
     EXPECTED_TTM,
     INDEX_SOURCES,

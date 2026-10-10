@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import scripts.research_v14_forr_asc605_ttm_growth as forr_growth
-from scripts.research_v14_forr_asc605_ttm_growth import (
+import archive.scripts.research_v14_forr_asc605_ttm_growth as forr_growth
+from archive.scripts.research_v14_forr_asc605_ttm_growth import (
     ACCOUNTING_STANDARD,
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,

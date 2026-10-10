@@ -6,12 +6,12 @@ import zipfile
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     _frame_sha256,
     _member_sha256,
     _read_stooq_member,
 )
-from scripts.sec_submission_triage import _payload_sha256
+from archive.scripts.sec_submission_triage import _payload_sha256
 from src.conf import PROJECT_PATH
 
 

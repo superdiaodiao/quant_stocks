@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_road_previous_gaap_ttm_growth as road_growth
-from scripts.research_v14_road_previous_gaap_ttm_growth import (
+import archive.scripts.research_v14_road_previous_gaap_ttm_growth as road_growth
+from archive.scripts.research_v14_road_previous_gaap_ttm_growth import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_COMPANYFACTS_USD,

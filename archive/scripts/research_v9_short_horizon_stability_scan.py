@@ -31,11 +31,11 @@ def _load(name: str, path: str):
     return module
 
 
-V7 = _load("research_v7_scan", "scripts/research_v7_qqq_targeted_core_satellite.py")
-V8 = _load("research_v8_scan", "scripts/research_v8_monthly_risk_budget_blend.py")
+V7 = _load("research_v7_scan", "archive/scripts/research_v7_qqq_targeted_core_satellite.py")
+V8 = _load("research_v8_scan", "archive/scripts/research_v8_monthly_risk_budget_blend.py")
 ROBUST = _load(
     "research_v8_robustness_scan",
-    "scripts/research_v8_short_horizon_robustness.py",
+    "archive/scripts/research_v8_short_horizon_robustness.py",
 )
 
 

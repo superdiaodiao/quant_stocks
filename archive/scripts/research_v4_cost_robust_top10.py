@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v3_fresh_top3 import _annual, _atomic_json, _replay, _sha256
+from archive.scripts.research_v3_fresh_top3 import _annual, _atomic_json, _replay, _sha256
 from src.conf import (
     CLEANED_PRICE_DATA_DIR,
     NASDAQ_INDEX_FILE,

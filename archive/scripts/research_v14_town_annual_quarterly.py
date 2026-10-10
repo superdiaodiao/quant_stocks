@@ -15,8 +15,8 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from pypdf import PdfReader
 
-from scripts.research_v14_adpt_preipo_quarters import integrate_candidate
-from scripts.research_v14_town_commoncrawl_quarterly import (
+from archive.scripts.research_v14_adpt_preipo_quarters import integrate_candidate
+from archive.scripts.research_v14_town_commoncrawl_quarterly import (
     CAPTURE,
     fetch_warc_record,
     parse_town_2019q3,

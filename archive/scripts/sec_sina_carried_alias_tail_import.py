@@ -13,15 +13,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256, _sha256
-from scripts.sec_sina_alias_price_import import (
+from archive.scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256, _sha256
+from archive.scripts.sec_sina_alias_price_import import (
     DEFAULT_CACHE,
     _atomic_write_json,
     _atomic_write_prices,
     _select_candidates,
 )
-from scripts.sina_historical_price_repair import _decoder_source, _parse_prices
-from scripts.yahoo_historical_price_repair import _read_prices
+from archive.scripts.sina_historical_price_repair import _decoder_source, _parse_prices
+from archive.scripts.yahoo_historical_price_repair import _read_prices
 from src.conf import CLEANED_PRICE_DATA_DIR, PROJECT_PATH
 
 

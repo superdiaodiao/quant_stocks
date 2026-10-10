@@ -1,6 +1,6 @@
 import json
 
-from scripts.research_v14_import_github_universe import import_missing
+from archive.scripts.research_v14_import_github_universe import import_missing
 
 
 def test_import_missing_skips_existing_and_conflicting_dates(tmp_path, monkeypatch):
@@ -25,7 +25,7 @@ def test_import_missing_skips_existing_and_conflicting_dates(tmp_path, monkeypat
         return {"imported": [], "skipped": []}
 
     monkeypatch.setattr(
-        "scripts.research_v14_import_github_universe.import_nasdaq_trader_files",
+        "archive.scripts.research_v14_import_github_universe.import_nasdaq_trader_files",
         fake_import,
     )
     result = import_missing(

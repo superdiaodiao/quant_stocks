@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_zlab_2018q4 import recover, run
+from archive.scripts.research_v14_zlab_2018q4 import recover, run
 
 
 def test_zlab_2018q4_uses_annual_minus_nine_month_comparator() -> None:

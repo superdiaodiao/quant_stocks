@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.research_v14_rpay_selected_quarters import (
+from archive.scripts.research_v14_rpay_selected_quarters import (
     EXPECTED,
     TRANSITION_EXPECTED,
     strict_selected_quarters,

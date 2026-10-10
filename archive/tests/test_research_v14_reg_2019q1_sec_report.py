@@ -1,4 +1,4 @@
-from scripts.research_v14_reg_2019q1_sec_report import parse_statement
+from archive.scripts.research_v14_reg_2019q1_sec_report import parse_statement
 
 
 def test_parse_statement_requires_bound_headers_and_values():

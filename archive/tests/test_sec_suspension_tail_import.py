@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import scripts.sec_suspension_tail_import as module
+import archive.scripts.sec_suspension_tail_import as module
 
 
 def test_imports_overlap_validated_tail_ending_before_suspension(tmp_path: Path, monkeypatch):

@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts import sec_otc_alias_price_import as importer
+from archive.scripts import sec_otc_alias_price_import as importer
 
 
 def test_otc_alias_import_requires_overlap_and_caps_membership(tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v13_extended_backcast import _snapshot
+from archive.scripts.research_v13_extended_backcast import _snapshot
 from src.research.can_slim import CanSlimConfig
 
 

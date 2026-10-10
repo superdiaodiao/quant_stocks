@@ -3,7 +3,7 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-from scripts.research_v14_ggal_ias29_quarters import (
+from archive.scripts.research_v14_ggal_ias29_quarters import (
     AVAILABLE_DATE,
     BLOCKED_AUDIT_OBSERVATIONS,
     BLOCKED_SIGNALS,
@@ -155,7 +155,7 @@ def test_all_twelve_2019_observations_are_explicit_unrecoverable() -> None:
 
 
 def test_current_audit_binding_covers_exact_twelve_observations() -> None:
-    from scripts import research_v14_ggal_ias29_quarters as ggal
+    from archive.scripts import research_v14_ggal_ias29_quarters as ggal
 
     binding = validate_audit_binding(
         ggal.AUDIT_PATH,

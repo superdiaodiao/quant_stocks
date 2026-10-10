@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_qfin_m9_ttm_growth as qfin_growth
-from scripts.research_v14_qfin_m9_ttm_growth import (
+import archive.scripts.research_v14_qfin_m9_ttm_growth as qfin_growth
+from archive.scripts.research_v14_qfin_m9_ttm_growth import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_ANNUAL_CNY_THOUSANDS,

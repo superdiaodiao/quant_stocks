@@ -2,7 +2,7 @@ import pandas as pd
 
 from datetime import date
 
-from scripts.research_v14_backfill_qqq import (
+from archive.scripts.research_v14_backfill_qqq import (
     build_history,
     fetch_price_chunks,
     validate_overlap,

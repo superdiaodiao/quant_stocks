@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_reparse_existing_candidate_gaps import (
+from archive.scripts.research_v14_reparse_existing_candidate_gaps import (
     select_reparse_tickers,
 )
 

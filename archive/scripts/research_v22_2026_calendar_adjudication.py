@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts import research_v22_2026_observation as observation
+from archive.scripts import research_v22_2026_observation as observation
 
 
 PROTOCOL_BINDING = {

@@ -1,4 +1,4 @@
-from scripts.research_v14_afmd_quarterly_reports import (
+from archive.scripts.research_v14_afmd_quarterly_reports import (
     EXPECTED,
     derive_quarters,
 )

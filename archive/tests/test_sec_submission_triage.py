@@ -3,7 +3,7 @@ import json
 
 import pandas as pd
 
-from scripts.sec_submission_triage import (
+from archive.scripts.sec_submission_triage import (
     load_cached_sec_ticker_maps,
     load_probe_ticker_ciks,
     load_ticker_cik_registry,

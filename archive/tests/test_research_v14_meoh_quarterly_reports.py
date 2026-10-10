@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from scripts.research_v14_meoh_quarterly_reports import parse_quarter
+from archive.scripts.research_v14_meoh_quarterly_reports import parse_quarter
 
 
 def _statement(

@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from scripts.research_v14_dsgx_sec_quarterly_filings import (
+from archive.scripts.research_v14_dsgx_sec_quarterly_filings import (
     _longest_chain,
     _normal,
     _row_value,

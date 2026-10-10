@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from scripts.research_v14_step_preipo_quarters import (
+from archive.scripts.research_v14_step_preipo_quarters import (
     COMPANYFACTS_CACHE,
     EXPECTED,
     EXPECTED_S1_OPERANDS,

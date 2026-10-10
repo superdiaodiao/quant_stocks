@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.companyfacts_candidate_sensitivity import (
+from archive.scripts.companyfacts_candidate_sensitivity import (
     DEFAULT_CANDIDATE_DIR,
     DEFAULT_SCOPE,
 )

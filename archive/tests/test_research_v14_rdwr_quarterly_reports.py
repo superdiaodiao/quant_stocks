@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_rdwr_quarterly_reports import _number, _extract
+from archive.scripts.research_v14_rdwr_quarterly_reports import _number, _extract
 
 
 def test_number_handles_split_parenthesis_cell():

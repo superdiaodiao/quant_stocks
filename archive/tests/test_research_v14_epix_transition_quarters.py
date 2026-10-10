@@ -1,4 +1,4 @@
-from scripts.research_v14_epix_transition_quarters import EXPECTED, SOURCES, _number
+from archive.scripts.research_v14_epix_transition_quarters import EXPECTED, SOURCES, _number
 
 
 def test_epix_transition_quarters_are_contemporaneous() -> None:

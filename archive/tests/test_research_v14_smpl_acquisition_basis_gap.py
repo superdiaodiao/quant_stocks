@@ -4,7 +4,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from scripts import research_v14_smpl_acquisition_basis_gap as smpl
+from archive.scripts import research_v14_smpl_acquisition_basis_gap as smpl
 
 
 def _xml(facts: tuple[dict, ...]) -> bytes:

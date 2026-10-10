@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_ocsl_legacy_quarterly_reports import (
+from archive.scripts.research_v14_ocsl_legacy_quarterly_reports import (
     _first_accounting_value,
     extract_statement_values,
     run,
@@ -60,14 +60,14 @@ def test_extract_statement_values_rejects_net_investment_income_substitute() -> 
 
 def test_run_declares_every_recovered_quarter(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "scripts.research_v14_ocsl_legacy_quarterly_reports.PERIOD_EVIDENCE",
+        "archive.scripts.research_v14_ocsl_legacy_quarterly_reports.PERIOD_EVIDENCE",
         {"2020-03-31": (
             "2020-05-07", "10-Q", "0001414932-20-000008",
             "ocsl-033120x10xq.htm", 34_171, -165_467,
         )},
     )
     monkeypatch.setattr(
-        "scripts.research_v14_ocsl_legacy_quarterly_reports.urlopen",
+        "archive.scripts.research_v14_ocsl_legacy_quarterly_reports.urlopen",
         lambda *args, **kwargs: type("Response", (), {
             "__enter__": lambda self: self,
             "__exit__": lambda self, *exc: None,

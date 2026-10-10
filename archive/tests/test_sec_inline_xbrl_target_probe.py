@@ -1,6 +1,6 @@
 import zipfile
 
-from scripts.sec_inline_xbrl_target_probe import parse_inline_xbrl, probe_targets
+from archive.scripts.sec_inline_xbrl_target_probe import parse_inline_xbrl, probe_targets
 
 
 def test_inline_xbrl_parser_applies_scale_and_ignores_segment_flag(tmp_path):

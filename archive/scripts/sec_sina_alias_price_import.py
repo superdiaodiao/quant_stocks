@@ -19,16 +19,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256, _sha256
-from scripts.sec_alias_price_import import _candidates
-from scripts.sina_historical_price_repair import (
+from archive.scripts.historicaldata_price_import import PRICE_COLUMNS, _frame_sha256, _sha256
+from archive.scripts.sec_alias_price_import import _candidates
+from archive.scripts.sina_historical_price_repair import (
     SOURCE_URL_TEMPLATE,
     _decoder_source,
     _load_or_fetch,
     _longest_stable_tail_validation,
     _parse_prices,
 )
-from scripts.yahoo_historical_price_repair import _read_prices
+from archive.scripts.yahoo_historical_price_repair import _read_prices
 from src.conf import CLEANED_PRICE_DATA_DIR, PROJECT_PATH
 
 

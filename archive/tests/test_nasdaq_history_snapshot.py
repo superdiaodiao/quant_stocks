@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import scripts.nasdaq_history_snapshot as snapshot_module
+import archive.scripts.nasdaq_history_snapshot as snapshot_module
 
 
 def test_create_snapshot_writes_replayable_canonical_frame(tmp_path: Path, monkeypatch):

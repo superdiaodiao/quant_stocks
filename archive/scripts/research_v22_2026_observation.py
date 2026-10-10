@@ -19,9 +19,9 @@ from pathlib import Path
 import pandas as pd
 
 from scripts import research_v15_benchmark_core_development as v15
-from scripts import research_v19_source_locked_v10_feasibility as v19
-from scripts import research_v20_temporal_retraining as v20
-from scripts import research_v22_regularized_walkforward as v22
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v20_temporal_retraining as v20
+from archive.scripts import research_v22_regularized_walkforward as v22
 from src.conf import NASDAQ_INDEX_FILE
 
 
@@ -229,13 +229,13 @@ def freeze_protocol(
             },
             "observation_runner": _file_binding(runner_path),
             "v22_implementation": _file_binding(
-                Path("scripts/research_v22_regularized_walkforward.py")
+                Path("archive/scripts/research_v22_regularized_walkforward.py")
             ),
             "v19_implementation": _file_binding(
-                Path("scripts/research_v19_source_locked_v10_feasibility.py")
+                Path("archive/scripts/research_v19_source_locked_v10_feasibility.py")
             ),
             "v20_implementation": _file_binding(
-                Path("scripts/research_v20_temporal_retraining.py")
+                Path("archive/scripts/research_v20_temporal_retraining.py")
             ),
             "v14_targets": _file_binding(targets_path),
             "nasdaq_index": _file_binding(nasdaq_path),

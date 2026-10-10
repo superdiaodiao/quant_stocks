@@ -3,7 +3,7 @@ import zipfile
 
 import pandas as pd
 
-from scripts.sec_filing_dataset_to_companyfacts import (
+from archive.scripts.sec_filing_dataset_to_companyfacts import (
     _duration_start,
     build_companyfacts_candidate,
     convert_zip_archive,

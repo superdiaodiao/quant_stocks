@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_apa_cik_transition import (
+from archive.scripts.research_v14_apa_cik_transition import (
     extract_total_revenue,
     run,
 )

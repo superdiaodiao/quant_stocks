@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_rcel_exact_annual_loss as rcel_loss
-from scripts.research_v14_rcel_exact_annual_loss import (
+import archive.scripts.research_v14_rcel_exact_annual_loss as rcel_loss
+from archive.scripts.research_v14_rcel_exact_annual_loss import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_NET_INCOME_TTM_AUD,

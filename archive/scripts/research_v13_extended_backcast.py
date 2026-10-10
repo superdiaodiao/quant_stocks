@@ -44,10 +44,10 @@ def _load(name: str, path: str):
     return module
 
 
-V6 = _load("research_v6_v13", "scripts/research_v6_walkforward_defensive_ensemble.py")
-V7 = _load("research_v7_v13", "scripts/research_v7_qqq_targeted_core_satellite.py")
-V8 = _load("research_v8_v13", "scripts/research_v8_monthly_risk_budget_blend.py")
-ROBUST = _load("research_v8_robust_v13", "scripts/research_v8_short_horizon_robustness.py")
+V6 = _load("research_v6_v13", "archive/scripts/research_v6_walkforward_defensive_ensemble.py")
+V7 = _load("research_v7_v13", "archive/scripts/research_v7_qqq_targeted_core_satellite.py")
+V8 = _load("research_v8_v13", "archive/scripts/research_v8_monthly_risk_budget_blend.py")
+ROBUST = _load("research_v8_robust_v13", "archive/scripts/research_v8_short_horizon_robustness.py")
 
 
 def _snapshot(start, end, train_end, ids, configs, reason):

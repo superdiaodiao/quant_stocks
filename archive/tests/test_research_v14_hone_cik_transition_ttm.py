@@ -4,8 +4,8 @@ import hashlib
 import pandas as pd
 import pytest
 
-import scripts.research_v14_hone_cik_transition_ttm as hone
-from scripts.research_v14_hone_cik_transition_ttm import (
+import archive.scripts.research_v14_hone_cik_transition_ttm as hone
+from archive.scripts.research_v14_hone_cik_transition_ttm import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     NEW_CIK,

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_jd_quarterly_reports import _columns, _row_value
+from archive.scripts.research_v14_jd_quarterly_reports import _columns, _row_value
 
 
 def test_jd_selects_rmb_column_not_usd_translation() -> None:

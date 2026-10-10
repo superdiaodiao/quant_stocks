@@ -8,7 +8,7 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_glpg_direct_ttm_loss as glpg
+import archive.scripts.research_v14_glpg_direct_ttm_loss as glpg
 from src.financial.quarterly_fundamentals import (
     quarterly_growth_snapshot,
     quarterly_profit_ttm_snapshot,

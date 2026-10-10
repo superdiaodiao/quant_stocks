@@ -1,4 +1,4 @@
-from scripts.research_v14_github_universe_audit import raw_url
+from archive.scripts.research_v14_github_universe_audit import raw_url
 
 
 def test_raw_url_preserves_pinned_blob_ref_and_path() -> None:

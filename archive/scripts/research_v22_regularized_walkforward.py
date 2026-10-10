@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts import research_v19_source_locked_v10_feasibility as v19
-from scripts import research_v20_temporal_retraining as v20
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v20_temporal_retraining as v20
 
 
 START = "2022-01-01"
@@ -74,25 +74,25 @@ INPUT_BINDINGS = {
         ),
     },
     "v19_implementation": {
-        "path": Path("scripts/research_v19_source_locked_v10_feasibility.py"),
+        "path": Path("archive/scripts/research_v19_source_locked_v10_feasibility.py"),
         "sha256": (
             "589ea011565044abb0926d581e8e5150d9326871601b3b7c2fb9a73a02543987"
         ),
     },
     "v20_implementation": {
-        "path": Path("scripts/research_v20_temporal_retraining.py"),
+        "path": Path("archive/scripts/research_v20_temporal_retraining.py"),
         "sha256": (
             "6b0edf102216e3db4779a63aea1b38a4f8e5a3a1fad12f2ece8b7f8e9dfece86"
         ),
     },
     "v20_holdout_implementation": {
-        "path": Path("scripts/research_v20_recent_holdout.py"),
+        "path": Path("archive/scripts/research_v20_recent_holdout.py"),
         "sha256": (
             "c12c8767e067367d9a4b56c371b3d87b64742fa067c373cb761037614e480ac8"
         ),
     },
     "v21_implementation": {
-        "path": Path("scripts/research_v21_ibkr_cost_calibration.py"),
+        "path": Path("archive/scripts/research_v21_ibkr_cost_calibration.py"),
         "sha256": (
             "61dca8fd054ca83a86a827d4eaf5a77b63c87440dddd0e06e9ca002d1a501caf"
         ),

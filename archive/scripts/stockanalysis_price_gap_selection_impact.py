@@ -17,7 +17,7 @@ from typing import Any
 
 import pandas as pd
 
-from scripts.stockanalysis_price_triage import (
+from archive.scripts.stockanalysis_price_triage import (
     DEFAULT_CACHE_DIR,
     DEFAULT_OUTPUT as DEFAULT_TRIAGE_OUTPUT,
     _coverage_summary,

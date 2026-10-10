@@ -27,7 +27,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     _atomic_write_json,
     _member_sha256,
     _read_stooq_member,
@@ -35,7 +35,7 @@ from scripts.historicaldata_price_import import (
     _stooq_member_identity,
     _validate_overlap as _stooq_validate_overlap,
 )
-from scripts.yahoo_historical_price_repair import (
+from archive.scripts.yahoo_historical_price_repair import (
     PRICE_COLUMNS,
     PRICE_FIELDS,
     _merge_missing,

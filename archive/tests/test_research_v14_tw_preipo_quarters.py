@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_tw_preipo_quarters import EXPECTED, extract_quarters, run
+from archive.scripts.research_v14_tw_preipo_quarters import EXPECTED, extract_quarters, run
 from src.financial.quarterly_fundamentals import quarterly_growth_snapshot
 from src.io.fundamentals_update import merge_fundamentals
 

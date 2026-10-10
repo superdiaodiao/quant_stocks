@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_bntx_sec_quarterly_filings import (
+from archive.scripts.research_v14_bntx_sec_quarterly_filings import (
     PERIOD_EVIDENCE,
     validate_filing,
 )

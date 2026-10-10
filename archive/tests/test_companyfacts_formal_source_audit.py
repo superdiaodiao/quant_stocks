@@ -3,7 +3,7 @@ import pandas as pd
 from scripts.companyfacts_cache_snapshot import (
     create_companyfacts_cache_snapshot,
 )
-from scripts.companyfacts_formal_source_audit import (
+from archive.scripts.companyfacts_formal_source_audit import (
     audit_companyfacts_formal_sources,
 )
 from src.io.fundamentals_update import (

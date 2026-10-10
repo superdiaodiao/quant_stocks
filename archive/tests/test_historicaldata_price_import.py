@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     _load_missing_price_tickers,
     _load_unresolved_terminal_tickers,
     import_archive,

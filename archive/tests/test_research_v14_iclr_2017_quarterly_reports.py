@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_iclr_2017_quarterly_reports import (
+from archive.scripts.research_v14_iclr_2017_quarterly_reports import (
     extract_annual,
     extract_direct_quarter,
     run,

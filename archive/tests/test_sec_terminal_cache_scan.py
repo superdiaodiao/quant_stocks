@@ -1,7 +1,7 @@
 import gzip
 import json
 
-from scripts.sec_terminal_cache_scan import scan
+from archive.scripts.sec_terminal_cache_scan import scan
 
 
 def test_scan_finds_fixed_common_cash_and_excludes_cvr(tmp_path) -> None:

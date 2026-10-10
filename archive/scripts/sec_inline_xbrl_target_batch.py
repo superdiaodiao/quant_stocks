@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
-from scripts.sec_inline_xbrl_target_probe import _sha256, probe_targets
+from archive.scripts.sec_inline_xbrl_target_probe import _sha256, probe_targets
 
 
 USER_AGENT = "quant-stocks-research contact@example.com"

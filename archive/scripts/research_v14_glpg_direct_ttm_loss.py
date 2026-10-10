@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import pandas as pd
 
-from scripts.research_v14_adpt_preipo_quarters import integrate_candidate
+from archive.scripts.research_v14_adpt_preipo_quarters import integrate_candidate
 from src.io.fundamentals_update import OUTPUT_COLUMNS
 
 

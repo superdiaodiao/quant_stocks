@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.sina_historical_price_repair import _decoder_source, _parse_prices
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.sina_historical_price_repair import _decoder_source, _parse_prices
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 from src.conf import PROJECT_PATH
 from src.io.terminal_returns import load_observed_terminal_returns
 

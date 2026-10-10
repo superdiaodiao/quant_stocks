@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 
-SCRIPT = Path("scripts/research_v8_execution_sensitivity.py")
+SCRIPT = Path("archive/scripts/research_v8_execution_sensitivity.py")
 SPEC = importlib.util.spec_from_file_location("research_v8_execution", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from scripts.research_v14_qdel_historical_companyfacts import (
+from archive.scripts.research_v14_qdel_historical_companyfacts import (
     _earliest_paired_quarters,
 )
 

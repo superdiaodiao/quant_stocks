@@ -22,12 +22,12 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import _atomic_write_json, _sha256
-from scripts.sina_historical_price_repair import (
+from archive.scripts.historicaldata_price_import import _atomic_write_json, _sha256
+from archive.scripts.sina_historical_price_repair import (
     _audit_targets,
     _longest_stable_tail_validation,
 )
-from scripts.yahoo_historical_price_repair import (
+from archive.scripts.yahoo_historical_price_repair import (
     PRICE_COLUMNS,
     PRICE_FIELDS,
     _merge_missing,

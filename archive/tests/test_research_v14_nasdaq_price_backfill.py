@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-import scripts.research_v14_nasdaq_price_backfill as backfill_module
-from scripts.research_v14_nasdaq_price_backfill import _same_price_values
+import archive.scripts.research_v14_nasdaq_price_backfill as backfill_module
+from archive.scripts.research_v14_nasdaq_price_backfill import _same_price_values
 
 
 def _prices(ticker: str) -> pd.DataFrame:

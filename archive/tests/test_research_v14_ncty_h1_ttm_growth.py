@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-import scripts.research_v14_ncty_h1_ttm_growth as ncty_growth
-from scripts.research_v14_ncty_h1_ttm_growth import (
+import archive.scripts.research_v14_ncty_h1_ttm_growth as ncty_growth
+from archive.scripts.research_v14_ncty_h1_ttm_growth import (
     AUDIT_OBSERVATIONS,
     AVAILABLE_DATE,
     EXPECTED_TTM_RMB,

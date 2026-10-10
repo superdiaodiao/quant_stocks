@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from scripts.stockanalysis_price_gap_selection_impact import (
+from archive.scripts.stockanalysis_price_gap_selection_impact import (
     CONTINUOUS_BRIDGE_ASSESSMENT,
     _bridge_eligibility,
     active_bridges_for_signal,

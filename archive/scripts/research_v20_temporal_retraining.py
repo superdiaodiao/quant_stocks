@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from scripts import research_v15_benchmark_core_development as v15
-from scripts import research_v19_source_locked_v10_feasibility as v19
+from archive.scripts import research_v19_source_locked_v10_feasibility as v19
 from src.conf import NASDAQ_INDEX_FILE
 from src.research.can_slim import replay_can_slim_target_schedule
 from src.research.data_quality import back_adjust_common_splits
@@ -55,7 +55,7 @@ DEPENDENCY_BINDINGS = {
     "qqq_history": v15.QQQ_HISTORY,
     "qqq_provenance": v15.QQQ_PROVENANCE,
     "v19_implementation": {
-        "path": Path("scripts/research_v19_source_locked_v10_feasibility.py"),
+        "path": Path("archive/scripts/research_v19_source_locked_v10_feasibility.py"),
         "sha256": (
             "589ea011565044abb0926d581e8e5150d9326871601b3b7c2fb9a73a02543987"
         ),
@@ -458,8 +458,8 @@ def run(output_dir: Path = OUTPUT_DIR) -> dict:
                 "sha256": _sha256(Path(__file__)),
             },
             "recent_holdout_script": {
-                "path": "scripts/research_v20_recent_holdout.py",
-                "sha256": _sha256(Path("scripts/research_v20_recent_holdout.py")),
+                "path": "archive/scripts/research_v20_recent_holdout.py",
+                "sha256": _sha256(Path("archive/scripts/research_v20_recent_holdout.py")),
             },
         },
         "outputs": outputs,

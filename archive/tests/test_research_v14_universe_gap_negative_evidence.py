@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts.research_v14_universe_gap_negative_evidence import (
+from archive.scripts.research_v14_universe_gap_negative_evidence import (
     EXPECTED_2019_GITHUB_CATALOG_DATES,
     STALE_SIGNAL_DATES,
     TARGET_FILE_NAMES,

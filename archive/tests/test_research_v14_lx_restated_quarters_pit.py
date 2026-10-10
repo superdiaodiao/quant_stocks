@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.research_v14_lx_restated_quarters_pit import (
+from archive.scripts.research_v14_lx_restated_quarters_pit import (
     EXPECTED_2018_ANNUAL,
     EXPECTED_2019_9M,
     EXPECTED_2019_H1,
@@ -76,7 +76,7 @@ def test_build_requires_revised_fy_h1_and_nine_month_identities(monkeypatch) -> 
     def fake_parse(raw, fiscal_ends, period_phrase):
         return expected_calls[(raw.decode(), period_phrase)]
 
-    monkeypatch.setattr("scripts.research_v14_lx_restated_quarters_pit.parse_periods", fake_parse)
+    monkeypatch.setattr("archive.scripts.research_v14_lx_restated_quarters_pit.parse_periods", fake_parse)
     raw = {
         "2017_q4": b"2017",
         "2018_q4_revision": b"2018",

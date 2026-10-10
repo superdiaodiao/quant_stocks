@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_krys_2018q4_profit_residual import (
+from archive.scripts.research_v14_krys_2018q4_profit_residual import (
     EXPECTED_ANNUAL,
     EXPECTED_Q4,
     extract_annual_net_loss,

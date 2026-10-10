@@ -8,8 +8,8 @@ import json
 import re
 from pathlib import Path
 
-from scripts.historicaldata_price_import import _atomic_write_json
-from scripts.sec_terminal_filing_evidence import _filing_text
+from archive.scripts.historicaldata_price_import import _atomic_write_json
+from archive.scripts.sec_terminal_filing_evidence import _filing_text
 
 
 FIXED_CASH_PATTERNS = [

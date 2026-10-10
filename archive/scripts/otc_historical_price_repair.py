@@ -28,7 +28,7 @@ from urllib.request import Request, urlopen
 
 import pandas as pd
 
-from scripts.historicaldata_price_import import (
+from archive.scripts.historicaldata_price_import import (
     _frame_sha256,
     _read_local,
     _sha256 as _file_sha256,

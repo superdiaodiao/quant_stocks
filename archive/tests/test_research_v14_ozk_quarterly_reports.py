@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.research_v14_ozk_quarterly_reports import (
+from archive.scripts.research_v14_ozk_quarterly_reports import (
     _archive_url,
     _parse_quarter,
 )

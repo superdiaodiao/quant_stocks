@@ -6,7 +6,7 @@ import pytest
 
 from scripts import research_v47_hybrid_entry_portfolio_stop as v47
 from scripts import research_v48_isolated_prospective_v47_observation as v48
-from scripts import research_v49_v47_2026_exposed_oos as v49
+from archive.scripts import research_v49_v47_2026_exposed_oos as v49
 
 
 def _targets() -> pd.DataFrame:

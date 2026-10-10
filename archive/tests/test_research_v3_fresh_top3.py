@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.research_v3_fresh_top3 import MODEL_VERSION, challenger_config
+from archive.scripts.research_v3_fresh_top3 import MODEL_VERSION, challenger_config
 
 
 def test_challenger_is_predeclared_fresh_liquid_top3() -> None:

@@ -3,7 +3,7 @@ import json
 
 import pandas as pd
 
-from scripts.eastmoney_historical_price_repair import (
+from archive.scripts.eastmoney_historical_price_repair import (
     _load_or_fetch,
     _parse_prices,
     _source_url,
@@ -85,7 +85,7 @@ def test_repair_requires_exactly_one_identity_and_overlap_validated_market(
         return payload, path
 
     monkeypatch.setattr(
-        "scripts.eastmoney_historical_price_repair._load_or_fetch", fake_fetch
+        "archive.scripts.eastmoney_historical_price_repair._load_or_fetch", fake_fetch
     )
     result = repair_tickers(
         ["TEST"],
