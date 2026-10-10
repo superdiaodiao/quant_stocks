@@ -65,7 +65,7 @@ PYTHONPATH="$project_dir" "$project_dir/.venv/bin/python" \
   --archive-bytes "$archive_bytes" \
   --parts-dir "$output_dir" \
   --parts-prefix "$parts_prefix" \
-  --repository "superdiaodiao/quant_stocks" \
+  --repository "${QUANT_DATA_REPO:-superdiaodiao/quant_stocks_data}" \
   --release-tag "$release_tag" \
   --source-evidence "$source_evidence" \
   --variant-audit "$variant_audit" \

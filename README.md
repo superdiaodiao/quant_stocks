@@ -230,6 +230,35 @@ scripts/download_data_release.sh
 scripts/download_data_release.sh --force
 ```
 
+`download_data_release.sh` 目前仍从公开仓库的 `data-2026-07-24` 下载：GitHub Actions
+（v50r3 和 sue-lt-v1 的调度、彩排、记事件工作流经 `scripts/v50r3_restore_data.sh`）用默认的
+`GITHUB_TOKEN` 读不到私有仓库，而且 `data_release/latest.json` 的哈希被 sue-lt-v1 冻结协议
+固定，所以这两个脚本和清单暂时不改。
+
+### 5.4.1 私有数据仓库（全部研究数据的备份）
+
+所有数据备份放在**私有**仓库
+[superdiaodiao/quant_stocks_data](https://github.com/superdiaodiao/quant_stocks_data) 的
+Release 里：上面两个旧 Release（`data-2026-07-24`、`research-cache-sec-companyfacts-2025-04-14`）
+的原样副本，以及按数据集分开的 `cache-<数据集>-<日期>` 备份（各冻结数据版本的
+`research_cache/reversal_2012_2026*`、其他研究缓存、`cleaned_stocks_data/`、未进 git 的
+`output/research_only/` 结果、借券费等实时缓存的快照）。
+
+**私有仓库必须先登录 GitHub 才能下载**（`gh auth login`，账号要有该仓库的权限）。
+
+```bash
+scripts/restore_data.sh cache-reversal-v2-1-2026-10-11        # 恢复到项目根目录
+scripts/restore_data.sh data-2026-07-24 /tmp/data_check       # 也可以恢复到别的目录
+scripts/backup_data.sh list                                   # 列出可备份的数据集
+scripts/backup_data.sh reversal-v2-1                          # 备份一个数据集为新的带日期 Release
+scripts/backup_data.sh all                                    # 全部备份（同一天已有的跳过）
+```
+
+`restore_data.sh` 下载后先核对每个分片的 SHA-256 和拼接后整包的 SHA-256，解压到临时目录，
+逐个文件对照清单哈希，全部通过后才放到目标目录；目标目录里已有且内容不同的文件，不加
+`--force` 不会覆盖。`backup_data.sh` 打包（tar pax + zstd，分片小于 1.9 GiB）、写清单、上传，
+然后重新下载、解压并逐个文件核对。细节见 [docs/data_release.md](docs/data_release.md) 第 15 节。
+
 ### 5.5 运行测试
 
 ```bash
@@ -293,7 +322,8 @@ zstd --version
 cat data_release/latest.json
 ```
 
-也可以在 GitHub Release 页面手工下载，然后使用 `.sha256` 文件校验。
+也可以在 GitHub Release 页面手工下载，然后使用 `.sha256` 文件校验。私有数据仓库的副本可以用
+`scripts/restore_data.sh data-2026-07-24` 下载（需要 `gh auth login`）。
 
 ### 为什么完整 clone 仍然可能较大？
 

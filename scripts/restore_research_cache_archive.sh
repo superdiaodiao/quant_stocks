@@ -23,7 +23,11 @@ if [[ ! -f "$catalog" ]]; then
   exit 1
 fi
 
-repository="$(jq -r '.repository' "$catalog")"
+# The release now lives in the private data repo; the catalog's "repository"
+# field still names the public repo it was first published to, and the catalog
+# stays unchanged because it is SHA-bound. Parts are checked against the
+# catalog's hashes either way. A private repo needs gh auth login.
+repository="${QUANT_DATA_REPO:-superdiaodiao/quant_stocks_data}"
 release_tag="$(jq -r '.release_tag' "$catalog")"
 snapshot_id="$(jq -r '.snapshot.id' "$catalog")"
 restore_target="$restore_parent/$snapshot_id"
