@@ -1,12 +1,13 @@
-"""Offline tests for scripts/research_dow_theory.py (no cache files are read)."""
+"""Offline tests for studies/dow_theory.py and quant.strategies.dow_theory (no cache files are read)."""
 import json
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_dow_theory as dt
-from scripts import research_qqq_timing as qt
+from quant.data import guards
+from quant.strategies import dow_theory as dt
+from scripts import research_dow_theory as study
 
 
 def _idx(n):
@@ -155,14 +156,14 @@ def test_no_look_ahead(rule):
 def test_grid_matches_preregistration():
     names = [r.name for r in dt.rule_grid()]
     assert len(names) == 18 and len(set(names)) == 18
-    assert dt.FROZEN in names
-    fz = {r.name: r for r in dt.rule_grid()}[dt.FROZEN]
+    assert study.FROZEN in names
+    fz = {r.name: r for r in dt.rule_grid()}[study.FROZEN]
     assert (fz.family, fz.pct, fz.min_days, round(fz.retrace, 4), fz.averages) == ("R", 0.05, 15, 0.3333, ("DJI", "DJT"))
 
 
 # ---------------------------------------------------------------- date guard
 
-def test_load_dow_truncates_at_dev_end(tmp_path, monkeypatch):
+def test_load_dow_truncates_at_dev_end(tmp_path):
     days = ["2014-12-30", "2014-12-31", "2015-01-02", "2020-03-16"]
     ts = [int(pd.Timestamp(d + " 09:30", tz="America/New_York").timestamp()) for d in days]
     files = {}
@@ -171,16 +172,15 @@ def test_load_dow_truncates_at_dev_end(tmp_path, monkeypatch):
         p = tmp_path / f"{k}.json"
         p.write_text(json.dumps(doc))
         files[k] = p
-    monkeypatch.setattr(dt, "DJ_FILES", files)
-    closes, guard = dt.load_dow()
+    closes, guard = dt.load_dow(files, study.DEV_END)
     assert closes.index.max() == pd.Timestamp("2014-12-31")
     assert guard["DJI"]["last"] == "2014-12-31"
-    with pytest.raises(qt.FutureDataError):
-        qt.assert_dev_dates(pd.DatetimeIndex(["2015-01-02"]))
+    with pytest.raises(guards.FutureDataError):
+        guards.assert_dev_dates(pd.DatetimeIndex(["2015-01-02"]), study.DEV_END)
 
 
 def test_oneshot_window_is_fixed():
     class A:
         test_end = "2026-08-31"
     with pytest.raises(ValueError):
-        dt.run_oneshot(A())
+        study.run_oneshot(A())

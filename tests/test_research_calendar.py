@@ -1,4 +1,5 @@
-"""Tests for scripts/research_calendar.py: calendars, leg split, execution timing, costs, metrics, FOMC source."""
+"""Tests for studies/calendar.py, quant.strategies.calendar and quant.data.event_calendar: calendars, leg split,
+execution timing, costs, metrics, FOMC source."""
 from __future__ import annotations
 
 import json
@@ -8,7 +9,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import scripts.research_calendar as rc
+import scripts.research_calendar as study
+from quant.backtest.costs import CASH_ETF_FEE, START_EQUITY
+from quant.data import event_calendar as ec
+from quant.data.sources import yahoo
+from quant.evaluation.metrics import TRADING_DAYS, longest_drawdown
+from quant.strategies import calendar as rc
 
 
 def synthetic(sessions: pd.DatetimeIndex, seed: int = 0, div_day: int | None = None) -> rc.Data:
@@ -68,14 +74,14 @@ def test_sell_in_may_months():
 def test_holidays_and_pre_holiday():
     s = pd.bdate_range("2024-06-24", "2024-07-12")
     s = s.drop([pd.Timestamp("2024-07-04")])
-    hol = rc.scheduled_holidays(s)
+    hol = ec.scheduled_holidays(s)
     assert list(hol.strftime("%Y-%m-%d")) == ["2024-07-04"]
     h = pd.Series(rc.hold_c3(s, hol), index=s)
     assert h.index[h].strftime("%Y-%m-%d").tolist() == ["2024-07-03"]
     # an unscheduled closure is not a holiday
     s2 = pd.bdate_range("2012-10-22", "2012-11-02").drop(pd.DatetimeIndex(["2012-10-29", "2012-10-30"]))
-    assert len(rc.scheduled_holidays(s2)) == 0
-    assert not rc.hold_c3(s2, rc.scheduled_holidays(s2)).any()
+    assert len(ec.scheduled_holidays(s2)) == 0
+    assert not rc.hold_c3(s2, ec.scheduled_holidays(s2)).any()
 
 
 def test_monday_skip_and_holiday_monday():
@@ -92,7 +98,7 @@ def test_fomc_days():
 
 
 def test_fomc_list_shape():
-    d = pd.DatetimeIndex(rc.FOMC_DATES)
+    d = pd.DatetimeIndex(ec.FOMC_DATES)
     assert d.is_monotonic_increasing and d.is_unique
     counts = pd.Series(1, index=d).groupby(d.year).sum()
     assert (counts.drop(2020) == 8).all() and counts[2020] == 7
@@ -103,7 +109,7 @@ def test_fomc_list_shape():
 
 
 def test_meeting_label_parsing():
-    f = rc._meeting_last_day
+    f = ec._meeting_last_day
     assert str(f(2005, "February 1-2")) == "2005-02-02"
     assert str(f(1999, "March 30")) == "1999-03-30"
     assert str(f(2013, "April/May 30-1")) == "2013-05-01"
@@ -113,9 +119,9 @@ def test_meeting_label_parsing():
 
 
 def test_fomc_constant_matches_fed_pages():
-    if not (rc.RAW / "fomccalendars.htm").exists():
+    if not (study.RAW / "fomccalendars.htm").exists():
         pytest.skip("Federal Reserve pages not downloaded")
-    assert rc.parse_fed_pages(rc.RAW) == list(rc.FOMC_DATES)
+    assert ec.parse_fed_pages(study.RAW) == list(ec.FOMC_DATES)
 
 
 # ---------------------------------------------------------------- simulation
@@ -129,20 +135,20 @@ def test_gross_overnight_intraday_and_buyhold(data):
     s, e = 5, 250
     for name, leg in (("C4", data.o), ("C5", data.i), ("QQQ", data.r)):
         seg = rc.segments(name, data.sessions)
-        sim = rc.simulate(seg, data, s, e, "C", costs=False)
-        assert sim["value"].iloc[-1] / rc.START_EQUITY == pytest.approx(np.prod(1 + leg.iloc[s: e + 1].values))
+        sim = rc.simulate(seg, data, s, e, "C", costs=False, spreads=study.SPREADS)
+        assert sim["value"].iloc[-1] / START_EQUITY == pytest.approx(np.prod(1 + leg.iloc[s: e + 1].values))
 
 
 def test_gross_close_to_close_rule_earns_only_held_days(data):
     s, e = 5, 250
     seg = rc.segments("C1", data.sessions)
-    sim = rc.simulate(seg, data, s, e, "C", costs=False)
+    sim = rc.simulate(seg, data, s, e, "C", costs=False, spreads=study.SPREADS)
     h = seg[s: e + 1, 0]
-    assert sim["value"].iloc[-1] / rc.START_EQUITY == pytest.approx(np.prod(1 + data.r.iloc[s: e + 1].values[h]))
-    simb = rc.simulate(seg, data, s, e, "B", costs=False)
-    bill = data.rf.iloc[s: e + 1].values - rc.CASH_ETF_FEE / rc.TRADING_DAYS
+    assert sim["value"].iloc[-1] / START_EQUITY == pytest.approx(np.prod(1 + data.r.iloc[s: e + 1].values[h]))
+    simb = rc.simulate(seg, data, s, e, "B", costs=False, spreads=study.SPREADS)
+    bill = data.rf.iloc[s: e + 1].values - CASH_ETF_FEE / TRADING_DAYS
     expect = np.prod(np.where(h, 1 + data.r.iloc[s: e + 1].values, 1 + bill))
-    assert simb["value"].iloc[-1] / rc.START_EQUITY == pytest.approx(expect)
+    assert simb["value"].iloc[-1] / START_EQUITY == pytest.approx(expect)
 
 
 def test_execution_entry_at_previous_close(data):
@@ -150,7 +156,7 @@ def test_execution_entry_at_previous_close(data):
     s = 20
     seg = np.zeros((len(data.sessions), 2), dtype=bool)
     seg[s + 3] = True                                  # hold exactly one session
-    sim = rc.simulate(seg, data, s, s + 6, "C", costs=False)
+    sim = rc.simulate(seg, data, s, s + 6, "C", costs=False, spreads=study.SPREADS)
     r = sim["ret"]
     assert (r.drop(data.sessions[s + 3]) == 0).all()
     assert r[data.sessions[s + 3]] == pytest.approx(data.r.iloc[s + 3])
@@ -160,10 +166,10 @@ def test_execution_entry_at_previous_close(data):
 def test_cost_counts_overnight(data):
     s, e = 5, 104
     seg = rc.segments("C4", data.sessions)
-    sim = rc.simulate(seg, data, s, e, "C", costs=True)
+    sim = rc.simulate(seg, data, s, e, "C", costs=True, spreads=study.SPREADS)
     # initial buy + (sell at open, buy at close) each session except no buy at the close of e
     assert sim["orders"] == 1 + 2 * (e - s + 1) - 1
-    gross = rc.simulate(seg, data, s, e, "C", costs=False)
+    gross = rc.simulate(seg, data, s, e, "C", costs=False, spreads=study.SPREADS)
     assert sim["value"].iloc[-1] < gross["value"].iloc[-1]
     # each order costs at least the $0.35 minimum plus 1 bp half spread on ~$10k
     per_order = (math.log(gross["value"].iloc[-1]) - math.log(sim["value"].iloc[-1])) / sim["orders"]
@@ -171,25 +177,25 @@ def test_cost_counts_overnight(data):
 
 
 def test_switch_cost_orders():
-    c, n = rc.switch_cost(10_000, "Q", "B", 400.0)
+    c, n = rc.switch_cost(10_000, "Q", "B", 400.0, study.SPREADS)
     assert n == 2 and c > 2 * 0.35
-    c, n = rc.switch_cost(10_000, "Q", "C", 400.0)
+    c, n = rc.switch_cost(10_000, "Q", "C", 400.0, study.SPREADS)
     assert n == 1
-    c, n = rc.switch_cost(10_000, "C", "Q", 400.0)
+    c, n = rc.switch_cost(10_000, "C", "Q", 400.0, study.SPREADS)
     assert n == 1 and c == pytest.approx(0.35 + 0.0005 * 25 + 1.0)
 
 
 def test_bill_switch_at_open_is_rejected(data):
     seg = rc.segments("C5", data.sessions)
     with pytest.raises(ValueError):
-        rc.simulate(seg, data, 5, 20, "B")
+        rc.simulate(seg, data, 5, 20, "B", spreads=study.SPREADS)
 
 
 # ---------------------------------------------------------------- metrics
 
 def test_longest_drawdown():
     v = pd.Series([1, 2, 1.5, 1.8, 2.0, 2.5, 2.4, 2.3])
-    assert rc.longest_drawdown(v) == 2           # back at the old peak 2.0 ends the first spell
+    assert longest_drawdown(v) == 2           # back at the old peak 2.0 ends the first spell
 
 
 def test_criteria():
@@ -203,7 +209,7 @@ def test_criteria():
 
 def test_evaluate_period_runs(data):
     seg = rc.segments("C2", data.sessions)
-    out = rc.evaluate_period("C2", seg, data, 5, 250, "B", True)
+    out = rc.evaluate_period("C2", seg, data, 5, 250, "B", True, spreads=study.SPREADS, end=study.END)
     m = out["metrics"]
     for k in ("cagr", "excess_vs_qqq", "excess_vs_oneq", "vol", "max_dd", "longest_dd_sessions", "sharpe", "sortino",
               "calmar", "ir_vs_oneq", "beta_vs_oneq", "alpha_vs_oneq", "share_years_beating_oneq", "worst_year",
@@ -221,5 +227,5 @@ def test_parse_ohlc_truncates(tmp_path):
                                               "adjclose": [{"adjclose": [1, 2, 3]}]}}]}}
     p = tmp_path / "chart.json"
     p.write_text(json.dumps(j))
-    df = rc.parse_ohlc(p, "2026-09-30")
+    df = yahoo.parse_ohlc(p, "2026-09-30")
     assert df["date"].tolist() == ["2026-09-29", "2026-09-30"] and df["open"].tolist() == [1, 2]

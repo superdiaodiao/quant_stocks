@@ -15,7 +15,8 @@ Part B, moderate leverage (QQQ + a 2x leg: synthetic before 2006-06-22, real QLD
 Execution: the target decided at the close of t (data up to t) is traded at the close of t+1. Benchmark: ONEQ total
 return, spliced with the Nasdaq Composite price index before ONEQ lists (2003-10-01); QQQ is reported.
 Costs: IBKR Pro Tiered, $10,000 start. The data / legs, the flagged target-weight engine and the equity metrics
-are in quant (quant.data.sector_etfs, quant.backtest.flagged_weights, quant.evaluation.equity).
+are in quant (quant.data.sector_etfs, quant.backtest.flagged_weights, quant.evaluation.equity); the part A / B
+signals and the risk report are quant.strategies.sector_lev.
 
 Every vendor frame is truncated at ``END`` immediately after parsing and asserted. Raw data local only:
 research_cache/sector_lev/raw/. Outputs: output/research_only/sector_lev/ (returns and metrics only).
@@ -25,25 +26,19 @@ Usage:  PYTHONPATH=. .venv/bin/python -m quant study sector_lev   (or scripts/re
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
-from quant.backtest.costs import LEV_ER, START_EQUITY  # noqa: F401
-from quant.backtest.flagged_weights import buy_hold, entry_index, simulate  # noqa: F401  (sl.* for tests)
-from quant.data.calendar import month_end_mask
-from quant.data.guards import assert_dev_dates  # noqa: F401
-from quant.data.sector_etfs import (  # noqa: F401  (sl.* names read by tests)
-    ETFS, LEVERAGE_LEGS, ONEQ_START, RAW, SECTORS, SPREAD_2X, Data, build_legs, data_checks as _data_checks,
-    load_data as _load_data,
-)
+from quant.backtest.flagged_weights import buy_hold, entry_index, simulate
+from quant.data.guards import assert_dev_dates
+from quant.data.sector_etfs import ONEQ_START, Data, data_checks, load_data
 from quant.evaluation.criteria import ab_verdict as evaluate, bonferroni_t
-from quant.evaluation.equity import equity0, longest_underwater as longest_drawdown, period_metrics  # noqa: F401
-from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthly, yearly  # noqa: F401
+from quant.evaluation.equity import period_metrics, window_stats
+from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthly, yearly
 from quant.paths import output_dir
-from quant.signals.technical import trend_state
+from quant.reporting import write_json, write_period_tables
+from quant.strategies.sector_lev import part_a_targets, part_b_targets, risk_report
 
 END = "2026-09-30"
 OUT = output_dir("sector_lev")
@@ -53,105 +48,7 @@ CRASH_WINDOWS = {"1999_2002": ("1999-01-01", "2002-12-31"), "2007_2009": ("2007-
 RISK_WINDOWS = {"2000_2002": ("2000-01-01", "2002-12-31"), "2008": ("2008-01-01", "2008-12-31")}
 LOCAL_PEAK_FROM = {"2008": "2007-01-01"}      # report-only: the 2008 crash measured from its 2007 high
 SMA_LEN, BAND = 200, 0.02
-
-
-# ======================================================================== data (quant.data.sector_etfs)
-
-def load_data(end: str = END, raw_dir=RAW) -> Data:
-    return _load_data(end, raw_dir)
-
-
-def data_checks(d: Data) -> dict:
-    return _data_checks(d, END)
-
-
-# ======================================================================== Part A signals (month-end data up to t)
-
-def month_end_prices(adj: pd.DataFrame) -> pd.DataFrame:
-    return adj[month_end_mask(adj.index)]
-
-
-def momentum(me: pd.DataFrame, kind: str) -> pd.DataFrame:
-    """kind '12-1': M_1 / M_12 - 1; kind '6': M_0 / M_6 - 1 (month-end rows; NaN when the window start is missing)."""
-    if kind == "12-1":
-        return me.shift(1) / me.shift(12) - 1
-    if kind == "6":
-        return me / me.shift(6) - 1
-    raise KeyError(kind)
-
-
-def top_n_weights(mom: pd.DataFrame, n: int, need: int = 9) -> pd.DataFrame:
-    """Equal weight on the n highest scores (ties by ticker); NaN rows until ``need`` ETFs can be ranked."""
-    w = pd.DataFrame(np.nan, index=mom.index, columns=mom.columns)
-    for dt, row in mom.iterrows():
-        row = row.dropna()
-        if len(row) < need:
-            continue
-        order = sorted(row.index, key=lambda t: (-row[t], t))[:n]
-        w.loc[dt] = 0.0
-        w.loc[dt, order] = 1.0 / n
-    return w
-
-
-def faber_state(me_spy: pd.Series, months: int = 10) -> pd.Series:
-    sma = me_spy.rolling(months, min_periods=months).mean()
-    return (me_spy > sma).astype(float).where(sma.notna())
-
-
-def to_daily(w_me: pd.DataFrame, sessions: pd.DatetimeIndex) -> tuple[pd.DataFrame, pd.Series]:
-    """Month-end targets carried forward daily, plus the rebalance flag (True on month ends with a target)."""
-    w = w_me.reindex(sessions).ffill()
-    flag = pd.Series(False, index=sessions)
-    flag.loc[w_me.dropna(how="all").index] = True
-    return w, flag
-
-
-LEGS_A = list(SECTORS) + ["IEFX"]
-
-
-def part_a_targets(name: str, adj: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    me = month_end_prices(adj[list(SECTORS)])
-    kind, n = {"A1": ("12-1", 3), "A2": ("12-1", 1), "A3": ("6", 3), "A4": ("12-1", 3)}[name]
-    w = top_n_weights(momentum(me, kind), n)
-    w["IEFX"] = 0.0
-    w.loc[w[list(SECTORS)].isna().all(axis=1), "IEFX"] = np.nan
-    if name == "A4":
-        st = faber_state(month_end_prices(adj[["SPY"]])["SPY"]).reindex(w.index)
-        off = st == 0.0
-        w.loc[off & w["IEFX"].notna(), :] = 0.0
-        w.loc[off & w["IEFX"].notna(), "IEFX"] = 1.0
-        w.loc[st.isna(), :] = np.nan
-    return to_daily(w[LEGS_A], adj.index)
-
-
-# ======================================================================== Part B signals
-
-LEGS_B = LEVERAGE_LEGS
-
-
-def exposure_weights(e: float) -> dict:
-    if e >= 1.0:
-        return {"QQQ": 2.0 - e, "QLDX": e - 1.0, "CASH": 0.0}
-    return {"QQQ": e, "QLDX": 0.0, "CASH": 1.0 - e}
-
-
-B_EXPOSURE = {"B1": (1.25, 1.25), "B2": (1.5, 1.5), "B3": (1.5, 1.0), "B4": (1.25, 0.5)}
-
-
-def part_b_targets(name: str, p_qqq: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
-    on, off = B_EXPOSURE[name]
-    idx = p_qqq.index
-    me = pd.Series(month_end_mask(idx), index=idx)
-    if on == off:
-        st = pd.Series(1.0, index=idx)
-    else:
-        st = trend_state(p_qqq, SMA_LEN, BAND)
-    w = pd.DataFrame(np.nan, index=idx, columns=LEGS_B)
-    for k in LEGS_B:
-        w.loc[st == 1.0, k] = exposure_weights(on)[k]
-        w.loc[st == 0.0, k] = exposure_weights(off)[k]
-    change = st.ne(st.shift(1)) & st.shift(1).notna() & st.notna()
-    return w, (me | change) & st.notna()
+B_EXPOSURE = {"B1": (1.25, 1.25), "B2": (1.5, 1.5), "B3": (1.5, 1.0), "B4": (1.25, 0.5)}    # (on, off)
 
 
 @dataclass(frozen=True)
@@ -175,57 +72,13 @@ SPEC = {s.name: s for s in SPECS}
 
 
 def targets(name: str, d: Data) -> tuple[pd.DataFrame, pd.Series]:
-    return part_a_targets(name, d.adj) if SPEC[name].part == "A" else part_b_targets(name, d.p_qqq)
-
-
-# ======================================================================== metrics
+    if SPEC[name].part == "A":
+        return part_a_targets(name, d.adj)
+    return part_b_targets(name, d.p_qqq, B_EXPOSURE, SMA_LEN, BAND)
 
 
 def split(r: pd.Series) -> tuple[pd.DatetimeIndex, pd.DatetimeIndex]:
     return r.index[r.index < HALF_SPLIT], r.index[r.index >= HALF_SPLIT]
-
-
-def window_stats(r: pd.Series, start: str, end: str) -> dict | None:
-    x = r.loc[start:end]
-    if len(x) < 20:
-        return None
-    return {"start": str(x.index[0].date()), "end": str(x.index[-1].date()), "total": float(np.prod(1 + x) - 1),
-            "max_dd": max_drawdown(equity0(x))}
-
-
-def drawdown_episode(v: pd.Series, start: str, end: str, peak_from: str | None = None) -> dict | None:
-    """Deepest drawdown of the full curve whose trough falls in [start, end]: peak, trough, recovery.
-    ``peak_from``: only peaks on/after this date count (a crash measured from its own local high)."""
-    if peak_from is not None:
-        v = v.loc[peak_from:]
-    dd = v / v.cummax() - 1
-    win = dd.loc[start:end]
-    if len(win) < 20:
-        return None
-    trough = win.idxmin()
-    peak_val = v.loc[:trough].max()
-    peak = v.loc[:trough].idxmax()
-    after = v.loc[trough:]
-    rec = after[after >= peak_val]
-    rec_dt = rec.index[0] if len(rec) else None
-    yrs = lambda a, b: (b - a).days / 365.25
-    return {"peak": str(peak.date()), "trough": str(trough.date()), "depth": float(win.min()),
-            "recovered": str(rec_dt.date()) if rec_dt is not None else "not recovered",
-            "years_underwater_peak_to_recovery": yrs(peak, rec_dt) if rec_dt is not None else
-            f">{yrs(peak, v.index[-1]):.1f}",
-            "years_trough_to_recovery": yrs(trough, rec_dt) if rec_dt is not None else f">{yrs(trough, v.index[-1]):.1f}"}
-
-
-def risk_report(r: pd.Series) -> dict:
-    v = equity0(r)
-    out = {}
-    for tag, (s, e) in RISK_WINDOWS.items():
-        w = window_stats(r, s, e)
-        out[tag] = {"window_total": w["total"] if w else None, "episode": drawdown_episode(v, s, e)}
-        if tag in LOCAL_PEAK_FROM:
-            out[f"{tag}_from_local_peak"] = {"window_total": w["total"] if w else None,
-                                             "episode": drawdown_episode(v, s, e, LOCAL_PEAK_FROM[tag])}
-    return out
 
 
 # ======================================================================== main
@@ -250,7 +103,7 @@ def run(args=None) -> dict:
     d = load_data(END)
     print("DATE GUARD: every frame truncated at", END, "and asserted;",
           {k: v["last"] for k, v in d.guard.items() if isinstance(v, dict)})
-    checks = data_checks(d)
+    checks = data_checks(d, END)
     res = {"guard": d.guard, "data_checks": checks, "n_trials": len(SPECS),
            "bonferroni_t_one_sided_5pct": bonferroni_t(len(SPECS)), "configs": {}}
     rows, by_year, mon, crash_rows, risk_rows = [], {}, {}, [], []
@@ -270,7 +123,7 @@ def run(args=None) -> dict:
                 "criteria": crit, "rebalances": sim["trades"], "rebalances_per_year": sim["trades"] / years,
                 "orders": sim["orders"], "cost_drag_per_year": sim["cost_frac"] / years,
                 "avg_weight": {k: float(v) for k, v in sim["held"].mean().items() if v > 0.005},
-                "crash_windows": {}, "risk": risk_report(r)}
+                "crash_windows": {}, "risk": risk_report(r, RISK_WINDOWS, LOCAL_PEAK_FROM)}
         for tag, (s, e) in CRASH_WINDOWS.items():
             info["crash_windows"][tag] = {"strategy": window_stats(r, s, e), "oneq": window_stats(m["b"], s, e),
                                           "qqq": window_stats(m["q"], s, e)}
@@ -285,7 +138,7 @@ def run(args=None) -> dict:
             if who != "strategy" and (who, m["s_i"]) in refs_done:
                 continue
             refs_done.add((who, m["s_i"]))
-            rep = info["risk"] if who == "strategy" else risk_report(series)
+            rep = info["risk"] if who == "strategy" else risk_report(series, RISK_WINDOWS, LOCAL_PEAK_FROM)
             for tag, x in rep.items():
                 ep = x["episode"] or {}
                 risk_rows.append({"config": spec.name if who == "strategy" else f"{who}_from_{d.sessions[m['s_i']].date()}",
@@ -316,12 +169,9 @@ def run(args=None) -> dict:
         by_year[tag] = yearly(rr)
         mon[tag] = monthly(rr)
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "results.json").write_text(json.dumps(res, indent=2, default=float))
+    write_json(OUT / "results.json", res, default=float)
     pd.DataFrame(rows).to_csv(OUT / "summary.csv", index=False, float_format="%.6f")
-    pd.DataFrame(by_year).to_csv(OUT / "by_year.csv", float_format="%.6f")
-    mk = pd.DataFrame(mon)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(OUT / "monthly_returns.csv", float_format="%.6f")
+    write_period_tables(OUT, by_year, mon)
     pd.DataFrame(crash_rows).to_csv(OUT / "crash_windows.csv", index=False, float_format="%.6f")
     pd.DataFrame(risk_rows).to_csv(OUT / "leverage_risk.csv", index=False, float_format="%.6f")
     return res
