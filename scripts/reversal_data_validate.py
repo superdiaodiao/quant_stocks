@@ -83,9 +83,12 @@ UNIVERSE_N = 250
 PRICE_RANK = 300
 MIN_PRICE = 10.0
 VENDORS = ("tiingo", "yahoo", "wiki")
-if common.DATA_VERSION == "v2":
+if common.V2_PLUS:
     # version 2 (plan section 0, 2026-10-05): the archived Yahoo fill rows are a vendor raw source too
     VENDORS = VENDORS + ("archive",)
+if common.V2_1:
+    # version 2.1 (plan section 0, 2026-10-10): the Alpaca SIP fill rows are a vendor raw source too
+    VENDORS = VENDORS + ("alpaca",)
 MISSING_CODES = (-99.99, -999.0)
 SNAPSHOT_MAX_AGE = 160
 SYMBOL_FILE_MIN_ROWS = 1000

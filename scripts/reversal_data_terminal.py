@@ -1507,10 +1507,14 @@ TIINGO_DATA = {"done", "done_review", "partial"}       # step 8 statuses whose r
 TIINGO_FINAL_EMPTY = {"wrong_entity", "no_data", "no_data_in_window", "refused"}
 YAHOO_ACCEPTED = {"ok", "partial", "review"}
 VENDOR_ORDER = ("tiingo_step8", "tiingo", "wiki", "yahoo_step7", "yahoo")  # preference on the same session
-if common.DATA_VERSION == "v2":
+if common.V2_PLUS:
     # data version 2 (plan section 0, 2026-10-05): archived Yahoo rows rank after every v1 source; ``archive_otc`` are
     # the OTC tickers (T+Q, T+F) of the D5 names, read only after the Nasdaq ticker's last row
     VENDOR_ORDER = VENDOR_ORDER + ("archive", "archive_otc")
+if common.V2_1:
+    # data version 2.1 (plan section 0, 2026-10-10): the Alpaca SIP rows (entity-confirmed series only) rank right
+    # after Tiingo
+    VENDOR_ORDER = ("tiingo_step8", "tiingo", "alpaca") + tuple(v for v in VENDOR_ORDER if v not in ("tiingo_step8", "tiingo"))
 SNAPSHOT_END_SLACK_DAYS = 45  # a snapshot-dated end can come before the last trade by up to a capture gap
 # A vendor filler row (plan rule R5): the close repeats the previous session's close on a volume below
 # this share of the median volume of the last FILLER_LOOKBACK real sessions (ATVI 2023-10-13: 1 share
@@ -1592,6 +1596,19 @@ def archive_rows(sid: str, frames: list[pd.DataFrame]) -> list[pd.DataFrame]:
     return out
 
 
+def alpaca_rows(sid: str) -> list[pd.DataFrame]:
+    """Version 2.1: the Alpaca SIP rows of ``sid`` from its entity-confirmed series (reversal_data_v2_1_alpaca.py
+    ``series/``; an ambiguous series is never written there). Filler rows were dropped by the entity rules."""
+    path = common.V2_1_ALPACA / "series" / f"{sid}.csv.gz"
+    if not path.exists():
+        return []
+    a = pd.read_csv(path, usecols=["date", "close_raw", "volume_raw"])
+    if a.empty:
+        return []
+    return [pd.DataFrame({"date": pd.to_datetime(a["date"]), "close": a["close_raw"], "volume": a["volume_raw"],
+                          "src": "alpaca"})]
+
+
 class PriceBook:
     """Daily raw closes per security from every source this step may use.
 
@@ -1645,7 +1662,9 @@ class PriceBook:
                 data = pd.read_csv(path, usecols=["date", "close", "volume"])
                 frames.append(pd.DataFrame({"date": pd.to_datetime(data["date"].str[:10]), "close": data["close"],
                                             "volume": data["volume"], "src": "tiingo_step8"}))
-        if common.DATA_VERSION == "v2":
+        if common.V2_1:
+            frames += alpaca_rows(sid)
+        if common.V2_PLUS:
             frames += archive_rows(sid, frames)
         if frames:
             out = pd.concat(frames, ignore_index=True)
@@ -1973,6 +1992,9 @@ PRICE_SOURCE_URLS = {
     # version 2 (2026-10-05): archived Yahoo captures and the OTC tickers' captures / live charts
     "archive": "https://web.archive.org/ (archived Yahoo table.csv / history page of {ticker}; raw close restored; "
                "research_cache/reversal_2012_2026_v2_fill/series/archive)",
+    # version 2.1 (2026-10-10): Alpaca SIP daily bars (entity-confirmed)
+    "alpaca": "https://data.alpaca.markets/v2/stocks/bars?symbols={ticker}&feed=sip&adjustment=raw (raw close; "
+              "research_cache/reversal_2012_2026_v2_1_alpaca/series)",
     "archive_otc": "https://web.archive.org/ or https://query1.finance.yahoo.com/v8/finance/chart/ (OTC ticker of "
                    "{ticker}: T+Q / T+F; research_cache/reversal_2012_2026_v2_fill/series)",
 }
@@ -3325,7 +3347,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if common.DATA_VERSION == "v2":
+if common.V2_PLUS:
     # version 2 (2026-10-05): two D5 rows whose SEC filings state a fixed per-share consideration (the SEC review in
     # inputs_v2/v2_d5_sec_evidence.csv); booked as the plan's cash merger rule (4.5). Other "recovery" rows (ranges,
     # CVRs, pro rata residuals) have no fixed value and stay with the D5 rule.
@@ -3375,7 +3397,7 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     log(f"existing terminal rows: {len(existing)}, {len(matched)} matched to scoped securities")
     verified_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     frame, used = build_rows(scope, evidence, book, matched, NameIndex(master), read_csv_text(CANDIDATES), verified_at)
-    if common.DATA_VERSION == "v2":
+    if common.V2_PLUS:
         frame = attach_d5_evidence(frame)
     common.atomic_write(OUTPUT, frame.to_csv(index=False).encode())
     common.atomic_write(OUT / "prices_used.csv", used.to_csv(index=False).encode())

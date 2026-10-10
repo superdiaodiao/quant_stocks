@@ -40,7 +40,7 @@ def test_unknown_version_is_refused():
     env = {**os.environ, "REVERSAL_DATA_VERSION": "v3", "PYTHONPATH": str(ROOT)}
     out = subprocess.run([sys.executable, "-c", "import scripts.reversal_data_common"], env=env, capture_output=True,
                          text=True)
-    assert out.returncode != 0 and "v1 or v2" in out.stderr
+    assert out.returncode != 0 and "v1, v2 or v2.1" in out.stderr
 
 
 def test_default_is_v1_and_the_fetcher_never_uses_the_v1_ledger(monkeypatch):

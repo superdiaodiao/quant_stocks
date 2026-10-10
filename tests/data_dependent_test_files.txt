@@ -110,3 +110,5 @@ tests/test_stockanalysis_price_triage.py
 tests/test_stooq_2025_selected_price_cross_validation.py
 tests/test_universe_history.py
 tests/test_vape_bnc_alias_price_evidence.py
+tests/test_reversal_data_earnings.py
+tests/test_reversal_data_terminal.py

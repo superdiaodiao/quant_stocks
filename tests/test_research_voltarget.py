@@ -9,7 +9,7 @@ import pytest
 
 import scripts.research_sector_lev as sl
 import scripts.research_voltarget as vt
-from tests.test_research_sector_lev import synthetic_data, truncated
+from test_research_sector_lev import synthetic_data, truncated
 
 
 # ---------------------------------------------------------------- no look-ahead
