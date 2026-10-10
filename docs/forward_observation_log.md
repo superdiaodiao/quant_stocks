@@ -1,7 +1,7 @@
-# Forward observation log: B1 S3-Yb, B2 SEL-A / SEL-P
+# Forward observation log: B1 S3-Yb, B2 SEL-A / SEL-P, B3 S-MISP
 
 Written by `scripts/forward_observation.py` (frozen rules: `docs/forward_observation_checklist.md` section B; owner
-decision 2026-10-09). Do not edit the tables by hand: each run recomputes every forward month from the start and
+decisions 2026-10-09 for B1 / B2 and 2026-10-10 for B3). Do not edit the tables by hand: each run recomputes every forward month from the start and
 replaces the rows of the months it computes (one row per month, never duplicated). Returns in percent and dates
 only; no vendor price levels.
 
@@ -36,10 +36,13 @@ first forward close.
 positive only if the cumulative excess over H_match is > 0 and the monthly-excess t is ≥ 2. No early abandon rule;
 observed, not traded.
 
+The B3 table (S-MISP short overlay) has its own columns and evaluation; they are described above that table.
+
 ## Status
 
-- As-of date of the last run: 2026-10-08; data through: 2026-10-08.
-- **observation starts 2026-10-12** (accounts open at the 2026-10-12 close). No forward sessions yet, so no trades and no returns.
+- As-of date of the last run: 2026-10-09; data through: 2026-10-09.
+- **observation starts 2026-10-12** for B1 / B2 (accounts open at the 2026-10-12 close). No forward sessions yet, so no trades and no returns.
+- B3 S-MISP short overlay (N=10, k=20%, MN): **observation starts at the 2026-10-30 month-end signal** (the last session of October 2026), executed at the next close; no forward month yet.
 
 ## B1 S3-Yb (U18 basket)
 
@@ -67,3 +70,35 @@ Rule: config 29916 `RSI2 p2 B OPP H20 1 res25 ALL` (`scripts/research_t_grid.py`
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 <!-- table:SEL-P:end -->
+
+## B3 S-MISP short overlay (N=10, k=20%, MN)
+
+Rule: configuration S-MISP N=10 k=20% MN of `docs/research_ledger_short_overlay.md` section 0 (frozen code
+`scripts/research_short_overlay.py`; fresh monthly signal from `scripts/forward_smisp.py`; checklist section B3).
+Observed, not traded.
+
+**Forward window.** In-sample data end at the 2026-10-09 close. Signal at the last session of each month, executed at
+the next session's close: the first signal is the 2026-10-30 close, the account ($10k) opens at the 2026-11-02 close,
+so month 1 is the partial 2026-11 measured from that close (month 24 = 2028-10, month 36 = 2029-10).
+
+**Columns.** *shorts*: the names held after the rebalance at the close of the month's first session (whole shares,
+the research simulator). *strategy*: the month's return of the simulated account (registered tiered borrow fee;
+research `month_returns`, the first month from the first trade's close). *QQQ*, *ONEQ*: total return over the same
+days (ONEQ is the judged benchmark). *excess vs ONEQ*: strategy − ONEQ. *short leg*: the research ideal equal-weight
+loser basket (no rounding, no costs) from the month's trade close to the next trade close (dates shown), and
+*short leg − QQQ* over the same days (negative is good for a short). *IBKR fee*: report only; each short's FEERATE
+from the latest IBKR snapshot on or before each calendar day of that holding period: mean over the names of each
+name's mean, and the maximum (% a year); names with AVAILABLE = 0 or missing from the file are listed.
+*strategy at IBKR fees*: report-only sensitivity, the strategy with the IBKR fee instead of the registered tier
+(each short's value approximated as an equal share of the short book). *cum. excess vs ONEQ*: (strategy chained
+from the start) − (ONEQ chained from the start), percentage points. *t*: monthly-excess t vs ONEQ (shown from
+n = 3). *status*: `final` once the data hold the next month's trade session; else `provisional`.
+
+**Evaluation (fixed 2026-10-10).** No verdict before 24 months. At 36 months positive only if the cumulative excess
+over ONEQ is > 0 and the monthly-excess t vs ONEQ is ≥ 2. QQQ and the short leg vs QQQ are reported alongside.
+The registered tiered borrow fee is the rule; the IBKR fees are report only.
+
+<!-- table:B3:start -->
+| month | n | shorts (after the month's rebalance) | strategy | QQQ | ONEQ | excess vs ONEQ (pp) | short leg (holding period) | short leg − QQQ (pp) | IBKR fee mean / max (%/yr) | unborrowable / not in IBKR file | strategy at IBKR fees | cum. excess vs ONEQ (pp) | t | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+<!-- table:B3:end -->

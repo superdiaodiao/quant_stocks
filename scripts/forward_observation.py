@@ -1,10 +1,14 @@
-"""Forward observation runner for the two frozen candidates of docs/forward_observation_checklist.md section B
-(owner decision 2026-10-09). Not QuantConnect.
+"""Forward observation runner for the frozen candidates of docs/forward_observation_checklist.md section B
+(owner decisions 2026-10-09 and 2026-10-10). Not QuantConnect.
 
 - B1: stock basket S3-Yb (18 names, one $10k cash account each), simulated by scripts/research_selective_t.py
   (``run_one`` with config "S3-Yb", asset class "stock", variant "net").
 - B2: QQQ RSI2-dip, two separate lines SEL-A (config 29876) and SEL-P (config 29916), simulated by
   scripts/research_t_grid.py (``make_inst`` / ``exact_run`` / ``hmatch_series`` / ``hbase_of`` / ``oneq_for``).
+- B3: S-MISP short overlay, configuration S-MISP N=10 k=20% MN, simulated by scripts/research_short_overlay.py
+  (``schedule`` / ``simulate`` / ``basket_diagnostics`` / ``month_returns``) on a monthly U300 signal built from
+  fresh data by scripts/forward_smisp.py (checklist section B3). First signal at the 2026-10-30 close, executed at
+  the next close (2026-11-02).
 
 No simulator logic is reimplemented here: this file only fetches and loads data the way the research scripts do,
 chooses the forward window and turns the research functions' outputs into a monthly table.
@@ -25,44 +29,56 @@ whole window); here each month uses the exposure realised to date.
 Cumulative excess vs H_match = (chained strategy return) - (chained H_match return), in percentage points, both
 chained from the forward start (same convention as section A).
 
-Data: Yahoo v8 chart (daily OHLC, splits, dividends; owner accepted the Yahoo ToS risk), fetched with
-``research_selective_t.chart_url`` / headers / stop codes, one request per 2 s, stop at the first 401/403/429.
-Raw bodies only under research_cache/forward_observation/raw (never in Git). The committed log
-docs/forward_observation_log.md holds returns in percent and dates only, never vendor price levels.
+Data (B1 / B2): Tiingo daily prices from 2026-11 (key TIINGO_API_KEY), Yahoo v8 chart as fallback
+(``research_selective_t.chart_url`` / headers / stop codes, one request per 2 s, stop at the first 401/403/429); both
+are written in the Yahoo chart format (scripts/forward_prices.py). Only a recent tail is fetched: the history through
+the 2026-10-09 decision close is rebuilt from the committed returns-only state
+state/forward_observation/price_history_returns.csv.gz (no price levels) and checked on the overlapping days.
+B3 prices: Alpaca first, Yahoo fallback (scripts/forward_smisp.py). Raw bodies only in the local cache
+(``forward_smisp.cache_root()``: research_cache/forward_observation, or .cache/forward_observation /
+$FORWARD_OBS_CACHE on GitHub Actions; never in Git). The committed log docs/forward_observation_log.md holds returns
+in percent, dates and tickers only, never vendor price levels.
 
 A month's row is final once the data hold a session of a later month (the frozen simulators treat the window's
 last session specially); the month holding the last session is "provisional" and is replaced by the next run.
 
 Usage (monthly, after 18:00 New York time on the first trading day of the new month or later, so that the month
 just ended is final; see the checklist section B):
-  PYTHONPATH=. .venv/bin/python scripts/forward_observation.py --fetch
+  PYTHONPATH=. .venv/bin/python scripts/forward_observation.py --fetch --fetch-smisp
   PYTHONPATH=. .venv/bin/python scripts/forward_observation.py --as-of 2026-11-30 --dry-run   # testing
 """
 from __future__ import annotations
 
-import argparse
-import json
-import math
-import re
-import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
+import os
 
-import numpy as np
-import pandas as pd
+os.environ.setdefault("REVERSAL_DATA_VERSION", "v2")   # B3 reads the frozen v2 inputs (B1 / B2 do not depend on it)
 
-from scripts import research_intraday_t as it
-from scripts import research_selective_t as st
-from scripts import research_t_grid as tg
-from scripts.research_calendar import t_and_ir
-from scripts.research_qqq_timing import assert_dev_dates, monthly
+import argparse  # noqa: E402
+import csv  # noqa: E402
+import json  # noqa: E402
+import math  # noqa: E402
+import re  # noqa: E402
+import time  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from pathlib import Path  # noqa: E402
+from urllib.error import HTTPError  # noqa: E402
+from urllib.request import Request, urlopen  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from scripts import forward_prices as fp  # noqa: E402
+from scripts import forward_smisp as fs  # noqa: E402
+from scripts import research_intraday_t as it  # noqa: E402
+from scripts import research_selective_t as st  # noqa: E402
+from scripts import research_t_grid as tg  # noqa: E402
+from scripts.research_calendar import t_and_ir  # noqa: E402
+from scripts.research_qqq_timing import assert_dev_dates, monthly  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-CACHE = st.MAIN / "research_cache/forward_observation"
+CACHE = fs.cache_root()             # $FORWARD_OBS_CACHE, else research_cache/forward_observation (local only)
 RAW = CACHE / "raw"
 FETCH_LOG = CACHE / "fetch_log.csv"
 RUNS = CACHE / "runs"
@@ -84,6 +100,9 @@ B2_RESERVE_CODE = 2                 # res25 -> H_base_res25
 LINES = (("B1", "B1 S3-Yb (U18 basket)"), ("SEL-A", "B2 SEL-A (QQQ, config 29876)"),
          ("SEL-P", "B2 SEL-P (QQQ, config 29916)"))
 VERDICT_MONTHS = (24, 36)
+SMISP_DIR = fs.BASE                 # B3 raw bodies (local cache)
+SMISP_STATE = fs.STATE              # B3 frozen monthly signals (committed, no price levels)
+B3_TITLE = "B3 S-MISP short overlay (N=10, k=20%, MN)"
 
 
 # ======================================================================== dates
@@ -101,45 +120,90 @@ def raw_path(sym: str, raw_dir: Path = RAW) -> Path:
     return raw_dir / f"{sym}.json"
 
 
-def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=None, sleep=time.sleep) -> dict:
-    """Re-download every symbol (the forward data grow each month); one request per 2 s; stop at 401/403/429.
-    Bodies are stored as plain JSON (the QQQ / ONEQ loaders of the research code read plain JSON)."""
+def b_source(now: datetime | None = None) -> str:
+    """Tiingo from 2026-11 when a key is available (the free plan's October quota is used up), else Yahoo."""
+    month = (now or datetime.now(timezone.utc)).strftime("%Y-%m")
+    return "tiingo" if month >= fp.TIINGO_FROM_MONTH and fp.tiingo_key() else "yahoo"
+
+
+def yahoo_body(sym: str, start: str, period2: str, getter=None) -> tuple[bytes, int]:
+    url = st.chart_url(sym, start, period2)
+    if getter is not None:
+        return getter(url), 200
+    with urlopen(Request(url, headers=st.HEADERS), timeout=30) as resp:
+        return resp.read(), resp.status
+
+
+def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=None, sleep=time.sleep,
+          history: Path | None = fp.HISTORY_STATE, source: str | None = None, tiingo_getter=None,
+          source_log: Path | None = None) -> dict:
+    """Re-download every symbol (the forward data grow each month). Source: Tiingo (from 2026-11, ``b_source``),
+    Yahoo as fallback (one request per 2 s, stop at 401/403/429). With the committed history state the vendor is
+    asked only for a recent tail; the history through the decision close is rebuilt from the state's ratios and
+    the overlapping days are checked (``forward_prices.merge_history``). Bodies are stored as plain JSON (the QQQ /
+    ONEQ loaders of the research code read plain JSON)."""
     raw_dir.mkdir(parents=True, exist_ok=True)
     period2 = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    state = fp.load_history_state(history) if history is not None else None
+    src_default = source or b_source()
+    source_log = source_log or log.with_name("fetch_sources.csv")
     if not log.exists():
         log.write_text("fetched_utc,symbol,http_status,bytes\n")
+    if not source_log.exists():
+        source_log.write_text("fetched_utc,symbol,source,history_check\n")
     out = {}
+    stop_yahoo = False
     for k, sym in enumerate(symbols):
-        if k:
-            sleep(st.SECONDS_PER_REQUEST)
-        url = st.chart_url(sym, FETCH_START.get(sym, st.FETCH_START), period2)
+        start = FETCH_START.get(sym, st.FETCH_START)
+        if state is not None and (state["sym"] == sym).any():
+            last = state.loc[state["sym"] == sym, "date"].max()
+            start = (pd.Timestamp(last) - pd.Timedelta(days=fp.TAIL_DAYS)).strftime("%Y-%m-%d")
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        try:
-            if getter is not None:
-                data, status = getter(url), 200
-            else:
-                with urlopen(Request(url, headers=st.HEADERS), timeout=30) as resp:
-                    data, status = resp.read(), resp.status
-        except HTTPError as exc:
+        payload, used = None, None
+        if src_default == "tiingo":
+            try:
+                payload, used = fp.tiingo_chart(sym, start, period2, getter=tiingo_getter), "tiingo"
+            except Exception as exc:  # noqa: BLE001 - any Tiingo failure falls back to Yahoo
+                print(f"fetch: Tiingo failed for {sym} ({type(exc).__name__}); Yahoo fallback")
+        if payload is None:
+            if stop_yahoo:
+                out[sym] = "skipped (Yahoo stopped)"
+                continue
+            if k:
+                sleep(st.SECONDS_PER_REQUEST)
+            try:
+                data, status = yahoo_body(sym, start, period2, getter)
+            except HTTPError as exc:
+                with log.open("a") as fh:
+                    fh.write(f"{now},{sym},{exc.code},0\n")
+                out[sym] = f"HTTP {exc.code}"
+                if exc.code in st.STOP_CODES:
+                    print(f"fetch: HTTP {exc.code} on {sym}; stopping Yahoo (the cached files are left as they were)")
+                    stop_yahoo = True
+                continue
             with log.open("a") as fh:
-                fh.write(f"{now},{sym},{exc.code},0\n")
-            out[sym] = f"HTTP {exc.code}"
-            if exc.code in st.STOP_CODES:
-                print(f"fetch: HTTP {exc.code} on {sym}; stopping (the cached files are left as they were)")
-                break
-            continue
-        payload = json.loads(data)
+                fh.write(f"{now},{sym},{status},{len(data)}\n")
+            payload, used = json.loads(data), "yahoo"
         res = (payload.get("chart") or {}).get("result") or [None]
         if not res[0] or (res[0].get("meta") or {}).get("dataGranularity") != "1d":
             out[sym] = "not daily / empty"
-        else:
-            tmp = raw_path(sym, raw_dir).with_suffix(".tmp")
-            tmp.write_bytes(data)
-            tmp.rename(raw_path(sym, raw_dir))
-            out[sym] = "ok"
-        with log.open("a") as fh:
-            fh.write(f"{now},{sym},{status},{len(data)}\n")
-        print(f"fetch: {sym} {out[sym]} ({len(data)} bytes)")
+            continue
+        check = {}
+        if state is not None:
+            try:
+                payload, check = fp.merge_history(sym, state, payload)
+            except ValueError as exc:
+                out[sym] = f"history merge failed: {exc}"
+                print("fetch:", out[sym])
+                continue
+            if not check.get("overlap_ok", True):
+                print(f"fetch: WARNING {sym}: the {used} tail disagrees with the history state on overlapping days "
+                      f"({check})")
+        fp.save_payload(payload, raw_path(sym, raw_dir), compress=False)
+        with source_log.open("a", newline="") as fh:
+            csv.writer(fh).writerow([now, sym, used, json.dumps(check)])
+        out[sym] = f"ok ({used})"
+        print(f"fetch: {sym} {out[sym]}")
     return out
 
 
@@ -366,6 +430,43 @@ def b2_trades(daily: list, sessions: pd.DatetimeIndex, j: int) -> list:
     return trades
 
 
+# ======================================================================== B3: S-MISP short overlay (research_short_overlay)
+
+def run_b3(d: Data, smisp_dir: Path | None = None, borrow_dir: Path | None = None,
+           smisp_state: Path | None = None) -> dict:
+    """The S-MISP line through the as-of date from the frozen monthly signal files (scripts/forward_smisp.py).
+    Signals are the last sessions of each month from 2026-10-30 on; each is executed at the next close. A missing
+    signal file stops the simulation at that signal's date (the line is then 'pending' from there)."""
+    base = Path(smisp_dir or SMISP_DIR)
+    state = Path(smisp_state) if smisp_state else (base / "state" if smisp_dir else SMISP_STATE)
+    sigs = fs.signal_dates(d.qqq.s.sessions)
+    if not sigs:
+        return {"started": False, "reason": "before_first_signal"}
+    signals = {}
+    for s in sigs:
+        p = fs.signal_path(s, state)
+        if not p.exists():
+            break
+        signals[s] = fs.load_signal(p)
+    if not signals:
+        return {"started": False, "reason": f"signal {sigs[0].date()} not computed yet (run --fetch-smisp)"}
+    end, pending = d.end, None
+    if len(signals) < len(sigs):
+        pending = sigs[len(signals)]
+        end = str(pending.date())
+    effr_path = base / "EFFR_nyfed.csv"
+    if not effr_path.exists():
+        return {"started": False, "reason": "no EFFR file (run --fetch-smisp)"}
+    effr = fs.ro.load_effr(effr_path)
+    snaps = fs.BorrowSnapshots(Path(borrow_dir or fs.BORROW_DIR))
+    line = fs.run_line(signals, d.qqq, d.oneq, end, base / "held", effr, snaps)
+    if not line["started"]:
+        return {"started": False, "reason": "no executable signal yet"}
+    line["pending"] = pending
+    line["n_snapshots"] = len(snaps.index)
+    return line
+
+
 # ======================================================================== monthly table
 
 def pct(x: float, nd: int = 2) -> str:
@@ -429,12 +530,34 @@ def row_line(x: dict) -> str:
             f"{x['status']} |")
 
 
+B3_HEAD = ("| month | n | shorts (after the month's rebalance) | strategy | QQQ | ONEQ | excess vs ONEQ (pp) "
+           "| short leg (holding period) | short leg − QQQ (pp) | IBKR fee mean / max (%/yr) "
+           "| unborrowable / not in IBKR file | strategy at IBKR fees | cum. excess vs ONEQ (pp) | t | status |")
+B3_SEP = "|" + "---|" * 15
+
+
+def b3_row_line(x: dict) -> str:
+    t = "" if not np.isfinite(x["t"]) else f"{x['t']:+.2f}"
+    leg = f"{pct(x['leg'])} ({x['leg_period']})" if np.isfinite(x["leg"]) else ""
+    lq = pp(x["leg"] - x["leg_qqq"]) if np.isfinite(x["leg"]) else ""
+    if x["fee_days"] == 0:
+        fee = "no snapshot"
+    elif np.isfinite(x["fee_mean"]):
+        fee = f"{x['fee_mean'] * 100:.2f} / {x['fee_max'] * 100:.2f}"
+    else:
+        fee = "n/a"
+    flags = [f"{s} (AVAILABLE 0)" for s in x["unborrowable"]] + [f"{s} (not in file)" for s in x["not_in_file"]]
+    return (f"| {x['month']} | {x['n']} | {x['shorts']} | {pct(x['ret'])} | {pct(x['qqq'])} | {pct(x['oneq'])} | "
+            f"{pp(x['excess'])} | {leg} | {lq} | {fee} | {'; '.join(flags) if flags else 'none'} | "
+            f"{pct(x['ret_ibkr'])} | {pp(x['cum_excess'])} | {t} | {x['status']} |")
+
+
 # ======================================================================== log file
 
-LOG_HEADER = """# Forward observation log: B1 S3-Yb, B2 SEL-A / SEL-P
+LOG_HEADER = """# Forward observation log: B1 S3-Yb, B2 SEL-A / SEL-P, B3 S-MISP
 
 Written by `scripts/forward_observation.py` (frozen rules: `docs/forward_observation_checklist.md` section B; owner
-decision 2026-10-09). Do not edit the tables by hand: each run recomputes every forward month from the start and
+decisions 2026-10-09 for B1 / B2 and 2026-10-10 for B3). Do not edit the tables by hand: each run recomputes every forward month from the start and
 replaces the rows of the months it computes (one row per month, never duplicated). Returns in percent and dates
 only; no vendor price levels.
 
@@ -468,14 +591,58 @@ first forward close.
 **Evaluation (fixed 2026-10-09).** Main comparison H_match. No verdict before 24 months. At 36 months the verdict is
 positive only if the cumulative excess over H_match is > 0 and the monthly-excess t is ≥ 2. No early abandon rule;
 observed, not traded.
+
+The B3 table (S-MISP short overlay) has its own columns and evaluation; they are described above that table.
 """
+
+B3_INTRO = """Rule: configuration S-MISP N=10 k=20% MN of `docs/research_ledger_short_overlay.md` section 0 (frozen code
+`scripts/research_short_overlay.py`; fresh monthly signal from `scripts/forward_smisp.py`; checklist section B3).
+Observed, not traded.
+
+**Forward window.** In-sample data end at the 2026-10-09 close. Signal at the last session of each month, executed at
+the next session's close: the first signal is the 2026-10-30 close, the account ($10k) opens at the 2026-11-02 close,
+so month 1 is the partial 2026-11 measured from that close (month 24 = 2028-10, month 36 = 2029-10).
+
+**Columns.** *shorts*: the names held after the rebalance at the close of the month's first session (whole shares,
+the research simulator). *strategy*: the month's return of the simulated account (registered tiered borrow fee;
+research `month_returns`, the first month from the first trade's close). *QQQ*, *ONEQ*: total return over the same
+days (ONEQ is the judged benchmark). *excess vs ONEQ*: strategy − ONEQ. *short leg*: the research ideal equal-weight
+loser basket (no rounding, no costs) from the month's trade close to the next trade close (dates shown), and
+*short leg − QQQ* over the same days (negative is good for a short). *IBKR fee*: report only; each short's FEERATE
+from the latest IBKR snapshot on or before each calendar day of that holding period: mean over the names of each
+name's mean, and the maximum (% a year); names with AVAILABLE = 0 or missing from the file are listed.
+*strategy at IBKR fees*: report-only sensitivity, the strategy with the IBKR fee instead of the registered tier
+(each short's value approximated as an equal share of the short book). *cum. excess vs ONEQ*: (strategy chained
+from the start) − (ONEQ chained from the start), percentage points. *t*: monthly-excess t vs ONEQ (shown from
+n = 3). *status*: `final` once the data hold the next month's trade session; else `provisional`.
+
+**Evaluation (fixed 2026-10-10).** No verdict before 24 months. At 36 months positive only if the cumulative excess
+over ONEQ is > 0 and the monthly-excess t vs ONEQ is ≥ 2. QQQ and the short leg vs QQQ are reported alongside.
+The registered tiered borrow fee is the rule; the IBKR fees are report only."""
+
+
+def b3_status(v: dict) -> str:
+    if not v.get("started"):
+        why = v.get("reason", "")
+        extra = "" if why in ("", "before_first_signal") else f" Pending: {why}."
+        return (f"- {B3_TITLE}: **observation starts at the {fs.FIRST_SIGNAL} month-end signal** (the last session "
+                f"of October 2026), executed at the next close; no forward month yet.{extra}")
+    rows = v["rows"]
+    last = rows[-1]
+    t = "" if not np.isfinite(last["t"]) else f", monthly-excess t {last['t']:+.2f}"
+    pend = f" Pending: signal {v['pending'].date()} not computed (run --fetch-smisp)." if v.get("pending") else ""
+    return (f"- {B3_TITLE}: {last['n']} month(s) through {last['month']}; cumulative excess vs ONEQ "
+            f"{pp(last['cum_excess'])} pp{t}; no verdict before month {VERDICT_MONTHS[0]}, verdict at month "
+            f"{VERDICT_MONTHS[1]}.{pend}")
 
 
 def render_status(as_of: str, data_end: str | None, lines: dict) -> str:
     out = ["## Status", "", f"- As-of date of the last run: {as_of}; data through: {data_end or 'n/a'}."]
-    if not any(v.get("started") for v in lines.values()):
-        out.append(f"- **observation starts {START_CLOSE}** (accounts open at the {START_CLOSE} close). "
+    b3 = lines.get("B3", {"started": False})
+    if not any(lines.get(k, {}).get("started") for k, _ in LINES):
+        out.append(f"- **observation starts {START_CLOSE}** for B1 / B2 (accounts open at the {START_CLOSE} close). "
                    "No forward sessions yet, so no trades and no returns.")
+        out.append(b3_status(b3))
         return "\n".join(out) + "\n"
     for key, title in LINES:
         v = lines.get(key, {})
@@ -488,6 +655,7 @@ def render_status(as_of: str, data_end: str | None, lines: dict) -> str:
         out.append(f"- {title}: {last['n']} month(s) through {last['month']}; cumulative excess vs H_match "
                    f"{pp(last['cum_excess'])} pp{t}; no verdict before month {VERDICT_MONTHS[0]}, verdict at month "
                    f"{VERDICT_MONTHS[1]}.")
+    out.append(b3_status(b3))
     return "\n".join(out) + "\n"
 
 
@@ -530,13 +698,23 @@ def render_log(as_of: str, data_end: str | None, lines: dict, old_text: str = ""
                 f"config {B2_IDS[key]} `{B2_LABELS[key]}` (`scripts/research_t_grid.py`)")
         parts.append(f"## {title}\n\nRule: {rule}.\n\n<!-- table:{key}:start -->\n{HEAD}\n{SEP}\n"
                      + "".join(rows[mo] + "\n" for mo in sorted(rows)) + f"<!-- table:{key}:end -->\n")
+    rows = dict(old.get("B3", {}))
+    for x in lines.get("B3", {}).get("rows", []):
+        new = b3_row_line(x)
+        prev = rows.get(x["month"])
+        if prev is not None and prev != new and prev.rstrip().endswith("| final |"):
+            warnings.append(f"B3 {x['month']}: a final row changed (vendor data revision?)\n  old {prev}\n  new {new}")
+        rows[x["month"]] = new
+    parts.append(f"## {B3_TITLE}\n\n{B3_INTRO}\n\n<!-- table:B3:start -->\n{B3_HEAD}\n{B3_SEP}\n"
+                 + "".join(rows[mo] + "\n" for mo in sorted(rows)) + "<!-- table:B3:end -->\n")
     text = "\n".join(parts)
     return text, warnings
 
 
 # ======================================================================== run
 
-def compute(as_of: str, raw_dir: Path = RAW, stocks=STOCKS) -> dict:
+def compute(as_of: str, raw_dir: Path = RAW, stocks=STOCKS, smisp_dir: Path | None = None,
+            borrow_dir: Path | None = None, smisp_state: Path | None = None) -> dict:
     """Everything for one as-of date (no file writes)."""
     d = load_all(as_of, raw_dir, stocks)
     data_end = str(d.qqq.s.sessions[-1].date())
@@ -549,12 +727,17 @@ def compute(as_of: str, raw_dir: Path = RAW, stocks=STOCKS) -> dict:
         if v["started"]:
             v["rows"] = month_rows(v, show_symbol=False)
         lines[name] = v
+    b3 = run_b3(d, smisp_dir, borrow_dir, smisp_state)
+    if b3["started"]:
+        b3["rows"] = fs.month_rows(b3)
+    lines["B3"] = b3
     return {"as_of": as_of, "data_end": data_end, "lines": lines, "data": d}
 
 
 def run(as_of: str, raw_dir: Path = RAW, log_path: Path = LOG, dry_run: bool = False, stocks=STOCKS,
-        force: bool = False) -> dict:
-    res = compute(as_of, raw_dir, stocks)
+        force: bool = False, smisp_dir: Path | None = None, borrow_dir: Path | None = None,
+        smisp_state: Path | None = None) -> dict:
+    res = compute(as_of, raw_dir, stocks, smisp_dir, borrow_dir, smisp_state)
     old = log_path.read_text() if log_path.exists() else ""
     prev_end = last_data_end(old)
     if prev_end and pd.Timestamp(res["data_end"]) < pd.Timestamp(prev_end) and not (dry_run or force):
@@ -579,6 +762,12 @@ def save_run_details(res: dict, runs_dir: Path = RUNS) -> Path:
     for k, v in res["lines"].items():
         if not v.get("started"):
             continue
+        if k == "B3":
+            out["lines"][k] = {s: {str(i.date()): float(x) for i, x in v[s].items()}
+                               for s in ("nav", "nav_ibkr", "qqq", "oneq")}
+            out["lines"][k]["held"] = [[str(v["mk"].sessions[t].date()), names] for t, names in v["res"]["held"]]
+            out["lines"][k]["acc"] = v["res"]["acc"]
+            continue
         out["lines"][k] = {s: {str(i.date()): float(x) for i, x in v[s].items()}
                            for s in ("ret", "hbase", "hmatch", "hmatch_full_window", "oneq")}
         out["lines"][k]["w"] = v["w"]
@@ -589,10 +778,37 @@ def save_run_details(res: dict, runs_dir: Path = RUNS) -> Path:
     return p
 
 
+def smisp_fetch(as_of: str, raw_dir: Path = RAW, smisp_dir: Path | None = None) -> dict:
+    """B3 inputs for every due signal (checklist B3.3): Nasdaq listing snapshot, SEC tickers / submissions /
+    companyfacts, Yahoo charts of the universe base (resumable), then the charts of the held names and the EFFR."""
+    base = Path(smisp_dir or SMISP_DIR)
+    qqq = load_market("QQQ", as_of, raw_dir)
+    signals = {}
+    for s in fs.signal_dates(qqq.s.sessions):
+        try:
+            sc = fs.prepare_signal(s, qqq, base, fetch=True, state=SMISP_STATE)
+        except (RuntimeError, OSError) as exc:      # network / SEC errors: nothing is frozen; re-run resumes
+            print(f"S-MISP signal {s.date()}: {exc}")
+            sc = None
+        if sc is None:
+            break
+        signals[s] = sc
+    if signals:
+        print("S-MISP held charts:", fs.fetch_held(signals, base / "held"))
+        fs.fetch_effr(base / "EFFR_nyfed.csv", start=str((pd.Timestamp(fs.FIRST_SIGNAL) - pd.Timedelta(days=40)).date()))
+    else:
+        print(f"S-MISP: no signal due through {as_of} (first signal {fs.FIRST_SIGNAL}, known once a later session "
+              "exists)")
+    return signals
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--as-of", help="last date to use (YYYY-MM-DD); default: the last complete New York session")
     ap.add_argument("--fetch", action="store_true", help="re-download the 20 Yahoo charts first (one per 2 s)")
+    ap.add_argument("--fetch-smisp", action="store_true",
+                    help="B3: compute any due S-MISP signal from fresh data (Nasdaq list, SEC, ~2,400 Yahoo charts at "
+                         "one per 2 s, resumable) and refresh the held names' charts and the EFFR")
     ap.add_argument("--dry-run", action="store_true", help="print the log instead of writing it")
     ap.add_argument("--force", action="store_true", help="allow writing the log for an earlier as-of date")
     ap.add_argument("--no-overlap-check", action="store_true")
@@ -605,6 +821,8 @@ def main(argv=None):
         as_of = latest
     if a.fetch:
         print("FETCH:", fetch())
+    if a.fetch_smisp:
+        smisp_fetch(as_of)
     res = run(as_of, dry_run=a.dry_run, force=a.force)
     d = res["data"]
     print("DATA:", json.dumps({k: (v["first"], v["last"], v["rows"]) for k, v in d.checks.items()}))
@@ -616,6 +834,14 @@ def main(argv=None):
         print("OVERLAP vs research caches (split-adjusted closes through", st.END + "):",
               json.dumps(overlap_check(d), default=str))
     for k, v in res["lines"].items():
+        if k == "B3":
+            if v.get("started"):
+                print(f"B3: chained strategy {pct(v['nav'].iloc[-1] / v['nav'].iloc[0] - 1)}, QQQ "
+                      f"{pct(v['qqq'].iloc[-1] - 1)}, ONEQ {pct(v['oneq'].iloc[-1] - 1)}; costs {v['res']['acc']}; "
+                      f"IBKR borrow snapshots available: {v['n_snapshots']}")
+            else:
+                print("B3:", v.get("reason"))
+            continue
         if v.get("started"):
             hf = v["hmatch_full_window"].reindex(v["ret"].index)
             print(f"{k}: chained strategy {pct((1 + v['ret']).prod() - 1)}, H_match (to-date w per month) "
