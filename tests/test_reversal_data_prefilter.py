@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_prefilter as pf
+from pipelines.reversal_data import prefilter as pf
 
 
 def _spans(rows):
@@ -997,7 +997,7 @@ def test_relist_junctions_are_read_from_the_reconcile_source(tmp_path):
     assert origin.startswith("fallback") and fallback["105319"]["first_new_session"] == "2025-06-27"
     # step 9's own table (round 7): CHRD 2020-11-20, CORZ 2024-01-24, WW 2025-06-27
     real, origin = pf.relist_junctions()
-    assert origin.endswith("RELIST_JUNCTIONS")
+    assert origin == "reversal_data_reconcile.py RELIST_JUNCTIONS"   # the label kept through the phase-3 move
     assert {s: real[s]["first_new_session"] for s in ("1486159", "1839341", "105319")} == {
         "1486159": "2020-11-20", "1839341": "2024-01-24", "105319": "2025-06-27"}
 

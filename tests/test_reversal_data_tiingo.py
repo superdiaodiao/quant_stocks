@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_tiingo as tiingo
+from pipelines.reversal_data import common
+from pipelines.reversal_data import tiingo
 
 SECRET = "TESTKEY0123456789"
 CANDIDATE_COLUMNS = ["security_id", "ticker_for_source", "needed_start", "needed_end", "reason", "planned_source",
@@ -334,7 +334,7 @@ def sandbox(tmp_path, monkeypatch):
             raise HTTPError(url, answer, "error", {}, io.BytesIO(b'{"detail": "Error: refused"}'))
         return FakeResponse(answer)
 
-    monkeypatch.setattr(common, "urlopen", fake_urlopen)
+    monkeypatch.setattr(common.http, "urlopen", fake_urlopen)
     days = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2018-01-02", "2019-12-31")]
     state["good"] = json.dumps(tiingo_rows(days)).encode()
     state["candidates"] = write_candidates(tmp_path / "candidates.csv", [

@@ -1,7 +1,7 @@
 import gzip
 import time
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 
 def test_keys_are_redacted_from_logged_urls():
@@ -27,7 +27,7 @@ def test_limiter_spaces_requests():
 def test_cached_get_reads_the_cache_without_a_request(tmp_path, monkeypatch):
     cache = tmp_path / "x.json.gz"
     cache.write_bytes(gzip.compress(b'{"a": 1}'))
-    monkeypatch.setattr(common, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
+    monkeypatch.setattr(common.http, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
     assert common.cached_get("https://example.com/x", cache, source="test") == b'{"a": 1}'
 
 

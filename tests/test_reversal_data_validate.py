@@ -15,10 +15,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_validate as va
+from pipelines.reversal_data import common
+from pipelines.reversal_data import validate as va
 
-SCRIPT = Path("scripts/reversal_data_validate.py")
+SCRIPT = Path("pipelines/reversal_data/validate.py")   # moved from scripts/reversal_data_validate.py (phase 3)
 
 
 # ------------------------------------------------------------------ what the validator may import and call
@@ -31,12 +31,12 @@ def _imports(path: Path) -> set[str]:
             names |= {alias.name for alias in node.names}
         elif isinstance(node, ast.ImportFrom):
             base = node.module or ""
-            names |= {f"{base}.{alias.name}" if base == "scripts" else base for alias in node.names}
+            names |= {f"{base}.{alias.name}" if base == "pipelines.reversal_data" else base for alias in node.names}
     return names
 
 
 def test_the_validator_imports_no_signal_backtest_or_research_module():
-    allowed_third_party = {"numpy", "pandas", "exchange_calendars", "scripts.reversal_data_common"}
+    allowed_third_party = {"numpy", "pandas", "exchange_calendars", "pipelines.reversal_data.common"}
     for name in _imports(SCRIPT):
         top = name.split(".")[0]
         assert name in allowed_third_party or top in sys.stdlib_module_names or top == "__future__", name
@@ -519,7 +519,7 @@ def test_universe_build_is_no_input_without_the_step12_files(ctx):
 
 def test_universe_build_sees_sec_submissions_cached_or_fetched_again_after_the_build(ctx):
     import gzip as gz
-    from scripts import reversal_data_universe as un
+    from pipelines.reversal_data import universe as un
     directory = ctx.cache / "raw" / "sec" / "submissions"
     directory.mkdir(parents=True, exist_ok=True)
     def write(name, payload):
@@ -710,7 +710,7 @@ def test_unfillable_impact_reports_calibrated_and_upper_beside_the_model(ctx, mo
 
 
 def test_the_validator_unknown_size_rates_equal_step12s():
-    from scripts import reversal_data_universe as un
+    from pipelines.reversal_data import universe as un
     assert va.UNKNOWN_SAMPLE_SHA256 == un.UNKNOWN_SAMPLE_SHA256 and va.UNKNOWN_SAMPLE_PATH == un.UNKNOWN_SAMPLE_PATH
     assert va.UNKNOWN_SAMPLE_POOLED_RATE == un.UNKNOWN_SAMPLE_POOLED_RATE
     assert va.UNKNOWN_SAMPLE_RATES == {v["years"]: v["rate"] for v in un.UNKNOWN_SAMPLE_STRATA.values()}
@@ -779,7 +779,7 @@ def test_a_short_window_week_whose_own_dv20_rank_is_near_the_top_250_blocks(ctx)
     assert n["judged_small_not_blocking"] == 2 and n["own_dv20_rank_limit"] == 300
     assert {r["security_id"] for r in out["details"]["short_window_judged_small"]} == {"sml", "nor"}
     # step 12 reads the same rows the same way
-    from scripts import reversal_data_universe as un
+    from pipelines.reversal_data import universe as un
     frame = pd.DataFrame(rows).assign(pf_dv_ok=False, pf_price_low=False)
     assert un.blocks_week(frame).tolist() == va.short_window_blocks(frame).tolist() == [True, True, False, False]
     # the own rank counts only for short_window weeks in step 12
@@ -787,7 +787,7 @@ def test_a_short_window_week_whose_own_dv20_rank_is_near_the_top_250_blocks(ctx)
 
 
 def test_the_validator_knows_every_missing_reason_step12_emits():
-    from scripts import reversal_data_universe as un
+    from pipelines.reversal_data import universe as un
     assert set(un.MISSING_REASONS) <= va.KNOWN_MISSING
     assert {"answer_not_in_panel", "series_gap", "fetched_pending_reconcile"} <= va.BLOCKING_MISSING
     assert va.SHORT_WINDOW in un.MISSING_REASONS and va.SHORT_WINDOW not in va.BLOCKING_MISSING   # judged by evidence
@@ -1049,7 +1049,7 @@ def _check_with_break_days(ctx, break_days):
 
 def test_stored_comparison_reads_step9_break_days_to_explain_a_real_move_without_a_unit_break(ctx):
     # The table is written by step 9's own code, so the two sides change together ({how_to_read, days: {...}}).
-    from scripts import reversal_data_reconcile as rc
+    from pipelines.reversal_data import reconcile as rc
     table = rc.break_day_table(_break_day_states())
     assert "days" in table and "2025-06-24" not in table
     out = _check_with_break_days(ctx, table)
@@ -1063,7 +1063,7 @@ def test_stored_comparison_reads_step9_break_days_to_explain_a_real_move_without
 
 
 def test_stored_comparison_still_reads_the_older_break_days_layout_without_a_days_layer(ctx):
-    from scripts import reversal_data_reconcile as rc
+    from pipelines.reversal_data import reconcile as rc
     legacy = rc.break_day_table(_break_day_states())["days"]       # the 10:35 dry run: days at the top level
     out = _check_with_break_days(ctx, legacy)
     n = out["numbers"]

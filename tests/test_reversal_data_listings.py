@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_listings as L
+from pipelines.reversal_data import listings as L
 
 
 SYMDIR_2011 = (

@@ -36,7 +36,7 @@ from quant.data.megacap_history import (  # noqa: F401  (o2.* names read by test
 from quant.evaluation.metrics import yearly as _yearly
 from quant.paths import output_dir
 from quant.strategies import megacap as mc
-from scripts import megacap_oos2_data as md   # the OOS.2 data-build script (sources, SEC facts, candidate list)
+from quant.data.sources import megacap_oos2 as md   # the OOS.2 sources (SEC facts, candidate list, prices)
 
 OUT = output_dir("megacap_oos2")
 T_THRESHOLD = 2.13                               # one-sided 5% Bonferroni for 3 trials (OOS.0)

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_universe as un
+from pipelines.reversal_data import universe as un
 
 
 def _interval(**kwargs):

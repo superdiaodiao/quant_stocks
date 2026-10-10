@@ -3,7 +3,7 @@ company-list rows after a move to another exchange (MSG), securities known only 
 list, a Form 25 filed before the first listing, and the scratch-build redirect."""
 import pandas as pd
 
-from scripts import reversal_data_security_master as sm
+from pipelines.reversal_data import security_master as sm
 
 
 # ------------------------------------------------------------------ 'Closed End Fund' is Nasdaq's issue type

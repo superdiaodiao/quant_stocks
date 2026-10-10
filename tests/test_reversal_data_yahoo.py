@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_yahoo as yh
+from pipelines.reversal_data import yahoo as yh
 
 
 def _stamp(day: str, hour: int = 13, minute: int = 30) -> int:

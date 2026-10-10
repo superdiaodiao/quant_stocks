@@ -2,8 +2,8 @@
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_form25 as f25
-from scripts import reversal_data_security_master as sm
+from pipelines.reversal_data import form25 as f25
+from pipelines.reversal_data import security_master as sm
 
 
 FORM25_XML = b"""<?xml version="1.0"?>
