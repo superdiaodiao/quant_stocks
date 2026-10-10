@@ -6,6 +6,8 @@ asks for at most ten).
 """
 from __future__ import annotations
 
+from functools import lru_cache
+
 from quant.data.sources.http import SlidingWindowLimiter
 from src.io.sec_contact import sec_user_agent
 
@@ -14,8 +16,9 @@ SEC_PER_SECOND = 7
 SEC_LIMITER = SlidingWindowLimiter({1: SEC_PER_SECOND})
 
 
+@lru_cache(maxsize=1)
 def user_agent() -> str:
-    """The contact string (never printed)."""
+    """The contact string (never printed), read once per process."""
     return sec_user_agent()
 
 

@@ -2391,6 +2391,13 @@ RELIST_JUNCTIONS_FALLBACK = {
 JUNCTION_FIELDS = ("first_new_session", "kind", "read")
 
 
+def source_label(path: Path) -> str:
+    """The name the prefilter summary records for where the junctions came from. Step 9 keeps its historical file
+    name (``reversal_data_reconcile.py``) after the phase-3 move to pipelines/reversal_data/reconcile.py, so the
+    summary is unchanged by the move."""
+    return "reversal_data_reconcile.py" if Path(path).resolve() == RECONCILE_SOURCE else Path(path).name
+
+
 def relist_junctions(path: Path = RECONCILE_SOURCE) -> tuple[dict[str, dict], str]:
     """(security -> {first_new_session, kind, read}, where it came from) of step 9's RELIST_JUNCTIONS."""
     import ast
@@ -2414,7 +2421,7 @@ def relist_junctions(path: Path = RECONCILE_SOURCE) -> tuple[dict[str, dict], st
             if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(entry.get("first_new_session", ""))):
                 out[str(key.value)] = entry
         if out:
-            return out, f"{Path(path).name} RELIST_JUNCTIONS"
+            return out, f"{source_label(path)} RELIST_JUNCTIONS"
         break
     return {k: dict(v) for k, v in RELIST_JUNCTIONS_FALLBACK.items()}, "fallback (no RELIST_JUNCTIONS in the reconcile source)"
 
