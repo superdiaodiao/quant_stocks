@@ -1,7 +1,7 @@
 # 项目架构（目标设计与分阶段迁移）
 
-> 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）和第 2 阶段（其余 10 月份研究、`quant/strategies`、
-> `quant/observation`）已完成；第 3–4 阶段尚未开始。
+> 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）、第 2 阶段（其余 10 月份研究、`quant/strategies`、
+> `quant/observation`）和第 4 阶段（旧研究脚本移到 `archive/`，见第 10 节）已完成；第 3 阶段尚未开始。
 > 本文用中文说明，代码里的名字（模块、函数、目录）保持英文。
 
 ## 1. 为什么要改
@@ -140,7 +140,7 @@ quant.cli ──► studies（只有它）
 | 1（已完成） | 写本文；从 10 月份研究里**抽取**（不重写）共享部分建 `quant/`：成本模型、数据加载（面板、基准、版本开关）、指标与通过标准、执行约定；试点迁移 3 个形态不同的研究 | `tests/quant/` 单元测试证明每个 `quant` 函数与原函数结果完全相等；3 个试点的全部输出文件与迁移前**逐字节相同**；旧命令和旧导入仍可用；相关测试全部通过；冻结检查通过 |
 | 2（已完成） | 其余约 37 个 10 月份研究和前瞻观察迁到 `quant`（`studies/` + `quant/strategies` + `quant/observation`）；研究之间不再互相导入；`python -m quant run <strategy>` | 每个研究：迁移前生成黄金输出，迁移后逐字节相同（做不到的写明原因，并且数值差 ≤ 1e-12）；前瞻观察黄金测试通过；`grep "from scripts import research_" studies quant` 为空 |
 | 3 | 数据流水线整理到 `pipelines/reversal_data/`，下载器进 `quant/data/sources/`；v2.1 进 `quant.data.version` | 用同一份原始缓存重建 v1 / v2 / v2.1 面板，文件哈希与现有 manifest 一致 |
-| 4 | 约 300 个 v14–v51 旧研究脚本移到 `archive/`（只移动，不删除）；`scripts/` 只剩命令行入口和转发文件 | 冻结闭包内的文件不动；`compileall` 通过；所有台账里的命令仍能找到文件（转发或在 `archive/` 的明确新路径） |
+| 4（已完成） | 约 300 个 v14–v51 旧研究脚本移到 `archive/`（只移动，不删除）；`scripts/` 只剩命令行入口和转发文件 | 冻结闭包内的文件不动；`compileall` 通过；所有台账里的命令仍能找到文件（转发或在 `archive/` 的明确新路径） |
 
 每个阶段单独提交。
 
@@ -270,3 +270,77 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
   `io.security_universe`（S-MISP 观察）。
 - 研究里仍有不少“研究专属但写法相近”的函数（各自的 period_metrics、perf_metrics、criteria 标签等），它们的
   口径或输出键不同，合并会改变输出，保持原样。
+
+## 10. 第 4 阶段做了什么
+
+### 10.1 怎么决定移不移
+
+逐个文件看三类证据：第一次提交的日期（`git log --diff-filter=A`）；还有没有不移动的代码导入它（对仓库里全部
+`.py` 做 AST 导入图，含 `src`、`scripts`、`quant`、`studies`、`tests`，再取不动点：只要被任何留下的代码直接或
+间接导入就留下）；有没有工作流、shell 脚本、launchd 模板或留下的代码按路径调用它。冻结闭包用
+`src/research/code_closure.project_import_closure` 计算，根是所有 `research_v50*_corrected_v47.py`、`v50r3_*.py`、
+`research_v50r3_*.py`、`sue_lt_v1*.py` 以及工作流调用的 `forward_observation.py`、`record_borrow_fees.py`
+（共 18 个根，72 个文件）。
+
+### 10.2 清单
+
+| 文件组 | 决定 | 理由 |
+|---|---|---|
+| `research_v14_*`（204 个，CAN SLIM v14 的逐只股票数据修补与冻结） | 移到 `archive/scripts/` | 2026-08 的一次性研究；没有留下的代码导入或调用 |
+| `research_v2–v13、v16–v22、v25、v34–v41、v49、v51`（57 个） | 移 | 同上；均已被拒绝或已结束 |
+| `companyfacts_*`（7 个）、`sec_*`（26 个）、`yahoo_*`（4 个）、`stockanalysis_*`（2 个）、sina / eastmoney / otc / kaggle / pmdi / historicaldata / backfill 价格修补与导入（7 个）、其它一次性审计与证据脚本（13 个：survivorship_audit、provider_overlap_audit、open_source_price_audit、path_risk_report、universe_snapshot_gap_selection_impact、issuer_rename_sensitivity、cross_market_terminal_evidence、finra_zero_equity_terminal_import、research_candidate_cost_screen、nasdaq_history_snapshot、import_nasdaq_json_git_snapshots、download_wayback_range、select_shadow_artifact） | 移 | 2026-08 的数据修补一次性脚本；没有留下的代码导入或调用 |
+| 上面这些脚本的测试（318 个 `tests/test_*.py`） | 移到 `archive/tests/` | 测试只跟被移动的脚本走：导入了被移动模块、或按路径运行被移动脚本的测试才移 |
+| `test/`（2025 年的旧测试目录，backtrader / talib 时代） | 移到 `archive/test/` | 2025-04～06 之后没改过；任何代码都不引用；从来不在 CI 里 |
+| `research_v5_trend_core_satellite`、`research_v6_data_readiness`、`research_v6_market_refresh`、`research_v15`、`v23`、`v24`、`v26`–`v33`、`v42`–`v48`、`research_holdout_2011_2019`、`research_earnings_surprise`、`research_quality_roa`、`research_sue_low_turnover` | **留下：冻结闭包** | 在 v50 / v50r2 / v50r3 或 sue_lt_v1 的导入闭包里（v50 家族导入了这些较早的 v4x 模块），位置和内容都不能动 |
+| `research_v50*`、`v50r3_*`、`sue_lt_v1*` 及工作流调用的脚本和 `.sh` | 留下：冻结根 / 工作流引用 | 第 6 节 |
+| `research_v50r2_scheduled_run.py` | 留下 | v50r2 协议家族的运行入口 |
+| `research_sue_lt_2020_2026.py` | 留下 | `scripts/reversal_data_factors.py` 按路径引用；sue_lt_v1 的来源研究 |
+| `companyfacts_cache_snapshot.py`、`research_cache_catalog.py` | 留下 | `scripts/create_research_cache_archive.sh` / `restore_research_cache_archive.sh` 调用 |
+| `shadow_forward_observation.py`、`shadow_forward_status.py` | 留下 | 根目录 `schedule_run.sh` 调用 |
+| `research_v6_scheduled_run.py` 及它导入的 `research_v6_observe`、`v6_forward_status`、`v6_shadow_signal`、`v6_weekly_mark`、`research_v5_shadow_signal`、`research_v5_execution_sensitivity` | 留下 | `ops/com.quant-stocks.v6-shadow.plist` 用绝对路径调用（launchd 模板，有测试锁定） |
+| `main.py`、`schedule_run.sh`（根目录） | 留下 | 旧 CAN SLIM 日常流程的入口，但只是 `src.research.daily_pipeline` 的薄入口（`src` 不动）；`schedule_run.sh` 用自己所在目录当项目根，移走就坏；`docs/history/legacy_can_slim_pipeline.md`、`docs/v50r3_operations.md` 按根目录路径提到它们 |
+| 10 月份研究的转发文件、`reversal_data_*`、`forward_*`、`megacap_oos2_data`、`stop_rules`、`study_data_version`、数据发布 `.sh` 等 | 留下 | 10 月份及以后的代码，或被 `quant` / `studies` / 前瞻观察导入 |
+
+结果：`scripts/` 从 449 个文件、173,564 行变成 129 个文件、64,926 行；`archive/scripts/` 320 个文件（108,638 行），
+`archive/tests/` 318 个文件，`archive/test/` 24 个文件。
+
+### 10.3 改了什么（除了移动）
+
+- 先用一个只含重命名的提交移动（`git log --follow` 能追到历史），再在第二个提交里改引用。
+- 被移动文件之间的引用：`from scripts import research_v14_x` / `scripts.research_v14_x` →
+  `archive.scripts.research_v14_x`；字符串路径 `scripts/<被移动的文件>.py` → `archive/scripts/<同名>.py`（测试里用
+  子进程运行脚本、`monkeypatch` 目标这类）。指向留下的文件的引用不变。
+- 3 个用 `Path(__file__).resolve().parents[1]` 求项目根的脚本改成 `parents[2]`（`open_source_price_audit`、
+  `research_v51_august_recovery`、`sec_completion_evidence`）。其它代码一行没改。
+- `archive/` 和 `scripts/` 一样是命名空间包（没有 `__init__.py`）；`code_closure.PROJECT_PACKAGES` 不含 `archive`，
+  冻结代码也从不导入它。
+- `tests/data_dependent_test_files.txt`：被移动测试的条目改成 `archive/tests/...` 的新路径（81 条），其余不变。
+- `.github/workflows/tests.yml`：只改两处路径——`compileall` 加上 `archive/scripts archive/tests`；可移植测试的文件
+  列表加上 `archive/tests/test_*.py`（同一份排除清单）。冻结协议的检查步骤没动。
+- `pytest.ini`：`testpaths = tests archive/tests`。
+
+### 10.4 旧路径 → 新路径
+
+规则只有一条：**台账或旧文档里写的 `scripts/<name>.py`，如果 `scripts/` 下已经没有，就在
+`archive/scripts/<name>.py`**；`tests/test_<name>.py` 同理在 `archive/tests/`；`test/...` 在 `archive/test/...`。
+台账（`docs/research_ledger_*.md`、`docs/history/`）是历史记录，路径不改。旧命令现在这样跑：
+`PYTHONPATH=. .venv/bin/python archive/scripts/<name>.py ...`（仍在项目根目录运行；输出路径不变）。
+
+已知后果：有 9 个旧脚本被别的旧脚本按“路径 + SHA-256”绑定（v14 / v16 / v18 的 freeze_protocol 绑定各自的 frozen
+脚本，v19 绑定 v10，v20 / v22 绑定 v19、v20、v21）。这些被绑定的文件因为改了导入行，内容哈希变了，所以重新运行这些
+旧冻结检查会报“binding changed”。它们都是已结束的研究，结果文件不受影响；要原样复核，检出第 4 阶段之前的提交
+`bec80d3fd`。这 9 个文件是：`research_v10_contrarian_alpha_budget`、`research_v14_frozen_replay`、
+`research_v16_frozen_confirmation`、`research_v18_frozen_robustness`、`research_v18_source_locked_v7_core_development`、
+`research_v19_source_locked_v10_feasibility`、`research_v20_recent_holdout`、`research_v20_temporal_retraining`、
+`research_v21_ibkr_cost_calibration`。
+
+### 10.5 验证
+
+- `compileall`（`src scripts tests archive quant studies`）通过。
+- 冻结状态检查与迁移前相同：v50 / v50r2 返回 0，v50r3 返回 3，sue_lt_v1 返回 0。
+- 18 个冻结 / 工作流根的闭包摘要与 master `bec80d3fd` 逐个相同。
+- 可移植测试（CI 的同一选法）：371 个文件（其中 237 个在 `archive/tests/`），3037 通过、2 跳过，与迁移前的文件集合
+  和结果相同；`tests/quant`、前瞻观察黄金测试、`tests/test_code_closure.py` 通过。
+- 81 个移走的数据依赖测试在干净检出里的失败集合与迁移前完全相同（都是缺数据），没有新增的导入或路径错误。
+- 一个检查脚本确认：仓库里所有 `.py` / `.sh` / `.yml` / `.plist` 中指向 `scripts/`、`archive/scripts/`、`tests/` 的
+  导入和路径都能找到文件。
