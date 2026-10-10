@@ -45,7 +45,6 @@ import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from urllib.error import HTTPError  # noqa: E402
-from urllib.request import Request, urlopen  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -85,7 +84,6 @@ TOP300 = lv.INPUTS / "weekly_universe_top300.csv.gz"
 
 CFG = ro.Cfg(signal="S-MISP", n=10, k=0.20, mode="MN")
 SIGNAL = CFG.signal
-DECISION_CLOSE = "2026-10-09"
 FIRST_SIGNAL = "2026-10-30"          # last session of October 2026; executed at the next close (2026-11-02)
 LOOKBACK_DAYS = 460                  # price history per signal: 12-1 momentum (252 sessions), share anchors (400 d)
 CLOSE_STALE_SESSIONS = 5             # universe builder: week close = last close at most 5 sessions before it
@@ -128,14 +126,6 @@ def base_form(form: str) -> str:
     return str(form).split("/")[0].strip()
 
 
-def default_getter(url: str, headers: dict, timeout: int = 60) -> bytes:
-    with urlopen(Request(url, headers=headers), timeout=timeout) as resp:
-        data = resp.read()
-        if resp.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
-        return data
-
-
 def sec_headers() -> dict:
     from src.io.sec_contact import sec_user_agent
     return {"User-Agent": sec_user_agent(st.ROOT), "Accept-Encoding": "gzip"}
@@ -168,7 +158,7 @@ def fetch_listing(base: Path = BASE, getter=None, now: datetime | None = None) -
     now = now or datetime.now(timezone.utc)
     out = base / "listings" / f"nasdaqlisted_{now.strftime('%Y%m%dT%H%M%SZ')}.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
-    data = (getter or default_getter)(NASDAQ_LISTED_URL, {"User-Agent": "Mozilla/5.0"})
+    data = (getter or fp.http_get)(NASDAQ_LISTED_URL, {"User-Agent": "Mozilla/5.0"})
     text = data.decode("utf-8", errors="replace")
     if not text.startswith("Symbol|Security Name") or text.count("\n") < 1000:
         raise RuntimeError("nasdaqlisted.txt: unexpected content")
@@ -200,19 +190,16 @@ def parse_listing(text: str) -> pd.DataFrame:
 def fetch_json(url: str, path: Path, headers: dict, getter=None, sleep=time.sleep, wait: float = 0.0) -> dict | None:
     """GET ``url`` once (cached at ``path``, gzip). None on HTTP 404."""
     if path.exists():
-        return json.loads(gzip.decompress(path.read_bytes()))
+        return fp.read_json(path)
     if wait:
         sleep(wait)
     try:
-        data = (getter or default_getter)(url, headers)
+        data = (getter or fp.http_get)(url, headers)
     except HTTPError as exc:
         if exc.code == 404:
             return None
         raise
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_bytes(gzip.compress(data, mtime=0))
-    tmp.rename(path)
+    fp.write_atomic(path, data, compress=True)
     return json.loads(data)
 
 
@@ -237,23 +224,28 @@ def fetch_sec_many(ciks, sdir: Path, kind: str, getter=None, sleep=time.sleep) -
     last = 0.0
     for c in sorted({int(c) for c in ciks}):
         path = sdir / kind / f"CIK{c:010d}.json.gz"
-        if not path.exists():
-            wait = max(0.0, 1.0 / SEC_PER_SECOND - (time.time() - last))
-            last = time.time() + wait
-            try:
-                out[c] = fetch_json(url.format(cik=c), path, headers, getter, sleep, wait)
-            except HTTPError as exc:       # 404 is returned as None by fetch_json; anything else stops the signal
-                raise RuntimeError(f"SEC {kind} CIK {c}: HTTP {exc.code}; stopped (re-run resumes)") from exc
+        if path.exists():
+            out[c] = fp.read_json(path)
             continue
-        out[c] = json.loads(gzip.decompress(path.read_bytes()))
+        wait = max(0.0, 1.0 / SEC_PER_SECOND - (time.time() - last))
+        last = time.time() + wait
+        try:
+            out[c] = fetch_json(url.format(cik=c), path, headers, getter, sleep, wait)
+        except HTTPError as exc:       # 404 is returned as None by fetch_json; anything else stops the signal
+            raise RuntimeError(f"SEC {kind} CIK {c}: HTTP {exc.code}; stopped (re-run resumes)") from exc
     return out
 
 
 def load_sec(sdir: Path, kind: str) -> dict:
-    out = {}
-    for p in sorted((sdir / kind).glob("CIK*.json.gz")):
-        out[int(p.name[3:13])] = json.loads(gzip.decompress(p.read_bytes()))
-    return out
+    return {int(p.name[3:13]): fp.read_json(p) for p in sorted((sdir / kind).glob("CIK*.json.gz"))}
+
+
+def no_data_symbols(log: Path) -> set:
+    """Symbols a Yahoo log records as having no rows in the window (HTTP 400 "data doesn't exist", 404, empty)."""
+    if not log.exists():
+        return set()
+    lg = pd.read_csv(log, dtype=str)
+    return set(lg.loc[lg["result"].isin(NO_DATA), "symbol"])
 
 
 def fetch_yahoo(symbols, out_dir: Path, period1: str, period2: str, getter=None, sleep=time.sleep) -> dict:
@@ -262,12 +254,8 @@ def fetch_yahoo(symbols, out_dir: Path, period1: str, period2: str, getter=None,
     404, empty body), are skipped."""
     out_dir.mkdir(parents=True, exist_ok=True)
     log = out_dir / "fetch_log.csv"
-    done = set()
-    if log.exists():
-        lg = pd.read_csv(log, dtype=str)
-        done = set(lg.loc[lg["result"].isin(NO_DATA), "symbol"])
-    else:
-        log.write_text("fetched_utc,symbol,result,bytes\n")
+    done = no_data_symbols(log)
+    fp.log_line(log, "fetched_utc,symbol,result,bytes")
     res, last = {}, None
     for sym in symbols:
         path = out_dir / f"{sym}.json.gz"
@@ -279,13 +267,11 @@ def fetch_yahoo(symbols, out_dir: Path, period1: str, period2: str, getter=None,
             if wait > 0:
                 sleep(wait)
         last = time.time()
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        url = st.chart_url(sym, period1, period2)
+        now = fp.utc_stamp()
         try:
-            data = getter(url) if getter is not None else default_getter(url, st.HEADERS, 30)
+            data = fp.yahoo_get(sym, period1, period2, getter)
         except HTTPError as exc:
-            with log.open("a") as fh:
-                fh.write(f"{now},{sym},{exc.code},0\n")
+            fp.log_line(log, "", f"{now},{sym},{exc.code},0")
             res[sym] = f"HTTP {exc.code}"
             if exc.code in st.STOP_CODES:
                 print(f"yahoo: HTTP {exc.code} on {sym}; stopping (re-run resumes)")
@@ -295,15 +281,11 @@ def fetch_yahoo(symbols, out_dir: Path, period1: str, period2: str, getter=None,
             res[sym] = f"error {type(exc).__name__}"
             continue
         payload = json.loads(data)
-        r = (payload.get("chart") or {}).get("result") or [None]
-        ok = bool(r[0]) and (r[0].get("meta") or {}).get("dataGranularity") == "1d" and r[0].get("timestamp")
+        ok = fp.is_daily_chart(payload) and bool(payload["chart"]["result"][0].get("timestamp"))
         if ok:
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(gzip.compress(data, mtime=0))
-            tmp.rename(path)
+            fp.write_atomic(path, data, compress=True)
         res[sym] = "ok" if ok else "empty"
-        with log.open("a") as fh:
-            fh.write(f"{now},{sym},{res[sym]},{len(data)}\n")
+        fp.log_line(log, "", f"{now},{sym},{res[sym]},{len(data)}")
     return res
 
 
@@ -338,7 +320,7 @@ def fetch_effr(path: Path, start: str = "2026-06-01", getter=None) -> Path:
     """NY Fed EFFR CSV (same columns as the research input), from ``start`` to today."""
     a = pd.Timestamp(start).strftime("%m/%d/%Y")
     b = datetime.now(timezone.utc).strftime("%m/%d/%Y")
-    data = (getter or default_getter)(EFFR_URL.format(a=a, b=b), {"User-Agent": "Mozilla/5.0"})
+    data = (getter or fp.http_get)(EFFR_URL.format(a=a, b=b), {"User-Agent": "Mozilla/5.0"})
     text = data.decode()
     if not text.startswith("Effective Date,Rate Type"):
         raise RuntimeError("EFFR CSV: unexpected content")
@@ -351,7 +333,7 @@ def fetch_effr(path: Path, start: str = "2026-06-01", getter=None) -> Path:
 
 def load_chart(path: Path, end: str) -> pd.DataFrame | None:
     """One Yahoo chart -> daily frame (real close, split-adjusted close and volume, total return), rows <= end."""
-    payload = json.loads(gzip.decompress(path.read_bytes()))
+    payload = fp.read_json(path)
     try:
         df, splits = st.ohlc_frame(payload, end)
     except Exception:  # noqa: BLE001 - an unparsable body is treated as missing
@@ -730,10 +712,7 @@ def prepare_signal(s, qqq: st.Market, base_dir: Path = BASE, fetch: bool = True,
     if fetch:
         fetch_charts(syms, charts, period1, period2, getters, sleep, use_alpaca)
     missing = [y for y in syms if not (charts / f"{y}.json.gz").exists()]
-    logged = set()
-    if (charts / "fetch_log.csv").exists():
-        lg = pd.read_csv(charts / "fetch_log.csv", dtype=str)
-        logged = set(lg.loc[lg["result"].isin(NO_DATA), "symbol"])
+    logged = no_data_symbols(charts / "fetch_log.csv")
     pending = [y for y in missing if y not in logged]
     if pending:
         print(f"S-MISP: {len(pending)} charts still missing for {ydate(s)} (e.g. {pending[:5]}); re-run")
@@ -761,8 +740,7 @@ def prepare_signal(s, qqq: st.Market, base_dir: Path = BASE, fetch: bool = True,
 
 
 def load_signal(path: Path) -> pd.DataFrame:
-    sc = pd.read_csv(path, dtype={"security_id": str, "ticker": str, "yahoo": str}, parse_dates=["s"])
-    return sc
+    return pd.read_csv(path, dtype={"security_id": str, "ticker": str, "yahoo": str}, parse_dates=["s"])
 
 
 # ======================================================================== IBKR borrow-fee snapshots (report only)

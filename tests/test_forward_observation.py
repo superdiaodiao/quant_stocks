@@ -375,8 +375,11 @@ def signal_at(s, chart_dir, raw, future=False):
 
 @pytest.fixture(scope="module")
 def smisp_env(tmp_path_factory):
+    return make_smisp_env(tmp_path_factory.mktemp("smisp"))
+
+
+def make_smisp_env(root):
     """Raw QQQ / ONEQ, the synthetic charts and the three frozen signal files of a B3 forward run."""
-    root = tmp_path_factory.mktemp("smisp")
     raw = write_raw(root)
     charts = write_charts(root / "charts", stop="2026-12-10")      # S03 stops trading on 2026-12-10
     sm = root / "smisp"
@@ -793,3 +796,136 @@ def test_smisp_charts_alpaca_first_then_yahoo(tmp_path, monkeypatch):
     src2 = fs.fetch_charts({"AAA": "AAA", "BBB": "BBB"}, tmp_path, "2026-09-01", "2026-10-08",
                            {"alpaca": lambda u, h: pytest.fail("refetch"), "yahoo": lambda u: pytest.fail("refetch")})
     assert src2 == src
+
+
+# ================================================================== regression lock (refactor of 2026-10-10)
+# The runner was simplified without changing any rule or number. tests/golden/forward_observation_synthetic.json
+# holds the log text and the per-day run details that the pre-refactor runner produced on the synthetic data above
+# (B1, SEL-A, SEL-P and B3 with trades, chained logs, an IBKR borrow snapshot). Regenerate only for an intended rule
+# change: UPDATE_FORWARD_GOLDEN=1 pytest tests/test_forward_observation.py -k golden
+
+import os  # noqa: E402
+
+GOLDEN = Path(__file__).with_name("golden") / "forward_observation_synthetic.json"
+GOLDEN_AS_OF = ("2026-10-13", "2026-11-13", "2026-12-31", "2027-01-29")
+
+
+def _round(o):
+    if isinstance(o, float):
+        return float(f"{o:.12g}")
+    if isinstance(o, dict):
+        return {k: _round(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_round(v) for v in o]
+    return o
+
+
+def golden_snapshot(root) -> dict:
+    env = make_smisp_env(root)
+    borrow = root / "borrow"
+    (borrow / "raw").mkdir(parents=True)
+    body = "#BOF|2026.10.30|18:30:00\n#SYM|CUR|NAME|CON|ISIN|REBATERATE|FEERATE|AVAILABLE|FIGI|\n" + "".join(
+        f"S{k:02d}|USD|X|1|X|3.0|{(9.0 if k == 0 else 0.25 + k / 100):.2f}|{0 if k == 0 else 5000}|B|\n"
+        for k in range(N_NAMES) if k != 1) + "#EOF\n"
+    with __import__("gzip").open(borrow / "raw" / "usa_20261030T223000Z.txt.gz", "wt") as fh:
+        fh.write(body)
+    out, old = {}, ""
+    for as_of in GOLDEN_AS_OF:
+        res = fo.compute(as_of, env["raw"], STOCKS, smisp_dir=env["smisp"], borrow_dir=borrow)
+        text, warnings = fo.render_log(res["as_of"], res["data_end"], res["lines"], old)
+        old = text
+        details = json.loads(fo.save_run_details(res, root / "runs").read_text())
+        out[as_of] = {"log": text, "warnings": warnings, "details": _round(details)}
+    return out
+
+
+def _assert_close(a, b, path=""):
+    if isinstance(a, float) or isinstance(b, float):
+        assert a is not None and b is not None and math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12), (path, a, b)
+    elif isinstance(a, dict):
+        assert set(a) == set(b), (path, set(a) ^ set(b))
+        for k in a:
+            _assert_close(a[k], b[k], f"{path}/{k}")
+    elif isinstance(a, list):
+        assert len(a) == len(b), path
+        for k, (x, y) in enumerate(zip(a, b)):
+            _assert_close(x, y, f"{path}[{k}]")
+    else:
+        assert a == b, (path, a, b)
+
+
+def test_golden_logs_and_daily_numbers_unchanged(tmp_path):
+    got = golden_snapshot(tmp_path)
+    if os.environ.get("UPDATE_FORWARD_GOLDEN"):
+        GOLDEN.parent.mkdir(exist_ok=True)
+        GOLDEN.write_text(json.dumps(got, separators=(",", ":"), ensure_ascii=False) + "\n")
+        pytest.skip("golden file rewritten")
+    want = json.loads(GOLDEN.read_text())
+    assert list(got) == list(want)
+    for as_of in want:
+        assert got[as_of]["log"] == want[as_of]["log"], as_of            # the log text, byte for byte
+        assert got[as_of]["warnings"] == want[as_of]["warnings"]
+        _assert_close(got[as_of]["details"], want[as_of]["details"], as_of)
+    lines = want["2027-01-29"]["details"]["lines"]
+    assert all(len(lines[k]["trades"]) > 0 for k in ("B1", "SEL-A", "SEL-P")) and len(lines["B3"]["held"]) > 0
+
+
+def _b2_trades_by_counters(data, ids, sessions, j):
+    """The pre-refactor extraction, kept as the reference: one truncated research run per forward session, each
+    trade inferred from the accumulators (closed counts, net bp, days)."""
+    def acc(ex):
+        return {key: float(v[:, j].sum()) for key, v in ex["sim"]["acc"].items()}
+    start = str(sessions[0].date())
+    trades, cur, closed_net, prev = [], None, 0.0, {"nT": 0, "nTarget": 0, "nTimeout": 0, "sDays": 0.0}
+    for k in range(len(sessions)):
+        a = acc(tg.exact_run(data, "QQQ", ids, start, str(sessions[k].date()), tg.CostModel()))
+        done = a["nTarget"] + a["nTimeout"]
+        if done > prev["nTarget"] + prev["nTimeout"]:
+            cur.update({"exit": sessions[k], "open": False,
+                        "reason": "target" if a["nTarget"] > prev["nTarget"] else "timeout",
+                        "days": int(round(a["sDays"] - prev["sDays"])), "net_pct": (a["sNet"] - closed_net) / 100})
+            trades.append(cur)
+            closed_net, cur = a["sNet"], None
+            prev = {kk: a[kk] for kk in prev}
+        if a["nT"] - done == 1:
+            cur = cur or {"symbol": "QQQ", "entry": sessions[k]}
+            cur.update({"exit": sessions[k], "open": True, "reason": "end", "days": None,
+                        "net_pct": (a["sNet"] - closed_net) / 100})
+    return trades + ([cur] if cur else [])
+
+
+@pytest.mark.parametrize("as_of", ["2026-11-13", "2027-01-29"])
+def test_b2_recorded_trades_equal_the_counter_inference(raw, as_of):
+    res = fo.compute(as_of, raw, STOCKS)
+    d = fo.load_all(as_of, raw, STOCKS)
+    data, w = fo.b2_data(d), fo.window_of(d.qqq, as_of)
+    ids = list(fo.B2_IDS.values())
+    n = 0
+    for j, name in enumerate(fo.B2_IDS):
+        ref = _b2_trades_by_counters(data, ids, w.sessions, j)
+        got = res["lines"][name]["trades"]
+        assert [{k: v for k, v in t.items() if k != "net_pct"} for t in got] == \
+               [{k: v for k, v in t.items() if k != "net_pct"} for t in ref]
+        assert np.allclose([t["net_pct"] for t in got], [t["net_pct"] for t in ref], rtol=1e-12, atol=1e-12)
+        n += len(got)
+    assert n > 0
+
+
+def test_exact_run_record_trades_is_optional_and_changes_nothing(raw):
+    d = fo.load_all("2027-01-29", raw, STOCKS)
+    data, w = fo.b2_data(d), fo.window_of(d.qqq, "2027-01-29")
+    ids, start, end = list(fo.B2_IDS.values()), str(w.sessions[0].date()), str(w.sessions[-1].date())
+    a = tg.exact_run(data, "QQQ", ids, start, end, tg.CostModel())
+    b = tg.exact_run(data, "QQQ", ids, start, end, tg.CostModel(), record_trades=True)
+    assert "trades" not in a and "trades" not in a["sim"] and len(b["trades"]) > 0
+    for i in ids:
+        pd.testing.assert_series_equal(a["R"][i], b["R"][i])
+    for key in a["sim"]["acc"]:
+        np.testing.assert_array_equal(a["sim"]["acc"][key], b["sim"]["acc"][key])
+    np.testing.assert_array_equal(a["sim"]["rec"]["x"], b["sim"]["rec"]["x"])
+    # the recorded trades add up to the accumulators
+    for k in range(len(ids) + 4):
+        tk = [t for t in b["trades"] if t["cfg"] == k]
+        A = {key: v[:, k].sum() for key, v in a["sim"]["acc"].items()}
+        assert len(tk) == A["nT"] and sum(t["reason"] == "target" for t in tk) == A["nTarget"]
+        assert np.isclose(sum(t["net_bp"] for t in tk), A["sNet"]) and sum(t["days"] for t in tk) == A["sDays"]

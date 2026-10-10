@@ -409,9 +409,13 @@ ACC_KEYS = ("sR", "sR2", "sRM", "sLog", "sX", "sRO", "sR_o", "sR2_o", "nT", "nW"
 GLOB_KEYS = ("n", "sM", "sM2", "sF", "nO", "sO", "sO2", "sMO", "acct_days")
 
 
-def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: bool = False) -> dict:
+def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: bool = False,
+                  record_trades: bool = False) -> dict:
     """Run every configuration in ``codes`` on every account of ``rows``. Returns per-year accumulators (and, with
-    ``record``, the daily per-account returns / exposures and basket returns)."""
+    ``record``, the daily per-account returns / exposures and basket returns; with ``record_trades``, the list of
+    closed T-trades: account row, configuration column, leg, entry / exit session index, exit reason ('target',
+    'timeout', or 'end' = closed at the account's last close), days held and net return in bp, the value the
+    ``sNet`` accumulator adds). Neither option changes the simulation."""
     R, T = rows.c.shape
     N = len(codes["direction"])
     meas, dirc, exitc = codes["measure"], codes["direction"], codes["exit"]
@@ -452,6 +456,7 @@ def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: 
         rec = {"r": np.zeros((T, R, N)), "x": np.zeros((T, R, N)), "R": np.full((T, N), np.nan),
                "M": np.full(T, np.nan), "act": rows.active.T.copy()}
     Mday = np.full(T, np.nan)
+    trades = []
 
     def cost(q, px, sell, ri):
         return cost_vec(q, px, sell, rows.hs_bps[ri], cm)
@@ -487,6 +492,10 @@ def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: 
         key = {"target": "nTarget", "timeout": "nTimeout"}.get(reason)
         if key:
             acc[key][y] += bc(ni, np.ones(len(ni)))
+        if record_trades:
+            for r_, n_, t0_, d_, nb_ in zip(ri, ni, leg.t0[idx], leg.days[idx], net / notional * 1e4):
+                trades.append({"row": int(r_), "cfg": int(n_), "leg": "S" if sell_first else "B", "t0": int(t0_),
+                               "t1": t, "reason": reason, "days": int(d_), "net_bp": float(nb_)})
         leg.open[idx] = False
         leg.qx[idx] = False
         leg.q[idx] = 0.0
@@ -716,6 +725,8 @@ def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: 
            "oneq": rows.oneq, "sessions": rows.sessions}
     if record:
         out["rec"] = rec
+    if record_trades:
+        out["trades"] = trades
     return out
 
 
@@ -937,11 +948,14 @@ def run_grid_all(data: dict, bases, costs, workers: int, chunk: int, n_configs: 
 
 # ======================================================================== exact evaluation of chosen configurations
 
-def exact_run(data: dict, base: str, ids: list, start: str | None, end: str | None, cm: CostModel) -> dict:
-    """Fresh $10k accounts over [start, end]; configs ``ids`` plus the 4 references. Daily basket series."""
+def exact_run(data: dict, base: str, ids: list, start: str | None, end: str | None, cm: CostModel,
+              record_trades: bool = False) -> dict:
+    """Fresh $10k accounts over [start, end]; configs ``ids`` plus the 4 references. Daily basket series. With
+    ``record_trades``, ``out["trades"]`` lists every T-trade (``simulate_grid``; ``cfg`` k = ``ids[k]``, then the
+    references)."""
     rows = base_rows(data, base, start, end)
     codes_df = pd.concat([grid().iloc[list(ids)], ref_codes()], ignore_index=True)
-    sim = simulate_grid(rows, cfg_arrays(codes_df), cm, record=True)
+    sim = simulate_grid(rows, cfg_arrays(codes_df), cm, record=True, record_trades=record_trades)
     rec = sim["rec"]
     sess = rows.sessions
     act = rec["act"]                     # (T, R)
@@ -954,6 +968,8 @@ def exact_run(data: dict, base: str, ids: list, start: str | None, end: str | No
     for j, nm in enumerate(("H100", "H_base_res10", "H_base_res25", "H_base_res50")):
         out[nm] = pd.Series(rec["R"][:, nref + j], index=sess)
     out["oneq"] = pd.Series(rows.oneq, index=sess)
+    if record_trades:
+        out["trades"] = sim["trades"]
     return out
 
 

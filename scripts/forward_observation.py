@@ -11,11 +11,12 @@
   the next close (2026-11-02).
 
 No simulator logic is reimplemented here: this file only fetches and loads data the way the research scripts do,
-chooses the forward window and turns the research functions' outputs into a monthly table.
+chooses the forward window and turns the research functions' outputs into a monthly table. The frozen parameters of
+the lines are declared once, in the block "the frozen lines" below (B3's in scripts/forward_smisp.py).
 
 Forward window: the accounts open at the 2026-10-12 close (base bought at that close, as the research ``simulate``
 functions buy the base at the close of s-1), so the first forward return session is the next session. Indicators
-use the full history (QQQ from 1999 for RSI2's expanding percentiles, stocks from 2011 for the SMA20); everything
+use the full history (QQQ from 1999 for RSI2's expanding percentiles, stocks from 2024 for the SMA20); everything
 is truncated at the as-of date right after parsing and asserted (no row after the as-of date survives).
 
 H_match, incremental and fixed now (2026-10-09, before any forward data): for month m, each account's w_m is the
@@ -29,11 +30,10 @@ whole window); here each month uses the exposure realised to date.
 Cumulative excess vs H_match = (chained strategy return) - (chained H_match return), in percentage points, both
 chained from the forward start (same convention as section A).
 
-Data (B1 / B2): Tiingo daily prices from 2026-11 (key TIINGO_API_KEY), Yahoo v8 chart as fallback
-(``research_selective_t.chart_url`` / headers / stop codes, one request per 2 s, stop at the first 401/403/429); both
-are written in the Yahoo chart format (scripts/forward_prices.py). Only a recent tail is fetched: the history through
-the 2026-10-09 decision close is rebuilt from the committed returns-only state
-state/forward_observation/price_history_returns.csv.gz (no price levels) and checked on the overlapping days.
+Data (B1 / B2): Tiingo daily prices from 2026-11 (key TIINGO_API_KEY), Yahoo v8 chart as fallback (one request per
+2 s, stop at the first 401/403/429); both are written in the Yahoo chart format (scripts/forward_prices.py). Only a
+recent tail is fetched: the history through the 2026-10-09 decision close is rebuilt from the committed returns-only
+state state/forward_observation/price_history_returns.csv.gz (no price levels) and checked on the overlapping days.
 B3 prices: Alpaca first, Yahoo fallback (scripts/forward_smisp.py). Raw bodies only in the local cache
 (``forward_smisp.cache_root()``: research_cache/forward_observation, or .cache/forward_observation /
 $FORWARD_OBS_CACHE on GitHub Actions; never in Git). The committed log docs/forward_observation_log.md holds returns
@@ -56,14 +56,12 @@ os.environ.setdefault("REVERSAL_DATA_VERSION", "v2")   # B3 reads the frozen v2 
 import argparse  # noqa: E402
 import csv  # noqa: E402
 import json  # noqa: E402
-import math  # noqa: E402
 import re  # noqa: E402
 import time  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from datetime import datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from urllib.error import HTTPError  # noqa: E402
-from urllib.request import Request, urlopen  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 
 import numpy as np  # noqa: E402
@@ -83,26 +81,29 @@ RAW = CACHE / "raw"
 FETCH_LOG = CACHE / "fetch_log.csv"
 RUNS = CACHE / "runs"
 LOG = ROOT / "docs/forward_observation_log.md"
-
-DECISION_CLOSE = "2026-10-09"       # last in-sample close (owner decision)
-START_CLOSE = "2026-10-12"          # accounts open at this close
 NY = ZoneInfo("America/New_York")
 COMPLETE_HOUR_NY = 18               # a session counts as complete from 18:00 New York time
 
-STOCKS = st.STOCKS
-SYMBOLS = ("QQQ", "ONEQ") + STOCKS
-FETCH_START = {"QQQ": "1999-01-01", "ONEQ": "2003-01-01"}   # stocks: st.FETCH_START (2011-01-01)
+# ======================================================================== the frozen lines (checklist section B)
 
-B1_CONFIG = "S3-Yb"
-B2_IDS = {"SEL-A": 29876, "SEL-P": 29916}
-B2_LABELS = {"SEL-A": "RSI2 p2 B OPP H10 1/2 res25 ALL", "SEL-P": "RSI2 p2 B OPP H20 1 res25 ALL"}
+START_CLOSE = "2026-10-12"          # B1 / B2 accounts open at this close (in-sample data end at the 2026-10-09 close)
+STOCKS = st.STOCKS                  # B1: the 18 names
+SYMBOLS = ("QQQ", "ONEQ") + STOCKS
+FETCH_START = {"QQQ": "1999-01-01", "ONEQ": "2003-01-01"}   # stocks: st.FETCH_START (without the history state)
+B1_CONFIG = "S3-Yb"                 # research_selective_t.run_one(config, "stock", "net")
+B2 = {"SEL-A": (29876, "RSI2 p2 B OPP H10 1/2 res25 ALL"),   # research_t_grid config id, label
+      "SEL-P": (29916, "RSI2 p2 B OPP H20 1 res25 ALL")}
+B2_IDS = {k: v[0] for k, v in B2.items()}
+B2_LABELS = {k: v[1] for k, v in B2.items()}
 B2_RESERVE_CODE = 2                 # res25 -> H_base_res25
-LINES = (("B1", "B1 S3-Yb (U18 basket)"), ("SEL-A", "B2 SEL-A (QQQ, config 29876)"),
-         ("SEL-P", "B2 SEL-P (QQQ, config 29916)"))
+B3_TITLE = "B3 S-MISP short overlay (N=10, k=20%, MN)"      # fs.CFG, first signal fs.FIRST_SIGNAL
+TITLES = {"B1": "B1 S3-Yb (U18 basket)", "SEL-A": "B2 SEL-A (QQQ, config 29876)",
+          "SEL-P": "B2 SEL-P (QQQ, config 29916)", "B3": B3_TITLE}
+RULES = {"B1": f"config `{B1_CONFIG}`, stock parameters (`scripts/research_selective_t.py`)",
+         **{k: f"config {i} `{lab}` (`scripts/research_t_grid.py`)" for k, (i, lab) in B2.items()}}
 VERDICT_MONTHS = (24, 36)
 SMISP_DIR = fs.BASE                 # B3 raw bodies (local cache)
 SMISP_STATE = fs.STATE              # B3 frozen monthly signals (committed, no price levels)
-B3_TITLE = "B3 S-MISP short overlay (N=10, k=20%, MN)"
 
 
 # ======================================================================== dates
@@ -114,7 +115,7 @@ def last_complete_session_date(now: datetime | None = None) -> str:
     return d.isoformat()
 
 
-# ======================================================================== fetch (Yahoo v8, as research_selective_t)
+# ======================================================================== fetch B1 / B2 prices (Tiingo, Yahoo fallback)
 
 def raw_path(sym: str, raw_dir: Path = RAW) -> Path:
     return raw_dir / f"{sym}.json"
@@ -124,14 +125,6 @@ def b_source(now: datetime | None = None) -> str:
     """Tiingo from 2026-11 when a key is available (the free plan's October quota is used up), else Yahoo."""
     month = (now or datetime.now(timezone.utc)).strftime("%Y-%m")
     return "tiingo" if month >= fp.TIINGO_FROM_MONTH and fp.tiingo_key() else "yahoo"
-
-
-def yahoo_body(sym: str, start: str, period2: str, getter=None) -> tuple[bytes, int]:
-    url = st.chart_url(sym, start, period2)
-    if getter is not None:
-        return getter(url), 200
-    with urlopen(Request(url, headers=st.HEADERS), timeout=30) as resp:
-        return resp.read(), resp.status
 
 
 def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=None, sleep=time.sleep,
@@ -145,22 +138,19 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
     raw_dir.mkdir(parents=True, exist_ok=True)
     period2 = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
     state = fp.load_history_state(history) if history is not None else None
-    src_default = source or b_source()
+    source = source or b_source()
     source_log = source_log or log.with_name("fetch_sources.csv")
-    if not log.exists():
-        log.write_text("fetched_utc,symbol,http_status,bytes\n")
-    if not source_log.exists():
-        source_log.write_text("fetched_utc,symbol,source,history_check\n")
-    out = {}
-    stop_yahoo = False
+    fp.log_line(log, "fetched_utc,symbol,http_status,bytes")
+    fp.log_line(source_log, "fetched_utc,symbol,source,history_check")
+    out, stop_yahoo = {}, False
     for k, sym in enumerate(symbols):
         start = FETCH_START.get(sym, st.FETCH_START)
         if state is not None and (state["sym"] == sym).any():
             last = state.loc[state["sym"] == sym, "date"].max()
             start = (pd.Timestamp(last) - pd.Timedelta(days=fp.TAIL_DAYS)).strftime("%Y-%m-%d")
-        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        now = fp.utc_stamp()
         payload, used = None, None
-        if src_default == "tiingo":
+        if source == "tiingo":
             try:
                 payload, used = fp.tiingo_chart(sym, start, period2, getter=tiingo_getter), "tiingo"
             except Exception as exc:  # noqa: BLE001 - any Tiingo failure falls back to Yahoo
@@ -172,20 +162,17 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
             if k:
                 sleep(st.SECONDS_PER_REQUEST)
             try:
-                data, status = yahoo_body(sym, start, period2, getter)
+                data = fp.yahoo_get(sym, start, period2, getter)
             except HTTPError as exc:
-                with log.open("a") as fh:
-                    fh.write(f"{now},{sym},{exc.code},0\n")
+                fp.log_line(log, "", f"{now},{sym},{exc.code},0")
                 out[sym] = f"HTTP {exc.code}"
                 if exc.code in st.STOP_CODES:
                     print(f"fetch: HTTP {exc.code} on {sym}; stopping Yahoo (the cached files are left as they were)")
                     stop_yahoo = True
                 continue
-            with log.open("a") as fh:
-                fh.write(f"{now},{sym},{status},{len(data)}\n")
+            fp.log_line(log, "", f"{now},{sym},200,{len(data)}")
             payload, used = json.loads(data), "yahoo"
-        res = (payload.get("chart") or {}).get("result") or [None]
-        if not res[0] or (res[0].get("meta") or {}).get("dataGranularity") != "1d":
+        if not fp.is_daily_chart(payload):
             out[sym] = "not daily / empty"
             continue
         check = {}
@@ -213,10 +200,9 @@ def load_market(sym: str, end: str, raw_dir: Path = RAW) -> st.Market:
     """QQQ / ONEQ as ``st.load_qqq_like``, stocks as ``st.load_stock``, truncated at ``end`` and asserted."""
     path = raw_path(sym, raw_dir)
     if sym in ("QQQ", "ONEQ"):
-        df = it.parse_ohlc(path, end)
-        assert_dev_dates(df["date"], end)
-        return st.market_from_frame(sym, df, it.split_events(path, end))
-    df, splits = st.ohlc_frame(json.loads(path.read_text()), end)
+        df, splits = it.parse_ohlc(path, end), it.split_events(path, end)
+    else:
+        df, splits = st.ohlc_frame(json.loads(path.read_text()), end)
     assert_dev_dates(df["date"], end)
     return st.market_from_frame(sym, df, splits)
 
@@ -229,6 +215,13 @@ class Data:
     stocks: dict
     checks: dict = field(default_factory=dict)
 
+    def markets(self) -> list:
+        return [("QQQ", self.qqq), ("ONEQ", self.oneq), *self.stocks.items()]
+
+
+CHECK_KEYS = ("first", "last", "rows", "ohlc_missing_or_nonpositive", "open_or_close_outside_high_low",
+              "ohlc_filled_from_close")
+
 
 def load_all(end: str, raw_dir: Path = RAW, stocks=STOCKS) -> Data:
     missing = [s for s in ("QQQ", "ONEQ", *stocks) if not raw_path(s, raw_dir).exists()]
@@ -236,9 +229,8 @@ def load_all(end: str, raw_dir: Path = RAW, stocks=STOCKS) -> Data:
         raise SystemExit(f"missing raw data for {missing} in {raw_dir}; run with --fetch")
     qqq, oneq = load_market("QQQ", end, raw_dir), load_market("ONEQ", end, raw_dir)
     out = Data(end, qqq, oneq, {s: load_market(s, end, raw_dir) for s in stocks})
-    for sym, m in [("QQQ", qqq), ("ONEQ", oneq), *out.stocks.items()]:
-        out.checks[sym] = {k: m.s.checks[k] for k in ("first", "last", "rows", "ohlc_missing_or_nonpositive",
-                                                      "open_or_close_outside_high_low", "ohlc_filled_from_close")}
+    for sym, m in out.markets():
+        out.checks[sym] = {k: m.s.checks[k] for k in CHECK_KEYS}
         if sym in out.stocks:
             extra = pd.DatetimeIndex(m.s.sessions).difference(qqq.s.sessions)
             if len(extra):
@@ -249,7 +241,7 @@ def load_all(end: str, raw_dir: Path = RAW, stocks=STOCKS) -> Data:
 def overlap_check(d: Data, ref_end: str = st.END) -> dict:
     """Fresh split-adjusted closes vs the research caches on common dates through ``ref_end`` (console only)."""
     out = {}
-    for sym, m in [("QQQ", d.qqq), ("ONEQ", d.oneq), *d.stocks.items()]:
+    for sym, m in d.markets():
         try:
             ref = st.load_qqq_like(sym) if sym in ("QQQ", "ONEQ") else (
                 st.load_stock(sym) if st.raw_path(sym).exists() else None)
@@ -269,7 +261,7 @@ def overlap_check(d: Data, ref_end: str = st.END) -> dict:
     return out
 
 
-# ======================================================================== forward window
+# ======================================================================== forward window, H_match to date
 
 @dataclass
 class Window:
@@ -300,12 +292,26 @@ def month_ends(sessions: pd.DatetimeIndex) -> list:
     return [i for i in range(len(sessions)) if i == len(sessions) - 1 or per[i + 1] != per[i]]
 
 
-# ======================================================================== B1: S3-Yb (research_selective_t)
+def hmatch_to_date(sessions: pd.DatetimeIndex, run_at, hmatch, exposure) -> tuple[pd.Series, dict]:
+    """The H_match rule: month m's H_match days and its w come from the simulator run truncated at m's last forward
+    session (``run_at(k)``: the run through ``sessions[k]``; ``hmatch(run)`` its daily H_match, ``exposure(run)``
+    its mean exposure). Returns (H_match daily returns, {month: w})."""
+    parts, wm = [], {}
+    for k in month_ends(sessions):
+        run = run_at(k)
+        mon = sessions[k].to_period("M")
+        hm = hmatch(run)
+        parts.append(hm[hm.index.to_period("M") == mon])
+        wm[str(mon)] = exposure(run)
+    return pd.concat(parts), wm
+
 
 def zero_rf(index) -> pd.Series:
     """The T-bill only enters margin accounts (H100) in the research code; cash accounts and w <= 1 ignore it."""
     return pd.Series(0.0, index=index)
 
+
+# ======================================================================== B1: S3-Yb (research_selective_t)
 
 def run_b1(d: Data) -> dict:
     rf = zero_rf(d.qqq.s.sessions)
@@ -314,24 +320,19 @@ def run_b1(d: Data) -> dict:
         w = window_of(m, d.end)
         if not w.started:
             continue
-        o = st.run_one(m, w.s, w.e, B1_CONFIG, "stock", "net", rf, ref_cache)
-        hm_parts, wm = [], {}
-        for k in month_ends(w.sessions):
-            em = w.s + k
-            om = o if em == w.e else st.run_one(m, w.s, em, B1_CONFIG, "stock", "net", rf, ref_cache)
-            mon = w.sessions[k].to_period("M")
-            hm = om["hmatch"]
-            hm_parts.append(hm[hm.index.to_period("M") == mon])
-            wm[str(mon)] = om["sim"]["exposure"]
-        tr = o["sim"]["trips"].assign(symbol=sym)
-        per[sym] = {"ret": o["ret"], "hbase": o["hbase"], "hmatch": pd.concat(hm_parts), "w": wm, "trips": tr,
-                    "exposure": o["sim"]["exposure"], "hmatch_full_window": o["hmatch"]}
+
+        def run_to(e, m=m, w=w):
+            return st.run_one(m, w.s, e, B1_CONFIG, "stock", "net", rf, ref_cache)
+        o = run_to(w.e)
+        hm, wm = hmatch_to_date(w.sessions, lambda k: o if w.s + k == w.e else run_to(w.s + k),
+                                lambda r: r["hmatch"], lambda r: r["sim"]["exposure"])
+        per[sym] = {"ret": o["ret"], "hbase": o["hbase"], "hmatch": hm, "w": wm,
+                    "trips": o["sim"]["trips"].assign(symbol=sym), "hmatch_full_window": o["hmatch"]}
     if not per:
         return {"started": False}
     ret = st.basket_mean([p["ret"] for p in per.values()])
-    out = {"started": True, "ret": ret, "hbase": st.basket_mean([p["hbase"] for p in per.values()]),
-           "hmatch": st.basket_mean([p["hmatch"] for p in per.values()]),
-           "hmatch_full_window": st.basket_mean([p["hmatch_full_window"] for p in per.values()]),
+    out = {"started": True, "ret": ret,
+           **{k: st.basket_mean([p[k] for p in per.values()]) for k in ("hbase", "hmatch", "hmatch_full_window")},
            "w": {mo: float(np.mean([p["w"][mo] for p in per.values() if mo in p["w"]]))
                  for mo in sorted({k for p in per.values() for k in p["w"]})},
            "oneq": it.buy_hold_oneq(d.oneq.s, d.qqq.s.sessions, ret.index[0], ret.index[-1], True),
@@ -357,77 +358,43 @@ def b2_data(d: Data) -> dict:
     return {"master": master, "insts": {"QQQ": ins}, "rf": zero_rf(master), "oneq_tr": oneq_tr, "oneq": oneq}
 
 
-def _acc(ex: dict, k: int) -> dict:
-    return {key: float(v[:, k].sum()) for key, v in ex["sim"]["acc"].items()}
+def b2_trades(ex: dict, j: int) -> list:
+    """The trades of configuration column ``j`` as the research simulator records them (``exact_run(...,
+    record_trades=True)``); a trade still open at the last session is closed there ('end') and shown as open."""
+    ses = ex["sessions"]
+    return [{"symbol": "QQQ", "entry": ses[t["t0"]], "exit": ses[t["t1"]], "open": t["reason"] == "end",
+             "reason": t["reason"], "days": None if t["reason"] == "end" else t["days"],
+             "net_pct": t["net_bp"] / 100} for t in ex["trades"] if t["cfg"] == j]
 
 
 def run_b2(d: Data) -> dict:
     w = window_of(d.qqq, d.end)
     if not w.started:
-        return {name: {"started": False} for name in B2_IDS}
+        return {name: {"started": False} for name in B2}
     data = b2_data(d)
     ids = list(B2_IDS.values())
     g = tg.grid()
-    for name, i in B2_IDS.items():
-        assert tg.label(g.loc[i]) == B2_LABELS[name], (name, tg.label(g.loc[i]))
+    for name, (i, lab) in B2.items():
+        assert tg.label(g.loc[i]) == lab, (name, tg.label(g.loc[i]))
         assert int(g.loc[i, "reserve"]) == B2_RESERVE_CODE
-    start = str(w.sessions[0].date())
-    full = tg.exact_run(data, "QQQ", ids, start, str(w.sessions[-1].date()), tg.CostModel())
-    # one truncated exact run per forward session: the research accumulators (trips closed by target / time stop,
-    # and the 'end' close of a trade still open at that session's close) give the trade dates and net returns
-    daily = []
-    for k in range(len(w.sessions)):
-        ex = full if k == len(w.sessions) - 1 else tg.exact_run(data, "QQQ", ids, start, str(w.sessions[k].date()),
-                                                                tg.CostModel())
-        daily.append(ex)
-    me = set(month_ends(w.sessions))
+    start, last = str(w.sessions[0].date()), len(w.sessions) - 1
+
+    def exact(k: int, trades: bool = False) -> dict:
+        return tg.exact_run(data, "QQQ", ids, start, str(w.sessions[k].date()), tg.CostModel(), record_trades=trades)
+    full = exact(last, trades=True)
+    runs = {k: full if k == last else exact(k) for k in month_ends(w.sessions)}   # truncated at each month end
     out = {}
     for j, (name, i) in enumerate(B2_IDS.items()):
         r = full["R"][i]
-        hm_parts, wm = [], {}
-        for k in sorted(me):
-            ex = daily[k]
-            mon = w.sessions[k].to_period("M")
-            hm = tg.hmatch_series(ex, j)
-            hm_parts.append(hm[hm.index.to_period("M") == mon])
-            x = ex["sim"]["rec"]["x"][:, :, j]
-            wm[str(mon)] = float((x * ex["act"]).sum() / ex["act"].sum())
+        hm, wm = hmatch_to_date(w.sessions, runs.__getitem__, lambda ex: tg.hmatch_series(ex, j),
+                                lambda ex: float((ex["sim"]["rec"]["x"][:, :, j] * ex["act"]).sum() / ex["act"].sum()))
+        oneq = tg.oneq_for(data, r.index)
+        if oneq is None:   # a one-session window: ONEQ bought at the previous close, one return
+            oneq = it.buy_hold_oneq(d.oneq.s, data["master"], r.index[0], r.index[-1], True)
         out[name] = {"started": True, "config_id": i, "label": B2_LABELS[name], "ret": r,
-                     "hbase": tg.hbase_of(full, B2_RESERVE_CODE), "hmatch": pd.concat(hm_parts), "w": wm,
-                     "hmatch_full_window": tg.hmatch_series(full, j),
-                     "oneq": tg.oneq_for(data, r.index), "trades": b2_trades(daily, w.sessions, j),
-                     "n_trips_full": int(_acc(full, j)["nT"])}
-        if out[name]["oneq"] is None:   # a one-session window: ONEQ bought at the previous close, one return
-            out[name]["oneq"] = it.buy_hold_oneq(d.oneq.s, data["master"], r.index[0], r.index[-1], True)
+                     "hbase": tg.hbase_of(full, B2_RESERVE_CODE), "hmatch": hm, "w": wm,
+                     "hmatch_full_window": tg.hmatch_series(full, j), "oneq": oneq, "trades": b2_trades(full, j)}
     return out
-
-
-def b2_trades(daily: list, sessions: pd.DatetimeIndex, j: int) -> list:
-    """Trades from the research accumulators of the truncated runs (run k ends at session k)."""
-    trades, cur, closed_net, prev = [], None, 0.0, {"nT": 0, "nTarget": 0, "nTimeout": 0, "sDays": 0.0}
-    for k, ex in enumerate(daily):
-        a = _acc(ex, j)
-        done = a["nTarget"] + a["nTimeout"]
-        n_open = a["nT"] - done
-        if done > prev["nTarget"] + prev["nTimeout"]:          # a trade closed today by OPP or the time stop
-            if cur is None:
-                raise ValueError(f"trade closed on {sessions[k].date()} without an observed entry")
-            cur.update({"exit": sessions[k], "open": False,
-                        "reason": "target" if a["nTarget"] > prev["nTarget"] else "timeout",
-                        "days": int(round(a["sDays"] - prev["sDays"])), "net_pct": (a["sNet"] - closed_net) / 100})
-            trades.append(cur)
-            closed_net, cur = a["sNet"], None
-            prev = {kk: a[kk] for kk in prev}
-        if n_open > 1:
-            raise ValueError("more than one open trade")
-        if n_open == 1:
-            if cur is None:
-                cur = {"symbol": "QQQ", "entry": sessions[k]}
-            cur.update({"exit": sessions[k], "open": True, "reason": "end", "days": None,
-                        "net_pct": (a["sNet"] - closed_net) / 100})
-    if cur is not None:
-        trades.append(cur)
-    return trades
 
 
 # ======================================================================== B3: S-MISP short overlay (research_short_overlay)
@@ -450,16 +417,13 @@ def run_b3(d: Data, smisp_dir: Path | None = None, borrow_dir: Path | None = Non
         signals[s] = fs.load_signal(p)
     if not signals:
         return {"started": False, "reason": f"signal {sigs[0].date()} not computed yet (run --fetch-smisp)"}
-    end, pending = d.end, None
-    if len(signals) < len(sigs):
-        pending = sigs[len(signals)]
-        end = str(pending.date())
+    pending = sigs[len(signals)] if len(signals) < len(sigs) else None
+    end = str(pending.date()) if pending is not None else d.end
     effr_path = base / "EFFR_nyfed.csv"
     if not effr_path.exists():
         return {"started": False, "reason": "no EFFR file (run --fetch-smisp)"}
-    effr = fs.ro.load_effr(effr_path)
     snaps = fs.BorrowSnapshots(Path(borrow_dir or fs.BORROW_DIR))
-    line = fs.run_line(signals, d.qqq, d.oneq, end, base / "held", effr, snaps)
+    line = fs.run_line(signals, d.qqq, d.oneq, end, base / "held", fs.ro.load_effr(effr_path), snaps)
     if not line["started"]:
         return {"started": False, "reason": "no executable signal yet"}
     line["pending"] = pending
@@ -467,7 +431,7 @@ def run_b3(d: Data, smisp_dir: Path | None = None, borrow_dir: Path | None = Non
     return line
 
 
-# ======================================================================== monthly table
+# ======================================================================== monthly tables
 
 def pct(x: float, nd: int = 2) -> str:
     return "" if x is None or not np.isfinite(x) else f"{x * 100:+.{nd}f}%"
@@ -475,6 +439,10 @@ def pct(x: float, nd: int = 2) -> str:
 
 def pp(x: float) -> str:
     return "" if x is None or not np.isfinite(x) else f"{x * 100:+.2f}"
+
+
+def tstr(t: float) -> str:
+    return "" if not np.isfinite(t) else f"{t:+.2f}"
 
 
 def trade_cell(trades: list, mon: pd.Period, show_symbol: bool) -> str:
@@ -485,7 +453,7 @@ def trade_cell(trades: list, mon: pd.Period, show_symbol: bool) -> str:
         if ent.to_period("M") > mon:
             continue
         closed_in = (not tr["open"]) and ex.to_period("M") == mon
-        open_at_end = ent.to_period("M") <= mon and (tr["open"] or ex.to_period("M") > mon)
+        open_at_end = tr["open"] or ex.to_period("M") > mon
         if not (closed_in or open_at_end):
             continue
         who = f"{tr['symbol']} " if show_symbol else ""
@@ -498,9 +466,10 @@ def trade_cell(trades: list, mon: pd.Period, show_symbol: bool) -> str:
 
 
 def month_rows(line: dict, show_symbol: bool) -> list:
-    """One row per forward month. A month is final once the data hold a later session: the frozen simulators treat
-    the window's last session specially (open trades closed at its close, no month-end reset, no new signal), so
-    the month that contains the last session of the data is provisional and is recomputed by the next run."""
+    """One row per forward month (B1 / B2). A month is final once the data hold a later session: the frozen
+    simulators treat the window's last session specially (open trades closed at its close, no month-end reset, no
+    new signal), so the month that contains the last session of the data is provisional and is recomputed by the
+    next run."""
     r, hb, hm, oq = line["ret"], line["hbase"], line["hmatch"], line["oneq"]
     mr, mb, mh, mo = monthly(r), monthly(hb), monthly(hm.reindex(r.index)), monthly(oq.reindex(r.index))
     cum_r, cum_h = (1 + mr).cumprod() - 1, (1 + mh).cumprod() - 1
@@ -508,36 +477,30 @@ def month_rows(line: dict, show_symbol: bool) -> list:
     rows = []
     for n, mon in enumerate(mr.index, start=1):
         days = r.index[r.index.to_period("M") == mon]
-        status = "final" if mon < last_month else "provisional"
         ex_m = mr[:mon] - mh[:mon]
-        t = t_and_ir(ex_m)[0] if len(ex_m) >= 3 else float("nan")
         rows.append({"month": str(mon), "n": n, "trades": trade_cell(line["trades"], mon, show_symbol),
                      "ret": mr[mon], "hbase": mb[mon], "hmatch": mh[mon], "w": line["w"].get(str(mon), float("nan")),
-                     "oneq": mo[mon], "excess": mr[mon] - mh[mon], "cum_excess": cum_r[mon] - cum_h[mon], "t": t,
-                     "sessions": f"{days[0]:%m-%d}..{days[-1]:%m-%d} ({len(days)})", "status": status})
+                     "oneq": mo[mon], "excess": mr[mon] - mh[mon], "cum_excess": cum_r[mon] - cum_h[mon],
+                     "t": t_and_ir(ex_m)[0] if len(ex_m) >= 3 else float("nan"),
+                     "sessions": f"{days[0]:%m-%d}..{days[-1]:%m-%d} ({len(days)})",
+                     "status": "final" if mon < last_month else "provisional"})
     return rows
 
 
 HEAD = ("| month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) "
         "| cum. excess vs H_match (pp) | t | sessions | status |")
-SEP = "|" + "---|" * 13
-
-
-def row_line(x: dict) -> str:
-    t = "" if not np.isfinite(x["t"]) else f"{x['t']:+.2f}"
-    return (f"| {x['month']} | {x['n']} | {x['trades']} | {pct(x['ret'])} | {pct(x['hbase'])} | {pct(x['hmatch'])} | "
-            f"{x['w']:.3f} | {pct(x['oneq'])} | {pp(x['excess'])} | {pp(x['cum_excess'])} | {t} | {x['sessions']} | "
-            f"{x['status']} |")
-
-
 B3_HEAD = ("| month | n | shorts (after the month's rebalance) | strategy | QQQ | ONEQ | excess vs ONEQ (pp) "
            "| short leg (holding period) | short leg − QQQ (pp) | IBKR fee mean / max (%/yr) "
            "| unborrowable / not in IBKR file | strategy at IBKR fees | cum. excess vs ONEQ (pp) | t | status |")
-B3_SEP = "|" + "---|" * 15
+
+
+def row_line(x: dict) -> str:
+    return (f"| {x['month']} | {x['n']} | {x['trades']} | {pct(x['ret'])} | {pct(x['hbase'])} | {pct(x['hmatch'])} | "
+            f"{x['w']:.3f} | {pct(x['oneq'])} | {pp(x['excess'])} | {pp(x['cum_excess'])} | {tstr(x['t'])} | "
+            f"{x['sessions']} | {x['status']} |")
 
 
 def b3_row_line(x: dict) -> str:
-    t = "" if not np.isfinite(x["t"]) else f"{x['t']:+.2f}"
     leg = f"{pct(x['leg'])} ({x['leg_period']})" if np.isfinite(x["leg"]) else ""
     lq = pp(x["leg"] - x["leg_qqq"]) if np.isfinite(x["leg"]) else ""
     if x["fee_days"] == 0:
@@ -549,7 +512,7 @@ def b3_row_line(x: dict) -> str:
     flags = [f"{s} (AVAILABLE 0)" for s in x["unborrowable"]] + [f"{s} (not in file)" for s in x["not_in_file"]]
     return (f"| {x['month']} | {x['n']} | {x['shorts']} | {pct(x['ret'])} | {pct(x['qqq'])} | {pct(x['oneq'])} | "
             f"{pp(x['excess'])} | {leg} | {lq} | {fee} | {'; '.join(flags) if flags else 'none'} | "
-            f"{pct(x['ret_ibkr'])} | {pp(x['cum_excess'])} | {t} | {x['status']} |")
+            f"{pct(x['ret_ibkr'])} | {pp(x['cum_excess'])} | {tstr(x['t'])} | {x['status']} |")
 
 
 # ======================================================================== log file
@@ -621,41 +584,36 @@ over ONEQ is > 0 and the monthly-excess t vs ONEQ is ≥ 2. QQQ and the short le
 The registered tiered borrow fee is the rule; the IBKR fees are report only."""
 
 
+def progress(title: str, rows: list, vs: str, tail: str = "") -> str:
+    """The status line of a started line: months so far, cumulative excess, t, verdict months."""
+    last = rows[-1]
+    t = "" if not np.isfinite(last["t"]) else f", monthly-excess t {last['t']:+.2f}"
+    return (f"- {title}: {last['n']} month(s) through {last['month']}; cumulative excess vs {vs} "
+            f"{pp(last['cum_excess'])} pp{t}; no verdict before month {VERDICT_MONTHS[0]}, verdict at month "
+            f"{VERDICT_MONTHS[1]}.{tail}")
+
+
 def b3_status(v: dict) -> str:
     if not v.get("started"):
         why = v.get("reason", "")
         extra = "" if why in ("", "before_first_signal") else f" Pending: {why}."
         return (f"- {B3_TITLE}: **observation starts at the {fs.FIRST_SIGNAL} month-end signal** (the last session "
                 f"of October 2026), executed at the next close; no forward month yet.{extra}")
-    rows = v["rows"]
-    last = rows[-1]
-    t = "" if not np.isfinite(last["t"]) else f", monthly-excess t {last['t']:+.2f}"
     pend = f" Pending: signal {v['pending'].date()} not computed (run --fetch-smisp)." if v.get("pending") else ""
-    return (f"- {B3_TITLE}: {last['n']} month(s) through {last['month']}; cumulative excess vs ONEQ "
-            f"{pp(last['cum_excess'])} pp{t}; no verdict before month {VERDICT_MONTHS[0]}, verdict at month "
-            f"{VERDICT_MONTHS[1]}.{pend}")
+    return progress(B3_TITLE, v["rows"], "ONEQ", pend)
 
 
 def render_status(as_of: str, data_end: str | None, lines: dict) -> str:
     out = ["## Status", "", f"- As-of date of the last run: {as_of}; data through: {data_end or 'n/a'}."]
-    b3 = lines.get("B3", {"started": False})
-    if not any(lines.get(k, {}).get("started") for k, _ in LINES):
+    if not any(lines.get(k, {}).get("started") for k in ("B1", *B2)):
         out.append(f"- **observation starts {START_CLOSE}** for B1 / B2 (accounts open at the {START_CLOSE} close). "
                    "No forward sessions yet, so no trades and no returns.")
-        out.append(b3_status(b3))
-        return "\n".join(out) + "\n"
-    for key, title in LINES:
-        v = lines.get(key, {})
-        if not v.get("started"):
-            out.append(f"- {title}: no forward sessions yet.")
-            continue
-        rows = v["rows"]
-        last = rows[-1]
-        t = "" if not np.isfinite(last["t"]) else f", monthly-excess t {last['t']:+.2f}"
-        out.append(f"- {title}: {last['n']} month(s) through {last['month']}; cumulative excess vs H_match "
-                   f"{pp(last['cum_excess'])} pp{t}; no verdict before month {VERDICT_MONTHS[0]}, verdict at month "
-                   f"{VERDICT_MONTHS[1]}.")
-    out.append(b3_status(b3))
+    else:
+        for key in ("B1", *B2):
+            v = lines.get(key, {})
+            out.append(progress(TITLES[key], v["rows"], "H_match") if v.get("started")
+                       else f"- {TITLES[key]}: no forward sessions yet.")
+    out.append(b3_status(lines.get("B3", {"started": False})))
     return "\n".join(out) + "\n"
 
 
@@ -680,35 +638,29 @@ def last_data_end(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def section(key: str, new_rows: list, old_rows: dict, warnings: list) -> str:
+    """One line's section of the log: the rows of the existing log, replaced by the rows computed now (a final row
+    that changes is reported in ``warnings``)."""
+    head, fmt, intro = (B3_HEAD, b3_row_line, B3_INTRO) if key == "B3" else (HEAD, row_line, f"Rule: {RULES[key]}.")
+    rows = dict(old_rows)
+    for x in new_rows:
+        new = fmt(x)
+        prev = rows.get(x["month"])
+        if prev is not None and prev != new and prev.rstrip().endswith("| final |"):
+            warnings.append(f"{key} {x['month']}: a final row changed (vendor data revision?)\n  old {prev}\n"
+                            f"  new {new}")
+        rows[x["month"]] = new
+    sep = "|" + "---|" * (head.count("|") - 1)
+    return (f"## {TITLES[key]}\n\n{intro}\n\n<!-- table:{key}:start -->\n{head}\n{sep}\n"
+            + "".join(rows[mo] + "\n" for mo in sorted(rows)) + f"<!-- table:{key}:end -->\n")
+
+
 def render_log(as_of: str, data_end: str | None, lines: dict, old_text: str = "") -> tuple[str, list]:
     old = parse_rows(old_text)
     warnings = []
     parts = [LOG_HEADER, render_status(as_of, data_end, lines)]
-    for key, title in LINES:
-        rows = dict(old.get(key, {}))
-        v = lines.get(key, {})
-        for x in v.get("rows", []):
-            new = row_line(x)
-            prev = rows.get(x["month"])
-            if prev is not None and prev != new and prev.rstrip().endswith("| final |"):
-                warnings.append(f"{key} {x['month']}: a final row changed (vendor data revision?)\n  old {prev}\n"
-                                f"  new {new}")
-            rows[x["month"]] = new
-        rule = (f"config `{B1_CONFIG}`, stock parameters (`scripts/research_selective_t.py`)" if key == "B1" else
-                f"config {B2_IDS[key]} `{B2_LABELS[key]}` (`scripts/research_t_grid.py`)")
-        parts.append(f"## {title}\n\nRule: {rule}.\n\n<!-- table:{key}:start -->\n{HEAD}\n{SEP}\n"
-                     + "".join(rows[mo] + "\n" for mo in sorted(rows)) + f"<!-- table:{key}:end -->\n")
-    rows = dict(old.get("B3", {}))
-    for x in lines.get("B3", {}).get("rows", []):
-        new = b3_row_line(x)
-        prev = rows.get(x["month"])
-        if prev is not None and prev != new and prev.rstrip().endswith("| final |"):
-            warnings.append(f"B3 {x['month']}: a final row changed (vendor data revision?)\n  old {prev}\n  new {new}")
-        rows[x["month"]] = new
-    parts.append(f"## {B3_TITLE}\n\n{B3_INTRO}\n\n<!-- table:B3:start -->\n{B3_HEAD}\n{B3_SEP}\n"
-                 + "".join(rows[mo] + "\n" for mo in sorted(rows)) + "<!-- table:B3:end -->\n")
-    text = "\n".join(parts)
-    return text, warnings
+    parts += [section(key, lines.get(key, {}).get("rows", []), old.get(key, {}), warnings) for key in TITLES]
+    return "\n".join(parts), warnings
 
 
 # ======================================================================== run
@@ -717,21 +669,11 @@ def compute(as_of: str, raw_dir: Path = RAW, stocks=STOCKS, smisp_dir: Path | No
             borrow_dir: Path | None = None, smisp_state: Path | None = None) -> dict:
     """Everything for one as-of date (no file writes)."""
     d = load_all(as_of, raw_dir, stocks)
-    data_end = str(d.qqq.s.sessions[-1].date())
-    lines = {}
-    b1 = run_b1(d)
-    if b1["started"]:
-        b1["rows"] = month_rows(b1, show_symbol=True)
-    lines["B1"] = b1
-    for name, v in run_b2(d).items():
+    lines = {"B1": run_b1(d), **run_b2(d), "B3": run_b3(d, smisp_dir, borrow_dir, smisp_state)}
+    for k, v in lines.items():
         if v["started"]:
-            v["rows"] = month_rows(v, show_symbol=False)
-        lines[name] = v
-    b3 = run_b3(d, smisp_dir, borrow_dir, smisp_state)
-    if b3["started"]:
-        b3["rows"] = fs.month_rows(b3)
-    lines["B3"] = b3
-    return {"as_of": as_of, "data_end": data_end, "lines": lines, "data": d}
+            v["rows"] = fs.month_rows(v) if k == "B3" else month_rows(v, show_symbol=k == "B1")
+    return {"as_of": as_of, "data_end": str(d.qqq.s.sessions[-1].date()), "lines": lines, "data": d}
 
 
 def run(as_of: str, raw_dir: Path = RAW, log_path: Path = LOG, dry_run: bool = False, stocks=STOCKS,
@@ -755,32 +697,40 @@ def run(as_of: str, raw_dir: Path = RAW, log_path: Path = LOG, dry_run: bool = F
     return res
 
 
-def save_run_details(res: dict, runs_dir: Path = RUNS) -> Path:
-    """Daily returns / exposures per line (returns only) for audit, local only (research_cache, not Git)."""
-    runs_dir.mkdir(parents=True, exist_ok=True)
+def by_date(s: pd.Series) -> dict:
+    return {str(i.date()): float(x) for i, x in s.items()}
+
+
+def run_details(res: dict) -> dict:
+    """Daily returns / exposures and trades per line (returns only, no price levels)."""
     out = {"as_of": res["as_of"], "data_end": res["data_end"], "lines": {}}
     for k, v in res["lines"].items():
         if not v.get("started"):
             continue
         if k == "B3":
-            out["lines"][k] = {s: {str(i.date()): float(x) for i, x in v[s].items()}
-                               for s in ("nav", "nav_ibkr", "qqq", "oneq")}
+            out["lines"][k] = {s: by_date(v[s]) for s in ("nav", "nav_ibkr", "qqq", "oneq")}
             out["lines"][k]["held"] = [[str(v["mk"].sessions[t].date()), names] for t, names in v["res"]["held"]]
             out["lines"][k]["acc"] = v["res"]["acc"]
             continue
-        out["lines"][k] = {s: {str(i.date()): float(x) for i, x in v[s].items()}
-                           for s in ("ret", "hbase", "hmatch", "hmatch_full_window", "oneq")}
+        out["lines"][k] = {s: by_date(v[s]) for s in ("ret", "hbase", "hmatch", "hmatch_full_window", "oneq")}
         out["lines"][k]["w"] = v["w"]
         out["lines"][k]["trades"] = [{kk: (str(vv.date()) if isinstance(vv, pd.Timestamp) else vv)
                                       for kk, vv in t.items()} for t in v["trades"]]
+    return out
+
+
+def save_run_details(res: dict, runs_dir: Path = RUNS) -> Path:
+    """``run_details`` for audit, local only (the cache, not Git)."""
+    runs_dir.mkdir(parents=True, exist_ok=True)
     p = runs_dir / f"asof_{res['as_of']}.json"
-    p.write_text(json.dumps(out, indent=1, default=str))
+    p.write_text(json.dumps(run_details(res), indent=1, default=str))
     return p
 
 
 def smisp_fetch(as_of: str, raw_dir: Path = RAW, smisp_dir: Path | None = None) -> dict:
     """B3 inputs for every due signal (checklist B3.3): Nasdaq listing snapshot, SEC tickers / submissions /
-    companyfacts, Yahoo charts of the universe base (resumable), then the charts of the held names and the EFFR."""
+    companyfacts, charts of the universe base (Alpaca first, Yahoo fallback; resumable), then the charts of the
+    held names and the EFFR."""
     base = Path(smisp_dir or SMISP_DIR)
     qqq = load_market("QQQ", as_of, raw_dir)
     signals = {}
@@ -795,23 +745,33 @@ def smisp_fetch(as_of: str, raw_dir: Path = RAW, smisp_dir: Path | None = None) 
         signals[s] = sc
     if signals:
         print("S-MISP held charts:", fs.fetch_held(signals, base / "held"))
-        fs.fetch_effr(base / "EFFR_nyfed.csv", start=str((pd.Timestamp(fs.FIRST_SIGNAL) - pd.Timedelta(days=40)).date()))
+        fs.fetch_effr(base / "EFFR_nyfed.csv",
+                      start=str((pd.Timestamp(fs.FIRST_SIGNAL) - pd.Timedelta(days=40)).date()))
     else:
         print(f"S-MISP: no signal due through {as_of} (first signal {fs.FIRST_SIGNAL}, known once a later session "
               "exists)")
     return signals
 
 
+def chained(r: pd.Series) -> float:
+    return (1 + r).prod() - 1
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--as-of", help="last date to use (YYYY-MM-DD); default: the last complete New York session")
-    ap.add_argument("--fetch", action="store_true", help="re-download the 20 Yahoo charts first (one per 2 s)")
+    ap.add_argument("--fetch", action="store_true",
+                    help="B1 / B2: refresh the 20 price series (QQQ, ONEQ, 18 stocks): Tiingo from 2026-11, Yahoo "
+                         "fallback (one request per 2 s); only a recent tail, the history comes from the committed "
+                         "returns-only state")
     ap.add_argument("--fetch-smisp", action="store_true",
-                    help="B3: compute any due S-MISP signal from fresh data (Nasdaq list, SEC, ~2,400 Yahoo charts at "
-                         "one per 2 s, resumable) and refresh the held names' charts and the EFFR")
+                    help="B3: compute any due S-MISP signal from fresh data (Nasdaq list, SEC, ~2,400 charts: Alpaca "
+                         "first, Yahoo fallback at one request per 2 s; resumable) and refresh the held names' charts "
+                         "and the EFFR")
     ap.add_argument("--dry-run", action="store_true", help="print the log instead of writing it")
     ap.add_argument("--force", action="store_true", help="allow writing the log for an earlier as-of date")
-    ap.add_argument("--no-overlap-check", action="store_true")
+    ap.add_argument("--no-overlap-check", action="store_true",
+                    help="skip the console comparison with the local research caches")
     a = ap.parse_args(argv)
     latest = last_complete_session_date()
     as_of = a.as_of or latest
@@ -824,29 +784,27 @@ def main(argv=None):
     if a.fetch_smisp:
         smisp_fetch(as_of)
     res = run(as_of, dry_run=a.dry_run, force=a.force)
-    d = res["data"]
-    print("DATA:", json.dumps({k: (v["first"], v["last"], v["rows"]) for k, v in d.checks.items()}))
-    bad = {k: v for k, v in d.checks.items() if v["ohlc_missing_or_nonpositive"] or v["open_or_close_outside_high_low"]
+    checks = res["data"].checks
+    print("DATA:", json.dumps({k: (v["first"], v["last"], v["rows"]) for k, v in checks.items()}))
+    bad = {k: v for k, v in checks.items() if v["ohlc_missing_or_nonpositive"] or v["open_or_close_outside_high_low"]
            or v["ohlc_filled_from_close"]}
     if bad:
         print("DATA FLAGS:", json.dumps(bad))
     if not a.no_overlap_check:
         print("OVERLAP vs research caches (split-adjusted closes through", st.END + "):",
-              json.dumps(overlap_check(d), default=str))
+              json.dumps(overlap_check(res["data"]), default=str))
     for k, v in res["lines"].items():
-        if k == "B3":
-            if v.get("started"):
-                print(f"B3: chained strategy {pct(v['nav'].iloc[-1] / v['nav'].iloc[0] - 1)}, QQQ "
-                      f"{pct(v['qqq'].iloc[-1] - 1)}, ONEQ {pct(v['oneq'].iloc[-1] - 1)}; costs {v['res']['acc']}; "
-                      f"IBKR borrow snapshots available: {v['n_snapshots']}")
-            else:
-                print("B3:", v.get("reason"))
-            continue
-        if v.get("started"):
-            hf = v["hmatch_full_window"].reindex(v["ret"].index)
-            print(f"{k}: chained strategy {pct((1 + v['ret']).prod() - 1)}, H_match (to-date w per month) "
-                  f"{pct((1 + v['hmatch'].reindex(v['ret'].index)).prod() - 1)}, H_match (one w over the whole window,"
-                  f" research definition; console only) {pct((1 + hf).prod() - 1)}")
+        if k == "B3" and v.get("started"):
+            print(f"B3: chained strategy {pct(v['nav'].iloc[-1] / v['nav'].iloc[0] - 1)}, QQQ "
+                  f"{pct(v['qqq'].iloc[-1] - 1)}, ONEQ {pct(v['oneq'].iloc[-1] - 1)}; costs {v['res']['acc']}; "
+                  f"IBKR borrow snapshots available: {v['n_snapshots']}")
+        elif k == "B3":
+            print("B3:", v.get("reason"))
+        elif v.get("started"):
+            idx = v["ret"].index
+            print(f"{k}: chained strategy {pct(chained(v['ret']))}, H_match (to-date w per month) "
+                  f"{pct(chained(v['hmatch'].reindex(idx)))}, H_match (one w over the whole window, research "
+                  f"definition; console only) {pct(chained(v['hmatch_full_window'].reindex(idx)))}")
     if any(v.get("started") for v in res["lines"].values()):
         print("run details (local only):", save_run_details(res))
     else:

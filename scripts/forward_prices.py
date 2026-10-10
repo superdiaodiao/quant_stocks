@@ -19,6 +19,9 @@ split events. So no loader or simulator changes with the source.
 Keys are read from the environment (GitHub secrets) or from ``.env.alpaca`` / ``.env.tiingo`` in the main checkout or
 any parent folder; they are never printed or logged.
 
+The small I/O helpers shared by both runners (HTTP GET, one Yahoo chart request, atomic writes, gzip / plain JSON
+reads, CSV request logs) are here too.
+
 History state (B1 / B2): RSI2's expanding percentiles need QQQ from 1999, which Alpaca does not have and which should
 not change with the vendor. ``state/forward_observation/price_history_returns.csv.gz`` (committed) keeps the history
 through the 2026-10-09 decision close as ratios only (close / previous close, open / high / low over the same close,
@@ -32,14 +35,16 @@ import gzip
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+
+from scripts import research_selective_t as st
 
 ROOT = Path(__file__).resolve().parents[1]
 NY = ZoneInfo("America/New_York")
@@ -82,8 +87,52 @@ def tiingo_key() -> str | None:
 
 
 def http_get(url: str, headers: dict, timeout: int = 60) -> bytes:
+    """GET ``url``; a gzip-encoded body (SEC with Accept-Encoding: gzip) is decompressed."""
     with urlopen(Request(url, headers=headers), timeout=timeout) as resp:
-        return resp.read()
+        data = resp.read()
+        return gzip.decompress(data) if resp.headers.get("Content-Encoding") == "gzip" else data
+
+
+def yahoo_get(sym: str, period1: str, period2: str, getter=None) -> bytes:
+    """One Yahoo v8 daily chart (``research_selective_t.chart_url`` / ``HEADERS``). ``getter(url)`` for tests. The
+    callers keep the research politeness: at most one request every 2 s, stop at ``st.STOP_CODES``."""
+    url = st.chart_url(sym, period1, period2)
+    return getter(url) if getter is not None else http_get(url, st.HEADERS, 30)
+
+
+# ======================================================================== files
+
+def write_atomic(path: Path, data: bytes, compress: bool = False) -> None:
+    """Write via a temporary file (gzip with mtime 0 when ``compress``), so a broken run leaves no partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(gzip.compress(data, mtime=0) if compress else data)
+    tmp.replace(path)
+
+
+def read_json(path: Path):
+    """A JSON file, gzip-compressed when its name ends in .gz."""
+    data = path.read_bytes()
+    return json.loads(gzip.decompress(data) if path.suffix == ".gz" else data)
+
+
+def is_daily_chart(payload: dict) -> bool:
+    """A Yahoo-format body with a daily result."""
+    r = (payload.get("chart") or {}).get("result") or [None]
+    return bool(r[0]) and (r[0].get("meta") or {}).get("dataGranularity") == "1d"
+
+
+def log_line(path: Path, header: str, line: str = "") -> None:
+    """Append ``line`` to a CSV log, writing ``header`` first when the file is new (no line: header only)."""
+    if not path.exists():
+        path.write_text(header + "\n")
+    if line:
+        with path.open("a") as fh:
+            fh.write(line + "\n")
+
+
+def utc_stamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # ======================================================================== the common format
@@ -315,13 +364,5 @@ def merge_history(sym: str, state: pd.DataFrame, tail: dict) -> tuple[dict, dict
 
 
 def save_payload(payload: dict, path: Path, compress: bool | None = None) -> None:
-    data = json.dumps(payload).encode()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    if compress if compress is not None else path.suffix == ".gz":
-        data = gzip.compress(data, mtime=0)
-    tmp.write_bytes(data)
-    tmp.replace(path)
-
-
-__all__ = ["alpaca_charts", "tiingo_chart", "merge_history", "chart_payload", "payload_frame", "HTTPError"]
+    """A Yahoo-format body as JSON (gzip when ``compress``, by default when the name ends in .gz)."""
+    write_atomic(path, json.dumps(payload).encode(), path.suffix == ".gz" if compress is None else compress)
