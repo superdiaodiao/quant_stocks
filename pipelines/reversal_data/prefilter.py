@@ -174,6 +174,7 @@ import numpy as np
 import pandas as pd
 
 from pipelines.reversal_data import common
+from quant.data import version as _version
 
 MAIN = common.MAIN_CHECKOUT
 OUT = common.CACHE / "prefilter"
@@ -3788,12 +3789,26 @@ def round6_named(candidates: pd.DataFrame, named: dict | None = None) -> dict:
             for sid, name in (named or ROUND6_NAMED).items()}
 
 
-def ledger_symbols(month: str) -> set[str]:
-    """Tiingo symbols the quota ledger shows asked in ``month``."""
+def _tiingo_ledger_rows(month: str) -> list[list[str]]:
+    """The quota ledger's Tiingo rows of ``month`` logged before the version's freeze (``quant.data.version.FROZEN_UTC``;
+    every row when the version is not frozen). The ledger is shared and keeps growing after a freeze, so a frozen
+    version's rebuild must not read the later rows."""
     if not common.QUOTA_LEDGER.exists():
-        return set()
+        return []
+    cutoff = _version.FROZEN_UTC.get(common.DATA_VERSION)
     rows = [line.split(",") for line in common.QUOTA_LEDGER.read_text(encoding="utf-8").splitlines()[1:]]
-    return {r[3].upper() for r in rows if len(r) >= 5 and r[1] == "tiingo" and r[2] == month}
+    return [r for r in rows if len(r) >= 5 and r[1] == "tiingo" and r[2] == month and (not cutoff or r[0] < cutoff)]
+
+
+def tiingo_used(month: str) -> int:
+    """Unique Tiingo symbols the quota ledger shows asked in ``month`` (``common.quota_used(..., unique_symbols=True)``
+    cut at the version's freeze)."""
+    return len({r[3] for r in _tiingo_ledger_rows(month)})
+
+
+def ledger_symbols(month: str) -> set[str]:
+    """Tiingo symbols the quota ledger shows asked in ``month`` (cut at the version's freeze)."""
+    return {r[3].upper() for r in _tiingo_ledger_rows(month)}
 
 
 def tiingo_queue(candidates: pd.DataFrame) -> dict:
@@ -3953,7 +3968,7 @@ def main(argv: list[str] | None = None) -> int:
                                               sessions)
     log(f"Yahoo answers fed back ({len(answers)} answered pairs): {yahoo_counts}")
     candidates = assign_fetch_order(candidates)
-    used = common.quota_used("tiingo", MONTH_1, unique_symbols=True)
+    used = tiingo_used(MONTH_1)
     candidates, budget = apply_budget(candidates, used, args.tiingo_already_used, ledger_symbols=ledger_symbols(MONTH_1))
     candidates = candidates.sort_values(["priority", "security_id", "planned_source", "needed_start"],
                                         kind="stable").reset_index(drop=True)

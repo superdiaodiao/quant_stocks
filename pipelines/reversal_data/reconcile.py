@@ -3737,7 +3737,7 @@ def build_move_queue(states: dict[str, dict], dv_weeks: dict) -> tuple[pd.DataFr
                          index=frame.index)
     mechanical = (frame["rule"].eq("R1") & frame["classification"].eq("unreviewed") & agreeing.map(len).ge(2)
                   & ~doubtful)
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+    stamp = f"{common.STAMP_DATE}T00:00:00Z"  # the version's build day (quant.data.version.STAMP_DATE), not the clock
     for k in frame.index[mechanical]:
         sources = agreeing[k]
         frame.loc[k, ["classification", "verified_at"]] = [R1_MECHANICAL_CLASS, stamp]

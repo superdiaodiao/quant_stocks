@@ -3395,7 +3395,7 @@ def build(scope: pd.DataFrame, filings: pd.DataFrame) -> pd.DataFrame:
     existing = load_existing()
     matched = match_existing(existing, scope, read_csv_text(INTERVALS))
     log(f"existing terminal rows: {len(existing)}, {len(matched)} matched to scoped securities")
-    verified_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    verified_at = common.STAMP_DATE  # the version's build day (quant.data.version.STAMP_DATE), not the clock
     frame, used = build_rows(scope, evidence, book, matched, NameIndex(master), read_csv_text(CANDIDATES), verified_at)
     if common.V2_PLUS:
         frame = attach_d5_evidence(frame)

@@ -1807,7 +1807,23 @@ def fetch_profiles(ciks: set[int], *, offline: bool = False) -> tuple[dict[int, 
     return profiles, [cik for cik, profile in zip(ordered, found) if profile is None]
 
 
+def require_local_files() -> None:
+    """The stored price files and the Nasdaq snapshots are read relative to the working directory (their paths are
+    written into ticker_intervals.csv as they are). Run from anywhere but a checkout that holds them (a worktree, a
+    scratch copy whose ``stocks_list_dir`` link landed inside the extracted folder), the build used to go on with
+    no snapshots and stop on an unrelated KeyError in ``successor_security``; stop here instead, saying why."""
+    missing = []
+    if not any(SNAPSHOT_DIR.glob("nasdaq_listed_*.csv")) or not any(SNAPSHOT_DIR.glob("nasdaq_300M_*.csv")):
+        missing.append(f"{SNAPSHOT_DIR}/nasdaq_listed_*.csv and nasdaq_300M_*.csv")
+    if not any(PRICE_DIR.glob("*.csv")):
+        missing.append(f"{PRICE_DIR}/*.csv")
+    if missing:
+        raise SystemExit(f"security_master: run from the main checkout (or a copy laid out like it); not found from "
+                         f"{Path.cwd()}: {'; '.join(missing)}")
+
+
 def build(offline: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, dict, pd.DataFrame, pd.DataFrame]:
+    require_local_files()
     form25 = read_form25(FORM25)
     exits = terminal_exits(form25)
     cuts = form25_cuts(form25)
@@ -2430,7 +2446,9 @@ def build_master(profiles, all_intervals, intervals, form25, price_map, multi, m
             if not hit.empty:
                 return hit.iloc[0]["security_id"]
         letter = class_letter(share_class)
-        same = succ[[class_letter(k) == letter for k in succ["share_class"]]] if letter else succ.iloc[:0]
+        # a boolean Series, not a list: an empty list would select zero columns of an empty ``succ`` (KeyError below)
+        same = succ[pd.Series([class_letter(k) == letter for k in succ["share_class"]], index=succ.index, dtype=bool)] \
+            if letter else succ.iloc[:0]
         if same["security_id"].nunique() == 1:
             return same.iloc[0]["security_id"]
         after = succ[succ["ticker"].isin(set(row.successor_tickers.split()))]

@@ -40,9 +40,25 @@ CACHE_ROOT = DATA_MAIN / "research_cache"
 INPUTS_PARENT = Path("output/research_only/reversal_2012_2026")   # relative to a checkout
 INPUTS = ROOT / INPUTS_PARENT / INPUTS_NAME[DATA_VERSION]
 CACHE = CACHE_ROOT / CACHE_NAME[DATA_VERSION]
+# The day a build stamps on the rows it decides itself (``verified_at`` of terminal_returns_2012_2026.csv and of the R1
+# rows reviewed_moves.csv classifies mechanically): each version's build day as committed, not the clock, so an offline
+# rebuild reproduces the committed files byte for byte. Until 2026-10-11 the clock was read, and a rebuild on another
+# day differed from the committed files in these stamps only. A new version adds its day here when it is first built.
+STAMP_DATE = {"v1": "2026-10-03", "v2": "2026-10-05", "v2.1": "2026-10-10"}
+# When each version was frozen (its freeze commit, UTC). The request ledger of a versioned cache is shared and keeps
+# growing (until 2026-10-11 the megacap_oos2 / oos3 studies logged their Tiingo and SEC requests to the v1 ledger), so
+# a step that reads the ledger (prefilter's month-1 Tiingo budget) reads only the rows before its version's freeze.
+# A version not yet frozen sets None and reads the whole ledger.
+FROZEN_UTC = {"v1": "2026-10-03T07:34:22+00:00", "v2": "2026-10-05T20:55:03+00:00",
+              "v2.1": "2026-10-10T12:07:50+00:00"}
 # the request ledger of the versioned cache (quant.data.sources.http.Ledger)
 RAW_INDEX = CACHE / "raw_index.csv.gz"
 QUOTA_LEDGER = CACHE / "quota_ledger.csv"
+
+
+def stamp_date(version: str | None = None) -> str:
+    """``STAMP_DATE`` of ``version`` (default: the version in force), YYYY-MM-DD."""
+    return STAMP_DATE[version or DATA_VERSION]
 
 
 def versioned(path: str | Path) -> Path:

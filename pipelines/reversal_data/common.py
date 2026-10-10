@@ -46,6 +46,8 @@ V2_1_ALPACA = _version.CACHE_ROOT / "reversal_2012_2026_v2_1_alpaca"
 RAW = CACHE / "raw"
 RAW_INDEX = _version.RAW_INDEX
 QUOTA_LEDGER = _version.QUOTA_LEDGER
+# the day stamped on rows the build decides itself: the version's build day, not the clock (quant.data.version)
+STAMP_DATE = _version.stamp_date()
 SEC_PER_SECOND = _sec.SEC_PER_SECOND
 SEC_USER_AGENT = _sec.user_agent()
 SEC_LIMITER = _sec.SEC_LIMITER
