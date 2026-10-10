@@ -1,7 +1,8 @@
 # 项目架构（目标设计与分阶段迁移）
 
-> 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）和第 2 阶段（其余 10 月份研究、`quant/strategies`、
-> `quant/observation`）已完成；第 3–4 阶段尚未开始。
+> 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）、第 2 阶段（其余 10 月份研究、`quant/strategies`、
+> `quant/observation`）和第 3 阶段（数据流水线进 `pipelines/`、各数据商代码进 `quant/data/sources/`、v2.1 进
+> `quant.data.version`，见第 10 节）已完成；第 4 阶段（旧研究脚本移到 `archive/`）另行进行。
 > 本文用中文说明，代码里的名字（模块、函数、目录）保持英文。
 
 ## 1. 为什么要改
@@ -24,7 +25,7 @@
 quant/                      可复用的核心库（新）；src/ 保留给已冻结的旧代码
   paths.py                  ROOT（当前检出）、MAIN_CHECKOUT、CACHE_ROOT（大缓存只在主检出里）
   data/                     数据层：只读数据、做日期守卫，不做任何策略判断
-    version.py              数据版本开关 v1 / v2（v2.1 在流水线验收后加在这里，只加这一处）
+    version.py              数据版本开关 v1 / v2 / v2.1：唯一声明处，研究和流水线都读它
     guards.py               日期守卫：assert_dev_dates / truncate_dev，assert_window / truncate_window
     calendar.py             交易日历：month_end_mask、last_session_of_each_month
     rates.py                无风险利率：Ken French 日 RF + FRED DTB3 补尾
@@ -32,9 +33,17 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     panel.py                Nasdaq 时点股票面板：load_window、make_index、退市终值常数
     ohlc.py                 按真实成交价重建的日线 OHLC（整股引擎、挂限价单用）
     market_cap.py           时点市值（SEC 股数 → 公众流通值 → Nasdaq 名单 → 成交额代理）
-    sources/                各数据商：解析（现在）+ 下载与缓存（第 3 阶段）
-      yahoo.py              parse_chart、parse_ohlc、split_events、parse_ohlc_payload
-                            （以后还有 tiingo、alpaca、sec、archive.org、ibkr 借券费；密钥只从环境变量/.env 读，绝不打印）
+    sources/                各数据商：请求地址、带缓存和请求台账的下载、解析（密钥只从环境变量/.env 读，绝不打印）
+      http.py               cached_get（先缓存再解析、404 记标记、请求台账 Ledger 由调用方给）、限速器、原子写、脱敏
+      sec.py                SEC 联系人（src/io/sec_contact，绝不打印）、每秒 7 次的共享限速器、请求头
+      yahoo.py              parse_chart、parse_ohlc、split_events、parse_ohlc_payload；v8 图表请求地址 chart_url
+      tiingo.py / alpaca.py 接口地址、ticker 的 URL 写法、返回体解析
+      archive_org.py        Wayback 原始抓取地址、Yahoo 旧页面（table.csv、q/hp、quote/history）解析、raw_from_capture
+      companiesmarketcap.py 搜索结果 / 猜测页面属于哪个 ticker（cmc_pick、cmc_slugs）
+      quantquote.py         QuantQuote 免费标普 500 日线包的读取
+      ibkr_borrow_fees.py   IBKR 借券费文件解析和每日快照读取（记录器 scripts/record_borrow_fees.py 必须自包含）
+      megacap_oos2.py       1998–2013 超大盘样本外的取数和解析（SEC 封面、Wayback、Yahoo、CMC、Tiingo）
+      sec_cache.py、daily_series.py   分拆 / NDX 研究的缓存请求（第 2 阶段）
   signals/                  信号：纯函数，只用到 t 日收盘为止的数据
     technical.py            sma_state、trailing_return、vol_state、inverse_vol_weights、rsi_wilder、momentum_frames
   strategies/               每个策略一个模块：规则 + 引擎（从研究里原样抽出）；registry.py 登记冻结的命名策略
@@ -52,7 +61,9 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
   cli.py                    python -m quant list / study <name> / strategies / run <strategy>
   prereg.py                 事先登记块（PREREG-BEGIN/END）的摘要和冻结文件
 studies/                    每个事先登记的研究一个文件：读数据 → 策略 + 引擎 → 评估 → 写 output/research_only/<name>/
-pipelines/reversal_data/    （第 3 阶段）数据构建
+pipelines/                  数据构建：只写数据文件；研究只读它们的输出，从不导入 pipelines
+  reversal_data/            反转 2012–2026 数据：每个步骤一个模块，build.py 是 v1 / v2 / v2.1 通用的不动点运行器
+  megacap_oos2/build.py     超大盘样本外（OOS.2）写输出的步骤（qqq、sec）
 qc/                         不动（QuantConnect 算法必须自包含）
 scripts/                    （第 4 阶段后）只剩薄的命令行入口和旧命令的转发
 archive/                    （第 4 阶段）旧研究脚本，只移动不删除
@@ -87,6 +98,8 @@ quant.cli ──► studies（只有它）
 
 - 研究只导入 `quant`，**研究之间不互相导入**。两个研究需要同一段代码时，把它挪进 `quant`。
 - `quant.data` 不导入 `signals / backtest / evaluation / strategies`。
+- `pipelines/` 可以导入 `quant`（版本开关、各数据商代码）；`quant` 和 `studies` 都不导入 `pipelines`，也不导入
+  任何数据脚本（`tests/test_pipeline_layout.py` 检查）。
 - `quant.signals`、`quant.evaluation` 是纯函数：不读文件、不联网、不依赖模块级可变状态。
 - `qc/` 不导入 `quant`（QuantConnect 上跑不了本地包）。
 - **已冻结的代码不导入 `quant` 或 `studies`**（见第 6 节：闭包摘要目前只追踪 `src`、`scripts`）。
@@ -139,7 +152,7 @@ quant.cli ──► studies（只有它）
 |---|---|---|
 | 1（已完成） | 写本文；从 10 月份研究里**抽取**（不重写）共享部分建 `quant/`：成本模型、数据加载（面板、基准、版本开关）、指标与通过标准、执行约定；试点迁移 3 个形态不同的研究 | `tests/quant/` 单元测试证明每个 `quant` 函数与原函数结果完全相等；3 个试点的全部输出文件与迁移前**逐字节相同**；旧命令和旧导入仍可用；相关测试全部通过；冻结检查通过 |
 | 2（已完成） | 其余约 37 个 10 月份研究和前瞻观察迁到 `quant`（`studies/` + `quant/strategies` + `quant/observation`）；研究之间不再互相导入；`python -m quant run <strategy>` | 每个研究：迁移前生成黄金输出，迁移后逐字节相同（做不到的写明原因，并且数值差 ≤ 1e-12）；前瞻观察黄金测试通过；`grep "from scripts import research_" studies quant` 为空 |
-| 3 | 数据流水线整理到 `pipelines/reversal_data/`，下载器进 `quant/data/sources/`；v2.1 进 `quant.data.version` | 用同一份原始缓存重建 v1 / v2 / v2.1 面板，文件哈希与现有 manifest 一致 |
+| 3（已完成） | 数据流水线整理到 `pipelines/reversal_data/`，下载器进 `quant/data/sources/`；v2.1 进 `quant.data.version` | 用同一份原始缓存离线重建 v1 / v2 / v2.1，改动前后输出逐字节相同（第 10 节） |
 | 4 | 约 300 个 v14–v51 旧研究脚本移到 `archive/`（只移动，不删除）；`scripts/` 只剩命令行入口和转发文件 | 冻结闭包内的文件不动；`compileall` 通过；所有台账里的命令仍能找到文件（转发或在 `archive/` 的明确新路径） |
 
 每个阶段单独提交。
@@ -260,7 +273,7 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
 - `tests/quant/test_quant_core.py` 继续把每个 `quant` 函数和原函数比较；原函数已从脚本里删掉，所以在
   `tests/quant/originals/` 留了一份冻结拷贝（只给测试用）。
 
-### 9.4 依赖规则的例外（第 3 阶段处理）
+### 9.4 依赖规则的例外（第 3 阶段已处理前三条，见 10.4）
 
 - `quant.data.megacap_history` 导入 `scripts/megacap_oos2_data.py`（OOS.2 的取数脚本）；megacap_oos3 研究直接用
   `scripts/reversal_data_common.cached_get`，spinoffs 用 `scripts/reversal_data_v2_archive`：这些是数据流水线，
@@ -270,3 +283,128 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
   `io.security_universe`（S-MISP 观察）。
 - 研究里仍有不少“研究专属但写法相近”的函数（各自的 period_metrics、perf_metrics、criteria 标签等），它们的
   口径或输出键不同，合并会改变输出，保持原样。
+
+## 10. 第 3 阶段做了什么
+
+### 10.1 路径对照表
+
+步骤模块是原文件原样移动（先单独提交一次纯移动，保留 `git log --follow` 历史），之后只改导入；旧路径留转发文件：
+运行旧命令 = 用 `runpy` 把新模块当 `__main__` 运行（与原来“脚本作为 `__main__`、被别处导入的是另一份模块”的行为
+完全一样）；导入旧路径 = 得到新模块本身（`sys.modules` 别名，同第 5 节）。
+
+| 原路径 | 新路径 |
+|---|---|
+| `scripts/reversal_data_<step>.py`（common、form25、security_master、listings、wiki、prefilter、tiingo、yahoo、reconcile、review、terminal、earnings、factors、universe、validate、v2_archive、v2_fill、v2_report、v2_1_alpaca、v2_1_fill、v2_1_report） | `pipelines/reversal_data/<step>.py` |
+| `scripts/reversal_data_v2_build.py`、`scripts/reversal_data_v2_1_build.py` | `pipelines/reversal_data/build.py --version v2 / v2.1`（一个运行器；旧命令转发并带上版本） |
+| `scripts/data_source_probe.py` | `pipelines/reversal_data/source_probe.py` |
+| `scripts/robustness_data_v2_compare.py` | `pipelines/reversal_data/robustness_v2_compare.py` |
+| `scripts/megacap_oos2_data.py` | 取数 / 解析 / 读取：`quant/data/sources/megacap_oos2.py`；写输出的步骤（qqq、sec）：`pipelines/megacap_oos2/build.py`（重新导出旧模块的全部名字） |
+| `scripts/study_data_version.py` | `quant/data/version.py`（两份副本合成一份；旧路径是它的别名） |
+| `reversal_data_common` 的 cached_get、限速器、原子写、脱敏、读 .env | `quant/data/sources/http.py`（请求台账 `Ledger` 由调用方给；`common` 在每次调用时取自己的 `RAW_INDEX` / `QUOTA_LEDGER`，所以探针、v2 抓取器、Alpaca 改台账的写法照旧有效） |
+| `reversal_data_common` 的 SEC 联系人、每秒 7 次限速器、请求头 | `quant/data/sources/sec.py`（联系人仍只从 `src/io/sec_contact` 读，绝不打印） |
+| `reversal_data_tiingo`：API、url_ticker、parse_body、is_quota_text、to_frame | `quant/data/sources/tiingo.py` |
+| `reversal_data_v2_1_alpaca`：BASE、ADJUSTMENTS、CA_TYPES、bars_frame、corporate_actions | `quant/data/sources/alpaca.py` |
+| `reversal_data_yahoo`：CHART、HEADERS、chart_url | `quant/data/sources/yahoo.py` |
+| `data_source_probe` 的 Yahoo 旧页面解析 + `reversal_data_v2_archive` 的 URL 解析、带成交量的解析、raw_from_capture | `quant/data/sources/archive_org.py`（新增 `capture_url`，探针、v2 抓取器、分拆研究共用） |
+| `data_source_probe`：cmc_pick、cmc_slugs、CMC_SUFFIX | `quant/data/sources/companiesmarketcap.py` |
+| 探针和 v2 抓取器各写一遍的 QuantQuote 读取 | `quant/data/sources/quantquote.py` |
+| `quant/observation/smisp.py`：parse_borrow_text、BorrowSnapshots | `quant/data/sources/ibkr_borrow_fees.py`（smisp 从这里导入，名字不变） |
+
+不动的：`scripts/record_borrow_fees.py`（借券费记录器）。`.github/workflows/borrow_fees.yml` 只稀疏检出这一个文件、
+用裸 `python3` 运行，它导入不了本仓库的包，所以它必须保持自包含；它也是工作流引用的冻结文件（第 6 节）。读取端在
+`quant/data/sources/ibkr_borrow_fees.py`。
+
+### 10.2 版本开关
+
+`quant.data.version` 是 v1 / v2 / v2.1 的唯一声明处（`VERSIONS`、`CACHE_NAME`、`INPUTS_NAME`、`V2_PLUS`、
+`IS_V2_1`、`RAW_INDEX` / `QUOTA_LEDGER`），流水线的 `common` 和研究都从这里读。`IS_V2` 的意思不变（恰好是 v2），
+所以事先登记在冻结 v2 上的研究（ml_cross_section、short_overlay、index_exclusion、前瞻观察 B3）遇到 v2.1 仍然拒绝；
+其它研究在 v2.1 下读 `inputs_v2_1/`、写 `<study>_v2_1/`（`versioned`）。
+
+`REVERSAL_DATA_MAIN_CHECKOUT`（只用于测试）把各版本缓存指到一个按主检出布局的临时目录；不设置时所有路径与原来
+相同。等价性检查就是靠它在临时副本里重建，真缓存一个字节都没写（重建前后对真缓存和真 inputs 做了 `find -newer`，
+没有任何文件被改）。
+
+### 10.3 运行器 `pipelines/reversal_data/build.py`
+
+`python -m pipelines.reversal_data.build --version {v1,v2,v2.1} [--max-passes N] [--from STEP]`：每一轮依次运行
+prefilter → yahoo → reconcile → terminal → earnings → universe → validate（v2 只在第一轮先跑 archive parse），每步是
+`python -m pipelines.reversal_data.<step>` 子进程，直到监视的输出哈希与上一轮相同。v2 / v2.1 的轮数上限、日志目录
+（`<cache>/v2_build`、`v2_1_build`）、`pass_N.json` 的键名都与原来两个脚本相同；v1 是冻结的，必须加 `--allow-v1`
+（用于临时副本）。
+
+### 10.4 依赖规则
+
+第 2 阶段 9.4 的前三条例外已去掉：`quant.data.megacap_history` 和 megacap_oos2 / oos3 研究只导入
+`quant.data.sources.megacap_oos2`（oos3 原来借用的 `reversal_data_common.cached_get` 换成同一请求台账的
+`megacap_oos2.cached_get`）；spinoffs 只导入 `quant.data.sources.archive_org`。`tests/test_pipeline_layout.py` 检查
+`quant/`、`studies/` 不导入 `pipelines` 和任何数据脚本，旧路径都转发到新模块，记录器保持自包含。
+
+### 10.5 数据不变是怎么验证的
+
+1. **改动前**：在当前代码（master + 只加了 `REVERSAL_DATA_MAIN_CHECKOUT` 的提交 `532ae8159`）的 `git archive` 上，
+   建一个临时树：代码 + 入库的 inputs，`research_cache` 里五个会被写的目录（v1、v2、v2.1 缓存、v2 fill、v2.1
+   Alpaca）用 APFS 克隆（保留修改时间），其余只读缓存和 `cleaned_stocks_data`、`stocks_list_dir` 用符号链接。
+   网络用一个不可达的代理堵死。依次离线运行：v2 的 archive parse，然后 v1 / v2 / v2.1 并行各跑一轮
+   form25（`--offline --out-dir`，写到临时目录）→ prefilter → yahoo → reconcile → terminal → earnings → universe →
+   validate。security_master 没有包括：它在当前代码上离线运行就报错（`successor_security` 的 KeyError，改动前就
+   如此，见 10.7），它的输出是从入库文件克隆的原样。
+2. **改动后**：把临时树挪开，在**同一路径**重建一个新的（重构后代码 `836347e87`），用旧命令（经转发文件）把同样的
+   步骤再跑一遍；之后又在修正（`b0acc83f4`）后的代码上用新运行器 `build --version v2 / v1 --allow-v1 / v2.1
+   --max-passes 1` 再跑一遍。
+3. **比较**：`inputs/`、`inputs_v2/`、`inputs_v2_1/` 的全部文件、form25 的输出，以及任一次运行写过的每个缓存文件
+   （旧命令那一遍 28,942 个文件，新运行器那一遍 29,501 个），逐文件比 sha256。
+
+结果：
+
+- 三个版本 inputs 里的 61 个数据文件（csv / csv.gz）、form25 的 12 个输出、缓存里的每个 csv / csv.gz（价格文件、
+  `prices/daily_panel.csv.gz`、prefilter、universe、earnings、terminal 的全部表）**逐字节相同**。
+- 不同的只有 JSON 摘要、reconcile 的状态 pickle 和面板签名，逐键核对过，原因只有这些：
+  - 时间戳和耗时：`generated_utc`、`updated_utc`、`built_utc`、`finished_utc`、`panel_built_utc`、`modified` /
+    `modified_utc`、`runtime_s` / `runtime_seconds` / `seconds` / `timings_s`、`peak_rss_mb`、reconcile 日志文件名
+    里的时间；
+  - 代码哈希：manifest 的 `scripts`（各步骤源码的 sha256；改动后还多记录了 `pipelines/reversal_data/*.py`）；
+    reconcile 每只证券状态的 `signature` 和 `daily_panel.signature` 里含 `reconcile.py` 自身字节的哈希
+    （`CODE_HASH`，任何改动都会让它变），所以 v2.1 改动前的那次“面板未变、跳过”在改动后变成“重写面板”：重写出的
+    `daily_panel.csv.gz` 与原来逐字节相同，只是 reconcile 摘要的 `panel` 一项记录了行数而不是 `unchanged`；
+  - 上面这些 JSON 自己的 sha256 和字节数（出现在 manifest 和 validation_summary 的 `inputs_read` 里）；
+  - 新运行器自己的记录（`v2_build/pass_1.json` 等），改动前那一遍没有用运行器，比较的对象是克隆来的旧记录。
+- 第一遍比较还发现 prefilter 摘要里记录 RELIST_JUNCTIONS 来源的文件名从 `reversal_data_reconcile.py` 变成了
+  `reconcile.py`：已改回（`b0acc83f4`），新运行器的第二遍确认这一项已经相同，其余结果与第一遍一样（数据文件
+  0 个不同）。
+- 顺带发现（与本次重构无关）：当前代码离线重建出的 v1 / v2 `terminal_returns_2012_2026.csv`、`reviewed_moves.csv`
+  与入库版本不同（入库的是旧代码建的），三个版本还多写出一个未入库的 `special_distributions.csv`；v2.1 除时间戳外
+  与入库版本一致。改动前后两次重建彼此一致，所以这不是重构造成的。
+
+其它检查：`compileall`（src、scripts、tests、quant、studies、pipelines）；可移植 CI 测试集（372 个文件，3077 通过）、
+`tests/quant`（含 `QUANT_GOLDEN_SLOW=1` 的第 2 阶段黄金和试点黄金）、数据依赖的 reversal 测试、前瞻观察黄金测试全部
+通过；冻结根（v50 / v50r2 / v50r3 / sue_lt_v1 和工作流引用的脚本，31 个根、72 个文件）的导入闭包摘要改动前后完全
+相同，四个 `status` 的输出与第 2 阶段记录的逐字节相同（v50r3 在 master 上一直是 `PROTOCOL_NOT_FROZEN`）。
+
+### 10.6 行数
+
+| | 改动前 | 改动后 |
+|---|---|---|
+| `scripts/` 里本阶段范围内的文件（26 个流水线脚本 + study_data_version + robustness 比较 + megacap_oos2_data + data_source_probe + record_borrow_fees） | 39,851 | 469（27 个转发文件，每个 10–15 行，共 396 行，加原样不动的记录器 73 行） |
+| `pipelines/` | 0 | 38,682 |
+| `quant/data/sources/` 新增模块（http、sec、tiingo、alpaca、archive_org、companiesmarketcap、quantquote、ibkr_borrow_fees、megacap_oos2） | 0 | 1,320 |
+| `quant/data/version.py` + `quant/data/sources/yahoo.py` | 34 + 83 | 59 + 106 |
+| `quant/observation/smisp.py` | 1,011 | 934 |
+
+合计约 +700 行，几乎全是转发文件、模块文档字符串和新运行器的版本表；没有改任何算式。
+
+### 10.7 留下的问题
+
+- `security_master --offline` 在当前代码上运行失败（`successor_security` 里 `same["security_id"]` KeyError，与重构
+  无关）；当前代码重建的 v1 / v2 有两张表与入库版本不同（10.5）。这两件事需要主人决定是修代码还是重新冻结。
+- reconcile 的缓存签名含整个 `reconcile.py` 的哈希：只改注释或导入也会让下一次运行重算所有证券并重写面板（结果
+  相同，只是慢）。
+- 各步骤仍是几千行的大模块（reconcile 4,781 行、prefilter 4,057 行、universe 3,922 行），里面混着取数、解析和规则；
+  本阶段只把与数据商相关、能原样搬出的部分搬进了 `quant/data/sources`，取数循环（配额、缓存布局、台账）仍留在步骤里。
+- 三处仍有相近但不完全相同的副本，合并会改输出，所以保留：`megacap_oos2` 自己的 `_yahoo_csv_span`、`wayback_csv`
+  （Wayback 地址不做 `&amp;` 替换）、CMC 页面的取数；`listings`、`factors` 各自的 Wayback 地址函数。
+- 步骤之间仍有运行期互相改模块全局变量的写法（探针导入时改 `common.RAW_INDEX`，v2 抓取器改 `probe.RAW`），行为
+  保持原样。
+- `factors` 仍导入 `scripts.research_v5_trend_core_satellite`（第 4 阶段如果移动它，要留转发文件）。
+- `.github/workflows/tests.yml` 的 `compileall` 只覆盖 `src scripts tests`，不含 `quant studies pipelines`（工作流
+  文件属于冻结范围，本阶段没有改，建议主人加上）。
