@@ -7,9 +7,10 @@ import pandas as pd
 import pytest
 
 from scripts import forward_observation as fo
-from scripts import research_intraday_t as it
-from scripts import research_selective_t as st
-from scripts import research_t_grid as tg
+from quant.data.ohlc import build_real_ohlc
+from quant.data.sources.yahoo import parse_ohlc, split_events
+from quant.strategies import selective_t as st
+from quant.strategies import t_grid as tg
 
 STOCKS = ("AAPL", "MSFT")
 SESSIONS = pd.bdate_range("2024-01-02", "2027-01-29")
@@ -257,7 +258,7 @@ def test_fetch_writes_plain_json_and_logs(tmp_path):
 # ================================================================== B3: S-MISP short overlay (scripts/forward_smisp.py)
 
 from scripts import forward_smisp as fs  # noqa: E402
-from scripts import research_reversal_dev as rev  # noqa: E402
+from quant.data.panel import make_index  # noqa: E402
 from scripts import research_short_overlay as ro  # noqa: E402
 
 N_NAMES = 26
@@ -472,7 +473,7 @@ def research_reference(env, as_of: str):
     class D:
         pass
     data = D()
-    data.sessions, data.sig_idx, data.close = grid, rev.make_index(tr, close), close.ffill()
+    data.sessions, data.sig_idx, data.close = grid, make_index(tr, close), close.ffill()
     data.terminal_events = pd.DataFrame(events, columns=["security_id", "booked_on", "status", "terminal_return"])
     data.qqq_close = pd.Series(qqq.s.close, index=ses).reindex(grid)
     effr = ro.load_effr(sm / "EFFR_nyfed.csv")
@@ -680,8 +681,8 @@ def test_history_state_roundtrip_and_tail_merge(tmp_path):
     tail = fp.chart_payload("QQQ", tail_df, {d: v for d, v in divs.items() if d >= tail_df.index[0]}, {})
     merged, check = fp.merge_history("QQQ", state, tail)
     assert check["overlap_ok"] and check["overlap_days"] > 10 and check["new_days"] > 50
-    a = it.build("QQQ", *_ohlc_and_splits(full))
-    b = it.build("QQQ", *_ohlc_and_splits(merged))
+    a = build_real_ohlc("QQQ", *_ohlc_and_splits(full))
+    b = build_real_ohlc("QQQ", *_ohlc_and_splits(merged))
     np.testing.assert_allclose(a.close, b.close, rtol=1e-9)
     np.testing.assert_allclose(a.tr.to_numpy()[1:], b.tr.to_numpy()[1:], rtol=1e-7, atol=1e-12)
     np.testing.assert_allclose(a.div, b.div, rtol=1e-7, atol=1e-12)
@@ -696,7 +697,7 @@ def test_history_state_roundtrip_and_tail_merge(tmp_path):
 def _ohlc_and_splits(p):
     path = Path(__import__("tempfile").mkdtemp()) / "x.json"
     path.write_text(json.dumps(p))
-    return it.parse_ohlc(path, "2027-12-31"), it.split_events(path, "2027-12-31")
+    return parse_ohlc(path, "2027-12-31"), split_events(path, "2027-12-31")
 
 
 from pathlib import Path  # noqa: E402
@@ -711,7 +712,7 @@ def test_tiingo_rows_become_the_yahoo_format():
             for k, (d, c) in enumerate(zip(days, raw))]
     p = fp.tiingo_rows_to_payload("XYZ", rows)
     df, splits = st.ohlc_frame(p, "2027-01-01")
-    s = it.build("XYZ", df, splits)
+    s = build_real_ohlc("XYZ", df, splits)
     np.testing.assert_allclose(s.close, raw)                  # real close back from split-adjusted x later splits
     assert splits == {str(days[3].date()): 2.0}
     assert np.isclose(s.div[5], 0.5) and s.split[3] == 2.0
@@ -739,7 +740,7 @@ def test_alpaca_charts_from_raw_split_all(tmp_path):
                            sleep=lambda s: None)
     assert set(got) == {"ABC"} and len(calls) == 3
     df, splits = st.ohlc_frame(got["ABC"], "2027-01-01")
-    s = it.build("ABC", df, splits)
+    s = build_real_ohlc("ABC", df, splits)
     assert splits == {str(days[2].date()): 4.0}
     np.testing.assert_allclose(s.close, raw_c)
     assert np.isclose(s.tr.iloc[4], 52.0 / (51.0 * 0.995) - 1)    # total return from the adjustment=all close
@@ -763,10 +764,10 @@ def test_fetch_uses_tiingo_then_yahoo_and_the_history_state(tmp_path):
                    getter=lambda u: urls.append(u) or json.dumps(tail).encode(), sleep=lambda s: None)
     assert out == {"QQQ": "ok (yahoo)"}
     assert f"period1={int(pd.Timestamp('2026-09-09', tz='UTC').timestamp())}" in urls[0]   # tail: 10-09 - 30 days
-    a, b = it.parse_ohlc(tmp_path / "raw" / "QQQ.json", "2027-12-31"), None
+    a, b = parse_ohlc(tmp_path / "raw" / "QQQ.json", "2027-12-31"), None
     ref = tmp_path / "ref.json"
     ref.write_text(json.dumps(full))
-    b = it.parse_ohlc(ref, "2027-12-31")
+    b = parse_ohlc(ref, "2027-12-31")
     np.testing.assert_allclose(a["close"].to_numpy(), b["close"].to_numpy(), rtol=1e-9)
     srcs = pd.read_csv(tmp_path / "fetch_sources.csv")
     assert srcs["source"].tolist() == ["yahoo"] and json.loads(srcs["history_check"][0])["overlap_ok"]

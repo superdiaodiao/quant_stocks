@@ -2,7 +2,10 @@
 import numpy as np
 import pandas as pd
 
-from scripts import research_ndx_recon as m
+from quant.data import ndx_events
+from quant.evaluation.stats import mean_t_n_se
+from quant.strategies import ndx_recon as m
+from scripts import research_ndx_recon as study
 
 WIKI = """intro
 {| class="wikitable sortable" id="changes"
@@ -48,7 +51,7 @@ WIKI = """intro
 
 
 def test_parse_and_classify():
-    ev = m.build_events_raw(WIKI)
+    ev = ndx_events.build_events_raw(WIKI, study.HAND, study.WINDOW)
     assert set(ev.ticker) == {"ANSS", "HAS", "EXC", "CELG", "CEG"}
     t = ev.set_index("ticker")
     assert t.loc["ANSS", "kind"] == "annual" and t.loc["ANSS", "type"] == "announced"
@@ -61,8 +64,8 @@ def test_parse_and_classify():
 
 
 def test_headline_date():
-    assert m._inclusion_in_headline("Moderna, Inc. to Join the NASDAQ-100 Index Beginning July 20, 2020") == "2020-07-20"
-    assert m._inclusion_in_headline("Walmart Inc. to Join the Nasdaq-100 Index Beginning January 20th, 2026") == \
+    assert ndx_events._inclusion_in_headline("Moderna, Inc. to Join the NASDAQ-100 Index Beginning July 20, 2020") == "2020-07-20"
+    assert ndx_events._inclusion_in_headline("Walmart Inc. to Join the Nasdaq-100 Index Beginning January 20th, 2026") == \
         "2026-01-20"
 
 
@@ -71,11 +74,11 @@ def _sessions():
 
 
 def test_finalize_sessions_after_close():
-    ev = m.build_events_raw(WIKI)
+    ev = ndx_events.build_events_raw(WIKI, study.HAND, study.WINDOW)
     ev = ev[ev.ticker.isin(["ANSS", "HAS"])]
     checks = pd.DataFrame([{"group": "annual-2019", "gnw_published_et": "2019-12-13 20:05",
                             "gnw_url": "https://gnw/x"}])
-    fin = m.finalize(ev, checks, _sessions()).set_index("ticker")
+    fin = ndx_events.finalize(ev, checks, _sessions()).set_index("ticker")
     a = fin.loc["ANSS"]
     assert a.announce_date_et == "2019-12-13" and a.announce_time_et == "20:05"
     assert a.ann_session == "2019-12-13"       # Friday, after the close
@@ -84,13 +87,13 @@ def test_finalize_sessions_after_close():
 
 
 def test_finalize_weekend_release_and_preopen():
-    ev = m.build_events_raw(WIKI)
+    ev = ndx_events.build_events_raw(WIKI, study.HAND, study.WINDOW)
     ev = ev[ev.ticker == "ANSS"]
     sat = pd.DataFrame([{"group": "annual-2019", "gnw_published_et": "2019-12-14 10:00", "gnw_url": "u"}])
-    a = m.finalize(ev, sat, _sessions()).iloc[0]
+    a = ndx_events.finalize(ev, sat, _sessions()).iloc[0]
     assert a.ann_session == "2019-12-13" and a.buy_session == "2019-12-16"
     pre = pd.DataFrame([{"group": "annual-2019", "gnw_published_et": "2019-12-16 08:00", "gnw_url": "u"}])
-    a = m.finalize(ev, pre, _sessions()).iloc[0]
+    a = ndx_events.finalize(ev, pre, _sessions()).iloc[0]
     assert a.ann_session == "2019-12-13" and a.buy_session == "2019-12-16"
 
 
@@ -138,7 +141,7 @@ def test_car_and_cluster_t():
     ev = pd.DataFrame([{"event_id": "A", "group": "g", "kind": "annual", "side": "add", "type": "announced",
                         "ticker": "A", "inclusion_date": str(sess[9].date()), "effective_date": str(sess[8].date()),
                         "ann_session": str(sess[3].date()), "buy_session": str(sess[4].date())}])
-    t = m.car_table(ev, sess, bench, assets).iloc[0]
+    t = m.car_table(ev, sess, bench, assets, study.POST_DAYS).iloc[0]
     assert abs(t.r1_QQQ - 0.03) < 1e-12 and abs(t.ann_QQQ - 0.03) < 1e-12 and t.post20_ONEQ == 0
-    mean, tt, n = m._t(pd.Series([0.01, 0.02, 0.03]))
+    mean, tt, n = mean_t_n_se(pd.Series([0.01, 0.02, 0.03]))
     assert n == 3 and abs(mean - 0.02) < 1e-12 and tt > 3

@@ -5,10 +5,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_intraday_t as it
-from scripts import research_selective_t as st
-from scripts import research_t_grid as g
-from scripts.research_reversal_dev import order_cost
+from quant.data.ohlc import OHLCSeries
+from quant.strategies import selective_t as st
+from quant.evaluation.events import grid_hmatch_cagr, grid_window_stats
+from quant.strategies import t_grid as g
+from quant.strategies import t_grid_analysis as ga
+from quant.backtest.costs import ibkr_order_cost as order_cost
 
 AX = [n for n, _ in g.AXES]
 
@@ -80,7 +82,7 @@ def values(sim, k=0):
 
 def test_grid_size_and_labels():
     df = g.grid()
-    assert len(df) == g.N_GRID == 8 * 4 * 3 * 5 * 4 * 4 * 4 * 2 == 61_440
+    assert len(df) == ga.N_GRID == 8 * 4 * 3 * 5 * 4 * 4 * 4 * 2 == 61_440
     assert not df.duplicated().any()
     assert np.ravel_multi_index(tuple(df.iloc[123].to_numpy()), g.SHAPE) == 123
     lab = g.label(df.iloc[0])
@@ -114,26 +116,26 @@ def test_expanding_thresholds_use_only_the_past():
 
 
 def test_neighbour_median_ordinal_axes_only():
-    s = np.zeros(g.N_GRID)
+    s = np.zeros(ga.N_GRID)
     i = np.ravel_multi_index((0, 1, 0, 0, 1, 1, 1, 0), g.SHAPE)
     s[i] = 10.0                              # an isolated spike
-    nm = g.neighbour_median(s)
+    nm = ga.neighbour_median(s)
     assert nm[i] == 0.0                      # the spike's neighbourhood median is 0
-    s2 = np.zeros(g.N_GRID)
+    s2 = np.zeros(ga.N_GRID)
     blk = np.zeros(g.SHAPE)
     blk[0, :, 0, 0, :, :, :, 0] = 5.0        # a plateau over all ordinal values
-    nm2 = g.neighbour_median(blk.ravel())
+    nm2 = ga.neighbour_median(blk.ravel())
     assert nm2[i] == 5.0
     del s2
 
 
 def test_select_argmax_and_plateau():
-    s = np.zeros(g.N_GRID)
+    s = np.zeros(ga.N_GRID)
     spike = np.ravel_multi_index((0, 1, 0, 0, 1, 1, 1, 0), g.SHAPE)
     s[spike] = 3.0
     blk = s.reshape(g.SHAPE).copy()
     blk[2, :, 1, 3, :, :, :, 1] = 1.0
-    sel = g.select(blk.ravel())
+    sel = ga.select(blk.ravel())
     assert sel["A"] == spike
     assert np.unravel_index(sel["P"], g.SHAPE)[0] == 2
 
@@ -156,7 +158,7 @@ def synthetic_market(n=420, seed=3, split_day=None, div_day=None):
         div[div_day] = 0.5
     o, h, lo, c = o_adj * factor, h_adj * factor, l_adj * factor, adj * factor
     dates = pd.bdate_range("2015-01-01", periods=n)
-    s = it.Series_("AAPL", dates, o, h, lo, c, np.r_[np.nan, c[:-1]] / split, split, div, np.full(n, 0.02),
+    s = OHLCSeries("AAPL", dates, o, h, lo, c, np.r_[np.nan, c[:-1]] / split, split, div, np.full(n, 0.02),
                    pd.Series(np.r_[np.nan, (c[1:] + div[1:]) / (c[:-1] / split[1:]) - 1], index=dates), {})
     sma = pd.Series(adj).rolling(20, min_periods=20).mean().to_numpy()
     mk = st.Market("AAPL", s, factor, sma * factor, np.r_[np.nan, sma[:-1]] * factor, np.full(n, 50.0))
@@ -290,7 +292,7 @@ def test_accumulators_match_recorded_series():
     df = g.grid().sample(64, random_state=1)
     sim = g.simulate_grid(rows, g.cfg_arrays(df), record=True)
     allyears = np.ones(len(sim["years"]), bool)
-    ws = g.wstats(sim, allyears)
+    ws = grid_window_stats(sim, allyears)
     R = pd.DataFrame(sim["rec"]["R"][25:])
     M = pd.Series(sim["rec"]["M"][25:])
     X = sim["rec"]["x"][25:, 0, :]
@@ -303,7 +305,7 @@ def test_accumulators_match_recorded_series():
         assert ws["ir"][k] == pytest.approx(e.mean() / sd * math.sqrt(252), rel=1e-6, abs=1e-9)
         assert ws["cagr"][k] == pytest.approx(np.prod(1 + R[k]) ** (252 / len(R)) - 1, rel=1e-9)
         hm = np.prod(1 + w * M - max(w - 1, 0) * sim["f"][25:]) ** (252 / len(M)) - 1
-        assert g.geo_hmatch(sim, allyears, ws["w"])[k] == pytest.approx(hm, rel=1e-9)
+        assert grid_hmatch_cagr(sim, allyears, ws["w"])[k] == pytest.approx(hm, rel=1e-9)
 
 
 def test_walk_forward_uses_only_prior_years():
@@ -313,11 +315,11 @@ def test_walk_forward_uses_only_prior_years():
     sig = rng.random((32, 1300)) < 0.04
     rows = make_rows(s.open, s.high, s.low, s.close, sig_hi=sig, sig_lo=sig, sma=np.vstack([mk.sma_prev] * 3))
     sim = g.simulate_grid(rows, g.cfg_arrays(g.grid()), g.CostModel())
-    picks = g.walk_forward_picks(sim)
+    picks = ga.walk_forward_picks(sim)
     assert picks and picks[0][0] == 2023                # 2020-2022 = 784 sessions >= 750
     sim2 = {**sim, "acc": {k: v.copy() for k, v in sim["acc"].items()}}
     sim2["acc"]["sR"][-1] += 1.0                         # change the last year only
-    picks2 = g.walk_forward_picks(sim2)
+    picks2 = ga.walk_forward_picks(sim2)
     assert picks2 == picks                               # last year's data never selects its own config
 
 

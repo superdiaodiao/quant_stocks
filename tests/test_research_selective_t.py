@@ -5,8 +5,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_intraday_t as it
-from scripts import research_selective_t as m
+from quant.backtest.execution import ceil_cent
+from quant.data.ohlc import OHLCSeries
+from quant.evaluation.criteria import bh_reject
+from quant.strategies import selective_t as m
+from scripts import research_selective_t as study
 
 
 def make(o, h, lo, c, sma_now=None, sma_prev=None, rsi=None, split=None, div=None, sym="AAPL"):
@@ -14,7 +17,7 @@ def make(o, h, lo, c, sma_now=None, sma_prev=None, rsi=None, split=None, div=Non
     dates = pd.bdate_range("2020-01-01", periods=n)
     c = np.asarray(c, float)
     split = np.ones(n) if split is None else np.asarray(split, float)
-    s = it.Series_(sym, dates, np.asarray(o, float), np.asarray(h, float), np.asarray(lo, float), c,
+    s = OHLCSeries(sym, dates, np.asarray(o, float), np.asarray(h, float), np.asarray(lo, float), c,
                    np.r_[np.nan, c[:-1]] / split, split, np.zeros(n) if div is None else np.asarray(div, float),
                    np.full(n, 0.02), pd.Series(c, index=dates).pct_change(), {})
     sn = np.full(n, 100.0) if sma_now is None else np.asarray(sma_now, float)
@@ -114,13 +117,13 @@ def test_s3_add_on_drop_sell_at_target_and_cash_limited():
     b = base_shares()
     cash = m.START_EQUITY - b * 100
     assert q == min(b // 3, math.floor((cash - m.BUFFER) / (m.CAP_MULT * 95)))
-    assert tr.iloc[0]["gross"] == pytest.approx(q * (it.ceil_cent(94 * 1.06) - 94))
+    assert tr.iloc[0]["gross"] == pytest.approx(q * (ceil_cent(94 * 1.06) - 94))
 
 
 def test_s3_limit_uses_target_when_sma_below_entry():
     mk = make(*flat(5), sma_now=[90] * 5)
     cy = m.Cycle(m.Fam("S3", "D", 0.04, z=0.06), 10, 95.0, 1)
-    assert m.exit_limit(mk, 2, cy) == pytest.approx(it.ceil_cent(95 * 1.06))
+    assert m.exit_limit(mk, 2, cy) == pytest.approx(ceil_cent(95 * 1.06))
 
 
 def test_cash_account_buyback_needs_settled_cash():
@@ -189,8 +192,8 @@ def test_costs_reduce_value():
 
 
 def test_bh_and_configs():
-    assert list(m.bh_reject([0.001, 0.5, 0.02, 0.9])) == [True, False, True, False]
-    assert len(m.CONFIGS) * len(m.ASSETS) == 18
+    assert list(bh_reject([0.001, 0.5, 0.02, 0.9])) == [True, False, True, False]
+    assert len(m.CONFIGS) * len(study.ASSETS) == 18
     assert m.fams_of("S4b", "stock")[1].value == 0.04 and m.fams_of("S1-Xa", "QQQ")[0].value == 0.03
 
 

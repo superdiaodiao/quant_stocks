@@ -73,7 +73,7 @@ from quant.data.sources.yahoo import parse_ohlc, split_events  # noqa: E402
 from quant.evaluation.metrics import monthly, t_and_ir  # noqa: E402
 from quant.observation import prices as fp  # noqa: E402
 from quant.observation import smisp as fs  # noqa: E402
-from quant.paths import ROOT  # noqa: E402
+from quant.paths import CACHE_ROOT, ROOT  # noqa: E402
 from quant.strategies import registry  # noqa: E402
 from quant.strategies import selective_t as st  # noqa: E402
 from quant.strategies import t_grid as tg  # noqa: E402
@@ -245,13 +245,20 @@ def load_all(end: str, raw_dir: Path = RAW, stocks=STOCKS) -> Data:
     return out
 
 
+# the research caches overlap_check compares with: the calendar study's QQQ / ONEQ charts, the selective_t study's
+# 18 stock charts (the strategy module takes these locations as arguments)
+RESEARCH_SOURCES = {"QQQ": CACHE_ROOT / "calendar/raw/chart_QQQ.json",
+                    "ONEQ": CACHE_ROOT / "calendar/raw/chart_ONEQ.json"}
+RESEARCH_RAW = CACHE_ROOT / "selective_t/raw"
+
+
 def overlap_check(d: Data, ref_end: str = st.END) -> dict:
     """Fresh split-adjusted closes vs the research caches on common dates through ``ref_end`` (console only)."""
     out = {}
     for sym, m in d.markets():
         try:
-            ref = st.load_qqq_like(sym) if sym in ("QQQ", "ONEQ") else (
-                st.load_stock(sym) if st.raw_path(sym).exists() else None)
+            ref = st.load_qqq_like(sym, RESEARCH_SOURCES[sym]) if sym in ("QQQ", "ONEQ") else (
+                st.load_stock(sym, RESEARCH_RAW) if st.raw_path(sym, RESEARCH_RAW).exists() else None)
         except Exception as exc:  # noqa: BLE001 - a reference cache problem must not stop the run
             out[sym] = f"no reference ({type(exc).__name__})"
             continue

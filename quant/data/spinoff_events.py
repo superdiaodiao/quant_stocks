@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import html
 import re
+from pathlib import Path
 
 import pandas as pd
 
@@ -591,3 +592,35 @@ def finalize(raw: pd.DataFrame, hand: dict[int, dict] | None = None) -> pd.DataF
     ids = ev.first_regular_way_date.str.replace("-", "") + "_" + ev.spinco_cik.astype(str)
     ev["event_id"] = ids
     return ev
+
+
+# ======================================================================== cross-check (archive.org, owner approved)
+# moved from studies/spinoffs.py (stage crosscheck) in the slimming pass
+
+WAYBACK_CSD = {"20240412151605": "2024-04-10", "20250327042752": "2025-03-26"}
+CSD_URL = ("https://www.invesco.com/us/financial-products/etfs/holdings/main/holdings/0?audienceType=Investor"
+           "&action=download&ticker=CSD")
+
+
+def csd_crosscheck(ev: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
+    """Holdings of the Invesco S&P Spin-Off ETF (CSD) in the archive.org captures (owner approved) against the
+    event list: each holding is matched by ticker to a spun-off company (any window) or marked missing."""
+    rows = []
+    for ts, asof in WAYBACK_CSD.items():
+        url = f"https://web.archive.org/web/{ts}id_/{CSD_URL}"
+        data = sec.cached_get(url, "wayback", headers={"User-Agent": "Mozilla/5.0"}, limiter=sec.WAYBACK_LIMIT,
+                              name=f"csd_{ts}")
+        if not data:
+            continue
+        import io
+        h = pd.read_csv(io.StringIO(data.decode("utf-8", "ignore")))
+        for r in h.itertuples():
+            tk = str(r[3]).strip()
+            m = ev[ev.spinco_tickers_try.fillna("").str.split("|").apply(lambda xs: tk in xs) |
+                   (ev.spinco_symbol == tk)]
+            rows.append({"asof": asof, "holding_ticker": tk, "holding_name": r.Name,
+                         "matched_event_id": "|".join(m.event_id) if len(m) else "",
+                         "matched_classification": "|".join(m.classification) if len(m) else ""})
+    out = pd.DataFrame(rows)
+    out.to_csv(out_dir / "csd_crosscheck.csv", index=False)
+    return out
