@@ -9,7 +9,7 @@ backtrader~=1.9.78
 wget~=3.2
 TA-Lib~=0.7.1
 exchange-calendars~=4.13.2
-pypdf~=6.10.0
+pypdf~=6.19.0
 # Imported directly by scripts/ and src/ but previously only available through
 # akshare's transitive dependencies; declared so a clean install is complete.
 beautifulsoup4>=4.12
