@@ -42,11 +42,11 @@ from quant.backtest.costs import ibkr_order_cost, rank_half_spread
 from quant.data import panel
 from quant.data import version as dv
 from quant.data.rates import daily_rf
+from quant.data.sources.sec import sec_user_agent
 from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.metrics import max_drawdown, monthly, yearly
 from quant.paths import ROOT
 from quant.strategies import canslim as cs
-from src.io.sec_contact import sec_user_agent
 
 NORM = NormalDist()
 MAIN = Path("/Users/bytedance/code/quant_stocks")

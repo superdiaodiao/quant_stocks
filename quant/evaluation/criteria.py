@@ -20,6 +20,8 @@ from statistics import NormalDist
 
 import numpy as np
 
+from quant.evaluation.stats import t_sf
+
 NORM = NormalDist()
 A_T_MIN = 2.0
 B_DD_PP = 10.0
@@ -71,6 +73,37 @@ def bh_reject(p, q: float = 0.05) -> np.ndarray:
     if below.any():
         rej[order[: np.max(np.where(below)[0]) + 1]] = True
     return rej
+
+
+def bh_reject_finite(pvals, q: float = 0.05) -> np.ndarray:
+    """Benjamini-Hochberg over the finite p-values only (the count m excludes NaNs, which are never rejected),
+    unlike ``bh_reject`` which counts every entry (osap_screen)."""
+    p = np.asarray(pvals, float)
+    ok = np.isfinite(p)
+    m = ok.sum()
+    rej = np.zeros(len(p), bool)
+    if m == 0:
+        return rej
+    idx = np.where(ok)[0][np.argsort(p[ok])]
+    ranked = p[idx]
+    below = ranked <= q * np.arange(1, m + 1) / m
+    if below.any():
+        k = np.max(np.where(below)[0])
+        rej[idx[:k + 1]] = True
+    return rej
+
+
+def bonferroni_t_student(df: int, n: int, alpha: float = 0.05) -> float:
+    """One-sided Student-t critical value with ``df`` degrees of freedom for ``n`` trials at family-wise level
+    ``alpha`` (bisection on ``stats.t_sf``, 100 steps on [0, 10]; the data-v2 studies)."""
+    lo, hi = 0.0, 10.0
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if t_sf(mid, df) > alpha / n:
+            lo = mid
+        else:
+            hi = mid
+    return hi
 
 
 def deflated_sharpe(sr: float, n_obs: int, skew: float, kurt: float, sr_trials: np.ndarray,

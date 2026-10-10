@@ -37,7 +37,7 @@ def _cf_path(cik: int) -> Path | None:
 def fetch_companyfacts(ciks, max_per_second: float = 3.0) -> dict:
     """Fetch SEC companyfacts for CIKs not cached anywhere (<= 3 requests/s, User-Agent from sec_contact)."""
     import requests
-    from src.io.sec_contact import sec_user_agent
+    from quant.data.sources.sec import sec_user_agent
     CF_FETCH_DIR.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": sec_user_agent(ROOT), "Accept-Encoding": "gzip, deflate"}
     missing = [c for c in sorted(set(int(c) for c in ciks)) if _cf_path(c) is None]
