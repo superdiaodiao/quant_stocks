@@ -561,11 +561,17 @@ def apply_v2(ids: list[str], states: dict, prep: dict, prices_dir: Path, out_dir
     sessions = prep["sessions"]
     intervals = pd.read_csv(inputs / "ticker_intervals.csv", dtype=str, keep_default_na=False)
     master = pd.read_csv(inputs / "security_master.csv", dtype=str, keep_default_na=False).set_index("security_id")
-    facts: dict = {"data_version": "v2"}
+    facts: dict = {"data_version": common.DATA_VERSION}
     # 1. fixes
     applied = apply_fixes(prices_dir, inputs, cache, intervals)
     common.atomic_write(out_dir / "v2_fixes_applied.csv", applied.to_csv(index=False).encode())
     facts["fixes"] = applied[["fix_id", "security_id", "ex_date", "applied", "reason"]].to_dict("records")
+    if common.V2_1:
+        # version 2.1 (plan section 0, 2026-10-10): the Alpaca SIP rows, before the archive fills (Alpaca ranks above
+        # the archived captures); securities Alpaca gives a first series join the step's ids and states
+        from scripts import reversal_data_v2_1_fill as v21fill
+        ids, states, facts["alpaca"] = v21fill.apply_alpaca(ids, states, prep, prices_dir, out_dir, inputs, bundles,
+                                                            frames_for)
     # 2. fills and 3. third votes
     archive_ids = sorted(p.name[:-len(".csv.gz")] for p in (SERIES / "archive").glob("*.csv.gz")) \
         if (SERIES / "archive").exists() else []

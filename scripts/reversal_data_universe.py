@@ -281,8 +281,10 @@ YOUNG_DAYS = pf.WARMUP_DAYS  # 75 calendar days: a new listing without 25 sessio
 YOUNG_ISSUER_DAYS = 90  # an issuer filing 10-K / 10-Q this long before a listing starts was public already
 UNFILLABLE_SHARE_LIMIT = 0.02  # plan 3.3 check 6
 SRC_CODES = {"wiki": 0, "tiingo": 1, "yahoo": 2}
-if common.DATA_VERSION == "v2":
+if common.V2_PLUS:
     SRC_CODES["archive"] = 3  # version 2: archived Yahoo fill rows (reversal_data_v2_fill)
+if common.V2_1:
+    SRC_CODES["alpaca"] = 4  # version 2.1: Alpaca SIP fill rows (reversal_data_v2_1_alpaca)
 FETCH_FINAL = {"done", "done_review", "partial", "wrong_entity", "no_data"}
 FETCH_EMPTY = {"wrong_entity", "no_data"}
 YAHOO_EMPTY = {"no_rows", "failed"}  # Yahoo entity-report verdicts with no usable rows in the need

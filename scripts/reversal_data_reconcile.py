@@ -4726,7 +4726,7 @@ def main(argv=None) -> int:
     states = run_securities(ids, prep["bundles"], prep["identity"], prep["windows"], prep["sessions"], args.rebuild)
     mark = phase("securities", mark)
     v2_facts = None
-    if common.DATA_VERSION == "v2" and only is None:
+    if common.V2_PLUS and only is None:
         # data version 2 (plan section 0, 2026-10-05): fixes, archive fills and third votes on the canonical files
         from scripts import reversal_data_v2_fill as v2fill
         ids, states, v2_facts = v2fill.apply_v2(ids, states, prep, PRICES_DIR, OUT, INPUTS, CACHE, prep["bundles"],

@@ -1,0 +1,1059 @@
+{
+ "built_utc": "2026-10-10T12:05:53+00:00",
+ "no_returns_aggregated": true,
+ "note": "counts of plan rows, name-weeks, slots, rows, flags, statuses and checks only; no vendor price level",
+ "plan_rows": {
+  "rows": 374,
+  "by_status": {
+   "filled": 322,
+   "ambiguous": 46,
+   "not_covered": 4,
+   "no_bars": 2
+  },
+  "by_group_status": {
+   "deferred_quota": {
+    "ambiguous": 2,
+    "filled": 17,
+    "no_bars": 1,
+    "not_covered": 0
+   },
+   "tier_c": {
+    "ambiguous": 2,
+    "filled": 36,
+    "no_bars": 0,
+    "not_covered": 0
+   },
+   "unknown_size_delisted": {
+    "ambiguous": 38,
+    "filled": 250,
+    "no_bars": 1,
+    "not_covered": 4
+   },
+   "yahoo_fallback": {
+    "ambiguous": 4,
+    "filled": 19,
+    "no_bars": 0,
+    "not_covered": 0
+   }
+  },
+  "rows_with_pre2016_need": 34,
+  "rows_need_only_from2016": 340,
+  "need_sessions_from2016": 143331,
+  "need_sessions_from2016_held": 123100,
+  "need_sessions_pre2016": 23782,
+  "ambiguous_rules": {
+   "A5_coverage": 33,
+   "A5_gap": 10,
+   "A5_gap_jump": 9,
+   "A4_bars_after_delisting": 3,
+   "A4_ends_early": 2,
+   "A6_returns": 1,
+   "A6_level": 1
+  },
+  "second_source_of_filled": {
+   "confirmed_dates_only": 192,
+   "confirmed_returns": 67,
+   "confirmed_returns+last_sale": 48,
+   "confirmed_last_sale": 12,
+   "confirmed_levels+last_sale": 1,
+   "confirmed_levels": 1
+  },
+  "expected_top250_weeks": {
+   "ambiguous": 2.02,
+   "filled": 128.09,
+   "no_bars": 0.0,
+   "not_covered": 0.0
+  }
+ },
+ "missing_share_by_year": [
+  {
+   "year": 2012,
+   "v2_B_model": 0.026308,
+   "v2_B_calibrated": 0.02631,
+   "v2_B_upper": 0.026769,
+   "v2_A_model": 0.02576,
+   "v2_A_calibrated": 0.02577,
+   "v2_A_upper": 0.02784,
+   "v2_1_B_model": 0.026308,
+   "v2_1_B_calibrated": 0.02631,
+   "v2_1_B_upper": 0.026769,
+   "v2_1_A_model": 0.02575,
+   "v2_1_A_calibrated": 0.02576,
+   "v2_1_A_upper": 0.02783,
+   "v2_1_B_over_2pct": true,
+   "v2_B_over_2pct": true
+  },
+  {
+   "year": 2013,
+   "v2_B_model": 0.019077,
+   "v2_B_calibrated": 0.01908,
+   "v2_B_upper": 0.019077,
+   "v2_A_model": 0.0137,
+   "v2_A_calibrated": 0.0137,
+   "v2_A_upper": 0.0137,
+   "v2_1_B_model": 0.019077,
+   "v2_1_B_calibrated": 0.01908,
+   "v2_1_B_upper": 0.019077,
+   "v2_1_A_model": 0.01369,
+   "v2_1_A_calibrated": 0.01369,
+   "v2_1_A_upper": 0.01369,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2014,
+   "v2_B_model": 0.003077,
+   "v2_B_calibrated": 0.00308,
+   "v2_B_upper": 0.003462,
+   "v2_A_model": 0.00527,
+   "v2_A_calibrated": 0.00528,
+   "v2_A_upper": 0.0065,
+   "v2_1_B_model": 0.003077,
+   "v2_1_B_calibrated": 0.00308,
+   "v2_1_B_upper": 0.003462,
+   "v2_1_A_model": 0.00527,
+   "v2_1_A_calibrated": 0.00528,
+   "v2_1_A_upper": 0.0065,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2015,
+   "v2_B_model": 0.00083,
+   "v2_B_calibrated": 0.00083,
+   "v2_B_upper": 0.00083,
+   "v2_A_model": 0.0022,
+   "v2_A_calibrated": 0.00223,
+   "v2_A_upper": 0.00824,
+   "v2_1_B_model": 0.00083,
+   "v2_1_B_calibrated": 0.00083,
+   "v2_1_B_upper": 0.00083,
+   "v2_1_A_model": 0.0022,
+   "v2_1_A_calibrated": 0.00223,
+   "v2_1_A_upper": 0.00824,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2016,
+   "v2_B_model": 0.006692,
+   "v2_B_calibrated": 0.00669,
+   "v2_B_upper": 0.006692,
+   "v2_A_model": 0.00675,
+   "v2_A_calibrated": 0.00675,
+   "v2_A_upper": 0.00721,
+   "v2_1_B_model": 0.006692,
+   "v2_1_B_calibrated": 0.00669,
+   "v2_1_B_upper": 0.006692,
+   "v2_1_A_model": 0.00673,
+   "v2_1_A_calibrated": 0.00673,
+   "v2_1_A_upper": 0.00719,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2017,
+   "v2_B_model": 0.009077,
+   "v2_B_calibrated": 0.00908,
+   "v2_B_upper": 0.009077,
+   "v2_A_model": 0.01095,
+   "v2_A_calibrated": 0.01096,
+   "v2_A_upper": 0.01295,
+   "v2_1_B_model": 0.009077,
+   "v2_1_B_calibrated": 0.00908,
+   "v2_1_B_upper": 0.009077,
+   "v2_1_A_model": 0.01097,
+   "v2_1_A_calibrated": 0.01097,
+   "v2_1_A_upper": 0.01297,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2018,
+   "v2_B_model": 0.016538,
+   "v2_B_calibrated": 0.01656,
+   "v2_B_upper": 0.018846,
+   "v2_A_model": 0.01686,
+   "v2_A_calibrated": 0.01706,
+   "v2_A_upper": 0.03586,
+   "v2_1_B_model": 0.016538,
+   "v2_1_B_calibrated": 0.01656,
+   "v2_1_B_upper": 0.018846,
+   "v2_1_A_model": 0.01577,
+   "v2_1_A_calibrated": 0.01584,
+   "v2_1_A_upper": 0.02223,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2019,
+   "v2_B_model": 0.007231,
+   "v2_B_calibrated": 0.00724,
+   "v2_B_upper": 0.007846,
+   "v2_A_model": 0.00558,
+   "v2_A_calibrated": 0.00575,
+   "v2_A_upper": 0.02227,
+   "v2_1_B_model": 0.007231,
+   "v2_1_B_calibrated": 0.00724,
+   "v2_1_B_upper": 0.007846,
+   "v2_1_A_model": 0.00554,
+   "v2_1_A_calibrated": 0.00562,
+   "v2_1_A_upper": 0.013,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2020,
+   "v2_B_model": 0.003094,
+   "v2_B_calibrated": 0.00314,
+   "v2_B_upper": 0.007623,
+   "v2_A_model": 0.00744,
+   "v2_A_calibrated": 0.00781,
+   "v2_A_upper": 0.04374,
+   "v2_1_B_model": 0.003019,
+   "v2_1_B_calibrated": 0.00307,
+   "v2_1_B_upper": 0.007547,
+   "v2_1_A_model": 0.00718,
+   "v2_1_A_calibrated": 0.00733,
+   "v2_1_A_upper": 0.02182,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2021,
+   "v2_B_model": 0.000154,
+   "v2_B_calibrated": 0.00018,
+   "v2_B_upper": 0.012846,
+   "v2_A_model": 0.00613,
+   "v2_A_calibrated": 0.00628,
+   "v2_A_upper": 0.08552,
+   "v2_1_B_model": 0.000154,
+   "v2_1_B_calibrated": 0.00018,
+   "v2_1_B_upper": 0.011462,
+   "v2_1_A_model": 0.00571,
+   "v2_1_A_calibrated": 0.00577,
+   "v2_1_A_upper": 0.03632,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2022,
+   "v2_B_model": 0.002231,
+   "v2_B_calibrated": 0.00224,
+   "v2_B_upper": 0.007692,
+   "v2_A_model": 0.00535,
+   "v2_A_calibrated": 0.00558,
+   "v2_A_upper": 0.13004,
+   "v2_1_B_model": 0.002231,
+   "v2_1_B_calibrated": 0.00224,
+   "v2_1_B_upper": 0.007692,
+   "v2_1_A_model": 0.00505,
+   "v2_1_A_calibrated": 0.00513,
+   "v2_1_A_upper": 0.04505,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2023,
+   "v2_B_model": 0.000846,
+   "v2_B_calibrated": 0.00086,
+   "v2_B_upper": 0.006538,
+   "v2_A_model": 0.00222,
+   "v2_A_calibrated": 0.00257,
+   "v2_A_upper": 0.1843,
+   "v2_1_B_model": 0.000846,
+   "v2_1_B_calibrated": 0.00086,
+   "v2_1_B_upper": 0.006538,
+   "v2_1_A_model": 0.00197,
+   "v2_1_A_calibrated": 0.00207,
+   "v2_1_A_upper": 0.05404,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2024,
+   "v2_B_model": 0.000308,
+   "v2_B_calibrated": 0.00033,
+   "v2_B_upper": 0.002077,
+   "v2_A_model": 0.00063,
+   "v2_A_calibrated": 0.0013,
+   "v2_A_upper": 0.0654,
+   "v2_1_B_model": 0.000308,
+   "v2_1_B_calibrated": 0.00033,
+   "v2_1_B_upper": 0.002077,
+   "v2_1_A_model": 0.00054,
+   "v2_1_A_calibrated": 0.00076,
+   "v2_1_A_upper": 0.02185,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2025,
+   "v2_B_model": 0.002308,
+   "v2_B_calibrated": 0.00231,
+   "v2_B_upper": 0.002308,
+   "v2_A_model": 0.00225,
+   "v2_A_calibrated": 0.00226,
+   "v2_A_upper": 0.0044,
+   "v2_1_B_model": 0.002308,
+   "v2_1_B_calibrated": 0.00231,
+   "v2_1_B_upper": 0.002308,
+   "v2_1_A_model": 0.00225,
+   "v2_1_A_calibrated": 0.00226,
+   "v2_1_A_upper": 0.00371,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  },
+  {
+   "year": 2026,
+   "v2_B_model": 0.0,
+   "v2_B_calibrated": 0.0,
+   "v2_B_upper": 0.000138,
+   "v2_A_model": 0.00018,
+   "v2_A_calibrated": 0.00019,
+   "v2_A_upper": 0.00293,
+   "v2_1_B_model": 0.0,
+   "v2_1_B_calibrated": 0.0,
+   "v2_1_B_upper": 0.000138,
+   "v2_1_A_model": 0.00018,
+   "v2_1_A_calibrated": 0.00019,
+   "v2_1_A_upper": 0.00293,
+   "v2_1_B_over_2pct": false,
+   "v2_B_over_2pct": false
+  }
+ ],
+ "gap_weeks_closed_by_year": [
+  {
+   "year": 2012,
+   "v2_missing_name_weeks": 49876,
+   "closed_name_weeks": 0,
+   "v2_expected_top250_slots": 378.38,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 27,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2013,
+   "v2_missing_name_weeks": 43743,
+   "closed_name_weeks": 0,
+   "v2_expected_top250_slots": 256.96,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 0,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2014,
+   "v2_missing_name_weeks": 41490,
+   "closed_name_weeks": 0,
+   "v2_expected_top250_slots": 121.96,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 16,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2015,
+   "v2_missing_name_weeks": 40720,
+   "closed_name_weeks": 0,
+   "v2_expected_top250_slots": 62.78,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 80,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2016,
+   "v2_missing_name_weeks": 35939,
+   "closed_name_weeks": 343,
+   "v2_expected_top250_slots": 122.14,
+   "expected_slots_closed": 0.12,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 6,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2017,
+   "v2_missing_name_weeks": 32451,
+   "closed_name_weeks": 450,
+   "v2_expected_top250_slots": 172.22,
+   "expected_slots_closed": 0.11,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 26,
+   "unknown_resolved": 0
+  },
+  {
+   "year": 2018,
+   "v2_missing_name_weeks": 27050,
+   "closed_name_weeks": 1517,
+   "v2_expected_top250_slots": 261.38,
+   "expected_slots_closed": 19.7,
+   "closed_and_ranked_top250": 20,
+   "v2_unknown_name_weeks": 274,
+   "unknown_resolved": 190
+  },
+  {
+   "year": 2019,
+   "v2_missing_name_weeks": 21128,
+   "closed_name_weeks": 856,
+   "v2_expected_top250_slots": 88.84,
+   "expected_slots_closed": 15.4,
+   "closed_and_ranked_top250": 23,
+   "v2_unknown_name_weeks": 223,
+   "unknown_resolved": 126
+  },
+  {
+   "year": 2020,
+   "v2_missing_name_weeks": 22591,
+   "closed_name_weeks": 1552,
+   "v2_expected_top250_slots": 130.05,
+   "expected_slots_closed": 12.12,
+   "closed_and_ranked_top250": 45,
+   "v2_unknown_name_weeks": 534,
+   "unknown_resolved": 340
+  },
+  {
+   "year": 2021,
+   "v2_missing_name_weeks": 25050,
+   "closed_name_weeks": 2331,
+   "v2_expected_top250_slots": 126.97,
+   "expected_slots_closed": 28.27,
+   "closed_and_ranked_top250": 32,
+   "v2_unknown_name_weeks": 1076,
+   "unknown_resolved": 678
+  },
+  {
+   "year": 2022,
+   "v2_missing_name_weeks": 27949,
+   "closed_name_weeks": 3238,
+   "v2_expected_top250_slots": 80.93,
+   "expected_slots_closed": 6.06,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 1736,
+   "unknown_resolved": 1208
+  },
+  {
+   "year": 2023,
+   "v2_missing_name_weeks": 25674,
+   "closed_name_weeks": 4163,
+   "v2_expected_top250_slots": 29.5,
+   "expected_slots_closed": 3.59,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 2513,
+   "unknown_resolved": 1810
+  },
+  {
+   "year": 2024,
+   "v2_missing_name_weeks": 18947,
+   "closed_name_weeks": 1770,
+   "v2_expected_top250_slots": 8.34,
+   "expected_slots_closed": 1.19,
+   "closed_and_ranked_top250": 0,
+   "v2_unknown_name_weeks": 864,
+   "unknown_resolved": 583
+  },
+  {
+   "year": 2025,
+   "v2_missing_name_weeks": 10662,
+   "closed_name_weeks": 721,
+   "v2_expected_top250_slots": 35.19,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 3,
+   "v2_unknown_name_weeks": 28,
+   "unknown_resolved": 9
+  },
+  {
+   "year": 2026,
+   "v2_missing_name_weeks": 2089,
+   "closed_name_weeks": 310,
+   "v2_expected_top250_slots": 8.0,
+   "expected_slots_closed": 0.0,
+   "closed_and_ranked_top250": 3,
+   "v2_unknown_name_weeks": 24,
+   "unknown_resolved": 4
+  }
+ ],
+ "gap_weeks_closed_by_reason": [
+  {
+   "missing_reason": "answer_not_in_panel",
+   "v2_name_weeks": 20,
+   "closed": 0,
+   "unknown": 3,
+   "unknown_resolved": 0
+  },
+  {
+   "missing_reason": "no_vendor_source",
+   "v2_name_weeks": 12,
+   "closed": 0,
+   "unknown": 0,
+   "unknown_resolved": 0
+  },
+  {
+   "missing_reason": "not_candidate",
+   "v2_name_weeks": 305265,
+   "closed": 5361,
+   "unknown": 3527,
+   "unknown_resolved": 2268
+  },
+  {
+   "missing_reason": "series_gap",
+   "v2_name_weeks": 97912,
+   "closed": 4776,
+   "unknown": 2955,
+   "unknown_resolved": 2268
+  },
+  {
+   "missing_reason": "short_window",
+   "v2_name_weeks": 1152,
+   "closed": 25,
+   "unknown": 96,
+   "unknown_resolved": 15
+  },
+  {
+   "missing_reason": "tiingo_pending",
+   "v2_name_weeks": 9842,
+   "closed": 7071,
+   "unknown": 417,
+   "unknown_resolved": 379
+  },
+  {
+   "missing_reason": "unfillable",
+   "v2_name_weeks": 11156,
+   "closed": 18,
+   "unknown": 429,
+   "unknown_resolved": 18
+  }
+ ],
+ "unknown_missing_name_weeks": {
+  "v2": 7427,
+  "v2.1": 2479,
+  "v2_resolved_in_v2.1": 4948
+ },
+ "name_weeks_missing_in_v2_1_not_in_v2": 0,
+ "top250_slots": {
+  "by_year": [
+   {
+    "year": 2012,
+    "v2_slots": 13496,
+    "v21_slots": 13496,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2013,
+    "v2_slots": 13610,
+    "v21_slots": 13610,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2014,
+    "v2_slots": 13582,
+    "v21_slots": 13582,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2015,
+    "v2_slots": 13945,
+    "v21_slots": 13945,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2016,
+    "v2_slots": 13586,
+    "v21_slots": 13585,
+    "differing": 1,
+    "slots_changed": 0.5,
+    "share_changed": 3.680259090239953e-05
+   },
+   {
+    "year": 2017,
+    "v2_slots": 13653,
+    "v21_slots": 13652,
+    "differing": 1,
+    "slots_changed": 0.5,
+    "share_changed": 3.6621987841500034e-05
+   },
+   {
+    "year": 2018,
+    "v2_slots": 13788,
+    "v21_slots": 13781,
+    "differing": 81,
+    "slots_changed": 40.5,
+    "share_changed": 0.00293733681462141
+   },
+   {
+    "year": 2019,
+    "v2_slots": 13624,
+    "v21_slots": 13625,
+    "differing": 67,
+    "slots_changed": 33.5,
+    "share_changed": 0.0024588960657662947
+   },
+   {
+    "year": 2020,
+    "v2_slots": 13964,
+    "v21_slots": 13952,
+    "differing": 100,
+    "slots_changed": 50.0,
+    "share_changed": 0.003580635920939559
+   },
+   {
+    "year": 2021,
+    "v2_slots": 13750,
+    "v21_slots": 13754,
+    "differing": 88,
+    "slots_changed": 44.0,
+    "share_changed": 0.0032
+   },
+   {
+    "year": 2022,
+    "v2_slots": 13511,
+    "v21_slots": 13508,
+    "differing": 5,
+    "slots_changed": 2.5,
+    "share_changed": 0.00018503441640145066
+   },
+   {
+    "year": 2023,
+    "v2_slots": 13528,
+    "v21_slots": 13528,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2024,
+    "v2_slots": 13534,
+    "v21_slots": 13534,
+    "differing": 0,
+    "slots_changed": 0.0,
+    "share_changed": 0.0
+   },
+   {
+    "year": 2025,
+    "v2_slots": 13581,
+    "v21_slots": 13583,
+    "differing": 4,
+    "slots_changed": 2.0,
+    "share_changed": 0.00014726456078344746
+   },
+   {
+    "year": 2026,
+    "v2_slots": 7535,
+    "v21_slots": 7538,
+    "differing": 3,
+    "slots_changed": 1.5,
+    "share_changed": 0.00019907100199071002
+   }
+  ],
+  "changed": 175.0,
+  "slots": 198687,
+  "share": 0.0008807823360360769,
+  "names_entering": {
+   "895419": 87,
+   "1639225": 32,
+   "1032033": 17,
+   "921738": 15,
+   "866374": 9,
+   "2007825": 3,
+   "1104855": 2,
+   "1974640": 2,
+   "1658247": 1
+  }
+ },
+ "panel_rows": {
+  "v2": 7102294,
+  "v2.1": 7187227,
+  "v2_securities": 3644,
+  "v2.1_securities": 3768
+ },
+ "panel_rows_by_source": {
+  "v2": {
+   "yahoo": 4565681,
+   "wiki": 1705879,
+   "tiingo": 680236,
+   "archive": 150498
+  },
+  "v2.1": {
+   "yahoo": 4526457,
+   "wiki": 1704524,
+   "tiingo": 680236,
+   "alpaca": 139553,
+   "archive": 136457
+  }
+ },
+ "alpaca_rows": {
+  "rows": 139553,
+  "securities": 320,
+  "by_year": {
+   "2016": 2740,
+   "2017": 4515,
+   "2018": 15078,
+   "2019": 11251,
+   "2020": 14661,
+   "2021": 18982,
+   "2022": 22054,
+   "2023": 25215,
+   "2024": 13381,
+   "2025": 7750,
+   "2026": 3926
+  },
+  "filled_rows": 98974
+ },
+ "flags": {
+  "disagree_unresolved": {
+   "v2": 1889,
+   "v2.1": 2021
+  },
+  "v21_alpaca_primary:": {
+   "v2": 0,
+   "v2.1": 40579
+  },
+  "v21_third_vote:": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "v21_splice_blank": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "v21_majority:": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "v21_alpaca_minority": {
+   "v2": 0,
+   "v2.1": 9
+  },
+  "v21_spinoff_unvalued": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "alpaca_split_from_bars": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "alpaca_div_from_bars": {
+   "v2": 0,
+   "v2.1": 0
+  },
+  "gap_return_blank": {
+   "v2": 217,
+   "v2.1": 411
+  },
+  "v2_third_vote:": {
+   "v2": 59,
+   "v2.1": 59
+  }
+ },
+ "two_source": {
+  "v2": {
+   "name_days": 7102294,
+   "name_days_2plus": 5159967,
+   "agree_0p5pct": 5121860,
+   "share_2plus_agree_of_2plus": 0.9926148752501712
+  },
+  "v2.1": {
+   "name_days": 7187227,
+   "name_days_2plus": 5176966,
+   "agree_0p5pct": 5138198,
+   "share_2plus_agree_of_2plus": 0.9925114439615791
+  }
+ },
+ "universe_name_days": {
+  "v2_universe_name_days": 928723,
+  "changed_return": 13,
+  "share": 1.3997715142189867e-05,
+  "securities_with_changes": 1
+ },
+ "validate": {
+  "v2": {
+   "pass": 17,
+   "fail": 17,
+   "no_input": 1
+  },
+  "v2.1": {
+   "pass": 17,
+   "fail": 17,
+   "no_input": 1
+  },
+  "changed": [],
+  "v2.1_generated_utc": "2026-10-10T12:05:16+00:00"
+ },
+ "validate_numbers_changed": {
+  "multi_source_agreement": {
+   "name_days": {
+    "v2": 7102294,
+    "v2.1": 7187227
+   },
+   "name_days_2plus_sources": {
+    "v2": 5159967,
+    "v2.1": 5176966
+   },
+   "agree_within_0p5pct": {
+    "v2": 5121860,
+    "v2.1": 5138198
+   },
+   "share": {
+    "v2": 0.992615,
+    "v2.1": 0.992511
+   },
+   "disagree_unresolved": {
+    "v2": 1889,
+    "v2.1": 2021
+   },
+   "universe_name_days_2plus_sources": {
+    "v2": 872309,
+    "v2.1": 873580
+   },
+   "universe_share": {
+    "v2": 0.99914,
+    "v2.1": 0.999138
+   },
+   "universe_disagree_unresolved": {
+    "v2": 44,
+    "v2.1": 45
+   }
+  },
+  "review_queue": {},
+  "terminal_open": {
+   "open": {
+    "v2": 166,
+    "v2.1": 147
+   },
+   "manual_review_queue": {
+    "v2": 77,
+    "v2.1": 74
+   },
+   "awaiting_owner_d5": {
+    "v2": 45,
+    "v2.1": 43
+   }
+  },
+  "terminal_coverage": {
+   "universe_series_ending_early": {
+    "v2": 540,
+    "v2.1": 544
+   },
+   "with_row": {
+    "v2": 524,
+    "v2.1": 525
+   },
+   "without_row": {
+    "v2": 16,
+    "v2.1": 19
+   }
+  },
+  "universe_vendor_source": {
+   "name_days": {
+    "v2": 1035532,
+    "v2.1": 1035369
+   },
+   "with_vendor_row": {
+    "v2": 1034390,
+    "v2.1": 1034264
+   },
+   "share": {
+    "v2": 0.998897,
+    "v2.1": 0.998933
+   },
+   "missing": {
+    "v2": 1142,
+    "v2.1": 1105
+   },
+   "missing_securities": {
+    "v2": 69,
+    "v2.1": 72
+   },
+   "ends_ignored_for_later_listing": {
+    "v2": 43,
+    "v2.1": 42
+   }
+  },
+  "universe_listed_gaps": {
+   "eligible_name_weeks": {
+    "v2": 1803413,
+    "v2.1": 1803412
+   },
+   "missing_name_weeks": {
+    "v2": 425359,
+    "v2.1": 408108
+   },
+   "blocking_name_weeks": {
+    "v2": 98111,
+    "v2.1": 111665
+   },
+   "blocking_securities": {
+    "v2": 411,
+    "v2.1": 507
+   },
+   "after_series_end_not_blocking": {
+    "v2": 36,
+    "v2.1": 43
+   },
+   "after_series_end_securities": {
+    "v2": 8,
+    "v2.1": 10
+   },
+   "pending_name_weeks": {
+    "v2": 9842,
+    "v2.1": 2771
+   },
+   "pending_without_open_candidate": {
+    "v2": 0,
+    "v2.1": 30
+   },
+   "pending_without_open_candidate_securities": {
+    "v2": 0,
+    "v2.1": 8
+   }
+  },
+  "universe_proxy_margin": {
+   "weeks_zero": {
+    "v2": 86,
+    "v2.1": 124
+   },
+   "share_weeks_zero": {
+    "v2": 0.113307,
+    "v2.1": 0.163373
+   },
+   "weeks_over_3": {
+    "v2": 275,
+    "v2.1": 236
+   },
+   "name_weeks": {
+    "v2": 2509,
+    "v2.1": 2168
+   },
+   "name_weeks_unfillable": {
+    "v2": 1219,
+    "v2.1": 1218
+   },
+   "name_weeks_float_at_median_mcap_below": {
+    "v2": 363,
+    "v2.1": 351
+   },
+   "unpriced_name_weeks_top250_evidence": {
+    "v2": 2566,
+    "v2.1": 2225
+   },
+   "share_weeks_zero_excluding_unfillable": {
+    "v2": 0.13307,
+    "v2.1": 0.188406
+   },
+   "name_weeks_incl_outside_trading": {
+    "v2": 2567,
+    "v2.1": 2226
+   },
+   "unpriced_name_weeks": {
+    "v2": 426020,
+    "v2.1": 408565
+   },
+   "unpriced_name_weeks_no_proxy": {
+    "v2": 12728,
+    "v2.1": 7395
+   },
+   "unpriced_name_weeks_unknown_size": {
+    "v2": 7492,
+    "v2.1": 2528
+   },
+   "unknown_size_securities": {
+    "v2": 369,
+    "v2.1": 151
+   },
+   "weeks_with_unknown_size": {
+    "v2": 466,
+    "v2.1": 374
+   },
+   "max_unknown_size_in_a_week": {
+    "v2": 99,
+    "v2.1": 28
+   },
+   "step12_missing_proxy_above_float_only_name_weeks": {
+    "v2": 375,
+    "v2.1": 358
+   }
+  },
+  "universe_capture_coverage": {},
+  "universe_nasdaq100": {},
+  "panel_integrity": {
+   "rows": {
+    "v2": 7102294,
+    "v2.1": 7187227
+   },
+   "securities": {
+    "v2": 3644,
+    "v2.1": 3768
+   },
+   "files": {
+    "v2": 3644,
+    "v2.1": 3768
+   }
+  },
+  "candidates_resolved": {
+   "covered": {
+    "v2": 2809,
+    "v2.1": 2857
+   },
+   "documented_unfillable": {
+    "v2": 111,
+    "v2.1": 110
+   },
+   "open": {
+    "v2": 115,
+    "v2.1": 68
+   }
+  },
+  "universe_fetch_margin": {},
+  "universe_form25": {
+   "failing": {
+    "v2": 74,
+    "v2.1": 73
+   },
+   "share_ok": {
+    "v2": 0.844864,
+    "v2.1": 0.84696
+   }
+  }
+ },
+ "terminal_status": {
+  "v2": {
+   "computed": 608,
+   "no_terminal_return": 131,
+   "needs_review": 58,
+   "needs_acquirer_price": 49,
+   "awaiting_d5": 45,
+   "no_vendor_price": 39,
+   "pending_price": 18,
+   "unknown": 2
+  },
+  "v2.1": {
+   "computed": 629,
+   "no_terminal_return": 131,
+   "needs_review": 55,
+   "needs_acquirer_price": 50,
+   "awaiting_d5": 43,
+   "no_vendor_price": 39,
+   "unknown": 2,
+   "pending_price": 1
+  }
+ },
+ "month2_plan_rebuilt_v2_1_rows": 290,
+ "materiality": {
+  "model_share_move_pp_max": 0.007499999999999998,
+  "model_share_move_over_0p10pp": [],
+  "years_crossing_2pct": [],
+  "top250_slots_share_all": 0.0008807823360360769,
+  "top250_slots_share_worst_year": 0.003580635920939559,
+  "universe_name_days_changed_share": 1.3997715142189867e-05,
+  "material": false
+ }
+}

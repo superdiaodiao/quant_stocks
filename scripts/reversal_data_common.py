@@ -28,15 +28,26 @@ MAIN_CHECKOUT = Path("/Users/bytedance/code/quant_stocks")
 # Data version (plan section 0): v1 is frozen and read only. ``REVERSAL_DATA_VERSION=v2`` points every step at the
 # version-2 copies instead (a copy-on-write clone of the v1 cache and of the v1 inputs, built 2026-10-05), so a v2
 # rebuild never writes a v1 file.
+# ``REVERSAL_DATA_VERSION=v2.1`` (2026-10-10) is version 2 plus the Alpaca SIP fill: its own copies again (a clone of
+# the v2 cache and inputs), so neither v1 nor v2 is written.
 DATA_VERSION = os.environ.get("REVERSAL_DATA_VERSION", "v1").strip().lower() or "v1"
-if DATA_VERSION not in ("v1", "v2"):
-    raise ValueError(f"REVERSAL_DATA_VERSION must be v1 or v2, not {DATA_VERSION!r}")
+VERSIONS = ("v1", "v2", "v2.1")
+if DATA_VERSION not in VERSIONS:
+    raise ValueError(f"REVERSAL_DATA_VERSION must be v1, v2 or v2.1, not {DATA_VERSION!r}")
+# True from version 2 on: the v2 fixes, archive fills and third votes apply (v2.1 adds the Alpaca fill on top)
+V2_PLUS = DATA_VERSION in ("v2", "v2.1")
+V2_1 = DATA_VERSION == "v2.1"
 V1_CACHE = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026"
 V1_INPUTS = Path("output/research_only/reversal_2012_2026/inputs")
-CACHE = V1_CACHE if DATA_VERSION == "v1" else MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2"
-INPUTS = V1_INPUTS if DATA_VERSION == "v1" else Path("output/research_only/reversal_2012_2026/inputs_v2")
-# the v2 fill sources (archive.org Yahoo captures, companiesmarketcap, QuantQuote, QuantConnect), local only
+_CACHE_NAME = {"v1": "reversal_2012_2026", "v2": "reversal_2012_2026_v2", "v2.1": "reversal_2012_2026_v2_1"}
+_INPUTS_NAME = {"v1": "inputs", "v2": "inputs_v2", "v2.1": "inputs_v2_1"}
+CACHE = MAIN_CHECKOUT / "research_cache" / _CACHE_NAME[DATA_VERSION]
+INPUTS = Path("output/research_only/reversal_2012_2026") / _INPUTS_NAME[DATA_VERSION]
+# the v2 fill sources (archive.org Yahoo captures, companiesmarketcap, QuantQuote, QuantConnect), local only; read
+# only under v2.1
 V2_FILL = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2_fill"
+# the v2.1 Alpaca SIP fill (raw bodies, parsed series, entity verdicts, request ledger), local only
+V2_1_ALPACA = MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2_1_alpaca"
 RAW = CACHE / "raw"
 RAW_INDEX = CACHE / "raw_index.csv.gz"
 QUOTA_LEDGER = CACHE / "quota_ledger.csv"
