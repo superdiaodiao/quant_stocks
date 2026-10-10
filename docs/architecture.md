@@ -468,8 +468,22 @@ prefilter → yahoo → reconcile → terminal → earnings → universe → val
 
 ### 11.7 留下的问题
 
-- `security_master --offline` 在当前代码上运行失败（`successor_security` 里 `same["security_id"]` KeyError，与重构
-  无关）；当前代码重建的 v1 / v2 有两张表与入库版本不同（10.5）。这两件事需要主人决定是修代码还是重新冻结。
+- ~~`security_master --offline` 的 KeyError；重建的 v1 / v2 有两张表与入库版本不同~~（2026-10-11 已查明并修好，
+  不需要重新冻结）：
+  - 两张表的差别只在 `verified_at` 一列：terminal 的 941 行和 reviewed_moves 里 115 行机械分类的 R1 行，记的是
+    运行当天的 UTC 日期（读系统时钟）。v2.1 那次看起来一致，是因为重建恰好和 v2.1 入库在同一个 UTC 日。现在改为
+    读 `quant.data.version.STAMP_DATE`（各版本入库时的那一天）。
+  - KeyError 出现在找不到 `stocks_list_dir/nasdaq/snapshots` 的时候：这个路径按当前工作目录找。比如临时副本里
+    `ln -s` 落进了 git archive 解出来的同名目录，或者从 worktree 里运行。这时继任者的候选是空表，
+    `succ[[]]` 选出一个没有列的表，于是报错。现在改用布尔 Series 做筛选；找不到快照或价格文件时，直接停下并
+    说明原因。用入库的 form25 离线运行时，三个版本的输出都和入库版本逐字节相同。
+  - prefilter 的第 1 个月 Tiingo 预算读共享的 quota_ledger。冻结后，megacap_oos2 / oos3 往 v1 台账里又记了
+    6 行 Tiingo（都是已经算过的代码，所以结果没变）。现在只读各版本冻结时刻（`FROZEN_UTC`）之前的行。
+  - 修正后的验证：在临时副本里（APFS 克隆、断网）运行 `build --version v1 --allow-v1 / v2 / v2.1 --max-passes 1`，
+    外加 security_master、form25。三个版本 inputs 里的全部 csv / csv.gz 都与入库版本逐字节相同，
+    `special_distributions.csv` 的 sha256 与 manifest 一致。只有两个 JSON 摘要不同，原因有：时间戳和耗时；代码哈希；
+    临时副本里的绝对路径（validate 对数据文件里记录的真缓存绝对路径不做重定向，只读）；main 检出里未入库的
+    `output/research_only/qqq_nasdaq_history.csv`（导致 qqq_join 显示为 no_input）。
 - reconcile 的缓存签名含整个 `reconcile.py` 的哈希：只改注释或导入也会让下一次运行重算所有证券并重写面板（结果
   相同，只是慢）。
 - 各步骤仍是几千行的大模块（reconcile 4,781 行、prefilter 4,057 行、universe 3,922 行），里面混着取数、解析和规则；
