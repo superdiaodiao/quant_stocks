@@ -1,7 +1,7 @@
 """The quant core gives the same numbers as the study code it was extracted from.
 
-Each test feeds the same (synthetic, seeded) inputs to a quant function and to the original function that still
-lives in an un-migrated October-2026 script, and requires exact equality (``==`` on floats, ``assert_*_equal`` with
+Each test feeds the same (synthetic, seeded) inputs to a quant function and to the original function (frozen
+copies of the pre-phase-2 study code in tests/quant/originals/), and requires exact equality (``==`` on floats, ``assert_*_equal`` with
 ``check_exact``). Tests that need the local research cache skip when it is absent.
 """
 from __future__ import annotations
@@ -17,12 +17,12 @@ from quant.backtest import costs, execution
 from quant.data import calendar, guards, ohlc, panel, rates, version
 from quant.data.sources import yahoo
 from quant.evaluation import criteria, metrics
-from scripts import research_calendar as cal
-from scripts import research_canslim_dev as cs
-from scripts import research_intraday_t as it
-from scripts import research_qqq_timing as qt
-from scripts import research_reversal_dev as rev
 from scripts import study_data_version as dv
+from tests.quant.originals import calendar as cal
+from tests.quant.originals import canslim_dev as cs
+from tests.quant.originals import intraday_t as it
+from tests.quant.originals import qqq_timing as qt
+from tests.quant.originals import reversal_dev as rev
 
 RNG = np.random.default_rng(20261010)
 
@@ -261,8 +261,8 @@ def test_oneq_and_panel_loaders_match_originals():
     from quant.data.benchmarks import ONEQ_CHART, oneq_on_sessions
     if not ONEQ_CHART.exists() or not (version.CACHE / "prices/daily_panel.csv.gz").exists():
         pytest.skip("research cache not available")
-    from scripts import research_indicators as ind
-    from scripts import research_livermore as lv
+    from tests.quant.originals import indicators as ind
+    from tests.quant.originals import livermore as lv
     want = lv.load_window("test2")
     got = panel.load_window("test2", lv.WINDOWS["test2"])
     for f in ("sig_idx", "perf_idx", "close", "close_adj", "vol_adj", "universe", "terminal_events"):

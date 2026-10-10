@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from quant.data.synthetic import CASH_ETF_FEE, LEV_ER, NOMINAL_PRICE  # noqa: F401  (ETF leg assumptions)
 from src.research.ibkr_cost_calibration import base_stock_commission_usd
 
 START_EQUITY = 10_000.0

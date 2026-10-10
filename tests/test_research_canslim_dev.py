@@ -181,13 +181,14 @@ def test_no_stop_holds_and_profit_target():
 
 
 def test_cost_minimum_commission():
+    from quant.backtest import costs as ibkr_costs    # the reversal_dev model, moved to quant (phase 2)
     from src.research.ibkr_cost_calibration import base_stock_commission_usd
     assert base_stock_commission_usd(10, 100.0, pricing_plan="tiered") == pytest.approx(0.35)
-    c = cs.rev.order_cost(10, 100.0, sell=False, hs=0.0)
+    c = ibkr_costs.ibkr_order_cost(10, 100.0, sell=False, hs=0.0)
     assert c["commission"] == pytest.approx(0.35)
-    assert c["total"] == pytest.approx(0.35 + 10 * (0.0010 + 0.0002) + 0.35 * cs.rev.PASS_THROUGH_OF_COMMISSION)
+    assert c["total"] == pytest.approx(0.35 + 10 * (0.0010 + 0.0002) + 0.35 * ibkr_costs.PASS_THROUGH_OF_COMMISSION)
     # 1,000 shares at $50: 0.0035 x 1000 = $3.50 > minimum
-    assert cs.rev.order_cost(1000, 50.0, sell=False, hs=0.0)["commission"] == pytest.approx(3.5)
+    assert ibkr_costs.ibkr_order_cost(1000, 50.0, sell=False, hs=0.0)["commission"] == pytest.approx(3.5)
     # value-based helper used by the engine
     assert cs.order_cost(1000.0, 100.0, False, 0.0) == pytest.approx(c["total"])
     assert cs.order_cost(0.0, 100.0, False, 0.0) == 0.0

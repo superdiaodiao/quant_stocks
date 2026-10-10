@@ -39,6 +39,13 @@ def ab_criteria(parts, full: dict, *, cagr: str = "cagr", bench: str | None = "o
     return bool(a), bool(b)
 
 
+def ab_verdict(full: dict, h1: dict, h2: dict) -> dict:
+    """{"A", "B", "pass"} of ``ab_criteria`` on the full period and both halves (default ONEQ keys); the
+    ``evaluate`` of scripts/research_sector_lev.py (also research_voltarget, research_leverage_methods)."""
+    a, b = ab_criteria((full, h1, h2), full)
+    return {"A": a, "B": b, "pass": bool(a or b)}
+
+
 def bonferroni_t(n: int, alpha: float = 0.05) -> float:
     """One-sided normal critical value for ``n`` trials at family-wise level ``alpha``."""
     return NORM.inv_cdf(1 - alpha / n)
@@ -65,3 +72,20 @@ def deflated_sharpe(sr: float, n_obs: int, skew: float, kurt: float, sr_trials: 
     denom = math.sqrt(max(1 - skew * sr + (kurt - 1) / 4 * sr ** 2, 1e-12))
     z = (sr - sr0) * math.sqrt(n_obs - 1) / denom
     return {"n_trials": n, f"sr0_{period}": sr0, "dsr": float(NORM.cdf(z)), "z": z}
+
+
+def weekly_deflated_sharpe(sr: float, n_obs: int, skew: float, kurt: float, sr_trials: np.ndarray) -> dict:
+    """``deflated_sharpe`` of weekly Sharpe ratios (key ``sr0_weekly``): scripts/research_reversal_dev.py's version,
+    also used by the stock studies that took it from there."""
+    return deflated_sharpe(sr, n_obs, skew, kurt, sr_trials, period="weekly")
+
+
+def timing_criteria(rule: dict, qqq: dict) -> dict:
+    """The QQQ timing one-shot criteria (all net of costs; all must hold): maximum drawdown at least 10 points
+    shallower than QQQ's, a higher Calmar, CAGR at most 3 points below (scripts/research_qqq_timing.py
+    ``evaluate_criteria``)."""
+    c1 = abs(rule["max_dd"]) <= abs(qqq["max_dd"]) - 0.10
+    c2 = rule["calmar"] > qqq["calmar"]
+    c3 = rule["cagr"] >= qqq["cagr"] - 0.03
+    return {"c1_maxdd_at_least_10pp_shallower": bool(c1), "c2_calmar_higher": bool(c2),
+            "c3_cagr_shortfall_at_most_3pp": bool(c3), "pass": bool(c1 and c2 and c3)}

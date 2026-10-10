@@ -114,3 +114,42 @@ def relative_metrics(r: pd.Series, b: pd.Series, rf: pd.Series, tag: str) -> dic
             f"max_dd_in_{tag}_window": dd, f"{tag}_max_dd": bdd, f"dd_shallower_than_{tag}_pp": (abs(bdd) - abs(dd)) * 100,
             f"t_monthly_excess_vs_{tag}": t, f"ir_vs_{tag}": ir, f"beta_vs_{tag}": beta, f"alpha_vs_{tag}": alpha,
             f"share_years_beating_{tag}": float((yr > yb).mean()), f"years_{tag}": int(len(yr)), f"months_{tag}": int(len(mx))}
+
+
+def exposure_metrics(sim: dict, bench: dict, rf: pd.Series) -> dict:
+    """Metrics of an exposure-timing run (``quant.backtest.exposure.simulate`` output) vs a buy-and-hold run:
+    return, risk, time spent at each exposure level, trading, monthly excess t / IR, drop-best-months checks
+    (scripts/research_qqq_timing.py ``metrics``)."""
+    r, b, v = sim["ret"], bench["ret"], sim["value"]
+    years = len(r) / TRADING_DAYS
+    cagr = cagr_of(r)
+    bcagr = cagr_of(b)
+    ex = r - rf.reindex(r.index)
+    mdd = max_drawdown(v)
+    e = sim["exposure_held"]
+    m, mb = monthly(r), monthly(b)
+    mx = m - mb
+    out = {
+        "cagr": cagr, "excess_cagr_vs_qqq": cagr - bcagr, "vol": float(r.std() * math.sqrt(TRADING_DAYS)),
+        "max_dd": mdd, "sharpe": float(ex.mean() / ex.std() * math.sqrt(TRADING_DAYS)),
+        "calmar": cagr / abs(mdd) if mdd < 0 else float("nan"),
+        "time_cash": float((e < 0.05).mean()), "time_between_0_1": float(((e >= 0.05) & (e < 0.95)).mean()),
+        "time_1x": float(((e >= 0.95) & (e <= 1.05)).mean()), "time_between_1_2": float(((e > 1.05) & (e < 1.95)).mean()),
+        "time_2x": float((e >= 1.95).mean()), "avg_exposure": float(e.mean()),
+        "switches_per_year": sim["rebalances"] / years, "orders_per_year": sim["orders"] / years,
+        "cost_drag_per_year": sim["cost_frac"] / years,
+        "worst_year": float(yearly(r).min()), "worst_year_which": int(yearly(r).idxmin()),
+        "months": int(len(mx)), "mean_monthly_excess": float(mx.mean()),
+        "t_monthly_excess": float(mx.mean() / mx.std() * math.sqrt(len(mx))) if mx.std() > 0 else 0.0,
+        "ir_monthly": float(mx.mean() / mx.std()) if mx.std() > 0 else 0.0,
+        "skew_mx": float(mx.skew()), "kurt_mx": float(mx.kurt() + 3.0),
+    }
+    # drop-best-months: strategy's own best months removed, and the biggest-excess months replaced by QQQ's
+    for k in (3, 6):
+        keep = m.drop(m.nlargest(k).index)
+        out[f"cagr_drop_best{k}"] = cagr_months(keep)
+        swapped = m.copy()
+        top = mx.nlargest(k).index
+        swapped.loc[top] = mb.loc[top]
+        out[f"excess_drop_best{k}_excess_months"] = cagr_months(swapped) - cagr_months(mb)
+    return out

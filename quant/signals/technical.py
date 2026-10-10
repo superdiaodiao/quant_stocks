@@ -67,3 +67,37 @@ def momentum_frames(idx: pd.DataFrame) -> dict:
     """Total-return momentum known at the close of each session (complete history required):
     ``m6`` = 126-session return, ``m12_1`` = return from t-252 to t-21."""
     return {"m6": idx / idx.shift(126) - 1, "m12_1": idx.shift(21) / idx.shift(252) - 1}
+
+
+def trend_state(p: pd.Series, length: int, band: float) -> pd.Series:
+    """1.0 = on, 0.0 = off, NaN before the MA exists. Uses P and MA up to and including t."""
+    ma = p.rolling(length, min_periods=length).mean()
+    up = (p > ma * (1 + band)).values
+    dn = (p < ma * (1 - band)).values
+    valid = ma.notna().values
+    pv, mv = p.values, ma.values
+    out = np.full(len(p), np.nan)
+    state = np.nan
+    for i in range(len(p)):
+        if not valid[i]:
+            continue
+        if np.isnan(state):
+            state = 1.0 if pv[i] > mv[i] else 0.0
+        if up[i]:
+            state = 1.0
+        elif dn[i]:
+            state = 0.0
+        out[i] = state
+    return pd.Series(out, index=p.index)
+
+
+def realised_vol(r: pd.Series, window: int) -> pd.Series:
+    return r.rolling(window, min_periods=window).std() * math.sqrt(TRADING_DAYS)
+
+
+def month_end_only(sig: pd.Series) -> pd.Series:
+    """Keep the value of each month's last session and carry it forward until the next month end."""
+    idx = sig.index
+    is_me = pd.Series(idx.to_period("M"), index=idx) != pd.Series(idx.to_period("M"), index=idx).shift(-1)
+    is_me.iloc[-1] = False   # the last session of the data is not known to be a month end
+    return sig.where(is_me.values).ffill()
