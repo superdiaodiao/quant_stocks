@@ -30,7 +30,7 @@
 | 日历和隔夜效应 | research_ledger_calendar.md | 没通过 |
 | 行业轮动 | research_ledger_sector_lev.md | 没通过 |
 | 适度加杠杆 B3（均线上方 1.5 倍，下方 1 倍） | research_ledger_sector_lev.md、audit_leverage_b3.md | 形式上通过；审计发现多赚的部分主要来自杠杆，择时部分不显著；从泡沫顶部起算最惨跌掉 87% |
-| 集中持有巨头 | research_ledger_megacap.md | 2014–2026 年通过；1999–2013 年用自建的时点市值排名重新检验，M1/M2/M6 都不通过（2000–2002 跌 73–77%），说明是那个年代特有的 |
+| 集中持有巨头 | research_ledger_megacap.md | 2014–2026 年通过；1999–2013 年用自建的时点市值排名重新检验，M1/M2/M6 都不通过（2000–2002 跌 73–77%），说明是那个年代特有的；动量版 M3/M4/M5 在 1999–2013 年也都不通过（M3 崩盘跌 84%） |
 | 内部人士买入、复制大师持仓 | research_ledger_sec_alt.md | 没通过（只覆盖纳斯达克，数据不全） |
 | 212 个学术信号 | research_ledger_osap.md | 2015 年后，在大中盘里只做多，0 个通过 |
 | 本地 40 个财务指标（含组合打分） | research_ledger_fundamentals.md | 96 次检验，0 个通过 |
