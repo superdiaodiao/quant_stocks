@@ -1,0 +1,77 @@
+name: Forward observation
+
+# Runs scripts/forward_observation.py for the frozen candidates of
+# docs/forward_observation_checklist.md section B (S3-Yb, QQQ RSI2-dip SEL-A/SEL-P,
+# S-MISP short overlay). It is scheduled on the first trading days of each month
+# after the US close. The runner is idempotent: a month already final is not
+# changed, so the extra days only catch a missed run. The log and the
+# ratio-only state files are committed back; raw vendor data stays in the
+# Actions cache. S/P top-10 is not here, because it needs the owner's
+# QuantConnect session.
+
+on:
+  schedule:
+    - cron: "30 23 1-6 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the log instead of committing it"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forward-observation
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Restore raw-data cache
+      uses: actions/cache@v4
+      with:
+        path: .cache
+        key: forward-obs-${{ github.run_id }}
+        restore-keys: forward-obs-
+
+    - name: Run the observation
+      env:
+        FORWARD_OBS_CACHE: .cache
+        ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+        ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+        SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      run: |
+        args="--fetch --fetch-smisp"
+        if [ "$DRY" = "true" ]; then args="$args --dry-run"; fi
+        PYTHONPATH=. python scripts/forward_observation.py $args
+
+    - name: Commit log and state
+      if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add docs/forward_observation_log.md state/forward_observation
+        if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+        git commit -m "forward observation: monthly update ($(date -u +%F))"
+        git pull --rebase origin master
+        git push origin HEAD:master
