@@ -7,6 +7,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from quant.evaluation.criteria import bonferroni_t_student
+from quant.evaluation.stats import t_sf
+from quant.strategies import canslim as cs
+from quant.strategies import ml_features as mlf
+from quant.strategies import ml_models as mm
 from scripts import research_ml_cross_section as ml
 
 
@@ -31,7 +36,7 @@ def test_price_features_ignore_everything_after_the_signal():
     idx, close, vol, mkt = _price_frames()
     s = idx.index[400]
     sids = list(idx.columns)
-    base = ml.price_features(idx, close, vol, mkt, sids, [s] * len(sids))
+    base = mlf.price_features(idx, close, vol, mkt, sids, [s] * len(sids))
     # scramble every value strictly after s (prices, volumes, market) -> features at s unchanged
     later = idx.index > s
     idx2, close2, vol2, mkt2 = idx.copy(), close.copy(), vol.copy(), mkt.copy()
@@ -39,19 +44,19 @@ def test_price_features_ignore_everything_after_the_signal():
     close2.loc[later] = 1.0
     vol2.loc[later] = 1e12
     mkt2.loc[later] = 0.5
-    after = ml.price_features(idx2, close2, vol2, mkt2, sids, [s] * len(sids))
+    after = mlf.price_features(idx2, close2, vol2, mkt2, sids, [s] * len(sids))
     pd.testing.assert_frame_equal(base, after)
     # and the features do respond to data on or before s
     idx3 = idx.copy()
     idx3.loc[s] *= 1.1
-    changed = ml.price_features(idx3, close, vol, mkt, sids, [s] * len(sids))
+    changed = mlf.price_features(idx3, close, vol, mkt, sids, [s] * len(sids))
     assert not np.allclose(changed["r_1m"], base["r_1m"])
 
 
 def test_price_feature_definitions():
     idx, close, vol, mkt = _price_frames()
     s = idx.index[300]
-    f = ml.price_features(idx, close, vol, mkt, ["S0"], [s]).iloc[0]
+    f = mlf.price_features(idx, close, vol, mkt, ["S0"], [s]).iloc[0]
     i = idx["S0"]
     assert f["r_1m"] == pytest.approx(i.iloc[300] / i.iloc[279] - 1)
     assert f["mom_12_1"] == pytest.approx(i.iloc[279] / i.iloc[48] - 1)
@@ -71,7 +76,7 @@ def test_split_uses_only_labels_realised_before_the_test_year():
     sess = pd.bdate_range("2012-01-02", "2026-08-31")
     month_ends = [g.max() for _, g in pd.Series(sess, index=sess).groupby(sess.to_period("M"))][:-1]
     for Y in (2016, 2020, 2026):
-        sp = ml.split_for_year(month_ends, Y)
+        sp = mm.split_for_year(month_ends, Y, ml.VAL_MONTHS)
         nxt = dict(zip(month_ends[:-1], month_ends[1:]))
         assert sp["s0"].year == Y - 1 and sp["s0"].month == 12
         assert all(nxt[s] <= sp["s0"] for s in sp["train_all"])          # labels realised by s0
@@ -96,8 +101,8 @@ def test_walk_forward_refuses_a_label_that_ends_after_s0():
     for f in ml.CONT_FEATURES:
         p[f] = rng.normal(size=len(p))
     p.loc[p["s"] == sigs[40], "s_next"] = pd.Timestamp("2030-01-01")      # a corrupted, future-dated label
-    with pytest.raises(ml.cs.DateGuardError):
-        ml.walk_forward(p, sigs, years=(2016,), log=lambda *_: None)
+    with pytest.raises(cs.DateGuardError):
+        mm.walk_forward(p, sigs, ml.CFG, years=(2016,), log=lambda *_: None)
 
 
 # ------------------------------------------------------------------ normalisation, industries
@@ -105,15 +110,15 @@ def test_walk_forward_refuses_a_label_that_ends_after_s0():
 def test_rank_normalise_maps_to_half_interval_and_fills_missing_with_zero():
     v = pd.Series([3.0, 1.0, np.nan, 2.0, 10.0, np.nan])
     g = pd.Series(["a", "a", "a", "a", "b", "b"])
-    out = ml.rank_normalise(v, g)
+    out = mm.rank_normalise(v, g)
     assert list(out) == [0.5, -0.5, 0.0, 0.0, 0.0, 0.0]
 
 
 def test_ff12():
-    assert ml.ff12(7372) == "BusEq" and ml.ff12(2834) == "Hlth" and ml.ff12(5961) == "Shops"
-    assert ml.ff12(3674) == "BusEq" and ml.ff12(1311) == "Enrgy" and ml.ff12(4813) == "Telcm"
-    assert ml.ff12(6022) == "Money" and ml.ff12(1540) == "Other" and ml.ff12(np.nan) is None
-    assert ml.ff12(3711) == "Durbl" and ml.ff12(2011) == "NoDur" and ml.ff12(3841) == "Hlth"
+    assert mlf.ff12(7372) == "BusEq" and mlf.ff12(2834) == "Hlth" and mlf.ff12(5961) == "Shops"
+    assert mlf.ff12(3674) == "BusEq" and mlf.ff12(1311) == "Enrgy" and mlf.ff12(4813) == "Telcm"
+    assert mlf.ff12(6022) == "Money" and mlf.ff12(1540) == "Other" and mlf.ff12(np.nan) is None
+    assert mlf.ff12(3711) == "Durbl" and mlf.ff12(2011) == "NoDur" and mlf.ff12(3841) == "Hlth"
 
 
 # ------------------------------------------------------------------ models
@@ -123,12 +128,12 @@ def test_elastic_net_matches_ridge_closed_form_and_lasso_sparsity():
     X = rng.normal(size=(500, 6))
     y = X @ np.array([1.0, -0.5, 0, 0, 0.2, 0]) + rng.normal(0, 0.1, 500)
     a = 0.05
-    m = ml.ElasticNet(a, 0.0).fit(X, y)
+    m = mm.ElasticNet(a, 0.0).fit(X, y)
     Xc, yc = X - X.mean(0), y - y.mean()
     n = len(y)
     b = np.linalg.solve(Xc.T @ Xc / n + a * np.eye(6), Xc.T @ yc / n)
     assert np.allclose(m.coef_, b, atol=1e-6)
-    lasso = ml.ElasticNet(0.1, 1.0).fit(X, y)
+    lasso = mm.ElasticNet(0.1, 1.0).fit(X, y)
     assert (lasso.coef_[[2, 3, 5]] == 0).all() and lasso.coef_[0] > 0.5
 
 
@@ -136,7 +141,7 @@ def test_gbrt_learns_a_nonlinear_rank_signal():
     rng = np.random.default_rng(4)
     X = rng.uniform(-0.5, 0.5, (4000, 5))
     y = np.where(X[:, 0] > 0.1, 0.2, -0.1) + 0.3 * X[:, 1] * (X[:, 2] > 0) + rng.normal(0, 0.05, 4000)
-    m = ml.GBRT(150, seed=1, min_leaf=20).fit(X[:3000], y[:3000])
+    m = mm.GBRT(150, 1, ml.GB, min_leaf=20).fit(X[:3000], y[:3000])
     p = m.predict(X[3000:])
     assert np.corrcoef(p, y[3000:])[0, 1] > 0.9
     assert m.gain_[0] == m.gain_.max() and m.gain_[3] < 0.05 * m.gain_.sum()
@@ -146,8 +151,8 @@ def test_tree_respects_min_leaf():
     rng = np.random.default_rng(5)
     X = rng.uniform(-0.5, 0.5, (300, 3))
     g = rng.normal(size=300)
-    B = ml.to_bins(X)
-    t = ml.grow_tree(B, g, 3, 32, 60, 1.0, np.zeros(3))
+    B = mm.to_bins(X, ml.GB["bins"])
+    t = mm.grow_tree(B, g, 3, 32, 60, 1.0, np.zeros(3))
     leaves = t.predict(B)
     counts = pd.Series(leaves).value_counts()
     assert counts.min() >= 60
@@ -157,7 +162,7 @@ def test_mlp_fits_a_simple_function():
     rng = np.random.default_rng(6)
     X = rng.uniform(-0.5, 0.5, (3000, 4))
     y = 0.4 * X[:, 0] - 0.3 * np.abs(X[:, 1])
-    ens = ml.MLPEnsemble(4, seed=0, n_seeds=2).train(X[:2500], y[:2500], 25)
+    ens = mm.MLPEnsemble(4, 0, ml.MLP_CFG, n_seeds=2).train(X[:2500], y[:2500], 25)
     assert np.corrcoef(ens.predict(X[2500:]), y[2500:])[0, 1] > 0.9
 
 
@@ -165,7 +170,7 @@ def test_monthly_ic():
     p = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10] * 2, float)
     t = np.concatenate([p[:10] * 2, -p[:10]])
     m = ["a"] * 10 + ["b"] * 10
-    ic = ml.monthly_ic(p, t, m)
+    ic = mm.monthly_ic(p, t, m)
     assert ic["a"] == pytest.approx(1.0) and ic["b"] == pytest.approx(-1.0)
 
 
@@ -184,7 +189,7 @@ def test_buffer_keeps_names_still_in_top_2n():
     sc = _scores({"2020-01-31": {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1},
                   "2020-02-28": {"C": 5, "D": 4, "B": 3, "A": 2, "E": 1},
                   "2020-03-31": {"C": 5, "D": 4, "E": 3, "F": 2.5, "B": 2, "A": 1}})
-    tg = ml.buffered_targets(sc, 2)
+    tg = mm.buffered_targets(sc, 2, ml.BUFFER_MULT)
     names = {s: sorted(x[0] for x in v) for s, v in tg.items()}
     assert names[pd.Timestamp("2020-01-31")] == ["A", "B"]
     assert names[pd.Timestamp("2020-02-28")] == ["A", "B"]
@@ -195,7 +200,7 @@ def test_buffer_keeps_names_still_in_top_2n():
 
 def test_blend_targets_sum_to_one():
     sc = _scores({"2020-01-31": {k: float(i) for i, k in enumerate("ABCDEFGHIJKL")}})
-    tg = ml.buffered_targets(sc, 10, weight=0.05, extra=[("QQQ", 0.5, np.nan, np.nan, "oneq")])
+    tg = mm.buffered_targets(sc, 10, ml.BUFFER_MULT, weight=0.05, extra=[("QQQ", 0.5, np.nan, np.nan, "oneq")])
     v = tg[pd.Timestamp("2020-01-31")]
     assert len(v) == 11 and sum(w for _, w, *_ in v) == pytest.approx(1.0)
 
@@ -203,9 +208,9 @@ def test_blend_targets_sum_to_one():
 # ------------------------------------------------------------------ criteria
 
 def test_bonferroni_threshold_for_8_trials():
-    t = ml.bonferroni_t(127, 8)
+    t = bonferroni_t_student(127, 8)
     assert 2.45 < t < 2.56
-    assert ml.t_sf(t, 127) == pytest.approx(0.05 / 8, rel=1e-3)
+    assert t_sf(t, 127) == pytest.approx(0.05 / 8, rel=1e-3)
 
 
 def test_criteria_needs_both_halves_and_bonferroni():

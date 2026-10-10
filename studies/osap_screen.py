@@ -12,19 +12,23 @@ The long leg is the highest port (LS == top port - port 01 for all 212 signals; 
 
 Multiple-testing hurdle: post-2015 lc_long_x t >= 3.0 with >= 60 months; Bonferroni and BH FDR also reported.
 
-Raw files: /Users/bytedance/code/quant_stocks/research_cache/osap/ (not committed). No strategy is tuned here.
+Raw files: /Users/bytedance/code/quant_stocks/research_cache/osap/ (not committed; readers in quant.data.osap).
+No strategy is tuned here.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 from statistics import NormalDist
 
 import numpy as np
 import pandas as pd
+
+from quant.data.osap import check_ls_identity, legs, load_doc, load_market, load_ports
+from quant.evaluation.criteria import bh_reject_finite
+from quant.evaluation.stats import mean_t_n, one_sided_p_normal
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW = Path("/Users/bytedance/code/quant_stocks/research_cache/osap")
@@ -44,71 +48,7 @@ FILES = {"op": "PredictorPortsFull.csv",
 UNAVAILABLE_DATA = {"Analyst", "Options", "13F", "ShortInterest", "Event", "Other", "Trading"}
 
 
-# ======================================================================== loading
-
-def load_doc(raw: Path = RAW) -> pd.DataFrame:
-    d = pd.read_csv(raw / "SignalDoc.csv")
-    d = d[d["Cat.Signal"] == "Predictor"].copy()
-    for c in ("Year", "SampleStartYear", "SampleEndYear"):
-        d[c] = pd.to_numeric(d[c], errors="coerce").astype("Int64")
-    return d.set_index("Acronym")
-
-
-def load_ports(path: Path) -> pd.DataFrame:
-    p = pd.read_csv(path, dtype={"port": str, "signalname": str}, usecols=["signalname", "port", "date", "ret"])
-    p["date"] = pd.to_datetime(p["date"]) + pd.offsets.MonthEnd(0)
-    if p["date"].max() > pd.Timestamp(DATA_END):
-        raise AssertionError(f"{path.name}: data after {DATA_END}")
-    return p
-
-
-def load_market(raw: Path = RAW) -> pd.Series:
-    """Monthly total market return (%) = Mkt-RF + RF from the Ken French monthly file."""
-    lines = (raw / "F-F_Research_Data_Factors.csv").read_text().splitlines()
-    rows = []
-    for ln in lines:
-        parts = [x.strip() for x in ln.split(",")]
-        if len(parts) == 5 and len(parts[0]) == 6 and parts[0].isdigit():
-            rows.append((parts[0], float(parts[1]) + float(parts[4])))
-        elif rows and len(parts[0]) != 6:
-            break          # the annual block follows the monthly block
-    s = pd.Series([v for _, v in rows], index=pd.to_datetime([k for k, _ in rows], format="%Y%m") + pd.offsets.MonthEnd(0))
-    return s.rename("mkt")
-
-
-def legs(ports: pd.DataFrame) -> dict:
-    """signal -> DataFrame(date x {long, short, ls}) in %."""
-    out = {}
-    for s, g in ports.groupby("signalname"):
-        w = g.pivot(index="date", columns="port", values="ret").sort_index()
-        num = sorted(c for c in w.columns if c != "LS")
-        f = pd.DataFrame({"long": w[num[-1]], "short": w[num[0]], "allavg": w[num].mean(axis=1, skipna=False)})
-        f["ls"] = w["LS"] if "LS" in w else f["long"] - f["short"]
-        out[s] = f
-    return out
-
-
-def check_ls_identity(leg: dict, tol: float = 1e-6) -> list:
-    """Signals where LS != top port - port 01 (should be none)."""
-    bad = []
-    for s, f in leg.items():
-        d = f.dropna()
-        if len(d) and (d["ls"] - (d["long"] - d["short"])).abs().max() > tol:
-            bad.append(s)
-    return bad
-
-
 # ======================================================================== the screen math
-
-def tstat(x: pd.Series) -> tuple[float, float, int]:
-    """(mean, t, n) of a monthly series; t = mean / sd(ddof=1) * sqrt(n)."""
-    x = pd.Series(x).dropna()
-    n = len(x)
-    if n < 2:
-        return (float(x.mean()) if n else np.nan, np.nan, n)
-    sd = x.std(ddof=1)
-    return float(x.mean()), float(x.mean() / sd * math.sqrt(n)) if sd > 0 else np.nan, n
-
 
 def periods_for(row) -> dict:
     """The three periods of one signal as (start, end) month-end strings."""
@@ -122,27 +62,6 @@ def periods_for(row) -> dict:
 
 def window(x: pd.Series, start: str, end: str) -> pd.Series:
     return x[(x.index >= pd.Timestamp(start)) & (x.index <= pd.Timestamp(end))]
-
-
-def bh_reject(pvals, q: float = 0.05) -> np.ndarray:
-    """Benjamini-Hochberg: boolean array of rejections at FDR q (NaN p-values never rejected)."""
-    p = np.asarray(pvals, float)
-    ok = np.isfinite(p)
-    m = ok.sum()
-    rej = np.zeros(len(p), bool)
-    if m == 0:
-        return rej
-    idx = np.where(ok)[0][np.argsort(p[ok])]
-    ranked = p[idx]
-    below = ranked <= q * np.arange(1, m + 1) / m
-    if below.any():
-        k = np.max(np.where(below)[0])
-        rej[idx[:k + 1]] = True
-    return rej
-
-
-def one_sided_p(t: float) -> float:
-    return 1 - NORM.cdf(t) if np.isfinite(t) else np.nan
 
 
 def screen(doc: pd.DataFrame, op: dict, lc: dict, vw: dict, mkt: pd.Series) -> pd.DataFrame:
@@ -169,17 +88,17 @@ def screen(doc: pd.DataFrame, op: dict, lc: dict, vw: dict, mkt: pd.Series) -> p
              "pub_after_2014": bool(pd.notna(meta["Year"]) and int(meta["Year"]) >= 2015)}
         for name, x in series.items():
             for pk, (a, b) in per.items():
-                m, t, n = tstat(window(x, a, b))
+                m, t, n = mean_t_n(window(x, a, b))
                 r[f"{name}_{pk}_mean"], r[f"{name}_{pk}_t"], r[f"{name}_{pk}_n"] = m, t, n
         rows.append(r)
     df = pd.DataFrame(rows)
     key = "lc_long_x_post2015"
-    df["p_primary"] = [one_sided_p(t) for t in df[f"{key}_t"]]
+    df["p_primary"] = [one_sided_p_normal(t) for t in df[f"{key}_t"]]
     eligible = df[f"{key}_n"].fillna(0) >= MIN_MONTHS
     df["pass_hurdle"] = eligible & (df[f"{key}_t"] >= HURDLE_T)
     bonf = NORM.inv_cdf(1 - 0.05 / len(df))
     df["pass_bonferroni"] = eligible & (df[f"{key}_t"] >= bonf)
-    df["pass_bh5"] = bh_reject(np.where(eligible, df["p_primary"], np.nan), 0.05)
+    df["pass_bh5"] = bh_reject_finite(np.where(eligible, df["p_primary"], np.nan), 0.05)
     df["still_works"] = df["pass_hurdle"] & (df["ls_op_postpub_mean"] > 0) & (df["vw_long_x_post2015_mean"] > 0)
     df["tier2"] = (~df["still_works"]) & eligible & (df[f"{key}_t"] >= TIER2_T) & \
         (df["ls_op_postpub_t"] >= TIER2_T) & (df["vw_long_x_post2015_mean"] > 0)
@@ -228,11 +147,13 @@ def summarize(df: pd.DataFrame) -> dict:
     return out
 
 
-def run(raw: Path = RAW, out: Path = OUT) -> tuple[pd.DataFrame, dict]:
+def run(raw: Path | None = None, out: Path | None = None) -> tuple[pd.DataFrame, dict]:
+    raw = RAW if raw is None else raw
+    out = OUT if out is None else out
     out.mkdir(parents=True, exist_ok=True)
     doc = load_doc(raw)
     mkt = load_market(raw)
-    op, lc, vw = (legs(load_ports(raw / FILES[k])) for k in ("op", "lc", "vw"))
+    op, lc, vw = (legs(load_ports(raw / FILES[k], DATA_END)) for k in ("op", "lc", "vw"))
     bad = {k: check_ls_identity(v) for k, v in (("op", op), ("lc", lc), ("vw", vw))}
     df = screen(doc, op, lc, vw, mkt)
     summ = summarize(df)

@@ -5,13 +5,19 @@ Extracted unchanged from scripts/research_short_overlay.py: the signals (``misp_
 ``signal_scores``, ``loser_orders`` / ``select_shorts`` / ``schedule``), the market frame (``Market``,
 ``build_market``, ``load_effr``, ``terminal_variant``), the daily engine ``simulate`` (whole-share shorts, IBKR Tiered,
 tiered borrow fees, IBKR margin-loan / credit interest, Reg T margin with forced liquidation) with ``Cfg``, and
-``month_returns`` / ``tstat`` / ``bonferroni_t`` / ``ols_alpha`` / ``basket_diagnostics``. Used by
-studies/short_overlay.py, research_index_exclusion and the S-MISP forward line (quant.observation.smisp); the
-frozen S-MISP configuration is in quant.strategies.registry.
+``month_returns`` / ``tstat`` / ``basket_diagnostics``. Used by studies/short_overlay.py, research_index_exclusion
+and the S-MISP forward line (quant.observation.smisp); the frozen S-MISP configuration is in
+quant.strategies.registry.
+
+Slimming pass (docs/architecture.md section 12): ``tstat`` is ``quant.evaluation.stats.t_of_mean`` (min 3 values),
+``ols_alpha`` is ``stats.ols_alpha`` and the Bonferroni hurdle is ``criteria.bonferroni_t_student`` (the local
+copies were the same code); the EFFR file is always passed by the caller (``load_effr(path)``). Moved here from
+studies/short_overlay.py unchanged: the data loading (``scored_panel``, ``load``), ``coverage``, the fold metrics
+and criteria (``fold_metrics``, ``fold_criteria``), the loser-basket diagnostics (``loser_leg_report``) and the
+per-fold benchmarks (``fold_benchmarks``).
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,11 +25,9 @@ import numpy as np
 import pandas as pd
 
 from quant.backtest.costs import REBALANCE_BAND, ibkr_order_cost, rank_half_spread
-from quant.evaluation.stats import t_sf
-from quant.paths import CACHE_ROOT
+from quant.evaluation.metrics import max_drawdown
+from quant.evaluation.stats import ols_alpha, t_of_mean
 
-
-EFFR_CSV = CACHE_ROOT / "leverage_methods/raw/EFFR_nyfed.csv"
 SIGNALS = ("S-ML", "S-PROF", "S-MISP", "S-MOM")
 NS = (10, 20)
 KS = (0.20, 0.50)
@@ -139,7 +143,8 @@ class Market:
     idx_variants: dict = field(default_factory=dict)
 
 
-def load_effr(path: Path = EFFR_CSV) -> pd.Series:
+def load_effr(path: Path) -> pd.Series:
+    """The NY Fed EFFR CSV (``Rate Type`` EFFR) as a decimal daily series."""
     df = pd.read_csv(path)
     df = df[df["Rate Type"] == "EFFR"]
     s = pd.Series(pd.to_numeric(df["Rate (%)"], errors="coerce").to_numpy() / 100.0,
@@ -435,35 +440,7 @@ def month_returns(level: pd.Series) -> pd.Series:
     return me / prev - 1
 
 
-def tstat(x: pd.Series) -> float:
-    x = pd.Series(x).dropna()
-    if len(x) < 3 or x.std(ddof=1) == 0:
-        return np.nan
-    return float(x.mean() / x.std(ddof=1) * math.sqrt(len(x)))
-
-
-def bonferroni_t(df: int, n: int = N_TRIALS, alpha: float = ALPHA_ONE_SIDED) -> float:
-    lo, hi = 0.0, 10.0
-    for _ in range(100):
-        mid = (lo + hi) / 2
-        if t_sf(mid, df) > alpha / n:
-            lo = mid
-        else:
-            hi = mid
-    return hi
-
-
-def ols_alpha(y: pd.Series, x: pd.Series) -> dict:
-    d = pd.DataFrame({"y": y, "x": x}).dropna()
-    if len(d) < 6:
-        return {"alpha_ann": np.nan, "alpha_t": np.nan, "beta": np.nan, "n": len(d)}
-    X = np.column_stack([np.ones(len(d)), d["x"].to_numpy()])
-    b, *_ = np.linalg.lstsq(X, d["y"].to_numpy(), rcond=None)
-    e = d["y"].to_numpy() - X @ b
-    s2 = (e @ e) / (len(d) - 2)
-    cov = s2 * np.linalg.inv(X.T @ X)
-    return {"alpha_ann": float(b[0] * 12), "alpha_t": float(b[0] / math.sqrt(cov[0, 0])), "beta": float(b[1]),
-            "n": int(len(d))}
+tstat = t_of_mean          # mean / sd x sqrt(n), NaN below 3 values (the S-MISP forward line reads ``ro.tstat``)
 
 
 def basket_diagnostics(mk: Market, sched: list, n: int, start: int, end: int) -> pd.DataFrame:
@@ -511,3 +488,159 @@ def leg_summary(b: pd.DataFrame) -> dict:
             "borrow_ann": float(d["borrow_drag"].mean() * 12),
             "basket_plus_borrow_minus_qqq_ann": float(net.mean() * 12), "t_net": tstat(net),
             "alpha_net_ann": an["alpha_ann"], "alpha_net_t": an["alpha_t"]}
+
+
+# ======================================================================== data loading (data v2 only)
+
+def scored_panel(cache: Path, pred_path: Path):
+    """The ML feature panel (quant.strategies.ml_features.build_panel, cached in ``cache``), the GBRT walk-forward
+    predictions ``pred_path`` and the loser scores; QQQ total returns and level on the panel sessions.
+    Returns (data, sigs, panel, oneq_lvl, oneq_px, end, qtr, qqq_lvl, scores). Shared with index_exclusion."""
+    from quant.strategies import ml_features as ml
+    from quant.data import version as dv
+    if not dv.IS_V2:
+        raise SystemExit("set REVERSAL_DATA_VERSION=v2")
+    data, sigs, panel, oneq_lvl, oneq_px = ml.build_panel(cache)
+    pred = pd.read_csv(pred_path, dtype={"security_id": str}, parse_dates=["s"])
+    panel = panel.copy()
+    panel["security_id"] = panel["security_id"].astype(str)
+    end = data.spec["effective_end"]
+    qtr = ml.qqq_total_returns(end).reindex(data.sessions).fillna(0.0)
+    qqq_lvl = (1 + qtr).cumprod()
+    scores = signal_scores(panel, pred)
+    return data, sigs, panel, oneq_lvl, oneq_px, end, qtr, qqq_lvl, scores
+
+
+def load(cache: Path, pred_path: Path, effr_path: Path):
+    """``scored_panel`` plus the EFFR (``effr_path``) and the simulation ``Market``; asserts nothing beyond the
+    panel end. Returns (data, sigs, panel, scores, mk, oneq_lvl, qqq_lvl)."""
+    data, sigs, panel, oneq_lvl, _, end, qtr, qqq_lvl, scores = scored_panel(cache, pred_path)
+    effr = load_effr(effr_path)
+    effr = effr[effr.index <= pd.Timestamp(end)]
+    mk = build_market(data, list(scores["security_id"].unique()), effr, qtr)
+    for name, s in (("sessions", pd.Series(data.sessions)), ("effr", pd.Series(effr.index))):
+        if pd.Series(s).max() > pd.Timestamp(end):
+            raise RuntimeError(f"{name} beyond {end}")
+    return data, sigs, panel, scores, mk, oneq_lvl, qqq_lvl
+
+
+def coverage(scores: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for y, g in scores.groupby(scores["s"].dt.year):
+        r = {"year": int(y), "avg_u300": round(len(g) / g["s"].nunique(), 1)}
+        for c in SIGNALS:
+            r[c] = round(float(g[c].notna().mean()), 3)
+        for v, lab in ((BORROW_BIG, "borrow_0.5"), (BORROW_REST, "borrow_2"), (BORROW_HTB, "borrow_10")):
+            r[lab] = round(float((g["borrow"] == v).mean()), 3)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+# ======================================================================== fold metrics and criteria
+
+def fold_criteria(m: dict) -> dict:
+    """A: CAGR above ONEQ's and monthly-excess t >= 2; B: drawdown >= 10 points shallower and CAGR - ONEQ CAGR
+    >= -0.03 (keys ``t_ex_oneq``, ``dd_shallower_pp``)."""
+    a = (m["cagr"] > m["oneq_cagr"]) and (m["t_ex_oneq"] >= 2.0)
+    b = (m["dd_shallower_pp"] >= 10.0) and (m["cagr"] - m["oneq_cagr"] >= -0.03)
+    return {"A": bool(a), "B": bool(b), "pass": bool(a or b)}
+
+
+def fold_metrics(res: dict, oneq: pd.Series, qqq_lvl: pd.Series, account: float) -> dict:
+    """Metrics of one ``simulate`` result over its fold vs ONEQ and QQQ (calendar-month excess), the cost and
+    financing accounts per year and the fold criteria. Returns (metrics, monthly excess vs ONEQ)."""
+    nav = res["nav"]["nav"]
+    v = nav.where(nav > 0)
+    years = (nav.index[-1] - nav.index[0]).days / 365.25
+    o = oneq.reindex(nav.index)
+    q = qqq_lvl.reindex(nav.index)
+    cagr = (nav.iloc[-1] / nav.iloc[0]) ** (1 / years) - 1 if nav.iloc[-1] > 0 else -1.0
+    oc = (o.iloc[-1] / o.iloc[0]) ** (1 / years) - 1
+    qc = (q.iloc[-1] / q.iloc[0]) ** (1 / years) - 1
+    mr, mo, mq = month_returns(nav), month_returns(o), month_returns(q)
+    ex, exq = mr - mo, mr - mq
+    dd, odd = max_drawdown(v.ffill().fillna(0)), max_drawdown(o)
+    r, rb = nav.pct_change().iloc[1:], o.pct_change().iloc[1:]
+    beta = float(np.cov(r, rb, ddof=1)[0, 1] / rb.var(ddof=1))
+    acc = res["acc"]
+    avg_nav = float(nav.mean())
+    short = res["nav"]["short"]
+    m = {"start": str(nav.index[0].date()), "end": str(nav.index[-1].date()), "years": round(years, 2),
+         "cagr": cagr, "oneq_cagr": oc, "qqq_cagr": qc, "excess_vs_oneq": cagr - oc, "excess_vs_qqq": cagr - qc,
+         "t_ex_oneq": tstat(ex), "t_ex_qqq": tstat(exq), "ex_qqq_ann": float(exq.mean() * 12),
+         "max_dd": dd, "oneq_max_dd": odd, "qqq_max_dd": max_drawdown(q), "dd_shallower_pp": (abs(odd) - abs(dd)) * 100,
+         "beta_vs_oneq": beta, "months": int(len(ex)),
+         "borrow_pct_yr": acc["borrow"] / avg_nav / years, "margin_int_pct_yr": acc["margin_int"] / avg_nav / years,
+         "credit_int_pct_yr": acc["credit_int"] / avg_nav / years,
+         "trade_cost_pct_yr": (acc["commission"] + acc["fees"] + acc["spread"]) / avg_nav / years,
+         "short_turnover_yr": (acc["short_traded"] / 2) / max(float(short.mean()), 1e-9) / years,
+         "short_exposure": float((short / nav.where(nav > 0)).mean()),
+         "avg_n_short": float(res["nav"]["n_short"].mean()),
+         "orders_per_month": acc["orders"] / max(len(ex), 1),
+         "liquidations": acc["liquidations"], "zero_share_skips": acc["zero_share_skips"],
+         "delisted_covered": acc["delisted_covered"], "scaled_rebalances": acc["scaled_rebalances"],
+         "dead": acc["dead"], "final_nav": float(nav.iloc[-1]), "start_nav": account}
+    m.update(fold_criteria(m))
+    return m, ex
+
+
+# ======================================================================== diagnostics
+
+def loser_leg_report(mk: Market, scheds: dict, scores: pd.DataFrame, account: float) -> tuple:
+    """The loser basket alone (ideal, no costs) per signal, N and fold: leg summaries, the five worst squeeze months
+    (N = 20), every name's holding-period return (N = 20) and the whole-share feasibility at ``account``.
+    Returns (legs, squeeze, names, feasibility) as lists of rows (``names`` has a column ``s``, the signal date)
+    and the (s, security_id) -> ticker map."""
+    legs, squeeze, names, feas = [], [], [], []
+    tick = scores.drop_duplicates(["s", "security_id"]).set_index(["s", "security_id"])["ticker"]
+    for sig in SIGNALS:
+        for n in NS:
+            sched = scheds[(sig, n)]
+            parts = []
+            for fold, (a, b) in folds_for(sig).items():
+                start, end, _ = fold_bounds(mk, sched, a, b)
+                bd = basket_diagnostics(mk, sched, n, start, end)
+                bd["fold"] = fold
+                parts.append(bd)
+                legs.append({"signal": sig, "n": n, "fold": fold, **leg_summary(bd)})
+            allb = pd.concat(parts, ignore_index=True)
+            legs.append({"signal": sig, "n": n, "fold": "ALL", **leg_summary(allb)})
+            if n == 20:
+                d = allb.assign(rel=allb["basket"] - allb["qqq"]).sort_values("rel", ascending=False).head(5)
+                for r in d.itertuples():
+                    top = sorted(r.names.items(), key=lambda kv: -kv[1] if np.isfinite(kv[1]) else 0)[:3]
+                    squeeze.append({"signal": sig, "month_start": str(r.t0.date()), "month_end": str(r.t1.date()),
+                                    "basket": r.basket, "qqq": r.qqq, "basket_minus_qqq": r.rel,
+                                    "top_names": "; ".join(f"{tick.get((r.signal, s_), s_)} {v:+.0%}" for s_, v in top)})
+                for r in allb.itertuples():
+                    for s_, v in r.names.items():
+                        names.append({"signal": sig, "t0": str(r.t0.date()), "t1": str(r.t1.date()),
+                                      "security_id": s_, "ret": v, "s": r.signal})
+            pr = np.concatenate([np.asarray(p, float) for p in allb["prices"]]) if len(allb) else np.array([])
+            p50, p90 = float(np.nanmedian(pr)), float(np.nanpercentile(pr, 90))
+            for k in KS:
+                per_name = k * account / n
+                need = max(5 * p90, 350.0) * n / k
+                x = per_name / pr
+                rnd = np.round(x)
+                err = np.abs(rnd - x)[x >= 0.5] / x[x >= 0.5]
+                feas.append({"signal": sig, "n": n, "k": k, "target_per_short_at_10k": per_name,
+                             "median_short_price": p50, "p90_short_price": p90,
+                             "share_rounding_to_zero_at_10k": float(np.mean(x < 0.5)),
+                             "mean_abs_rounding_error_at_10k": float(np.mean(err)) if len(err) else np.nan,
+                             "min_commission_bp_at_10k": 0.35 / per_name * 1e4, "min_account_needed": need})
+    return legs, squeeze, names, feas, tick
+
+
+def fold_benchmarks(oneq: pd.Series, qqq: pd.Series) -> list:
+    """ONEQ and QQQ CAGR and maximum drawdown in every fold of ``FOLDS``."""
+    bench = []
+    for key, fs in FOLDS.items():
+        for fold, (a, b) in fs.items():
+            o = oneq[(oneq.index >= pd.Timestamp(a)) & (oneq.index <= pd.Timestamp(b))]
+            q = qqq[(qqq.index >= pd.Timestamp(a)) & (qqq.index <= pd.Timestamp(b))]
+            yrs = (o.index[-1] - o.index[0]).days / 365.25
+            bench.append({"folds": key, "fold": fold, "oneq_cagr": (o.iloc[-1] / o.iloc[0]) ** (1 / yrs) - 1,
+                          "qqq_cagr": (q.iloc[-1] / q.iloc[0]) ** (1 / yrs) - 1,
+                          "oneq_max_dd": max_drawdown(o), "qqq_max_dd": max_drawdown(q)})
+    return bench

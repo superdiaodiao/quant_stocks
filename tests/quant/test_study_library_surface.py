@@ -22,7 +22,7 @@ def test_market_caps_shares_vs_float_is_an_explicit_argument():
     import inspect
     assert market_cap.SHARES_VS_FLOAT == 2.5
     assert inspect.signature(market_cap.market_caps).parameters["shares_vs_float"].default == 2.5
-    for f in ("studies/fundamentals.py", "quant/strategies/ml_features.py", "quant/observation/smisp.py"):
+    for f in ("quant/strategies/fundamentals.py", "quant/strategies/ml_features.py", "quant/observation/smisp.py"):
         text = (ROOT / f).read_text()
         assert "shares_vs_float=np.inf" in text and "SHARES_VS_FLOAT =" not in text, f
 
@@ -98,10 +98,37 @@ def test_paths_are_unchanged_by_the_moves():
     assert runner.LOG == ROOT / "docs/forward_observation_log.md"
     assert prices.STATE_DIR == ROOT / "state/forward_observation"
     assert sts.OUT == ROOT / "output/research_only/selective_t" and st.ROOT == ROOT
-    assert str(st.RAW) == "/Users/bytedance/code/quant_stocks/research_cache/selective_t/raw"
+    assert str(sts.RAW) == "/Users/bytedance/code/quant_stocks/research_cache/selective_t/raw"
     assert str(rr.RAW) == "/Users/bytedance/code/quant_stocks/research_cache/regime/raw"
     from quant.strategies import t_grid
-    assert t_grid.TOP20 == ROOT / "output/research_only/megacap_v2/top20_by_month.csv"
+    from studies import t_grid as tgs
+    assert tgs.TOP20 == ROOT / "output/research_only/megacap_v2/top20_by_month.csv"
+    assert tgs.RAW == sts.RAW and tgs.SOURCES == sts.SOURCES and tgs.PANEL == sts.PANEL
+    # the strategy modules carry no study cache / output paths: the studies pass them in
+    assert not any(hasattr(st, a) for a in ("RAW", "CACHE", "FETCH_LOG", "PANEL", "SOURCES"))
+    assert not any(hasattr(t_grid, a) for a in ("TOP20", "PANEL"))
     from quant.data import spinoff_events
     assert spinoff_events.OUT == ROOT / "output/research_only/spinoffs"
     assert isinstance(rr.HALF_SPREAD, dict) and pd.Timestamp(st.END) == pd.Timestamp(rr.END)
+
+
+def test_quant_imports_src_only_through_the_two_bridges():
+    """Slimming pass (docs/architecture.md section 12): src/ is frozen legacy code; quant reaches it only through
+    quant/data/sources/sec.py (sec_user_agent) and quant/data/universe.py (investable_common_equities), and studies
+    never import src directly."""
+    bridges = {ROOT / "quant/data/sources/sec.py", ROOT / "quant/data/universe.py"}
+    users = set()
+    for path in list((ROOT / "quant").rglob("*.py")) + list((ROOT / "studies").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            mods = [a.name for a in node.names] if isinstance(node, ast.Import) else (
+                [node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+            if any(m == "src" or m.startswith("src.") for m in mods):
+                users.add(path)
+    assert users == bridges
+
+
+def test_strategy_modules_hold_no_study_output_paths():
+    """Study output folders are declared by the studies and passed in, never read by a strategy module."""
+    for path in (ROOT / "quant/strategies").glob("*.py"):
+        text = path.read_text()
+        assert "output/research_only" not in text and "output_dir(" not in text, path

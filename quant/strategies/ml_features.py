@@ -3,9 +3,12 @@ factors of quant.strategies.fundamentals, FF12 industry dummies), defined on fro
 
 Extracted unchanged from scripts/research_ml_cross_section.py (``build_panel``, ``price_features``,
 ``qqq_total_returns`` and their helpers); also used by research_short_overlay, research_index_exclusion and the
-S-MISP forward signal (quant.observation.smisp). The panel is cached in research_cache/ml_cross_section_v2.
+S-MISP forward signal (quant.observation.smisp). ``build_panel`` caches the panel and its derived data in the
+folder the caller passes (the studies pass research_cache/ml_cross_section_v2).
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,7 +16,6 @@ import pandas as pd
 from quant.data import market_cap as mcap
 from quant.data import version as dv
 from quant.data.calendar import last_session_of_each_month
-from quant.paths import CACHE_ROOT
 from quant.strategies import canslim as cs
 from quant.strategies import fundamentals as rf
 from quant.strategies import indicators as ind
@@ -24,8 +26,7 @@ def require_v2():
         raise SystemExit("research_ml_cross_section is pre-registered on frozen data v2: set REVERSAL_DATA_VERSION=v2")
 
 
-MCACHE = CACHE_ROOT / "ml_cross_section_v2"
-PANEL_CACHE = MCACHE / "panel_v1.pkl"
+PANEL_FILE = "panel_v1.pkl"
 PRICE_START, PERF_START, END = "2011-06-01", "2016-01-01", "2026-08-31"
 FIRST_SIGNAL = "2012-01-31"
 PRICE_FEATURES = ("r_1w", "r_1m", "mom_3m", "mom_6_1", "mom_12_1", "vol_1m", "vol_3m", "max_ret_1m", "beta_1y",
@@ -134,26 +135,26 @@ def qqq_total_returns(end: str) -> pd.Series:
     return pd.Series(r.to_numpy(float), index=pd.DatetimeIndex(pd.to_datetime(q["date"])))
 
 
-def build_panel(refresh: bool = False):
+def build_panel(cache: Path, refresh: bool = False):
     """Load data v2 and build the U300 monthly panel: fundamentals (point in time), market cap, price features,
     FF12 label, next-month total return. Returns (data, sigs, panel, oneq_lvl, oneq_px)."""
     require_v2()
-    rf.PERF_START = PERF_START          # performance index starts 2016 (features use the full history)
-    rf.FCACHE = MCACHE                   # derived caches of this study only (fundamentals_v2 cache untouched)
-    MCACHE.mkdir(parents=True, exist_ok=True)
-    data = rf.load_all()
+    cache.mkdir(parents=True, exist_ok=True)
+    # performance index starts 2016 (features use the full history); derived caches in ``cache`` (this study only,
+    # the fundamentals_v2 cache is untouched)
+    data = rf.load_all(PERF_START)
     print("DATE GUARD:", data.guard["assertion"], flush=True)
     end = data.spec["effective_end"]
     sigs = [s for s in last_session_of_each_month(data.sessions) if s >= pd.Timestamp(FIRST_SIGNAL)]
     oneq_lvl, oneq_px = ind.oneq_on_sessions(data.sessions, PRICE_START, end)
-    if PANEL_CACHE.exists() and not refresh:
-        panel = pd.read_pickle(PANEL_CACHE)
+    if (cache / PANEL_FILE).exists() and not refresh:
+        panel = pd.read_pickle(cache / PANEL_FILE)
         if sorted(panel["s"].unique()) == sorted(sigs):
             return data, sigs, panel, oneq_lvl, oneq_px
     cand = u300_candidates(data, sigs)
     ciks = sorted(cand["cik"].dropna().astype(int).unique())
     alias = mcap.successor_ciks(data.universe)
-    sh = mcap.extract_share_facts(sorted(set(ciks) | set(alias)), cache=MCACHE / "sec_share_facts.csv.gz")
+    sh = mcap.extract_share_facts(sorted(set(ciks) | set(alias)), cache=cache / "sec_share_facts.csv.gz")
     sh = mcap.add_predecessor_facts(sh, alias)
     lists = mcap.load_company_lists()
     dv50 = (data.close_adj * data.vol_adj).rolling(50, min_periods=20).median()
@@ -165,10 +166,10 @@ def build_panel(refresh: bool = False):
     cand.loc[cand["mcap_src"].astype(str).str.startswith("dollar_volume"), "mcap"] = np.nan
     cand["dv50"] = mcap.value_at(dv50, cand["security_id"], cand["s"])
     cand = rf.reject_small_mcaps(cand)
-    annual, eps = rf.extract_all(ciks)
+    annual, eps = rf.extract_all(ciks, cache)
     annual = annual[annual["filed"].astype(str) <= end]
     eps = eps[eps["avail"].astype(str) <= end]
-    states = rf.build_states(annual)
+    states = rf.build_states(annual, cache)
     states = states[states["filed"].astype(str) <= end]
     cs.assert_window(states["filed"], None, end, "fundamental filings used")
     rows = rf.universes(cand)["U300"]
@@ -192,5 +193,5 @@ def build_panel(refresh: bool = False):
     keep = ["s", "s_next", "security_id", "ticker", "cik", "sic", "ff12", "dv50_rank", "mcap", "mcap_src",
             "fwd_ret", "filed", "fy0_end", "eps_avail"] + list(CONT_FEATURES) + list(rf.COMPOSITES)
     panel = m[keep].copy()
-    panel.to_pickle(PANEL_CACHE)
+    panel.to_pickle(cache / PANEL_FILE)
     return data, sigs, panel, oneq_lvl, oneq_px
