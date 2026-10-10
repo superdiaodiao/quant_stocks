@@ -1,7 +1,7 @@
 """Trading-calendar helpers (only the calendar dates of the sessions are used, never prices).
 
 ``month_end_mask`` comes from scripts/research_regime.py, ``last_session_of_each_month`` from
-scripts/research_megacap.py (there ``signal_sessions``).
+scripts/research_megacap.py (there ``signal_sessions``), ``decision_year`` from research_stops / research_walk_forward.
 """
 from __future__ import annotations
 
@@ -24,3 +24,13 @@ def last_session_of_each_month(sessions: pd.DatetimeIndex) -> list:
     s = pd.Series(sessions, index=sessions)
     last = s.groupby(sessions.to_period("M")).max()
     return [d for d in last if d < sessions[-1]]
+
+
+def decision_year(sessions: pd.DatetimeIndex) -> np.ndarray:
+    """Year whose parameters the decision at close t uses: the year of the NEXT session (the walk-forward
+    convention of research_walk_forward and research_stops)."""
+    yrs = sessions.year.to_numpy()
+    out = np.empty_like(yrs)
+    out[:-1] = yrs[1:]
+    out[-1] = yrs[-1]
+    return out

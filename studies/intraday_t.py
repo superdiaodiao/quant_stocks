@@ -81,7 +81,6 @@ def cost(shares: float, price: float, sell: bool, sym: str, on: bool = True) -> 
     return order_cost(shares, price, sell, hs_of(sym, price))["total"]
 
 
-
 # ======================================================================== data (quant.data.ohlc: real-price OHLC)
 
 def parse_ohlc(path, end: str = END) -> pd.DataFrame:

@@ -1,7 +1,8 @@
 """Engine for ETF allocation rules: a daily table of target weights, traded only when the target changes.
 
-Extracted unchanged from scripts/research_regime.py (``simulate``, ``buy_hold``); the per-ETF half-spreads, which
-were a module constant there, are a parameter here. Costs: ``etf_order_cost``.
+Extracted unchanged from scripts/research_regime.py (``simulate``, ``buy_hold``, and in phase 2 ``two_state`` and
+``entry_index``, also used by research_mean_reversion); the per-ETF half-spreads, which were a module constant
+there, are a parameter here. ``d`` is a ``quant.data.etf_panel.Data``. Costs: ``etf_order_cost``.
 """
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ import numpy as np
 import pandas as pd
 
 from quant.backtest.costs import START_EQUITY, etf_order_cost
+from quant.data.calendar import month_end_mask
+from quant.data.etf_panel import BENCH
 
 
 def simulate_target_weights(w: pd.DataFrame, rets: pd.DataFrame, close: pd.DataFrame, start_i: int,
@@ -66,3 +69,24 @@ def buy_hold_weights(asset: str, sessions: pd.DatetimeIndex, rets: pd.DataFrame,
     """100% ``asset`` from the close of ``start_i`` (one buy order)."""
     w = pd.DataFrame({asset: 1.0}, index=sessions)
     return simulate_target_weights(w, rets, close, start_i, half_spread)
+
+
+def two_state(state: pd.Series, on: dict, off: dict, columns) -> pd.DataFrame:
+    """Weights ``on`` where the state is 1, ``off`` where it is 0, NaN where it is undefined."""
+    w = pd.DataFrame(np.nan, index=state.index, columns=list(columns))
+    for k in columns:
+        w.loc[state == 1.0, k] = on.get(k, 0.0)
+        w.loc[state == 0.0, k] = off.get(k, 0.0)
+    return w
+
+
+def entry_index(w: pd.DataFrame, d, assets, monthly_rule: bool, bench: str = BENCH) -> int:
+    """First session S where every used ETF and the benchmark have a close, the target decided at S-1 exists,
+    and (monthly rules) S-1 is a month end."""
+    have = d.adj[list(assets) + [bench]].notna().all(axis=1).values
+    defined = w.notna().all(axis=1).values
+    me = month_end_mask(w.index)
+    for i in range(1, len(w)):
+        if have[i] and defined[i - 1] and (me[i - 1] or not monthly_rule):
+            return i
+    raise ValueError("no entry possible")

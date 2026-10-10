@@ -22,6 +22,16 @@ from quant.data.guards import assert_window, truncate_window
 TERMINAL_D5 = -0.55          # return booked for a delisting still awaiting its day-5 price (data plan)
 TERMINAL_D5_STRESS = -1.0
 
+# The study windows of the 2012-2026 panel (scripts/research_livermore.py ``WINDOWS``; reused by most stock studies).
+WINDOWS = {
+    "dev": {"perf_start": "2017-01-01", "perf_end": "2022-12-31", "price_start": "2015-10-01",
+            "universe_start": "2016-01-01", "judged_from": "2017-01-01"},
+    "test1": {"perf_start": "2023-01-01", "perf_end": "2026-09-30", "price_start": "2021-10-01",
+              "universe_start": "2022-01-01", "judged_from": "2023-01-01"},
+    "test2": {"perf_start": "2012-01-01", "perf_end": "2016-12-31", "price_start": "2011-06-01",
+              "universe_start": "2012-01-01", "judged_from": "2014-01-01"},   # 2012-2013: >2% slots missing
+}
+
 
 def make_index(tr: pd.DataFrame, close: pd.DataFrame | None = None) -> pd.DataFrame:
     """Cumulative total-return index; flat after the last booked value (cash), NaN before the first row

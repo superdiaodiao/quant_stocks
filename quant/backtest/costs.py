@@ -85,6 +85,26 @@ def rank_half_spread(rank: float, price: float, mult: float = 1.0) -> float:
     return max(bps * mult / 1e4 * 1.0, 0.005 / price * mult)
 
 
+def ibkr_order_total(shares: float, price: float, sell: bool, hs: float) -> float:
+    """``ibkr_order_cost`` total in dollars (the ``order_cost`` of research_spinoffs / research_ndx_recon)."""
+    return ibkr_order_cost(shares, price, sell, hs)["total"]
+
+
+def volume_tier_half_spread(dollar_volume: float, price: float, mult: float = 1.0) -> float:
+    """Half-spread by the median raw dollar volume of the regular-way sessions so far: 50 / 25 / 10 / 5 bps below
+    $2M / $10M / $50M / above (unknown volume: 50 bps), at least half a cent (research_spinoffs ``half_spread``,
+    also research_ndx_recon)."""
+    if not dollar_volume == dollar_volume or dollar_volume < 2e6:
+        bps = 50.0
+    elif dollar_volume < 1e7:
+        bps = 25.0
+    elif dollar_volume < 5e7:
+        bps = 10.0
+    else:
+        bps = 5.0
+    return max(bps / 1e4, 0.005 / price) * mult
+
+
 def tick_half_spread(bps: float, price: float) -> float:
     """``bps`` basis points, but at least half a cent per share."""
     return max(bps / 1e4, 0.005 / price)

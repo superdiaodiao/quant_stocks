@@ -205,7 +205,7 @@ def test_blend_targets_sum_to_one():
 def test_bonferroni_threshold_for_8_trials():
     t = ml.bonferroni_t(127, 8)
     assert 2.45 < t < 2.56
-    assert ml.rf.t_sf(t, 127) == pytest.approx(0.05 / 8, rel=1e-3)
+    assert ml.t_sf(t, 127) == pytest.approx(0.05 / 8, rel=1e-3)
 
 
 def test_criteria_needs_both_halves_and_bonferroni():

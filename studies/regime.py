@@ -24,18 +24,17 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from quant.backtest.costs import etf_order_cost as order_cost  # noqa: F401  (rr.order_cost: sector_lev, tests)
-from quant.backtest.target_weights import simulate_target_weights
+from quant.backtest.target_weights import entry_index, simulate_target_weights, two_state
 from quant.data.calendar import month_end_mask
+from quant.data.etf_panel import BENCH, HALF_SPREAD, TICKERS, Data, load_data  # noqa: F401  (rr.* for tests)
 from quant.data.guards import assert_dev_dates
-from quant.data.rates import daily_rf
 from quant.data.sources.yahoo import parse_chart
-from quant.evaluation.criteria import ab_criteria, bonferroni_t
+from quant.evaluation.criteria import REGIME_AB_LABELS, ab_verdict, bonferroni_t
 from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthly, yearly
 from quant.evaluation.periods import halves, return_period_metrics as period_metrics  # noqa: F401  (rr.halves)
 from quant.paths import CACHE_ROOT, output_dir
@@ -46,9 +45,6 @@ RAW = CACHE_ROOT / "regime/raw"
 PRIOR_QQQ = CACHE_ROOT / "qqq_timing/raw/chart_QQQ.json"
 OUT = output_dir("regime")
 
-TICKERS = ("QQQ", "ONEQ", "SPY", "IEF", "TLT", "SHY", "BIL", "GLD", "MTUM", "USMV", "QUAL", "VLUE")
-HALF_SPREAD = {"QQQ": 1e-4, "SPY": 1e-4, "IEF": 1e-4, "GLD": 1e-4, "ONEQ": 2e-4, "MTUM": 2e-4, "USMV": 2e-4}
-BENCH = "ONEQ"
 SMA_LEN = 200
 MOM_LEN = 252
 VOL_LEN = 20
@@ -57,39 +53,6 @@ RP_LEN = 63
 
 
 # ======================================================================== data
-
-@dataclass
-class Data:
-    sessions: pd.DatetimeIndex
-    adj: pd.DataFrame        # total-return (adjusted) closes, NaN before listing
-    close: pd.DataFrame      # split-adjusted closes, for share counts in the cost model
-    rets: pd.DataFrame       # daily total returns, NaN on/before the first close
-    rf: pd.Series            # daily T-bill return on the sessions
-    raw: dict
-    guard: dict
-
-
-def load_data(end: str = END, raw_dir: Path = RAW) -> Data:
-    raw = {t: parse_chart(raw_dir / f"chart_{t}.json", end) for t in TICKERS}
-    sessions = pd.DatetimeIndex(raw["QQQ"]["date"])       # QQQ (1999-03-10 ..) defines the trading calendar
-    adj, close = {}, {}
-    for t, df in raw.items():
-        df = df[pd.to_datetime(df["date"]) >= sessions[0]]      # SPY's 1993-1999 rows are not needed
-        ix = pd.DatetimeIndex(df["date"])
-        extra = ix.difference(sessions)
-        if len(extra):
-            raise ValueError(f"{t} has sessions not in the QQQ calendar: {list(extra[:5])}")
-        adj[t] = pd.Series(df["adjclose"].values, index=ix).reindex(sessions)
-        close[t] = pd.Series(df["close"].values, index=ix).reindex(sessions)
-    adj, close = pd.DataFrame(adj), pd.DataFrame(close)
-    rets = adj.pct_change(fill_method=None)
-    rf = daily_rf(sessions, end)
-    guard = {"end": end}
-    for t, df in raw.items():
-        assert_dev_dates(df["date"], end)
-        guard[t] = {"first": df["date"].iloc[0], "last": df["date"].iloc[-1], "rows": int(len(df))}
-    assert_dev_dates(sessions, end)
-    return Data(sessions=sessions, adj=adj, close=close, rets=rets, rf=rf, raw=raw, guard=guard)
 
 
 def data_checks(d: Data) -> dict:
@@ -135,14 +98,6 @@ def vol_state(r: pd.Series, window: int = VOL_LEN, med_len: int = VOL_MED_LEN) -
 
 def inverse_vol_weights(rets: pd.DataFrame, length: int = RP_LEN) -> pd.DataFrame:
     return technical.inverse_vol_weights(rets, length)
-
-
-def two_state(state: pd.Series, on: dict, off: dict, columns) -> pd.DataFrame:
-    w = pd.DataFrame(np.nan, index=state.index, columns=list(columns))
-    for k in columns:
-        w.loc[state == 1.0, k] = on.get(k, 0.0)
-        w.loc[state == 0.0, k] = off.get(k, 0.0)
-    return w
 
 
 def monthly_only(w: pd.DataFrame) -> pd.DataFrame:
@@ -206,18 +161,6 @@ def target_weights(name: str, d: Data) -> pd.DataFrame:
     raise KeyError(name)
 
 
-def entry_index(w: pd.DataFrame, d: Data, assets, monthly_rule: bool) -> int:
-    """First session S where every used ETF and the benchmark have a close, the target decided at S-1 exists,
-    and (monthly rules) S-1 is a month end."""
-    have = d.adj[list(assets) + [BENCH]].notna().all(axis=1).values
-    defined = w.notna().all(axis=1).values
-    me = month_end_mask(w.index)
-    for i in range(1, len(w)):
-        if have[i] and defined[i - 1] and (me[i - 1] or not monthly_rule):
-            return i
-    raise ValueError("no entry possible")
-
-
 # ======================================================================== simulation (quant.backtest.target_weights)
 
 def simulate(w: pd.DataFrame, rets: pd.DataFrame, close: pd.DataFrame, start_i: int, end_i: int | None = None,
@@ -234,9 +177,7 @@ def buy_hold(asset: str, d: Data, start_i: int) -> dict:
 
 def evaluate(full: dict, h1: dict, h2: dict) -> dict:
     """Pre-registered pass criteria (section 0.6): A or B, each on the full period and both halves."""
-    a, b = ab_criteria((full, h1, h2), full)
-    return {"A_higher_cagr_all_three_and_t_ge_2": a, "B_dd_10pp_shallower_and_cagr_within_3pp_all_three": b,
-            "pass": bool(a or b)}
+    return ab_verdict(full, h1, h2, REGIME_AB_LABELS)
 
 
 # ======================================================================== main

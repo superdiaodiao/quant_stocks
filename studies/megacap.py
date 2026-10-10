@@ -20,28 +20,27 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from quant.backtest import costs
-from quant.backtest.rebalance import buy_hold_level, simulate_index_units
-from quant.data import market_cap as mcap
+from quant.data.market_cap import (  # noqa: F401  (mc.latest_fact_asof: tests)
+    add_predecessor_facts, extract_share_facts, latest_fact_asof, load_company_lists, market_caps, successor_ciks,
+    value_at as _value_at,
+)
 from quant.data import version as dv
 from quant.data.benchmarks import oneq_on_sessions
 from quant.data.calendar import last_session_of_each_month
 from quant.data.guards import assert_window
 from quant.data.panel import load_window
-from quant.evaluation.criteria import ab_criteria, bonferroni_t
+from quant.evaluation.criteria import HALVES_AB_LABELS, ab_verdict_on, bonferroni_t
 from quant.evaluation.metrics import longest_drawdown_days, max_drawdown, monthly, yearly  # noqa: F401  (mc.*)
 from quant.evaluation.periods import nav_window_metrics
 from quant.paths import ROOT
 from quant.signals.technical import momentum_frames  # noqa: F401  (mc.momentum_frames)
+from quant.strategies.megacap import ACCOUNT, ONEQ_HS, QQQ_HS, RULES, Rule, build_targets, buy_hold, simulate  # noqa: F401
 
 OUT = dv.versioned(ROOT / "output/research_only/megacap")
-ACCOUNT = 10_000.0
 WINDOW = "megacap"
 WINDOW_SPEC = {"perf_start": "2012-01-01", "perf_end": "2026-08-31", "price_start": "2011-06-01",
                "universe_start": "2012-01-01", "judged_from": "2014-01-01"}
@@ -51,74 +50,10 @@ PERIODS = {"2012-2013 (report only)": ("2012-01-01", "2013-12-31"),
            "Full 2014-2026-08": ("2014-01-01", "2026-08-31")}
 JUDGED = ("H1 2014-2019", "H2 2020-2026-08")
 FULL = "Full 2014-2026-08"
-ONEQ_HS = 2e-4
-QQQ_HS = 1e-4
 N_TRIALS = 6
-
-
-@dataclass(frozen=True)
-class Rule:
-    name: str
-    pool: int                 # top-N by market cap
-    hold: int                 # names held
-    mom: str | None = None    # None, "m6" (126 sessions) or "m12_1"
-    trend: bool = False       # 100% QQQ when QQQ < SMA200 at the signal
-    capw: bool = False        # cap-weighted instead of equal weight
-
-
-RULES = (Rule("M1", 10, 10), Rule("M2", 5, 5), Rule("M3", 20, 5, "m6"), Rule("M4", 20, 10, "m12_1"),
-         Rule("M5", 20, 5, "m6", trend=True), Rule("M6", 10, 10, capw=True))
 assert len(RULES) == N_TRIALS
-
-
-# ======================================================================== the names other scripts read as mc.<name>
-# research_fundamentals, research_ml_cross_section, research_index_exclusion, research_megacap_oos2/3,
-# research_short_overlay and forward_smisp use this module as a library (phase 2 points them at quant directly).
-# SHARES_VS_FLOAT and QQQ_HS are read at call time, because some of them override the module value temporarily.
-SHARE_CONCEPTS = mcap.SHARE_CONCEPTS
-FRESH_DAYS = mcap.FRESH_DAYS
-LIST_DAYS = mcap.LIST_DAYS
-MAX_MCAP = mcap.MAX_MCAP
-SHARES_VS_FLOAT = mcap.SHARES_VS_FLOAT
-DV_RATIO_MAX = mcap.DV_RATIO_MAX
-SHARES_CACHE = mcap.SHARES_CACHE
-LISTS = mcap.COMPANY_LISTS
-_facts_from_payload = mcap.facts_from_payload
-_value_at = mcap.value_at
-latest_fact_asof = mcap.latest_fact_asof
-add_predecessor_facts = mcap.add_predecessor_facts
-signal_sessions = last_session_of_each_month
+signal_sessions = last_session_of_each_month   # mc.signal_sessions (tests)
 window_metrics = nav_window_metrics
-order_cost = costs.ibkr_value_cost
-_monthly, _yearly = monthly, yearly
-
-
-def extract_share_facts(ciks, cache: Path = SHARES_CACHE, refresh: bool = False) -> pd.DataFrame:
-    return mcap.extract_share_facts(ciks, cache, refresh)
-
-
-def load_company_lists() -> pd.DataFrame:
-    return mcap.load_company_lists(LISTS)
-
-
-def market_caps(cand: pd.DataFrame, facts: pd.DataFrame, lists: pd.DataFrame, close: pd.DataFrame,
-                tr_idx: pd.DataFrame, dv50: pd.DataFrame) -> pd.DataFrame:
-    return mcap.market_caps(cand, facts, lists, close, tr_idx, dv50, shares_vs_float=SHARES_VS_FLOAT)
-
-
-def successor_ciks(uni: pd.DataFrame) -> dict:
-    return mcap.successor_ciks(uni)
-
-
-def simulate(targets: dict, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: pd.DataFrame,
-             last_row: pd.Series, qqq_idx: pd.Series, qqq_close: pd.Series, account: float = ACCOUNT,
-             band: float = costs.REBALANCE_BAND, end: str | None = None) -> dict:
-    return simulate_index_units(targets, sessions, idx, close, last_row, qqq_idx, qqq_close, account=account,
-                                band=band, end=end, qqq_hs=QQQ_HS)
-
-
-def buy_hold(level: pd.Series, price: pd.Series, dates: pd.DatetimeIndex, hs: float, account: float = ACCOUNT):
-    return buy_hold_level(level, price, dates, hs, account)
 
 
 # ======================================================================== candidates and targets
@@ -151,39 +86,8 @@ def candidates(uni: pd.DataFrame, signals: list, close: pd.DataFrame, last_row: 
     return c.reset_index(drop=True)
 
 
-def build_targets(rule: Rule, ranked: pd.DataFrame, mom: dict, qqq_close: pd.Series) -> dict:
-    """signal session -> list of (sid, weight, dv50_rank, mcap, mcap_src); 'QQQ' for the trend filter's QQQ leg.
-    ``ranked``: candidates with mcap, one row per company. Signals with too few names are skipped."""
-    sma = qqq_close.rolling(200, min_periods=200).mean()
-    out = {}
-    for s, g in ranked.groupby("s"):
-        g = g[g["mcap"].notna()].sort_values(["mcap", "security_id"], ascending=[False, True]).head(rule.pool)
-        if len(g) < rule.pool:
-            continue
-        if rule.mom is not None:
-            m = mom[rule.mom]
-            g = g.assign(mom=_value_at(m, g["security_id"], [s] * len(g)))
-            if g["mom"].isna().all():
-                continue
-            g = g[g["mom"].notna()].sort_values(["mom", "security_id"], ascending=[False, True]).head(rule.hold)
-            if len(g) < rule.hold:
-                continue
-        if rule.trend:
-            if not np.isfinite(sma.loc[s]):
-                continue
-            if qqq_close.loc[s] < sma.loc[s]:
-                out[s] = [("QQQ", 1.0, np.nan, np.nan, "qqq")]
-                continue
-        w = (g["mcap"] / g["mcap"].sum()).to_numpy() if rule.capw else np.full(len(g), 1.0 / len(g))
-        out[s] = [(r.security_id, float(wi), float(r.dv50_rank), float(r.mcap), r.mcap_src)
-                  for r, wi in zip(g.itertuples(), w)]
-    return out
-
-
 def criteria(per: dict) -> dict:
-    a, b = ab_criteria([per[p] for p in JUDGED], per[FULL])
-    return {"A_cagr_above_oneq_both_halves_and_full_t_ge_2": a,
-            "B_dd_10pp_shallower_and_cagr_within_3pp_both_halves": b, "pass": bool(a or b)}
+    return ab_verdict_on([per[p] for p in JUDGED], per[FULL], HALVES_AB_LABELS)
 
 
 # ======================================================================== run

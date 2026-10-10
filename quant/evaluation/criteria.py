@@ -24,6 +24,10 @@ NORM = NormalDist()
 A_T_MIN = 2.0
 B_DD_PP = 10.0
 B_CAGR_TOL = 0.03
+# the A / B labels of the regime ledger (also research_mean_reversion)
+# the A / B labels of the megacap ledger, judged on two halves (also fundamentals)
+HALVES_AB_LABELS = ("A_cagr_above_oneq_both_halves_and_full_t_ge_2", "B_dd_10pp_shallower_and_cagr_within_3pp_both_halves")
+REGIME_AB_LABELS = ("A_higher_cagr_all_three_and_t_ge_2", "B_dd_10pp_shallower_and_cagr_within_3pp_all_three")
 
 
 def ab_criteria(parts, full: dict, *, cagr: str = "cagr", bench: str | None = "oneq_cagr",
@@ -39,11 +43,18 @@ def ab_criteria(parts, full: dict, *, cagr: str = "cagr", bench: str | None = "o
     return bool(a), bool(b)
 
 
-def ab_verdict(full: dict, h1: dict, h2: dict) -> dict:
-    """{"A", "B", "pass"} of ``ab_criteria`` on the full period and both halves (default ONEQ keys); the
-    ``evaluate`` of scripts/research_sector_lev.py (also research_voltarget, research_leverage_methods)."""
-    a, b = ab_criteria((full, h1, h2), full)
-    return {"A": a, "B": b, "pass": bool(a or b)}
+def ab_verdict(full: dict, h1: dict, h2: dict, labels: tuple = ("A", "B")) -> dict:
+    """{A, B, "pass"} of ``ab_criteria`` on the full period and both halves (default ONEQ keys), the A / B keys
+    named ``labels``: the ``evaluate`` of scripts/research_sector_lev.py (also research_voltarget,
+    research_leverage_methods) and of studies/regime.py (also research_mean_reversion, with the long labels)."""
+    return ab_verdict_on((full, h1, h2), full, labels)
+
+
+def ab_verdict_on(parts, full: dict, labels: tuple = ("A", "B")) -> dict:
+    """{A, B, "pass"} of ``ab_criteria(parts, full)`` with the A / B keys named ``labels`` (e.g. the two halves of
+    the megacap ledger, ``HALVES_AB_LABELS``)."""
+    a, b = ab_criteria(parts, full)
+    return {labels[0]: a, labels[1]: b, "pass": bool(a or b)}
 
 
 def bonferroni_t(n: int, alpha: float = 0.05) -> float:

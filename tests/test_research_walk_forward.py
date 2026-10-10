@@ -189,6 +189,7 @@ def test_registered_constants():
 
 
 def test_index_pick_on_truncated_data_raises_on_future_rows():
+    from quant.data import guards
     r = pd.Series(0.01, index=pd.bdate_range("2012-01-02", "2014-01-10"))
     with pytest.raises(AssertionError):
-        ri.qt.assert_dev_dates(r.index, "2013-12-31")
+        guards.assert_dev_dates(r.index, "2013-12-31")

@@ -168,7 +168,6 @@ def parse_ohlc(path: Path, end: str = END) -> pd.DataFrame:
     return yahoo.parse_ohlc(path, end)
 
 
-
 @dataclass
 class Data:
     sessions: pd.DatetimeIndex

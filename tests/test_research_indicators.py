@@ -168,10 +168,11 @@ def test_parse_ohlc_truncates_and_guards(tmp_path):
         {"open": [1, 2, 3], "high": [1, 2, 3], "low": [1, 2, 3], "close": [1, 2, 3]}]}}]}}
     p = tmp_path / "x.json"
     p.write_text(json.dumps(j))
+    from quant.data import guards
     df = ri.parse_ohlc(p, "2014-12-31")
     assert str(df.index.max().date()) == "2014-12-31" and len(df) == 2
     with pytest.raises(ri.FutureDataError):
-        ri.qt.assert_dev_dates(["2015-01-02"], "2014-12-31")
+        guards.assert_dev_dates(["2015-01-02"], "2014-12-31")
 
 
 def test_oneshot_refuses_without_frozen_file(tmp_path, monkeypatch):
