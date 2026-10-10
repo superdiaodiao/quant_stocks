@@ -112,3 +112,33 @@ class Preregistration:
         self.frozen.write_text(json.dumps({"sha256": self.hash(), "registered_at": pd.Timestamp.now("UTC").isoformat()},
                                           indent=1) + "\n")
         print("registered", self.hash())
+
+
+# ---- period tables (G1: the ETF / index timing studies and the stock studies that copied their layout)
+
+def write_monthly_csv(path: Path, monthly: dict) -> None:
+    """``pd.DataFrame(monthly)`` with the (period) index as ``str``, written with ``float_format="%.6f"``."""
+    mk = pd.DataFrame(monthly)
+    mk.index = mk.index.astype(str)
+    mk.to_csv(path, float_format="%.6f")
+
+
+def write_period_tables(out: Path, by_year: dict, monthly: dict, prefix: str = "") -> None:
+    """``<prefix>by_year.csv`` (``pd.DataFrame(by_year)``) and ``<prefix>monthly_returns.csv``
+    (``write_monthly_csv``) in ``out``, both with ``float_format="%.6f"``."""
+    pd.DataFrame(by_year).to_csv(Path(out) / f"{prefix}by_year.csv", float_format="%.6f")
+    write_monthly_csv(Path(out) / f"{prefix}monthly_returns.csv", monthly)
+
+
+# ---- ledger freeze blocks (G2: indicators, livermore, oneil): the frozen-rule files store the SHA-256 of the ledger
+# text from ``<!-- <tag>-BEGIN -->`` up to (not including) ``<!-- <tag>-END -->``.
+
+def freeze_block(ledger: Path, tag: str = "FREEZE") -> str:
+    """The ledger text from the ``<tag>-BEGIN`` marker up to the ``<tag>-END`` marker (END excluded)."""
+    text = Path(ledger).read_text()
+    a, b = text.index(f"<!-- {tag}-BEGIN -->"), text.index(f"<!-- {tag}-END -->")
+    return text[a:b]
+
+
+def freeze_sha256(ledger: Path, tag: str = "FREEZE") -> str:
+    return hashlib.sha256(freeze_block(ledger, tag).encode()).hexdigest()

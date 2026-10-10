@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_earnings_events as ee
+from quant.strategies import earnings_events as ee  # engine of studies/earnings_events.py
 
 
 def _sessions(start="2015-01-01", end="2017-12-31"):

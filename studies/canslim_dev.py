@@ -58,7 +58,7 @@ from quant.paths import ROOT
 from quant.strategies.canslim import (  # noqa: F401  (cs.* names read by other scripts and tests)
     CACHE, DEV_END, DEV_START, FIRST_SIGNAL, INPUTS, PRICE_START, UNIVERSE_START, Config, DateGuardError, DevData,
     assert_window, build_features, load_dev_data, market_filter, order_cost, perf_metrics, price_features,
-    qqq_benchmark, screen, signal_schedule, simulate, truncate, weekly,
+    qqq_benchmark, run_config, screen, signal_schedule, simulate, truncate, weekly,
 )
 
 OUT = dv.versioned(ROOT / "output/research_only/canslim_dev_2017_2022")
@@ -128,28 +128,7 @@ def run(args) -> dict:
     weeks = sorted(feat["week_end"].unique())
 
     def run_cfg(cfg: Config, d: DevData = data):
-        sel = screen(feat, cfg)
-        picks = {t: list(g["security_id"]) for t, g in sel.groupby("week_end")}
-        sched = signal_schedule(weeks, d.sessions, m_series[cfg.m_rule], cfg.rebalance)
-        sleeve_acct = cfg.account * (1 - cfg.core)
-        res = simulate(cfg, d.sessions, d.perf_idx, d.close, d.last_row, d.qqq_perf_idx, d.qqq_close, sched,
-                       picks, rank_of, sleeve_acct)
-        nav = res["nav"]
-        if cfg.core > 0:
-            nav = nav + qqq_benchmark(d.qqq_perf_idx, d.qqq_close, res["dates"], cfg.account * cfg.core)
-        bench = qqq_benchmark(d.qqq_perf_idx, d.qqq_close, res["dates"], cfg.account)
-        expo = res["exposure"] * res["nav"] / nav
-        m = perf_metrics(nav, bench, cfg.account, res["cost"], res["traded"], expo)
-        n_pass = sel.groupby("week_end").size().reindex(weeks).fillna(0)
-        m.update({k: res[k] for k in ("n_buy", "n_sell", "n_stop", "n_profit", "n_fail", "n_market_off",
-                                      "n_qqq_orders")})
-        m["avg_names_passing"] = float(n_pass.mean())
-        m["weeks_with_zero_passing"] = int((n_pass == 0).sum())
-        tr_ = res["trades"]
-        if len(tr_):
-            m["win_rate_closed"] = float((tr_["ret"] > 0).mean())
-            m["avg_trade_ret"] = float(tr_["ret"].mean())
-        return m, res, nav, bench
+        return run_config(cfg, d, feat, m_series, weeks, rank_of)
 
     stress = load_dev_data(terminal_awaiting=TERMINAL_D5_STRESS)
     grid = build_grid()

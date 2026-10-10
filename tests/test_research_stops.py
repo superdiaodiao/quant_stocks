@@ -11,6 +11,10 @@ from scripts import research_indicators as ri
 from scripts import research_livermore as lv
 from scripts import research_stops as rs
 from scripts import stop_rules as sr
+from quant.data.calendar import decision_year
+from quant.evaluation import nav as navm
+from quant.strategies import stops as stp
+from quant.strategies.walk_forward import trailing_window
 
 
 # ---------------------------------------------------------------- stop rules
@@ -181,42 +185,42 @@ def _rets(seed, mu, n=1500, start="2014-06-02"):
 
 def test_pick_uses_only_data_before_january_first():
     rets = {"none": _rets(1, 0.0005), "fixed8": _rets(2, 0.0002)}
-    p = rs.pick(rets, 2018, "sharpe")
+    p = stp.pick(rets, 2018, "sharpe")
     assert pd.Timestamp(p["window_last"]) < pd.Timestamp("2018-01-01")
     changed = {k: v.copy() for k, v in rets.items()}
     for v in changed.values():
         v[v.index >= "2018-01-01"] = np.where(np.arange((v.index >= "2018-01-01").sum()) % 2, 0.5, -0.4)
     changed["fixed8"][changed["fixed8"].index >= "2018-01-01"] = 0.05
     for m in rs.PICK_METRICS:
-        assert rs.pick(changed, 2018, m)["key"] == rs.pick(rets, 2018, m)["key"]
+        assert stp.pick(changed, 2018, m)["key"] == stp.pick(rets, 2018, m)["key"]
     # data older than the 3-year lookback is ignored too
     old = {k: v.copy() for k, v in rets.items()}
     old["fixed8"][old["fixed8"].index < "2015-01-01"] = 0.05
-    assert rs.pick(old, 2018, "sharpe")["key"] == p["key"]
+    assert stp.pick(old, 2018, "sharpe")["key"] == p["key"]
 
 
 def test_pick_best_metric_and_ties_by_grid_order():
     idx = pd.bdate_range("2015-01-01", "2017-12-29")
     a = pd.Series(np.tile([0.01, -0.005], len(idx))[:len(idx)], index=idx)
     b = a * 2                       # same Sharpe, higher CAGR, deeper drawdown
-    assert rs.pick({"none": a, "fixed5": b}, 2018, "sharpe")["key"] == "none"
-    assert rs.pick({"fixed5": b, "none": a}, 2018, "sharpe")["key"] == "fixed5"
-    assert rs.pick({"none": a, "fixed5": b}, 2018, "cagr")["key"] == "fixed5"
+    assert stp.pick({"none": a, "fixed5": b}, 2018, "sharpe")["key"] == "none"
+    assert stp.pick({"fixed5": b, "none": a}, 2018, "sharpe")["key"] == "fixed5"
+    assert stp.pick({"none": a, "fixed5": b}, 2018, "cagr")["key"] == "fixed5"
     c = a.copy()
     c.iloc[100] = -0.30             # one crash: worse Calmar
-    assert rs.pick({"fixed5": c, "none": a}, 2018, "calmar")["key"] == "none"
+    assert stp.pick({"fixed5": c, "none": a}, 2018, "calmar")["key"] == "none"
 
 
 def test_trailing_window_and_schedule_timing():
     idx = pd.bdate_range("2017-12-20", "2018-01-10")
-    dy = rs.decision_year(idx)
+    dy = decision_year(idx)
     assert dy[list(idx).index(pd.Timestamp("2017-12-29"))] == 2018      # last close of 2017 decides with 2018's pick
     assert dy[list(idx).index(pd.Timestamp("2017-12-28"))] == 2017
-    sched = rs.stop_schedule(idx, {2017: {"key": "none"}, 2018: {"key": "trail15"}})
+    sched = stp.stop_schedule(idx, {2017: {"key": "none"}, 2018: {"key": "trail15"}})
     assert sched[list(idx).index(pd.Timestamp("2017-12-28"))] == sr.NONE
     assert sched[list(idx).index(pd.Timestamp("2017-12-29"))] == sr.StopSpec("trail", 0.15)
     r = _rets(3, 0.0)
-    w = rs.trailing_window(r, 2018)
+    w = trailing_window(r, 2018, 3)
     assert w.index.min() >= pd.Timestamp("2015-01-01") and w.index.max() < pd.Timestamp("2018-01-01")
 
 
@@ -225,22 +229,22 @@ def test_trailing_window_and_schedule_timing():
 def test_drawdown_duration_and_ulcer():
     d = pd.date_range("2020-01-01", periods=6, freq="D")
     nav = pd.Series([100, 110, 99, 105, 111, 100.0], index=d)
-    days, unrec = rs.longest_drawdown_days(nav)
+    days, unrec = navm.longest_drawdown_days_open(nav)
     assert days == 3 and not unrec                         # peak 110 on day 1, recovered (111) on day 4
     nav2 = pd.Series([100, 120, 90, 95, 100, 101.0], index=d)
-    assert rs.longest_drawdown_days(nav2) == (4, True)     # never back to 120: counts to the last date
+    assert navm.longest_drawdown_days_open(nav2) == (4, True)     # never back to 120: counts to the last date
     dd = np.array([0, 0, -0.1, -5 / 110, 0, -11 / 111]) * 100
-    assert rs.ulcer_index(nav) == pytest.approx(math.sqrt(np.mean(dd ** 2)))
+    assert navm.ulcer_index_pct(nav) == pytest.approx(math.sqrt(np.mean(dd ** 2)))
 
 
 def test_sharpe_sortino_calmar_cagr():
     r = pd.Series([0.01, -0.02, 0.03, -0.01, 0.02])
-    assert rs.sharpe(r) == pytest.approx(r.mean() / r.std(ddof=1) * math.sqrt(252))
-    assert rs.sortino(r) == pytest.approx(r.mean() / math.sqrt((0.02 ** 2 + 0.01 ** 2) / 5) * math.sqrt(252))
+    assert navm.sharpe_daily(r) == pytest.approx(r.mean() / r.std(ddof=1) * math.sqrt(252))
+    assert navm.sortino_daily(r) == pytest.approx(r.mean() / math.sqrt((0.02 ** 2 + 0.01 ** 2) / 5) * math.sqrt(252))
     v = np.cumprod(1 + r.to_numpy())
-    assert rs.cagr_of_returns(r) == pytest.approx(v[-1] ** (252 / 5) - 1)
-    assert rs.mdd_of_returns(r) == pytest.approx(min(0, (v[1] / 1.01) - 1, v[3] / v[2] - 1, (v / np.maximum.accumulate(np.r_[1, v])[1:] - 1).min()))
-    assert rs.calmar_of_returns(r) == pytest.approx(rs.cagr_of_returns(r) / abs(rs.mdd_of_returns(r)))
+    assert navm.cagr_of_returns(r) == pytest.approx(v[-1] ** (252 / 5) - 1)
+    assert navm.mdd_of_returns(r) == pytest.approx(min(0, (v[1] / 1.01) - 1, v[3] / v[2] - 1, (v / np.maximum.accumulate(np.r_[1, v])[1:] - 1).min()))
+    assert navm.calmar_of_returns(r) == pytest.approx(navm.cagr_of_returns(r) / abs(navm.mdd_of_returns(r)))
 
 
 def test_full_metrics_on_synthetic_series():
@@ -251,10 +255,10 @@ def test_full_metrics_on_synthetic_series():
     qqq = oneq * 1.0
     # strategy = 1.5 x ONEQ daily returns -> monthly beta ~1.5 (compounding makes it inexact)
     nav = 10_000 * (1 + 1.5 * rb).cumprod()
-    m = rs.metrics(nav, oneq, qqq, pd.Series(0.0, index=d), 0.0, pd.Series(1.0, index=d), None, 0, 0)
+    m = navm.oneq_nav_metrics(nav, oneq, qqq, pd.Series(0.0, index=d), 0.0, pd.Series(1.0, index=d), None, 0, 0)
     assert m["beta_oneq"] == pytest.approx(1.5, abs=0.05)
-    mr = rs.anchored(nav, 10_000).resample("ME").last().pct_change().dropna()
-    mb = rs.anchored(oneq, 10_000).resample("ME").last().pct_change().dropna()
+    mr = navm.anchored(nav, 10_000).resample("ME").last().pct_change().dropna()
+    mb = navm.anchored(oneq, 10_000).resample("ME").last().pct_change().dropna()
     ma = mr - mb
     assert m["months"] == 36
     assert m["t_monthly_excess"] == pytest.approx(ma.mean() / ma.std(ddof=1) * 6)
@@ -270,15 +274,15 @@ def test_full_metrics_on_synthetic_series():
     assert m["excess_oneq"] == pytest.approx(m["cagr"] - m["oneq_cagr"]) and m["time_in_market"] == 1.0
     stub = pd.concat([pd.Series([10_000.0], index=[pd.Timestamp("2018-12-31")]), nav])
     ob = pd.concat([pd.Series([10_000.0], index=[pd.Timestamp("2018-12-31")]), oneq])
-    ms = rs.metrics(stub, ob, ob, pd.Series(0.0, index=stub.index), 0.0, pd.Series(1.0, index=stub.index), None, 0, 0)
+    ms = navm.oneq_nav_metrics(stub, ob, ob, pd.Series(0.0, index=stub.index), 0.0, pd.Series(1.0, index=stub.index), None, 0, 0)
     assert 2018 not in ms["by_year"]                     # a year holding only the starting close is not a year
-    same = rs.metrics(oneq, oneq, qqq, pd.Series(0.0, index=d), 0.0, pd.Series(1.0, index=d), None, 0, 0)
+    same = navm.oneq_nav_metrics(oneq, oneq, qqq, pd.Series(0.0, index=d), 0.0, pd.Series(1.0, index=d), None, 0, 0)
     assert same["beta_oneq"] == pytest.approx(1.0) and same["share_years_beating_oneq"] == 0.0
 
 
 def test_trade_metrics_and_judge():
     t = pd.DataFrame({"ret": [0.2, -0.05, 0.1, -0.1, -0.05], "days": [10, 3, 5, 4, np.nan]})
-    m = rs.trade_metrics(t)
+    m = navm.trade_metrics(t)
     assert m["closed_trades"] == 5 and m["win_rate"] == pytest.approx(0.4)
     assert m["win_loss_ratio"] == pytest.approx(0.15 / (0.2 / 3))
     assert m["profit_factor"] == pytest.approx(0.3 / 0.2)

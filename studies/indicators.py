@@ -15,48 +15,45 @@ Benchmark (decided before any result): Nasdaq Composite total return = ONEQ adju
 Timing: signals from closes up to t, executed at the close of t+1.  Costs: IBKR Pro Tiered (see the ledger).
 The stock panel has closes only, so stock indicators use closes for highs / lows (documented in the ledger).
 
-Indicators: quant.signals.indicators; rules, data, engines and metrics: quant.strategies.indicators. The grids, the
-freeze and the one-shots stay here.
+Indicators: quant.signals.indicators; rules, data, engines, metrics and the freeze rule: quant.strategies.indicators
+(stock metrics in quant.evaluation.nav, criteria in quant.evaluation.criteria). The runs, the freeze file and the
+one-shots stay here.
 
 Usage:  PYTHONPATH=. .venv/bin/python -m quant study indicators --dev both   (or scripts/research_indicators.py)
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import math
 
 import pandas as pd
 
 from quant.data import version as dv
-from quant.evaluation.criteria import weekly_deflated_sharpe
+from quant.evaluation.criteria import oneshots_ab_vs_oneq, weekly_deflated_sharpe
 from quant.evaluation.metrics import cagr_of, max_drawdown, monthly, yearly
-from quant.paths import ROOT
+from quant.paths import CACHE_ROOT, ROOT
+from quant.reporting import freeze_sha256, public, write_monthly_csv
 from quant.signals.indicators import (  # noqa: F401  (ind.* names read by other scripts and tests)
     atr, bollinger, donchian, ema, kdj, macd, rsi, sma, true_range,
 )
 from quant.strategies import livermore as lv
 from quant.strategies.indicators import (  # noqa: F401  (ind.* names read by other scripts and tests)
     FutureDataError, INDEX_DEV_END, INDEX_DEV_START, INDEX_TEST_END, INDEX_TEST_ENTRY, INDEX_TEST_FIRST, RULES,
-    RULE_BY_CODE, StockRunner, criteria, index_metrics, index_sim, index_targets, load_index_data, parse_ohlc,
-    r_donchian, state_machine, stock_signals, stock_sim, stock_sub_metrics,
+    RULE_BY_CODE, StockRunner, align_bench, criteria, freeze_pick, index_metrics, index_sim, index_targets,
+    load_index_data, parse_ohlc, r_donchian, state_machine, stock_signals, stock_sim, stock_sub_metrics,
 )
 
 OUT_V1 = ROOT / "output/research_only/indicators"
 OUT = dv.versioned(OUT_V1)
 LEDGER = ROOT / "docs/research_ledger_indicators.md"
 FROZEN = OUT_V1 / "frozen_rules.json"   # frozen rules are never versioned
+RAW = CACHE_ROOT / "indicators/raw"     # ^IXIC / ^VIX charts
 
 
 # ======================================================================== development runs
 
-def _clean(d: dict) -> dict:
-    return {k: v for k, v in d.items() if not k.startswith("_")}
-
-
 def run_index_dev() -> pd.DataFrame:
-    data = load_index_data(INDEX_DEV_END)
+    data = load_index_data(INDEX_DEV_END, RAW)
     print("DATE GUARD (index dev): all frames truncated at", INDEX_DEV_END, {k: v["last"] for k, v in data.guard.items()
                                                                              if isinstance(v, dict)})
     rows, monthly_keep = [], {}
@@ -74,7 +71,7 @@ def run_index_dev() -> pd.DataFrame:
                 m = index_metrics(sim, bench_own, data.rf)
             else:
                 # judged against the Composite (ONEQ) on common dates; own-instrument buy-and-hold for robustness
-                m = index_metrics(sim, _align(bench_comp, sim), data.rf)
+                m = index_metrics(sim, align_bench(bench_comp, sim), data.rf)
             mo = index_metrics(sim, bench_own, data.rf)
             row = {"instrument": inst, "code": r.code, "rule": r.name, "owner": r.owner, "counted": True,
                    **{k: m[k] for k in ("cagr", "bench_cagr", "excess_cagr", "max_dd", "bench_max_dd", "sharpe",
@@ -103,23 +100,15 @@ def run_index_dev() -> pd.DataFrame:
     out = OUT / "index_dev_1999_2014"
     out.mkdir(parents=True, exist_ok=True)
     grid.to_csv(out / "grid.csv", index=False, float_format="%.6f")
-    mk = pd.DataFrame(monthly_keep)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(out / "monthly_returns.csv", float_format="%.6f")
+    write_monthly_csv(out / "monthly_returns.csv", monthly_keep)
     (out / "guard.json").write_text(json.dumps({"guard": data.guard, "n_variants": n}, indent=2))
     return grid
-
-
-def _align(bench: dict, sim: dict) -> dict:
-    """Composite benchmark restricted to the dates of ``sim`` (both start at the same entry close)."""
-    v = bench["value"].reindex(sim["value"].index).ffill()
-    return {"value": v, "ret": v.pct_change().iloc[1:].fillna(0.0)}
 
 
 def run_stock_dev() -> pd.DataFrame:
     data = lv.load_window("dev")
     print(data.guard["assertion"])
-    runner = StockRunner(data)
+    runner = StockRunner(data, RAW)
     rows = []
     out = OUT / "stock_dev_2017_2022"
     out.mkdir(parents=True, exist_ok=True)
@@ -154,35 +143,12 @@ def run_stock_dev() -> pd.DataFrame:
     return grid
 
 
-def pick(grid: pd.DataFrame, t_col: str, robust_col: str | None = None) -> tuple[pd.Series, str]:
-    """Pre-registered freeze rule (ledger 0.5)."""
-    def choose(g):
-        a = g[g["crit_A"]]
-        if len(a):
-            return a.sort_values(t_col, ascending=False).iloc[0], "A"
-        b = g[g["crit_B"]]
-        if len(b):
-            return b.sort_values("excess_cagr", ascending=False).iloc[0], "B"
-        return g.sort_values(t_col, ascending=False).iloc[0], "none_highest_t"
-    if robust_col is not None:
-        g = grid[(grid["crit_A"] & grid[f"{robust_col}_A"]) | (~grid["crit_A"] & grid["crit_B"] & grid[f"{robust_col}_B"])]
-        if len(g):
-            return choose(g)
-    return choose(grid)
-
-
 # ======================================================================== freeze and one-shots
-
-def _freeze_section() -> str:
-    text = LEDGER.read_text()
-    a, b = text.index("<!-- FREEZE-BEGIN -->"), text.index("<!-- FREEZE-END -->")
-    return text[a:b]
-
 
 def write_frozen(index_code: str, stock_code: str) -> None:
     FROZEN.write_text(json.dumps({"index_rule": index_code, "index_instrument": "COMP", "stock_rule": stock_code,
                                   "frozen_at": pd.Timestamp.now("UTC").isoformat(),
-                                  "ledger_freeze_sha256": hashlib.sha256(_freeze_section().encode()).hexdigest()},
+                                  "ledger_freeze_sha256": freeze_sha256(LEDGER)},
                                  indent=2))
 
 
@@ -190,7 +156,7 @@ def frozen() -> dict:
     if not FROZEN.exists():
         raise SystemExit("no frozen_rules.json: freeze the rules (ledger section 4) before any one-shot test")
     fr = json.loads(FROZEN.read_text())
-    if hashlib.sha256(_freeze_section().encode()).hexdigest() != fr["ledger_freeze_sha256"]:
+    if freeze_sha256(LEDGER) != fr["ledger_freeze_sha256"]:
         raise SystemExit("the ledger freeze section changed after freezing; refusing to run")
     return fr
 
@@ -201,7 +167,7 @@ def run_oneshot_index() -> dict:
     if (out / "result.json").exists():
         raise SystemExit(f"already run once ({out / 'result.json'}); a one-shot test is not re-run")
     out.mkdir(parents=True, exist_ok=True)
-    data = load_index_data(INDEX_TEST_END)
+    data = load_index_data(INDEX_TEST_END, RAW)
     print("ONE-SHOT index: frames truncated at", INDEX_TEST_END, {k: v["last"] for k, v in data.guard.items()
                                                                    if isinstance(v, dict)})
     rule = RULE_BY_CODE[fr["index_rule"]]
@@ -217,7 +183,7 @@ def run_oneshot_index() -> dict:
         buy, sell = rule.fn(bars)
         tgt = state_machine(buy, sell, bars["close"], rule.take_profit, rule.buy_wins)
         sim = index_sim(tgt, data, inst, INDEX_TEST_ENTRY, INDEX_TEST_END)
-        m = index_metrics(sim, bench if inst == "COMP" else _align(bench, sim), data.rf)
+        m = index_metrics(sim, bench if inst == "COMP" else align_bench(bench, sim), data.rf)
         m["state_at_entry_close"] = float(tgt.loc[INDEX_TEST_ENTRY])
         m["sameday_cagr"] = cagr_of(index_sim(tgt, data, inst, INDEX_TEST_ENTRY, INDEX_TEST_END, lag=0)["ret"])
         m["cash0_cagr"] = cagr_of(index_sim(tgt, data, inst, INDEX_TEST_ENTRY, INDEX_TEST_END,
@@ -247,14 +213,14 @@ def run_oneshot_stock(name: str) -> dict:
     data = lv.load_window(name)
     print(data.guard["assertion"])
     rule = RULE_BY_CODE[fr["stock_rule"]]
-    runner = StockRunner(data)
+    runner = StockRunner(data, RAW)
     m, res, oneq, qqq = runner.run(rule)
     judged = stock_sub_metrics(res["nav"], oneq, qqq, data.spec["judged_from"], res["cost"], res["exposure"])
     res["nav"].to_frame("nav").assign(oneq=oneq, qqq=qqq, exposure=res["exposure"]).to_csv(out / "daily_nav.csv")
     res["trades"].to_csv(out / "trades.csv", index=False)
     judged["_monthly_active"].to_csv(out / "judged_monthly_active.csv", header=["active"])
     result = {"window": name, "rule": rule.code, "name": rule.name, "date_guard": data.guard,
-              "full_window": _clean(m), "judged_from": data.spec["judged_from"], "judged": _clean(judged),
+              "full_window": public(m), "judged_from": data.spec["judged_from"], "judged": public(judged),
               "carried_universe_weeks": runner.carried_weeks, "open_positions_at_end": res["open"]}
     (out / "result.json").write_text(json.dumps(result, indent=2, default=str))
     j = judged
@@ -267,17 +233,7 @@ def evaluate_stock() -> dict:
     r = {n: json.loads((OUT / f"oneshot_stock_{n}/result.json").read_text()) for n in ("test1", "test2")}
     ma = pd.concat([pd.read_csv(OUT / f"oneshot_stock_{n}/judged_monthly_active.csv", index_col=0)["active"]
                     for n in ("test1", "test2")])
-    t = float(ma.mean() / ma.std(ddof=1) * math.sqrt(len(ma)))
-    j = {n: r[n]["judged"] for n in r}
-    a = {"cagr_above_oneq_each": {n: j[n]["cagr"] > j[n]["bench_cagr"] for n in j}, "combined_months": len(ma),
-         "combined_t_monthly": t}
-    a["pass"] = all(a["cagr_above_oneq_each"].values()) and t >= 2
-    b = {n: {"dd_shallower_pts": abs(j[n]["bench_max_dd"]) - abs(j[n]["max_dd"]),
-             "cagr_gap_pts": j[n]["cagr"] - j[n]["bench_cagr"]} for n in j}
-    for n in j:
-        b[n]["pass"] = b[n]["dd_shallower_pts"] >= 0.10 and b[n]["cagr_gap_pts"] >= -0.03
-    b["pass"] = all(v["pass"] for v in b.values() if isinstance(v, dict))
-    res = {"A": a, "B": b, "pass": a["pass"] or b["pass"]}
+    res = oneshots_ab_vs_oneq({n: r[n]["judged"] for n in r}, ma)
     (OUT / "oneshot_stock_evaluation.json").write_text(json.dumps(res, indent=2, default=str))
     print(json.dumps(res, indent=2, default=str))
     return res
@@ -294,13 +250,13 @@ def main(argv=None):
         g = run_index_dev()
         print(g[["instrument", "code", "rule", "cagr", "bench_cagr", "max_dd", "bench_max_dd", "t_monthly_excess",
                  "crit_A", "crit_B", "own_crit_A", "own_crit_B", "trades_per_year"]].to_string())
-        sel, why = pick(g[g["instrument"] == "COMP"].merge(
+        sel, why = freeze_pick(g[g["instrument"] == "COMP"].merge(
             g[g["instrument"] == "QQQ"][["code", "own_crit_A", "own_crit_B"]].rename(
                 columns={"own_crit_A": "qqq_A", "own_crit_B": "qqq_B"}), on="code"), "t_monthly_excess", "qqq")
         print("index freeze candidate by the pre-registered rule:", sel["code"], sel["rule"], why)
     if a.dev in ("stock", "both"):
         g = run_stock_dev()
-        sel, why = pick(g[g["n_buy"] >= 30], "t_excess_monthly")
+        sel, why = freeze_pick(g[g["n_buy"] >= 30], "t_excess_monthly")
         print("stock freeze candidate by the pre-registered rule:", sel["code"], sel["rule"], why)
     if a.freeze:
         write_frozen(*a.freeze)

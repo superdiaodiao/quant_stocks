@@ -133,3 +133,76 @@ def timing_criteria(rule: dict, qqq: dict) -> dict:
     c3 = rule["cagr"] >= qqq["cagr"] - 0.03
     return {"c1_maxdd_at_least_10pp_shallower": bool(c1), "c2_calmar_higher": bool(c2),
             "c3_cagr_shortfall_at_most_3pp": bool(c3), "pass": bool(c1 and c2 and c3)}
+
+
+# ---- stock-panel signal studies (indicators, oneil, earnings_events, stops, walk_forward): the A / B rule on plain
+# numbers, and on a full period plus its halves. Same comparisons as ``ab_criteria`` but on absolute drawdowns
+# (``abs(mdd) <= abs(b_mdd) - 0.10``), a different floating-point expression, so they are kept apart.
+
+def ab_oneq(cagr: float, mdd: float, b_cagr: float, b_mdd: float, t: float) -> dict:
+    """{A, B, pass}: A = CAGR above the benchmark's and t >= 2; B = |max DD| at least 10 points below the
+    benchmark's and CAGR at most 3 points below (was ``strategies.indicators.criteria``; also ``stops.judge``)."""
+    a = bool(cagr > b_cagr and t >= 2)
+    b = bool(abs(mdd) <= abs(b_mdd) - 0.10 and cagr >= b_cagr - 0.03)
+    return {"A": a, "B": b, "pass": a or b}
+
+
+def ab_oneq_halves(full: dict, halves: list[dict]) -> dict:
+    """``ab_oneq`` on the full period whose A also needs CAGR above the benchmark in every half (keys ``cagr``,
+    ``bench_cagr``, ``max_dd``, ``bench_max_dd``, ``t_monthly_excess``; was ``studies/walk_forward.py`` ``judge``)."""
+    a = bool(full["cagr"] > full["bench_cagr"] and all(h["cagr"] > h["bench_cagr"] for h in halves)
+             and full["t_monthly_excess"] >= 2)
+    b = bool(abs(full["max_dd"]) <= abs(full["bench_max_dd"]) - 0.10 and full["cagr"] >= full["bench_cagr"] - 0.03)
+    return {"A": a, "B": b, "pass": a or b}
+
+
+def oneshots_ab_vs_qqq(judged: dict, monthly_active) -> tuple[dict, dict]:
+    """(A, B) of the livermore one-shots: ``judged`` = {window: metrics with ``excess_cagr``, ``max_dd``,
+    ``qqq_max_dd``}, ``monthly_active`` = both windows' monthly active returns. A: excess > 0 in each window and the
+    combined monthly t >= 2; B: in each window ``max_dd - qqq_max_dd >= 0.10`` and excess >= -0.03."""
+    ma, j = monthly_active, judged
+    t = float(ma.mean() / ma.std(ddof=1) * math.sqrt(len(ma)))
+    crit_a = {"excess_positive_each": {n: j[n]["excess_cagr"] > 0 for n in j}, "combined_months": len(ma),
+              "combined_t_monthly": t}
+    crit_a["pass"] = all(crit_a["excess_positive_each"].values()) and t >= 2
+    crit_b = {n: {"dd_shallower_pts": j[n]["max_dd"] - j[n]["qqq_max_dd"],
+                  "cagr_gap_pts": j[n]["excess_cagr"],
+                  "pass": (j[n]["max_dd"] - j[n]["qqq_max_dd"] >= 0.10) and (j[n]["excess_cagr"] >= -0.03)} for n in j}
+    crit_b["pass"] = all(v["pass"] for v in crit_b.values() if isinstance(v, dict))
+    return crit_a, crit_b
+
+
+def oneshots_ab_vs_oneq(judged: dict, monthly_active) -> dict:
+    """{A, B, pass} of the indicators stock one-shots: ``judged`` = {window: metrics with ``cagr``, ``bench_cagr``,
+    ``max_dd``, ``bench_max_dd``}. A: CAGR above ONEQ in each window and the combined monthly t >= 2; B: in each
+    window ``|ONEQ DD| - |DD| >= 0.10`` and ``CAGR - ONEQ CAGR >= -0.03``."""
+    ma, j = monthly_active, judged
+    t = float(ma.mean() / ma.std(ddof=1) * math.sqrt(len(ma)))
+    a = {"cagr_above_oneq_each": {n: j[n]["cagr"] > j[n]["bench_cagr"] for n in j}, "combined_months": len(ma),
+         "combined_t_monthly": t}
+    a["pass"] = all(a["cagr_above_oneq_each"].values()) and t >= 2
+    b = {n: {"dd_shallower_pts": abs(j[n]["bench_max_dd"]) - abs(j[n]["max_dd"]),
+             "cagr_gap_pts": j[n]["cagr"] - j[n]["bench_cagr"]} for n in j}
+    for n in j:
+        b[n]["pass"] = b[n]["dd_shallower_pts"] >= 0.10 and b[n]["cagr_gap_pts"] >= -0.03
+    b["pass"] = all(v["pass"] for v in b.values() if isinstance(v, dict))
+    return {"A": a, "B": b, "pass": a["pass"] or b["pass"]}
+
+
+# ---- G3 (fundamentals): Benjamini-Hochberg with the step-up threshold computed as q x (rank / m). ``bh_reject``
+# computes (q x rank) / m: the same rule, but a different floating-point expression, so a p-value exactly at a
+# threshold can be decided differently; kept apart.
+
+def bh_reject_rank_share(p, q: float = 0.05) -> np.ndarray:
+    """Benjamini-Hochberg step-up over every entry: reject the k smallest p-values where k is the largest rank with
+    p_(k) <= q * (k / m) (was ``studies/fundamentals.py`` ``bh_reject``)."""
+    p = np.asarray(p, float)
+    n = len(p)
+    order = np.argsort(p)
+    ranked = p[order]
+    ok = ranked <= q * (np.arange(1, n + 1) / n)
+    rej = np.zeros(n, bool)
+    if ok.any():
+        k = np.max(np.nonzero(ok)[0])
+        rej[order[:k + 1]] = True
+    return rej

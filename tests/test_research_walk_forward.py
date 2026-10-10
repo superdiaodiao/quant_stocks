@@ -7,6 +7,9 @@ import pytest
 
 from scripts import research_indicators as ri
 from scripts import research_walk_forward as wf
+from quant.data.calendar import decision_year
+from quant.evaluation.criteria import ab_oneq_halves
+from quant.strategies import walk_forward as wfs
 
 
 def _rets(seed=0, start="2010-01-01", end="2015-12-31", keys=((5, 20), (6, 30), (7, 40))):
@@ -19,7 +22,7 @@ def _rets(seed=0, start="2010-01-01", end="2015-12-31", keys=((5, 20), (6, 30), 
 
 def test_pick_ignores_everything_on_or_after_the_switch():
     rets = _rets()
-    base = {(y, m): wf.pick(rets, y, 3, m) for y in (2013, 2014, 2015) for m in wf.METRICS}
+    base = {(y, m): wfs.pick(rets, y, 3, m) for y in (2013, 2014, 2015) for m in wf.METRICS}
     for y in (2013, 2014, 2015):
         future = {}
         for j, (k, r) in enumerate(rets.items()):
@@ -27,8 +30,8 @@ def test_pick_ignores_everything_on_or_after_the_switch():
             r2[r2.index >= f"{y}-01-01"] = (-0.05 if j == 0 else 0.08)       # make the future extreme
             future[k] = r2
         for m in wf.METRICS:
-            p = wf.pick(future, y, 3, m)
-            assert p["key"] == wf.pick(rets, y, 3, m)["key"]
+            p = wfs.pick(future, y, 3, m)
+            assert p["key"] == wfs.pick(rets, y, 3, m)["key"]
             assert pd.Timestamp(p["window_last"]) < pd.Timestamp(f"{y}-01-01")
             assert pd.Timestamp(p["window_first"]) >= pd.Timestamp(f"{y - 3}-01-01")
     assert len(base) == 6
@@ -39,7 +42,7 @@ def test_pick_ignores_data_older_than_the_lookback():
     k_bad = (5, 20)
     old = {k: r.copy() for k, r in rets.items()}
     old[k_bad][old[k_bad].index < "2013-01-01"] = 0.05      # a fantastic but too-old history
-    assert wf.pick(old, 2014, 1, "sharpe")["key"] == wf.pick(rets, 2014, 1, "sharpe")["key"]
+    assert wfs.pick(old, 2014, 1, "sharpe")["key"] == wfs.pick(rets, 2014, 1, "sharpe")["key"]
 
 
 def test_pick_chooses_the_best_trailing_sharpe_and_breaks_ties_by_grid_order():
@@ -48,14 +51,14 @@ def test_pick_chooses_the_best_trailing_sharpe_and_breaks_ties_by_grid_order():
     noise = rng.normal(0, 0.01, len(idx))
     rets = {(3, 20): pd.Series(noise, index=idx), (4, 20): pd.Series(noise + 0.002, index=idx),
             (5, 20): pd.Series(noise + 0.002, index=idx)}
-    assert wf.pick(rets, 2014, 1, "sharpe")["key"] == (4, 20)       # tie with (5, 20): first in order
+    assert wfs.pick(rets, 2014, 1, "sharpe")["key"] == (4, 20)       # tie with (5, 20): first in order
     flat = {(9, 9): pd.Series(0.0, index=idx), (3, 20): rets[(3, 20)]}
-    assert wf.pick(flat, 2014, 1, "sharpe")["key"] == (3, 20)       # always-flat (std 0) ranks last
+    assert wfs.pick(flat, 2014, 1, "sharpe")["key"] == (3, 20)       # always-flat (std 0) ranks last
 
 
 def test_trailing_window_guard():
     r = pd.Series(0.01, index=pd.bdate_range("2012-12-20", "2013-01-10"))
-    w = wf.trailing_window(r, 2013, 1)
+    w = wfs.trailing_window(r, 2013, 1)
     assert w.index.max() < pd.Timestamp("2013-01-01")
 
 
@@ -63,14 +66,14 @@ def test_sharpe_uses_excess_over_rf_when_given():
     idx = pd.bdate_range("2012-01-01", "2012-12-31")
     w = pd.Series(np.r_[0.001, 0.003] .repeat(len(idx) // 2 + 1)[:len(idx)], index=idx)
     rf = pd.Series(0.001, index=idx)
-    assert wf.score(w, "sharpe", rf) < wf.score(w, "sharpe", None)
+    assert wfs.score(w, "sharpe", rf) < wfs.score(w, "sharpe", None)
 
 
 # ---------------------------------------------------------------- switching
 
 def test_decision_year_uses_the_next_session():
     s = pd.DatetimeIndex(["2001-12-28", "2001-12-31", "2002-01-02", "2002-01-03"])
-    assert wf.decision_year(s).tolist() == [2001, 2002, 2002, 2002]
+    assert decision_year(s).tolist() == [2001, 2002, 2002, 2002]
 
 
 def test_index_stitch_switches_at_the_last_close_of_the_prior_year():
@@ -78,7 +81,7 @@ def test_index_stitch_switches_at_the_last_close_of_the_prior_year():
     t_a = pd.Series(1.0, index=s)
     t_b = pd.Series(0.0, index=s)
     picks = {2002: {"key": (1, 1)}, 2003: {"key": (2, 2)}}
-    tgt, lab = wf.stitch_index_target({(1, 1): t_a, (2, 2): t_b}, picks, s)
+    tgt, lab = wfs.stitch_index_target({(1, 1): t_a, (2, 2): t_b}, picks, s)
     assert tgt[s < "2001-12-31"].isna().all()                  # before the walk-forward: no position wanted
     assert tgt["2001-12-31"] == 1.0 and tgt["2002-12-30"] == 1.0
     last_2002 = s[s.year == 2002][-1]
@@ -91,7 +94,7 @@ def test_index_stitch_trades_the_switch_at_the_next_close_and_pays_for_it():
     r1 = pd.Series(0.001, index=s)
     data = SimpleNamespace(r1={"COMP": r1}, rf=pd.Series(0.0, index=s), price={"COMP": pd.Series(50.0, index=s)})
     picks = {2002: {"key": (1, 1)}, 2003: {"key": (2, 2)}}
-    tgt, _ = wf.stitch_index_target({(1, 1): pd.Series(1.0, index=s), (2, 2): pd.Series(0.0, index=s)}, picks, s)
+    tgt, _ = wfs.stitch_index_target({(1, 1): pd.Series(1.0, index=s), (2, 2): pd.Series(0.0, index=s)}, picks, s)
     sim = ri.index_sim(tgt, data, "COMP", "2001-12-31", "2003-01-31")
     e = sim["exposure_held"]
     s1 = s[s > "2001-12-31"]                                     # sessions after the start close
@@ -121,7 +124,7 @@ def test_stock_engine_constant_schedule_equals_reference_engine():
     rank_of = {idx[0]: {"A": 1, "B": 2, "C": 3}, idx[20]: {"C": 1, "A": 2}}
     ref = ri.stock_sim(ri.RULE_BY_CODE["T2"], data, buy, sell, elig, rank_of, k=2)
     sig = {0: (buy.to_numpy(), sell.to_numpy())}
-    mine = wf.stock_engine(data, sig, np.zeros(len(idx), int), elig, rank_of, k=2)
+    mine = wfs.stock_engine(data, sig, np.zeros(len(idx), int), elig, rank_of, k=2)
     pd.testing.assert_series_equal(mine["nav"], ref["nav"])
     assert mine["counts"]["buy"] == ref["counts"]["buy"] and mine["counts"]["switch_sell"] == 0
 
@@ -136,7 +139,7 @@ def test_stock_switch_sells_what_the_new_parameters_would_not_hold_and_buys_thei
     for i in range(len(idx)):
         sched[i] = "old" if i < 10 else "new"
     elig = {idx[0]: cols}
-    res = wf.stock_engine(data, {"old": old, "new": new}, sched, elig, {}, switch_targets={10: {"B"}}, k=2,
+    res = wfs.stock_engine(data, {"old": old, "new": new}, sched, elig, {}, switch_targets={10: {"B"}}, k=2,
                           record_at={idx[5], idx[11]})
     tr = res["trades"]
     sw = tr[tr["reason"] == "switch"]
@@ -144,7 +147,7 @@ def test_stock_switch_sells_what_the_new_parameters_would_not_hold_and_buys_thei
     assert res["counts"]["switch_buy"] == 1 and res["switch_cost"] > 0
     assert res["holdings"][idx[5]] == {"A"} and res["holdings"][idx[11]] == {"B"}
     # without a switch target, the old position is simply carried through the year boundary
-    res2 = wf.stock_engine(data, {"old": old, "new": new}, sched, elig, {}, k=2)
+    res2 = wfs.stock_engine(data, {"old": old, "new": new}, sched, elig, {}, k=2)
     assert res2["open"] == ["A"] and res2["counts"]["switch_sell"] == 0
 
 
@@ -156,7 +159,7 @@ def test_stock_switch_keeps_names_both_parameter_sets_hold():
     sched = np.empty(len(idx), dtype=object)
     for i in range(len(idx)):
         sched[i] = "old" if i < 10 else "new"
-    res = wf.stock_engine(data, {"old": (b, F.copy()), "new": (F.copy(), F.copy())}, sched, {idx[0]: cols}, {},
+    res = wfs.stock_engine(data, {"old": (b, F.copy()), "new": (F.copy(), F.copy())}, sched, {idx[0]: cols}, {},
                           switch_targets={10: {"A"}}, k=2)
     assert res["counts"]["switch_sell"] == 0 and res["counts"]["switch_buy"] == 0 and res["open"] == ["A"]
 
@@ -169,16 +172,16 @@ def test_stock_switch_does_not_buy_a_target_with_a_sell_signal():
     sched = np.empty(len(idx), dtype=object)
     for i in range(len(idx)):
         sched[i] = "new"
-    res = wf.stock_engine(data, {"new": (F.copy(), s_new)}, sched, {idx[0]: cols}, {}, switch_targets={10: {"B"}})
+    res = wfs.stock_engine(data, {"new": (F.copy(), s_new)}, sched, {idx[0]: cols}, {}, switch_targets={10: {"B"}})
     assert res["counts"]["buy"] == 0
 
 
 def test_judge_needs_both_halves_for_a():
     full = {"cagr": 0.20, "bench_cagr": 0.10, "max_dd": -0.30, "bench_max_dd": -0.35, "t_monthly_excess": 2.5}
-    assert wf.judge(full, [{"cagr": .2, "bench_cagr": .1}, {"cagr": .2, "bench_cagr": .1}])["A"]
-    assert not wf.judge(full, [{"cagr": .2, "bench_cagr": .1}, {"cagr": .05, "bench_cagr": .1}])["pass"]
+    assert ab_oneq_halves(full, [{"cagr": .2, "bench_cagr": .1}, {"cagr": .2, "bench_cagr": .1}])["A"]
+    assert not ab_oneq_halves(full, [{"cagr": .2, "bench_cagr": .1}, {"cagr": .05, "bench_cagr": .1}])["pass"]
     b = {"cagr": 0.08, "bench_cagr": 0.10, "max_dd": -0.20, "bench_max_dd": -0.35, "t_monthly_excess": -1}
-    assert wf.judge(b, [])["B"]
+    assert ab_oneq_halves(b, [])["B"]
 
 
 def test_registered_constants():
