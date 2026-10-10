@@ -4,8 +4,8 @@ import json
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_reconcile as rc
-from scripts import reversal_data_review as rv
+from pipelines.reversal_data import reconcile as rc
+from pipelines.reversal_data import review as rv
 
 STAMP = "2026-10-03T00:00:00Z"
 MOVE_COLS = ["item_id", "security_id", "ticker", "event_date", "rule", "classification", "source_url", "evidence_sources",

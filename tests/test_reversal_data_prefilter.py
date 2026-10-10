@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_prefilter as pf
+from pipelines.reversal_data import prefilter as pf
 
 
 def _spans(rows):

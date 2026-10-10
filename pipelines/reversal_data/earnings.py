@@ -172,7 +172,7 @@ from urllib.error import HTTPError
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 INPUTS = common.INPUTS
 SEC_RAW = common.RAW / "sec"
@@ -267,7 +267,7 @@ def regime_foreign(flags: pd.Series, history: pd.DataFrame | None, ciks, days) -
     mixed = flag.str.contains("MIXED").to_numpy()
     if history is None or not mixed.any():
         return out
-    from scripts.reversal_data_security_master import regime_on
+    from pipelines.reversal_data.security_master import regime_on
 
     days = pd.to_datetime(pd.Series(np.asarray(days)[mixed]), errors="coerce").dt.strftime("%Y-%m-%d").fillna("").to_numpy()
     rows = np.flatnonzero(mixed)

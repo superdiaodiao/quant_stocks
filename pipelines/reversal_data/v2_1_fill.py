@@ -35,8 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_v2_fill as v2fill
+from pipelines.reversal_data import common
+from pipelines.reversal_data import v2_fill as v2fill
 
 SERIES = common.V2_1_ALPACA / "series"
 ALPACA = "alpaca"

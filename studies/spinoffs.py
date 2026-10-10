@@ -197,7 +197,7 @@ def archive_series(ticker: str, need_from: pd.Timestamp, need_to: pd.Timestamp, 
                    max_pages: int = 6) -> pd.DataFrame | None:
     """Daily rows for [need_from, need_to] stitched from archived Yahoo pages (greedy cover, latest page first
     for each day; returns use Adj Close within one page)."""
-    from scripts import reversal_data_v2_archive as arc
+    from quant.data.sources import archive_org as arc
     caps = [c for c in archive_captures(ticker, bulk) if c[4] >= need_from and c[3] <= need_to + pd.Timedelta(days=30)]
     if not caps:
         return None
@@ -218,7 +218,7 @@ def archive_series(ticker: str, need_from: pd.Timestamp, need_to: pd.Timestamp, 
         covered |= (need >= best[3]) & (need <= best[4])
     pages = []
     for kind, stamp, orig, _, _ in chosen:
-        data = _wayback(f"https://web.archive.org/web/{stamp}id_/{orig.replace('&amp;', '&')}", "wayback_pages",
+        data = _wayback(arc.capture_url(stamp, orig), "wayback_pages",
                         f"{kind}_{ticker}_{stamp}")
         if not data:
             continue

@@ -1,12 +1,6 @@
-import importlib.util
-from pathlib import Path
-
 import pandas as pd
 
-spec = importlib.util.spec_from_file_location(
-    "data_source_probe", Path(__file__).resolve().parents[1] / "scripts/data_source_probe.py")
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
+from pipelines.reversal_data import source_probe as mod  # moved from scripts/data_source_probe.py (phase 3)
 
 
 def test_probe_ledger_is_not_the_v1_ledger():

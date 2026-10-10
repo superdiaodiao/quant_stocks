@@ -122,12 +122,12 @@ import re
 import sys
 import time
 from urllib.error import HTTPError
-from urllib.parse import urlencode
 
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
+from quant.data.sources.yahoo import CHART, HEADERS, _epoch, chart_url  # noqa: F401  (moved, phase 3)
 
 MAIN = common.MAIN_CHECKOUT
 INPUTS = common.INPUTS
@@ -145,8 +145,6 @@ RAW_DIR = common.RAW / "yahoo"
 OUT = common.CACHE / "yahoo"
 
 SOURCE = "yahoo"
-CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 LIMITER = common.SlidingWindowLimiter({2: 1})  # one request per 2 seconds
 STOP_CODES = (401, 403, 429)
 PERIOD1 = "2011-06-01"
@@ -199,7 +197,7 @@ def sec_alternates(master: pd.DataFrame) -> dict[str, list[str]]:
     PWCM, VIP, HODO, MEDS). Only the first one, which SEC lists for the common stock (GREE's CIK also
     has the notes GREEL). None for a tracking stock or a class of a multi-class company, whose CIK's
     tickers can name another class."""
-    from scripts.reversal_data_prefilter import sec_current_tickers
+    from pipelines.reversal_data.prefilter import sec_current_tickers
 
     out = {}
     for row in master.fillna("").itertuples(index=False):
@@ -251,17 +249,6 @@ def request_rows(candidates: pd.DataFrame, overrides: dict | None = None, segmen
                          "needed_start": start, "needed_end": end,
                          "note": " | ".join(notes + [f"segment {seg_symbol} {first or '..'}..{last or '..'}: {reason}"])})
     return pd.DataFrame(rows, columns=REQUEST_COLUMNS)
-
-
-def _epoch(day: str) -> int:
-    return int(datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
-
-
-def chart_url(symbol: str, period1: str, period2: str) -> str:
-    """The v8 chart URL for [period1, period2) (dates, UTC midnight); no key involved."""
-    params = urlencode({"period1": _epoch(period1), "period2": _epoch(period2), "interval": "1d",
-                        "events": "div,splits", "includeAdjustedClose": "true"}, safe=",")
-    return CHART.format(symbol=symbol) + "?" + params
 
 
 def cached_raw(symbol: str, raw_dir: Path = RAW_DIR) -> tuple[Path | None, str]:
@@ -1201,7 +1188,7 @@ def build(requests: pd.DataFrame, outcome: dict | None = None, refs: References 
           raw_dir: Path = RAW_DIR, out_dir: Path = OUT, sessions: pd.DatetimeIndex | None = None,
           metrics_path: Path = WEEKLY_METRICS) -> dict:
     """Parse every cached body, check each (security, symbol) and write the outputs."""
-    from scripts.reversal_data_prefilter import xnas_sessions
+    from pipelines.reversal_data.prefilter import xnas_sessions
 
     outcome = outcome or {}
     refs = refs or References.load()
@@ -1574,7 +1561,7 @@ def main(argv: list[str] | None = None) -> int:
         stopped = [s for s, o in outcome.items() if o["status"] == "stopped"]
         if not stopped:
             # Second pass: the SEC current tickers of the requests whose answer is a 404, empty or short.
-            from scripts.reversal_data_prefilter import xnas_sessions
+            from pipelines.reversal_data.prefilter import xnas_sessions
 
             poor = poor_answers(requests, xnas_sessions(WINDOW_START, WINDOW_END))
             alternates = sorted({a for k in poor for a in str(requests.at[k, "alt_symbols"]).split()}

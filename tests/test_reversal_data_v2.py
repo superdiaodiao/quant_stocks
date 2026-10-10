@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_v2_archive as arch
-from scripts import reversal_data_v2_fill as fill
+from pipelines.reversal_data import common
+from pipelines.reversal_data import v2_archive as arch
+from pipelines.reversal_data import v2_fill as fill
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,7 +27,7 @@ def _sessions(start="2013-01-01", end="2013-03-31"):
 
 def _paths_for(version: str) -> str:
     env = {**os.environ, "REVERSAL_DATA_VERSION": version, "PYTHONPATH": str(ROOT)}
-    code = "from scripts import reversal_data_common as c; print(c.DATA_VERSION, c.CACHE.name, c.INPUTS.name)"
+    code = "from pipelines.reversal_data import common as c; print(c.DATA_VERSION, c.CACHE.name, c.INPUTS.name)"
     return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout.strip()
 
 
@@ -38,7 +38,7 @@ def test_version_switch_points_v2_at_its_own_copies():
 
 def test_unknown_version_is_refused():
     env = {**os.environ, "REVERSAL_DATA_VERSION": "v3", "PYTHONPATH": str(ROOT)}
-    out = subprocess.run([sys.executable, "-c", "import scripts.reversal_data_common"], env=env, capture_output=True,
+    out = subprocess.run([sys.executable, "-c", "import pipelines.reversal_data.common"], env=env, capture_output=True,
                          text=True)
     assert out.returncode != 0 and "v1, v2 or v2.1" in out.stderr
 
@@ -233,7 +233,7 @@ def test_rounding_allowance_only_matters_below_a_dollar():
 
 
 def test_terminal_attaches_d5_evidence_without_changing_status(tmp_path, monkeypatch):
-    from scripts import reversal_data_terminal as term
+    from pipelines.reversal_data import terminal as term
     ev = tmp_path / "v2_d5_sec_evidence.csv"
     ev.write_text("ticker,security_id,cik,delist_date,decision,accession,doc_url,doc_date,statement,otc_ticker,notes\n"
                   "GTAT,1394954,1394954,2014-12-21,zero_recovery,0001628280-16-012680,https://www.sec.gov/x,2016-03-14,"
@@ -246,7 +246,7 @@ def test_terminal_attaches_d5_evidence_without_changing_status(tmp_path, monkeyp
 
 
 def test_archive_rows_give_otc_rows_only_after_the_last_nasdaq_row(tmp_path, monkeypatch):
-    from scripts import reversal_data_terminal as term
+    from pipelines.reversal_data import terminal as term
     d = tmp_path / "series" / "archive"
     d.mkdir(parents=True)
     pd.DataFrame({"date": ["2014-10-14", "2014-10-15", "2014-10-14", "2014-10-16"], "capture": ["1", "1", "2", "2"],

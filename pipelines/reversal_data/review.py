@@ -49,7 +49,7 @@ import sys
 
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 ROUND_DIR = common.CACHE / "review" / "round10"
 MERGED_DIR = ROUND_DIR / "merged"
@@ -608,7 +608,7 @@ def merge(root: Path = ROUND_DIR, out_dir: Path | None = None, existing_terminal
         frame.to_csv(out_dir / name, index=False, lineterminator="\n")
     if existing_terminal is None:
         try:
-            from scripts import reversal_data_terminal as terminal_step
+            from pipelines.reversal_data import terminal as terminal_step
             existing_terminal = terminal_step.CODE_REVIEWED
         except Exception:  # noqa: BLE001 - the listing is a convenience; the merge stands without it
             existing_terminal = {}

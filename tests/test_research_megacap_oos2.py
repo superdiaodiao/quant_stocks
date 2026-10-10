@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from scripts import megacap_oos2_data as md
+from quant.data.sources import megacap_oos2 as md
 from scripts import research_megacap_oos2 as oo
 
 

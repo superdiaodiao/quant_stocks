@@ -207,9 +207,9 @@ from urllib.error import HTTPError
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_review as review_merge
-from scripts.reversal_data_reconcile import RELIST_JUNCTIONS, SUCCESSOR_LINKS
+from pipelines.reversal_data import common
+from pipelines.reversal_data import review as review_merge
+from pipelines.reversal_data.reconcile import RELIST_JUNCTIONS, SUCCESSOR_LINKS
 
 MAIN = common.MAIN_CHECKOUT
 INPUTS = common.INPUTS
@@ -356,7 +356,7 @@ def _items(text: str) -> set[str]:
 
 def company_table(cik: int, offline: bool = False) -> pd.DataFrame:
     """Every filing of ``cik`` from the cached submissions JSON and its older pages (step 4/10 cache)."""
-    from scripts import reversal_data_earnings as earnings
+    from pipelines.reversal_data import earnings
 
     payload = earnings.load_submissions(cik, offline=offline)
     if payload is None:
@@ -1827,7 +1827,7 @@ YAHOO_RAW = TERMINAL_CACHE / "yahoo_raw"
 
 def fetch_acquirer_charts(symbols: list[str] | None = None) -> dict:
     """One v8 chart per acquirer symbol not yet cached (reversal_data_yahoo's fetcher and pacing)."""
-    from scripts import reversal_data_yahoo as yahoo
+    from pipelines.reversal_data import yahoo
 
     wanted = sorted(set(symbols or ACQUIRER_SYMBOLS.values()))
     cached = [s for s in wanted if yahoo.cached_raw(s, YAHOO_RAW)[1]]
@@ -1840,7 +1840,7 @@ def fetch_acquirer_charts(symbols: list[str] | None = None) -> dict:
 
 def acquirer_chart(symbol: str) -> pd.DataFrame:
     """date, close (split-restored raw close), volume from the cached chart of ``symbol`` ('' when none)."""
-    from scripts import reversal_data_yahoo as yahoo
+    from pipelines.reversal_data import yahoo
 
     path = yahoo.best_raw(symbol, YAHOO_RAW) if YAHOO_RAW.exists() else None
     if path is None:

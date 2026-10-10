@@ -46,7 +46,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 FILL = common.V2_FILL
 SERIES = FILL / "series"
@@ -199,7 +199,7 @@ class ChildCloses:
     def _yahoo_frame(self, ticker: str, fetch: bool) -> pd.DataFrame:
         if ticker in self._yahoo:
             return self._yahoo[ticker]
-        from scripts.reversal_data_reconcile import yahoo_restore
+        from pipelines.reversal_data.reconcile import yahoo_restore
         files = sorted(self.yahoo_raw.glob(f"{ticker}__*.json.gz")) + sorted(YAHOO_CHILD.glob(f"{ticker}__*.json.gz"))
         frame = pd.DataFrame(columns=["date", "close"])
         if not files and fetch:
@@ -569,7 +569,7 @@ def apply_v2(ids: list[str], states: dict, prep: dict, prices_dir: Path, out_dir
     if common.V2_1:
         # version 2.1 (plan section 0, 2026-10-10): the Alpaca SIP rows, before the archive fills (Alpaca ranks above
         # the archived captures); securities Alpaca gives a first series join the step's ids and states
-        from scripts import reversal_data_v2_1_fill as v21fill
+        from pipelines.reversal_data import v2_1_fill as v21fill
         ids, states, facts["alpaca"] = v21fill.apply_alpaca(ids, states, prep, prices_dir, out_dir, inputs, bundles,
                                                             frames_for)
     # 2. fills and 3. third votes

@@ -3,11 +3,17 @@
 Extracted unchanged from scripts/research_qqq_timing.py (``parse_chart``), scripts/research_calendar.py
 (``parse_ohlc``), scripts/research_intraday_t.py (``split_events``) and scripts/research_selective_t.py
 (``parse_ohlc_payload``, there ``ohlc_frame``). Dates are New York calendar dates.
+
+The request side (phase 3, moved unchanged from scripts/reversal_data_yahoo.py): ``chart_url`` builds the v8 chart
+request (no key involved) and ``HEADERS`` are the request headers Yahoo accepts (it answers 429 to a full browser
+User-Agent). Fetching, rate limits and caches stay with the callers.
 """
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pandas as pd
 
@@ -81,3 +87,20 @@ def parse_ohlc_payload(payload: dict, end: str) -> tuple[pd.DataFrame, dict]:
     df = df.dropna(subset=["close"]).drop_duplicates("date", keep="last")
     df = truncate_dev(df, "date", end).reset_index(drop=True)
     return df, splits
+
+
+# ======================================================================== requests
+
+CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+
+
+def _epoch(day: str) -> int:
+    return int(datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+
+
+def chart_url(symbol: str, period1: str, period2: str) -> str:
+    """The v8 chart URL for [period1, period2) (dates, UTC midnight); no key involved."""
+    params = urlencode({"period1": _epoch(period1), "period2": _epoch(period2), "interval": "1d",
+                        "events": "div,splits", "includeAdjustedClose": "true"}, safe=",")
+    return CHART.format(symbol=symbol) + "?" + params

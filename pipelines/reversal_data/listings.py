@@ -69,7 +69,7 @@ from urllib.parse import parse_qsl, quote, urlsplit
 import exchange_calendars as xcals
 import pandas as pd
 
-from scripts.reversal_data_common import (
+from pipelines.reversal_data.common import (
     CACHE, INPUTS, RAW, SlidingWindowLimiter, atomic_write, cached_get, sha256_bytes, sha256_file,
 )
 from src.io.nasdaq_update import import_nasdaq_trader_files

@@ -173,7 +173,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 MAIN = common.MAIN_CHECKOUT
 OUT = common.CACHE / "prefilter"
@@ -442,7 +442,7 @@ def investment_spans(master: pd.DataFrame, security_ids, spans: pd.DataFrame | N
     """(security -> [(start, end)] investment-company spans, one row per issuer with evidence, read facts),
     by step 12's rule on the cached SEC submissions and ``sic_history.csv`` (with its listing ends, when step 12
     has them: a span closing near a delisting runs on to the listing's end, the merger tail)."""
-    from scripts import reversal_data_universe as universe
+    from pipelines.reversal_data import universe
 
     sic = read_csv_text(universe.SIC_HISTORY) if Path(universe.SIC_HISTORY).exists() else None
     if spans is not None and hasattr(universe, "listing_ends"):
@@ -621,7 +621,7 @@ def _frame(ticker: str, dates, close, volume, src: str, file: str) -> pd.DataFra
 
 def read_wiki(tickers: set[str], directory: Path = WIKI_DIR) -> list[pd.DataFrame]:
     """WIKI raw close and volume (as traded) for every WIKI file whose ticker is a Nasdaq ticker."""
-    from scripts.reversal_data_wiki import READ_KW, safe_ticker
+    from pipelines.reversal_data.wiki import READ_KW, safe_ticker
 
     frames = []
     for ticker in sorted(tickers):
@@ -1452,7 +1452,7 @@ def float_facts(offline: bool = True) -> tuple[pd.DataFrame, list[dict]]:
     or the 50x rule is corrected by x1000 when ``unit_fix`` accepts it (checked against the per-share
     level and the CIK's other facts; ``float_price_check`` adds the price). Returns (facts with
     FLOAT_COLUMNS, the decisions on the unit errors)."""
-    from scripts.reversal_data_form25 import fetch_float_frames, frame_periods
+    from pipelines.reversal_data.form25 import fetch_float_frames, frame_periods
 
     floats = fetch_float_frames("EntityPublicFloat", "USD", frame_periods(), offline=offline)
     floats = floats[(floats["val"] > 0) & (floats["val"] <= MAX_PROXY_FLOAT) & floats["end"].notna()]
@@ -2229,7 +2229,7 @@ def wiki_alternative(sid: str, row, start: str, end: str, lists: pd.DataFrame) -
     """A WIKI file under one of the CIK's current SEC tickers that no listing interval of this
     security names, covering at least half of [start, min(end, WIKI_END)] and agreeing with the
     company lists' LastSale: returned as 'TICKER', else ''."""
-    from scripts.reversal_data_wiki import READ_KW, safe_ticker
+    from pipelines.reversal_data.wiki import READ_KW, safe_ticker
 
     if start > WIKI_END:
         return ""
@@ -2380,7 +2380,7 @@ def relisted_parts(row, reasons: list[str], hits: dict) -> list[tuple[list[str],
 # Step 9's hand-reviewed relist junctions (``reversal_data_reconcile.RELIST_JUNCTIONS``) are the reference for
 # which relistings are new equity and where the new shares start; they are read from that file's source (its
 # literal fields only, the module is not imported). This copy (round 7) is used only when the file cannot be read.
-RECONCILE_SOURCE = Path(__file__).resolve().parent / "reversal_data_reconcile.py"
+RECONCILE_SOURCE = Path(__file__).resolve().parent / "reconcile.py"
 RELIST_JUNCTIONS_FALLBACK = {
     "1486159": {"first_new_session": "2020-11-20", "kind": "bankruptcy_new_equity"},      # Oasis -> CHRD
     "1839341": {"first_new_session": "2024-01-24", "kind": "bankruptcy_share_exchange"},  # Core Scientific

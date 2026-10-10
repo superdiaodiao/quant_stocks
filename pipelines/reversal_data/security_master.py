@@ -127,7 +127,7 @@ import sys
 
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 SEC_RAW = common.RAW / "sec"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"

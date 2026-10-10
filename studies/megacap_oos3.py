@@ -24,13 +24,14 @@ import numpy as np
 import pandas as pd
 
 from quant.data import megacap_history as o2     # the OOS.2 data build, ranking and period statistics
+from quant.data import version as dv
+from quant.data.sources import http
+from quant.data.sources import megacap_oos2 as md      # the OOS.2 sources (cached_get on the pipeline ledger)
 from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.metrics import yearly
 from quant.paths import CACHE_ROOT, output_dir
 from quant.signals.technical import momentum_frames
 from quant.strategies import megacap as mc
-from scripts import megacap_oos2_data as md      # the OOS.2 data-build script (sources)
-from scripts import reversal_data_common as common   # cached_get (data pipeline)
 
 OUT = output_dir("megacap_oos3")
 LOCAL = CACHE_ROOT / "megacap_oos3"
@@ -50,7 +51,7 @@ def _yahoo_pre(symbol: str) -> pd.Series | None:
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={p1}&period2={p2}"
            "&interval=1d&events=div%2Csplits&includeAdjustedClose=true")
     try:
-        body = common.cached_get(url, LOCAL / "raw/yahoo" / f"{symbol}__{PRE_FROM}_{PRE_TO}.json.gz", source="yahoo",
+        body = md.cached_get(url, LOCAL / "raw/yahoo" / f"{symbol}__{PRE_FROM}_{PRE_TO}.json.gz", source="yahoo",
                                  headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
                                  limiter=md.YAHOO_LIMITER, symbol=symbol, timeout=30)
     except Exception as exc:  # noqa: BLE001
@@ -76,9 +77,9 @@ def _tiingo_pre(symbol: str) -> pd.Series | None:
         print(f"  tiingo pre {symbol}: not counted this month -> not asked")
         return None
     url = f"https://api.tiingo.com/tiingo/daily/{symbol.lower()}/prices?startDate={PRE_FROM}&endDate={PRE_TO}"
-    key = common.read_env_key(common.MAIN_CHECKOUT / ".env.tiingo", "TIINGO_API_KEY")
+    key = http.read_env_key(dv.DATA_MAIN / ".env.tiingo", "TIINGO_API_KEY")
     try:
-        body = common.cached_get(url, LOCAL / "raw/tiingo" / f"{symbol}__{PRE_FROM}_{PRE_TO}.json.gz", source="tiingo",
+        body = md.cached_get(url, LOCAL / "raw/tiingo" / f"{symbol}__{PRE_FROM}_{PRE_TO}.json.gz", source="tiingo",
                                  symbol=symbol.upper(), limiter=md.TIINGO_LIMITER, timeout=60,
                                  headers={"Authorization": f"Token {key}", "Content-Type": "application/json"})
     except Exception as exc:  # noqa: BLE001

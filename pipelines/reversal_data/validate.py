@@ -65,7 +65,7 @@ import traceback
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 CODE_VERSION = "2026-10-03.2"
 
@@ -3432,8 +3432,10 @@ def git_commit() -> str:
 
 
 def scripts_state() -> dict:
-    """sha256 of every reversal_data script and test, and which ones differ from the commit."""
-    paths = sorted(Path("scripts").glob("reversal_data_*.py")) + sorted(Path("tests").glob("test_reversal_data_*.py"))
+    """sha256 of every reversal_data script (the step modules in pipelines/reversal_data and the forwarding
+    wrappers at the old scripts/ paths) and test, and which ones differ from the commit."""
+    paths = (sorted(Path("scripts").glob("reversal_data_*.py")) + sorted(Path("pipelines/reversal_data").glob("*.py"))
+             + sorted(Path("tests").glob("test_reversal_data_*.py")))
     dirty = set()
     try:
         out = subprocess.run(["git", "status", "--porcelain", "--", *map(str, paths)], capture_output=True, text=True,

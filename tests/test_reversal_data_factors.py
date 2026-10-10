@@ -6,8 +6,8 @@ import zipfile
 
 import pytest
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_factors as factors
+from pipelines.reversal_data import common
+from pipelines.reversal_data import factors
 
 FACTOR_FILE = (
     "This file was created by using the 202608 CRSP database.  It\r\n"
@@ -230,7 +230,7 @@ def test_qqq_check_reports_gaps_and_dividend_agreement(tmp_path, monkeypatch):
 def test_kf_zip_is_read_from_cache_without_a_request(tmp_path, monkeypatch):
     monkeypatch.setattr(factors, "RAW_KF", tmp_path)
     (tmp_path / "Siccodes12.zip").write_bytes(b"cached zip bytes")
-    monkeypatch.setattr(common, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
+    monkeypatch.setattr(common.http, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
     data, path = factors.fetch_kf("Siccodes12.zip")
     assert data == b"cached zip bytes" and path == tmp_path / "Siccodes12.zip"
 
@@ -370,7 +370,7 @@ def _isolate_request_log(tmp_path, monkeypatch, body: bytes | None):
         requests.append(request)
         return _Response(body)
 
-    monkeypatch.setattr(common, "urlopen", fake_urlopen)
+    monkeypatch.setattr(common.http, "urlopen", fake_urlopen)
     return requests
 
 

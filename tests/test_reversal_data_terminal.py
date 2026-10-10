@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_terminal as tr
+from pipelines.reversal_data import terminal as tr
 
 
 # ------------------------------------------------------------------ reading the terms
@@ -1115,7 +1115,7 @@ def test_built_file_round_6_cases(built):
 
 
 def test_an_election_stated_only_in_the_closing_documents_holds_the_row():
-    from scripts import reversal_data_terminal as t
+    from pipelines.reversal_data import terminal as t
     decided, out = {"note": ""}, {"election": "N", "cvr": "N"}
     assert t.guard_reasons(decided, out, {"election": "True", "cvr": "False"}) == [
         "the consideration involves a holder election or a proration"]
@@ -1126,7 +1126,7 @@ def test_an_election_stated_only_in_the_closing_documents_holds_the_row():
 
 def test_built_file_has_no_unapproved_computed_value_far_from_its_last_close():
     import pandas as pd
-    from scripts import reversal_data_terminal as t
+    from pipelines.reversal_data import terminal as t
     rows = pd.read_csv(t.OUTPUT, dtype=str, keep_default_na=False)
     computed = rows[rows["status"] == "computed"]
     returns = pd.to_numeric(computed["terminal_return"], errors="coerce")

@@ -93,7 +93,7 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 NASDAQ_CIK = 1354457
 FORM = "25-NSE"
@@ -333,7 +333,7 @@ def filings_near(cik: int, day: str, forms: set[str], days_before: int = 45, day
                  *, offline: bool = False) -> list[tuple[str, str]]:
     """(form, date) of the subject's filings of ``forms`` near ``day``, fetching the older submissions
     page that covers ``day`` when the recent block starts after it."""
-    from scripts.reversal_data_security_master import load_submission_page, load_submissions
+    from pipelines.reversal_data.security_master import load_submission_page, load_submissions
     payload = load_submissions(cik, offline=True)
     if not payload:
         return []
@@ -533,7 +533,7 @@ def fetch_frame(concept: str, unit: str, period: str, *, offline: bool = False) 
 
 def fetch_float_frames(concept: str, unit: str, periods: list[str], *, offline: bool = False) -> pd.DataFrame:
     """Long table cik, end, val, accn, period, entity_name over the given instant frames."""
-    from scripts.reversal_data_security_master import parallel_map
+    from pipelines.reversal_data.security_master import parallel_map
     payloads = parallel_map(lambda period: fetch_frame(concept, unit, period, offline=offline), periods, workers=4)
     records = []
     for period, payload in zip(periods, payloads):
@@ -778,7 +778,7 @@ def float_for_filing(floats: pd.DataFrame, shares: pd.DataFrame, cik: int, filin
 # ------------------------------------------------------------------ classification
 
 def _norm_name(text: str) -> str:
-    from scripts.reversal_data_security_master import normalize_issuer_name
+    from pipelines.reversal_data.security_master import normalize_issuer_name
     return normalize_issuer_name(text)
 
 
@@ -1040,7 +1040,7 @@ class SnapshotEvidence:
     dates, for the continuation tests of ``snapshot_evidence``."""
 
     def __init__(self, rows: pd.DataFrame, snapshot_dates: dict[str, list[str]], partial: set[str] = frozenset()):
-        from scripts.reversal_data_security_master import build_intervals, presence_by_date
+        from pipelines.reversal_data.security_master import build_intervals, presence_by_date
         self.days = sorted({d for days in snapshot_dates.values() for d in days})
         self.full = {d for family, days in snapshot_dates.items() if family not in partial for d in days}
         self.full_days = sorted(self.full)
@@ -1063,7 +1063,7 @@ class SnapshotEvidence:
 
     @classmethod
     def load(cls, rows_path: Path, dates_path: Path) -> "SnapshotEvidence | None":
-        from scripts.reversal_data_security_master import read_raw_rows
+        from pipelines.reversal_data.security_master import read_raw_rows
         rows = read_raw_rows(rows_path)
         if rows is None or not Path(dates_path).exists():
             return None
@@ -1071,7 +1071,7 @@ class SnapshotEvidence:
         return cls(rows, dates["families"], set(dates.get("partial_families", [])))
 
     def status(self, cik: int, symbol: str, filing_date: str) -> dict:
-        from scripts.reversal_data_security_master import continuation_after
+        from pipelines.reversal_data.security_master import continuation_after
         other = lambda day: bool(self.holders.get((symbol, day), set()) - {cik})
         return continuation_after(self.obs.get((cik, symbol), []), filing_date, self.days, self.full, self.present,
                                   symbol, other)
@@ -1115,7 +1115,7 @@ def snapshot_evidence(snap: SnapshotEvidence | None, cik: int, filing_date: str,
     reports); an open run with no observation after the filing ends with it. ``rows_before``: whether
     the CIK has any snapshot row on or before the filing date.
     """
-    from scripts.reversal_data_security_master import EXIT_GRACE_DAYS
+    from pipelines.reversal_data.security_master import EXIT_GRACE_DAYS
     out = {"tickers_before": "", "tickers_ended": "", "tickers_new": "", "tickers_continued": "",
            "tickers_handed_over": "", "tickers_ended_earlier": "", "rows_before": False, "rows_any": False,
            "first_seen": "", "snapshot_continues": None}
@@ -1182,7 +1182,7 @@ def subject_evidence(subject_cik: int, filing_date: str, submissions: dict | Non
     whenever the snapshots follow the CIK's tickers past the filing."""
     if not submissions:
         return {}
-    from scripts.reversal_data_security_master import parse_submissions
+    from pipelines.reversal_data.security_master import parse_submissions
     profile = parse_submissions(submissions)
     filed = pd.Timestamp(filing_date)
     later = [pd.Timestamp(d) for d in profile["periodic_dates"] if pd.Timestamp(d) > filed + pd.Timedelta(days=400)]
@@ -1232,7 +1232,7 @@ def successor_evidence(rows: pd.DataFrame, intervals: pd.DataFrame | None, names
     ticker that adopted the subject's (Tornier taking WMGI). ``names_match`` compares the EDGAR
     names (current and former) of the two CIKs.
     """
-    from scripts.reversal_data_security_master import names_match
+    from pipelines.reversal_data.security_master import names_match
     if intervals is None or intervals.empty:
         return {}
     iv = intervals.copy()
@@ -1289,7 +1289,7 @@ def successor_evidence(rows: pd.DataFrame, intervals: pd.DataFrame | None, names
 # ------------------------------------------------------------------ build
 
 def _parallel(function, items, label):
-    from scripts.reversal_data_security_master import parallel_map
+    from pipelines.reversal_data.security_master import parallel_map
     return parallel_map(function, items, label=label)
 
 
@@ -1343,7 +1343,7 @@ def build(offline: bool = False) -> pd.DataFrame:
     rows["effective_date"] = [(date.fromisoformat(d) + timedelta(days=EFFECTIVE_LAG_DAYS)).isoformat() for d in rows["filing_date"]]
     rows["doc_url"] = [doc_url(c, a, d) for c, a, d in zip(rows["subject_cik"], rows["accession"], rows["document"])]
 
-    from scripts.reversal_data_security_master import (load_submissions, parse_submissions, read_raw_rows,
+    from pipelines.reversal_data.security_master import (load_submissions, parse_submissions, read_raw_rows,
                                                        regime_facts)
     # The security master's raw snapshot rows, from before it dropped any row for a Form 25: the
     # exit decisions below never rest on rows removed because of them.

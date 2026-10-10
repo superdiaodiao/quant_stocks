@@ -67,7 +67,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from scripts.reversal_data_common import (
+from pipelines.reversal_data.common import (
     CACHE,
     INPUTS,
     MAIN_CHECKOUT,

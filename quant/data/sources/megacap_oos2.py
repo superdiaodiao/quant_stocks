@@ -1,6 +1,9 @@
-"""Data build for the mega-cap out-of-sample test 1999-2013 without QuantConnect (docs/research_ledger_megacap.md, OOS.2).
+"""Sources of the mega-cap out-of-sample test 1999-2013 without QuantConnect (docs/research_ledger_megacap.md, OOS.2).
 
-Data only: nothing here computes a strategy return. Steps (each cached, re-runnable):
+Data only: nothing here computes a strategy return. Moved from scripts/megacap_oos2_data.py (phase 3): the
+fetchers, parsers and readers live here; the steps that write the outputs (``qqq``, ``sec``) are in
+pipelines/megacap_oos2/build.py (``scripts/megacap_oos2_data.py`` still runs them). Steps (each cached,
+re-runnable):
   candidates  Nasdaq-100 Trust (QQQ) schedules of investments 1999-2013 from SEC (top 45 by value in any report)
               -> the candidate generator; names are mapped by hand to CIKs in CANDIDATES below (plus additions).
   filings     SEC submissions index per CIK -> 10-K / 10-Q (and 10-K405, 10-KT) filed 1998-06 .. 2013-12.
@@ -12,31 +15,27 @@ Data only: nothing here computes a strategy return. Steps (each cached, re-runna
 SEC requests carry src/io/sec_contact.sec_user_agent() (never printed), at most 7 a second (shared limiter).
 Raw bodies stay under research_cache/megacap_oos2/ (git-ignored); outputs that go to git are SEC facts, IDs, ranks.
 
-Usage:  PYTHONPATH=. .venv/bin/python scripts/megacap_oos2_data.py {qqq|sec} [--dei-only]
+Usage:  PYTHONPATH=. .venv/bin/python scripts/megacap_oos2_data.py {qqq|sec} [--dei-only]   (the build)
         (qqq: Nasdaq-100 Trust schedules -> qqq_schedule_top45.csv, the candidate generator; sec: filings, covers,
         dei. Prices are fetched and assembled, from cache when present, by scripts/research_megacap_oos2.py.)
 """
 from __future__ import annotations
 
-import argparse
-import gzip
 import html
 import json
 import re
-import sys
-import time
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from scripts import reversal_data_common as common  # noqa: E402  (cached_get, SEC limiter and headers)
+from quant.data import version as dv
+from quant.data.sources import http, sec
+from quant.paths import CACHE_ROOT, OUTPUT_ROOT
 
-CACHE = Path("/Users/bytedance/code/quant_stocks/research_cache/megacap_oos2")
+CACHE = CACHE_ROOT / "megacap_oos2"
 SEC_RAW = CACHE / "sec"
-OUT = ROOT / "output/research_only/megacap_oos2"
+OUT = OUTPUT_ROOT / "megacap_oos2"
+
 SOURCE = "sec_megacap_oos2"
 QQQ_CIK = 1067839
 FIRST_SIGNAL = "1998-12-31"
@@ -48,12 +47,18 @@ COVER_BYTES = 100_000
 
 # ======================================================================== SEC plumbing
 
+def cached_get(url: str, cache_path, **kwargs) -> bytes:
+    """A cached GET logged to the reversal pipeline's request ledger of the current data version (as
+    reversal_data_common.cached_get did for this module)."""
+    return http.cached_get(url, cache_path, ledger=http.Ledger(dv.RAW_INDEX, dv.QUOTA_LEDGER), **kwargs)
+
+
 def sec_get(url: str, cache_name: str, range_bytes: int | None = None) -> bytes:
-    headers = common.sec_headers()
+    headers = sec.sec_headers()
     if range_bytes:
         headers = {**headers, "Range": f"bytes=0-{range_bytes - 1}"}
-    return common.cached_get(url, SEC_RAW / cache_name, source=SOURCE, headers=headers,
-                             limiter=common.SEC_LIMITER, timeout=60)
+    return cached_get(url, SEC_RAW / cache_name, source=SOURCE, headers=headers,
+                      limiter=sec.SEC_LIMITER, timeout=60)
 
 
 def submissions(cik: int) -> dict:
@@ -110,43 +115,11 @@ QQQ_DOCS = (  # (fiscal year end of the schedule, accession, primary document); 
 HOLDING = re.compile(r"^\s*([A-Z0-9][^\n]*?[A-Za-z\)\.\*][^\n]*?)[\s\.]{2,}\$?\s*([\d,]{3,})\s+\$?\s*([\d,]{4,})\s*$", re.M)
 
 
-def qqq_holdings(top: int = 45) -> pd.DataFrame:
-    """Every holding line (issuer, shares, value) of each annual schedule; the ``top`` by value per report."""
-    rows = []
-    for fy, acc, doc in QQQ_DOCS:
-        raw = sec_get(doc_url(QQQ_CIK, acc, doc), f"qqq/{acc}_{doc}.gz")
-        t = to_text(raw)
-        t = re.sub(r"[ \t]+", " ", t)
-        # html tables: name / shares / value come on separate lines -> join lines of a row
-        t = re.sub(r"\n\s*\n+", "\n", t)
-        found = []
-        for m in HOLDING.finditer(t):
-            name = re.sub(r"[\.\s\*]+$", "", m.group(1)).strip(" .*")
-            sh, val = int(m.group(2).replace(",", "")), int(m.group(3).replace(",", ""))
-            if val < 1e5 or len(name) < 3 or re.search(r"(?i)total|shares|net assets|investments|cash", name):
-                continue
-            found.append((fy, name, sh, val))
-        if len(found) < 60:   # html layouts: one cell per line
-            lines = [x.strip() for x in t.split("\n") if x.strip()]
-            for i in range(len(lines) - 2):
-                a, b, c = lines[i], lines[i + 1].replace("$", "").strip(), lines[i + 2].replace("$", "").strip()
-                if (re.fullmatch(r"[\d,]{3,}", b) and re.fullmatch(r"[\d,]{5,}", c) and re.search(r"[A-Za-z]{3}", a)
-                        and not re.search(r"(?i)total|net assets|investments|cash|shares", a)):
-                    found.append((fy, a.strip(" .*"), int(b.replace(",", "")), int(c.replace(",", ""))))
-        df = pd.DataFrame(found, columns=["fy", "issuer", "shares", "value"]).drop_duplicates(["issuer"])
-        df = df.sort_values("value", ascending=False)
-        df["rank"] = np.arange(1, len(df) + 1)
-        rows.append(df)
-        print(f"  QQQ {fy}: {len(df)} holdings parsed; top: {', '.join(df.issuer.head(12))}")
-    out = pd.concat(rows, ignore_index=True)
-    return out[out["rank"] <= top]
-
-
 # ======================================================================== Wayback copies of Yahoo's old table.csv
 
 WAYBACK_HOSTS = ("ichart.finance.yahoo.com/table.csv", "real-chart.finance.yahoo.com/table.csv",
                  "ichart.yahoo.com/table.csv", "table.finance.yahoo.com/table.csv")
-WAYBACK_LIMITER = common.SlidingWindowLimiter({1: 1, 60: 30})
+WAYBACK_LIMITER = http.SlidingWindowLimiter({1: 1, 60: 30})
 
 
 def _yahoo_csv_span(url: str) -> tuple[str | None, str | None]:
@@ -168,7 +141,7 @@ def wayback_captures(symbol: str) -> pd.DataFrame:
                f"&filter=original:.*s={symbol}.*&fl=timestamp,original,length&limit=2000")
         cache = CACHE / "raw/wayback_cdx" / f"{symbol}__{host.split('/')[0]}.txt"
         try:
-            body = common.cached_get(url, cache, source="wayback", limiter=WAYBACK_LIMITER, timeout=240, symbol=symbol)
+            body = cached_get(url, cache, source="wayback", limiter=WAYBACK_LIMITER, timeout=240, symbol=symbol)
         except Exception as exc:  # noqa: BLE001  (an unanswered CDX query is recorded as no captures)
             print(f"  cdx {symbol} {host}: {exc}")
             continue
@@ -186,7 +159,7 @@ def wayback_csv(symbol: str, timestamp: str, original: str) -> pd.DataFrame:
     """The archived Yahoo CSV body (Date, Open, High, Low, Close, Volume, Adj Close), oldest first."""
     url = f"https://web.archive.org/web/{timestamp}id_/{original}"
     cache = CACHE / "raw/wayback_yahoo" / f"{symbol}__{timestamp}.csv.gz"
-    body = common.cached_get(url, cache, source="wayback", limiter=WAYBACK_LIMITER, timeout=240, symbol=symbol)
+    body = cached_get(url, cache, source="wayback", limiter=WAYBACK_LIMITER, timeout=240, symbol=symbol)
     text = body.decode("latin-1")
     if not text.startswith("Date,"):
         raise ValueError(f"{symbol} {timestamp}: not a Yahoo CSV")
@@ -308,7 +281,7 @@ def parse_cover_close(text: str) -> dict:
 
 YAHOO_CHART = ("https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1=896659200&period2={p2}"
                "&interval=1d&events=div%2Csplits&includeAdjustedClose=true")
-YAHOO_LIMITER = common.SlidingWindowLimiter({2: 1})
+YAHOO_LIMITER = http.SlidingWindowLimiter({2: 1})
 YAHOO_FETCH_DAY = "2026-10-05"
 
 
@@ -316,7 +289,7 @@ def yahoo_chart(symbol: str) -> dict | None:
     p2 = int(pd.Timestamp(YAHOO_FETCH_DAY).timestamp())
     cache = CACHE / "raw/yahoo" / f"{symbol}__{YAHOO_FETCH_DAY}.json.gz"
     try:
-        body = common.cached_get(YAHOO_CHART.format(symbol=symbol, p2=p2), cache, source="yahoo",
+        body = cached_get(YAHOO_CHART.format(symbol=symbol, p2=p2), cache, source="yahoo",
                                  headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
                                  limiter=YAHOO_LIMITER, symbol=symbol, timeout=30)
     except (FileNotFoundError, Exception) as exc:  # noqa: BLE001
@@ -377,111 +350,6 @@ def cik_spans(text: str) -> list[tuple[int, str | None, str | None]]:
     return out
 
 
-def candidate_filings(cand: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for r in cand.itertuples():
-        lo = pd.Timestamp(r.nasdaq_from or FIRST_SIGNAL) - pd.Timedelta(days=430)
-        lo = max(lo, pd.Timestamp(FILINGS_FROM))
-        hi = min(pd.Timestamp(r.nasdaq_to or LAST_DAY), pd.Timestamp(LAST_DAY))
-        for cik, a, b in cik_spans(r.ciks):
-            sub = submissions(cik)
-            f = sub["filings"]
-            f = f[f["form"].isin(BASE_FORMS)].copy()
-            f["filingDate"] = pd.to_datetime(f["filingDate"])
-            f = f[(f["filingDate"] >= lo) & (f["filingDate"] <= hi)]
-            # a CIK that hands over to a successor (Comcast 22301 -> 1166691 in 2002-11; 22301 kept filing as a
-            # subsidiary afterwards) is used only inside its span (the first successor filing is allowed 120 days)
-            if b:
-                f = f[f["filingDate"] <= pd.Timestamp(b) + pd.Timedelta(days=120)]
-            if a:
-                f = f[f["filingDate"] > pd.Timestamp(a)]
-            for x in f.itertuples():
-                rows.append({"key": r.key, "cik": cik, "entity": sub["name"], "form": x.form,
-                             "filed": x.filingDate.date().isoformat(), "report_date": x.reportDate,
-                             "accession": x.accessionNumber, "primary": x.primaryDocument})
-    return pd.DataFrame(rows)
-
-
-def cover_facts(filings: pd.DataFrame) -> pd.DataFrame:
-    """Fetch the first COVER_BYTES of every filing and parse its cover. One row per filing."""
-    def one(x):
-        url = doc_url(x["cik"], x["accession"], x["primary"])
-        try:
-            raw = sec_get(url, f"covers/{x['cik']}/{x['accession']}.gz", range_bytes=COVER_BYTES)
-        except FileNotFoundError:          # the index's primary document is not at that path: the full submission
-            url = doc_url(x["cik"], x["accession"], "")
-            raw = sec_get(url, f"covers/{x['cik']}/{x['accession']}_full.gz", range_bytes=COVER_BYTES)
-        t = to_text(raw)
-        sh = parse_cover_shares(t)
-        out = {**x, "url": url, "shares": sh["shares"], "asof": sh["asof"].date().isoformat() if sh["asof"] is not None
-               else "", "n_numbers": sh["n_numbers"], "multi_class": sh["multi_class"], "sentence": sh["sentence"]}
-        if x["form"].startswith("10-K"):
-            out.update(parse_cover_venue(t))
-            cl = parse_cover_close(t)
-            out["cover_close"] = cl["cover_close"]
-            out["cover_close_date"] = cl["cover_close_date"].date().isoformat() if cl["cover_close_date"] is not None else ""
-        return out
-    items = filings.to_dict("records")
-    res = common.parallel_map(one, items, workers=14)
-    rows = []
-    for x, r in zip(items, res):
-        rows.append(r if isinstance(r, dict) else {**x, "error": str(r)[:200]})
-    return pd.DataFrame(rows)
-
-
-def companyfacts_dei(cik: int) -> pd.DataFrame:
-    """dei EntityCommonStockSharesOutstanding facts (all classes) of one CIK: end (as-of), filed, form, accn, val."""
-    try:
-        body = sec_get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json", f"companyfacts/CIK{cik:010d}.json.gz")
-    except FileNotFoundError:
-        return pd.DataFrame(columns=["cik", "end", "filed", "form", "accn", "val"])
-    j = json.loads(body)
-    items = j.get("facts", {}).get("dei", {}).get("EntityCommonStockSharesOutstanding", {}).get("units", {}).get("shares", [])
-    df = pd.DataFrame(items)
-    if df.empty:
-        return pd.DataFrame(columns=["cik", "end", "filed", "form", "accn", "val"])
-    df["cik"] = cik
-    return df[["cik", "end", "filed", "form", "accn", "val"]]
-
-
-def build_sec(args=None) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    cand = load_candidates()
-    fil = candidate_filings(cand)
-    print(f"filings to read: {len(fil)} for {fil['key'].nunique()} candidates", flush=True)
-    if not (args is not None and getattr(args, "dei_only", False)):
-        facts = cover_facts(fil)
-        facts.to_csv(COVER_FACTS, index=False)
-        print("cover facts written:", len(facts), "errors:", int(facts.get("error", pd.Series(dtype=str)).notna().sum()))
-    dei = []
-    for r in cand.itertuples():
-        for cik, _, _ in cik_spans(r.ciks):
-            d = companyfacts_dei(cik)
-            print(f"  dei {r.key} {cik}: {len(d)}", flush=True)
-            d["key"] = r.key
-            dei.append(d)
-    dei = pd.concat(dei, ignore_index=True)
-    dei = dei[(dei["filed"] >= "2008-06-01") & (dei["filed"] <= LAST_DAY)]
-    dei.to_csv(DEI_FACTS, index=False)
-    print("dei facts:", len(dei))
-
-
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("step", choices=["qqq", "sec"])
-    ap.add_argument("--dei-only", action="store_true", help="sec step: only the XBRL dei share facts")
-    a = ap.parse_args(argv)
-    if a.step == "qqq":
-        OUT.mkdir(parents=True, exist_ok=True)
-        qqq_holdings(45).to_csv(OUT / "qqq_schedule_top45.csv", index=False)
-    if a.step == "sec":
-        build_sec(a)
-
-
-if __name__ == "__main__":
-    main()
-
-
 def plan_sources(text: str) -> list[tuple[str, str, str | None]]:
     """'wayback:SUNW..2007-03-01;cmc:sun-microsystems' -> [('wayback','SUNW','2007-03-01'), ('cmc','sun-microsystems',None)]."""
     out = []
@@ -533,14 +401,14 @@ def best_wayback(symbol: str, need_a: pd.Timestamp, need_b: pd.Timestamp) -> lis
 
 # ======================================================================== companiesmarketcap.com (delisted names with no other daily source)
 
-CMC_LIMITER = common.SlidingWindowLimiter({3: 1})
+CMC_LIMITER = http.SlidingWindowLimiter({3: 1})
 CMC_PAGES = {"marketcap": "marketcap", "price": "stock-price-history", "splits": "stock-splits"}
 
 
 def cmc_page(slug: str, page: str) -> str:
     url = f"https://companiesmarketcap.com/{slug}/{CMC_PAGES[page]}/"
     cache = CACHE / "raw/cmc" / f"{slug}__{page}.html.gz"
-    body = common.cached_get(url, cache, source="companiesmarketcap", limiter=CMC_LIMITER, timeout=60, symbol=slug,
+    body = cached_get(url, cache, source="companiesmarketcap", limiter=CMC_LIMITER, timeout=60, symbol=slug,
                              headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                                                     "(KHTML, like Gecko) Chrome/120 Safari/537.36"})
     return body.decode("utf-8", errors="replace")
@@ -567,13 +435,13 @@ def cmc_series(slug: str) -> dict:
 # ======================================================================== Tiingo (only symbols already counted this month: no new unique symbol)
 
 TIINGO_URL = "https://api.tiingo.com/tiingo/daily/{t}/prices?startDate=1998-06-01&endDate=2013-12-31"
-TIINGO_LIMITER = common.SlidingWindowLimiter({80: 1, 3600: 40})
-TIINGO_DELISTED = Path("/Users/bytedance/code/quant_stocks/research_cache/tiingo_delisted")
+TIINGO_LIMITER = http.SlidingWindowLimiter({80: 1, 3600: 40})
+TIINGO_DELISTED = CACHE_ROOT / "tiingo_delisted"
 
 
 def tiingo_month_symbols() -> set:
     month = pd.Timestamp.now(tz="UTC").strftime("%Y-%m")
-    q = pd.read_csv(common.QUOTA_LEDGER, dtype=str, keep_default_na=False)
+    q = pd.read_csv(dv.QUOTA_LEDGER, dtype=str, keep_default_na=False)
     return set(q.loc[(q["source"] == "tiingo") & (q["month"] == month), "symbol"].str.upper())
 
 
@@ -582,9 +450,9 @@ def tiingo_daily(symbol: str) -> pd.DataFrame | None:
     if not cache.exists() and symbol.upper() not in tiingo_month_symbols():
         print(f"  tiingo {symbol}: not yet counted this month -> not asked (free-tier unique-symbol budget)")
         return None
-    key = common.read_env_key(common.MAIN_CHECKOUT / ".env.tiingo", "TIINGO_API_KEY")
+    key = http.read_env_key(dv.DATA_MAIN / ".env.tiingo", "TIINGO_API_KEY")
     try:
-        body = common.cached_get(TIINGO_URL.format(t=symbol.lower()), cache, source="tiingo", symbol=symbol.upper(),
+        body = cached_get(TIINGO_URL.format(t=symbol.lower()), cache, source="tiingo", symbol=symbol.upper(),
                                  headers={"Authorization": f"Token {key}", "Content-Type": "application/json"},
                                  limiter=TIINGO_LIMITER, timeout=60)
     except Exception as exc:  # noqa: BLE001

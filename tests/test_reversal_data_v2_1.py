@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_v2_1_alpaca as alp
-from scripts import reversal_data_v2_1_fill as v21
+from pipelines.reversal_data import v2_1_alpaca as alp
+from pipelines.reversal_data import v2_1_fill as v21
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +25,7 @@ def _sessions(start="2019-01-01", end="2019-03-31"):
 
 def _paths_for(version: str) -> str:
     env = {**os.environ, "REVERSAL_DATA_VERSION": version, "PYTHONPATH": str(ROOT)}
-    code = ("from scripts import reversal_data_common as c; "
+    code = ("from pipelines.reversal_data import common as c; "
             "print(c.DATA_VERSION, c.CACHE.name, c.INPUTS.name, c.V2_PLUS, c.V2_1)")
     return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout.strip()
 

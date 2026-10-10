@@ -229,8 +229,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_prefilter as pf
+from pipelines.reversal_data import common
+from pipelines.reversal_data import prefilter as pf
 
 CODE_VERSION = "2026-10-03.2"
 MAIN = common.MAIN_CHECKOUT

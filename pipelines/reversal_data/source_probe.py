@@ -24,7 +24,6 @@ import argparse
 import datetime as dt
 import gzip
 import html
-import io
 import json
 import re
 import sys
@@ -35,9 +34,14 @@ from urllib.parse import urlencode
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts import reversal_data_common as common  # noqa: E402
+from pipelines.reversal_data import common  # noqa: E402
+from quant.data.sources import quantquote  # noqa: E402
+from quant.data.sources.archive_org import (  # noqa: E402,F401  (moved there, phase 3)
+    capture_url, parse_yahoo_csv, parse_yahoo_history_store, parse_yahoo_hp, parse_yahoo_table,
+    yahoo_csv_span)
+from quant.data.sources.companiesmarketcap import CMC_SUFFIX, cmc_pick, cmc_slugs  # noqa: E402,F401  (moved, phase 3)
 
 MAIN = common.MAIN_CHECKOUT
 V1_INPUTS = ROOT / "output/research_only/reversal_2012_2026/inputs"
@@ -59,84 +63,6 @@ YAHOO_LIMITER = common.SlidingWindowLimiter({2: 1})
 AGREE_TOL = 0.005
 
 # ======================================================================== pure helpers (tested)
-
-
-def yahoo_csv_span(url: str) -> tuple[str | None, str | None]:
-    """(start, end) of an old Yahoo table.csv URL: a/b/c = start month-1/day/year, d/e/f = end."""
-    q = dict(re.findall(r"[?&;](?:amp;)?([a-z])=([^&]*)", url.replace("&amp;", "&")))
-    try:
-        st = f"{int(q['c']):04d}-{int(q['a']) + 1:02d}-{int(q['b']):02d}" if {"a", "b", "c"} <= set(q) else None
-        en = f"{int(q['f']):04d}-{int(q['d']) + 1:02d}-{int(q['e']):02d}" if {"d", "e", "f"} <= set(q) else None
-    except ValueError:
-        return None, None
-    return st, en
-
-
-def parse_yahoo_hp(text: str) -> tuple[pd.DataFrame, list]:
-    """Rows (date, close, adj) and events of an old finance.yahoo.com/q/hp page (2004-2015 layout)."""
-    rows = re.findall(r'<td class="yfnc_tabledata1" nowrap align="right">([A-Z][a-z]{2} \d{1,2}, \d{4})</td>'
-                      r'((?:<td class="yfnc_tabledata1" align="right">[^<]*</td>){6})', text)
-    out = []
-    for d, cells in rows:
-        v = re.findall(r">([^<]*)</td>", cells)
-        try:
-            out.append({"date": pd.Timestamp(dt.datetime.strptime(d, "%b %d, %Y")),
-                        "close": float(v[3].replace(",", "")), "adj": float(v[5].replace(",", ""))})
-        except ValueError:
-            continue
-    ev = re.findall(r'nowrap align="right">([A-Z][a-z]{2} \d{1,2}, \d{4})</td><td class="yfnc_tabledata1" '
-                    r'align="center" colspan="6">([^<]*)</td>', text)
-    events = [(pd.Timestamp(dt.datetime.strptime(d, "%b %d, %Y")), e.strip()) for d, e in ev]
-    return pd.DataFrame(out, columns=["date", "close", "adj"]), events
-
-
-def parse_yahoo_history_store(text: str) -> tuple[pd.DataFrame, list]:
-    """Rows and events of the 2016-2022 finance.yahoo.com/quote/X/history page (HistoricalPriceStore JSON)."""
-    key = '"HistoricalPriceStore":'
-    i = text.find(key)
-    if i < 0:
-        return pd.DataFrame(columns=["date", "close", "adj"]), []
-    try:
-        obj, _ = json.JSONDecoder().raw_decode(text[i + len(key):])
-    except ValueError:
-        return pd.DataFrame(columns=["date", "close", "adj"]), []
-    rows, events = [], []
-    for x in obj.get("prices", []):
-        day = pd.Timestamp(dt.datetime.fromtimestamp(int(x["date"]), dt.timezone.utc).date())
-        if "type" in x:
-            events.append((day, f"{x['type']}:{x.get('amount', x.get('splitRatio', ''))}"))
-        elif x.get("close") is not None and x.get("adjclose") is not None:
-            rows.append({"date": day, "close": float(x["close"]), "adj": float(x["adjclose"])})
-    return pd.DataFrame(rows, columns=["date", "close", "adj"]), events
-
-
-def parse_yahoo_table(text: str) -> tuple[pd.DataFrame, list]:
-    """Rows and events of the 2023+ finance.yahoo.com/quote/X/history page (an HTML table: Date, Open, High,
-    Low, Close, Adj Close, Volume; cells may wrap values in <span>)."""
-    cell = r"<td[^>]*>\s*(?:<span[^>]*>)?\s*([^<]*?)\s*(?:</span>)?\s*</td>\s*"
-    rows = re.findall(r"<tr[^>]*>\s*" + cell.replace("([^<]*?)", r"([A-Z][a-z]{2} \d{1,2}, \d{4})") + "(" + cell * 6 + ")",
-                      text)
-    out, events = [], []
-    for d, cells, *_ in rows:
-        v = re.findall(r">\s*([^<>]*?)\s*<", cells)
-        v = [x for x in v if x.strip()]
-        try:
-            day = pd.Timestamp(dt.datetime.strptime(d, "%b %d, %Y"))
-            out.append({"date": day, "close": float(v[3].replace(",", "")), "adj": float(v[4].replace(",", ""))})
-        except (ValueError, IndexError):
-            continue
-    for d, e in re.findall(r"(?i)<td[^>]*>\s*(?:<span[^>]*>)?([A-Z][a-z]{2} \d{1,2}, \d{4})(?:</span>)?\s*</td>\s*"
-                           r"<td[^>]*colspan[^>]*>(.{0,200}?)</td>", text):
-        e = re.sub(r"<[^>]+>", " ", e)
-        if re.search(r"(?i)dividend|split", e):
-            events.append((pd.Timestamp(dt.datetime.strptime(d, "%b %d, %Y")), " ".join(e.split())))
-    return pd.DataFrame(out, columns=["date", "close", "adj"]), events
-
-
-def parse_yahoo_csv(text: str) -> pd.DataFrame:
-    df = pd.read_csv(io.StringIO(text))
-    return pd.DataFrame({"date": pd.to_datetime(df["Date"]), "close": df["Close"].astype(float),
-                         "adj": df["Adj Close"].astype(float)})
 
 
 def pick_spaced(stamps: list[str], min_gap_days: int, limit: int) -> list[str]:
@@ -257,7 +183,7 @@ def cdx(url: str, cache: Path, symbol: str, extra: str = "") -> list[list[str]]:
 
 
 def wayback_body(symbol: str, stamp: str, original: str, kind: str) -> str | None:
-    url = f"https://web.archive.org/web/{stamp}id_/{original.replace('&amp;', '&')}"
+    url = capture_url(stamp, original)
     cache = RAW / f"wayback_{kind}" / f"{symbol}__{stamp}.gz"
     try:
         data = common.cached_get(url, cache, source="wayback", limiter=WAYBACK_LIMITER, timeout=240, symbol=symbol)
@@ -353,46 +279,6 @@ def cmc_search(query: str) -> list[dict]:
     return json.loads(data or b"[]")
 
 
-def cmc_pick(results: list[dict], ticker: str, delist_year: int | None) -> dict | None:
-    """The search result for ``ticker``. A delisted name takes only '<T>.defunct.<year>' within a year of its
-    delisting (the bare '<T>' is today's holder of a reused ticker); a listed name takes only the bare '<T>'."""
-    best, score = None, None
-    for x in results:
-        ident = str(x.get("identifier", ""))
-        m = re.fullmatch(rf"{re.escape(ticker)}(?:\.defunct\.(\d{{4}}))?", ident, re.I)
-        if not m or x.get("type") != "stock":
-            continue
-        yr = int(m.group(1)) if m.group(1) else None
-        if delist_year:
-            if yr is None or abs(yr - delist_year) > 1:
-                continue
-            s = abs(yr - delist_year)
-        else:
-            if yr is not None:
-                continue
-            s = 0
-        if score is None or s < score:
-            best, score = x, s
-    return best
-
-
-CMC_SUFFIX = r"(?i)\b(inc|corp|corporation|ltd|limited|holdings?|co|company|plc|llc|group|the|n\.?v|s\.?a|de)\b\.?"
-
-
-def cmc_slugs(name: str) -> list[str]:
-    """Slug guesses from a company name: 'BMC SOFTWARE INC' -> ['bmc-software', 'bmc']."""
-    base = re.sub(r"/[A-Z]{2}/?$", "", str(name))
-    base = re.sub(CMC_SUFFIX, " ", base)
-    words = [w for w in re.sub(r"[^a-z0-9]+", " ", base.lower().replace("&", " and ")).split() if w]
-    out = []
-    for k in (len(words), 2, 1):
-        if 0 < k <= len(words):
-            slug = "-".join(words[:k])
-            if slug not in out:
-                out.append(slug)
-    return out
-
-
 def cmc_guess(ticker: str, name: str, delist_year: int | None) -> dict | None:
     """A guessed slug is accepted only when the page title carries '(TICKER)' and, for a delisted name, its
     daily series ends within a year of the delisting."""
@@ -467,23 +353,21 @@ def probe_cmc(g: pd.DataFrame) -> None:
 
 # ======================================================================== QuantQuote free S&P 500 daily (archive.org copy)
 
-QQ_ZIP = RAW / "quantquote/quantquote_daily_sp500_83986.zip"
-QQ_URL = "https://web.archive.org/web/20150602033648id_/http://quantquote.com/files/quantquote_daily_sp500_83986.zip"
+QQ_ZIP = RAW / "quantquote" / quantquote.ZIP_NAME
+QQ_URL = quantquote.URL
 
 
 def probe_quantquote(g: pd.DataFrame) -> None:
     if not QQ_ZIP.exists():
         common.cached_get(QQ_URL, QQ_ZIP, source="wayback", limiter=WAYBACK_LIMITER, timeout=1800, symbol="quantquote")
     z = zipfile.ZipFile(QQ_ZIP)
-    names = {Path(n).name.lower(): n for n in z.namelist()}
+    names = quantquote.table_names(z)
     (CACHE / "series/quantquote").mkdir(parents=True, exist_ok=True)
     for r in g.itertuples():
         key = f"table_{r.ticker.lower()}.csv"
         if key not in names:
             continue
-        df = pd.read_csv(z.open(names[key]), header=None,
-                         names=["date", "time", "open", "high", "low", "close", "volume"])
-        df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
+        df = quantquote.read_table(z, names[key])
         df[["date", "close"]].to_csv(CACHE / "series/quantquote" / f"{r.security_id}.csv.gz", index=False)
         print(f"{r.ticker}: {len(df)} rows {df.date.min().date()}..{df.date.max().date()}", flush=True)
 

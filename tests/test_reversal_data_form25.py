@@ -1,6 +1,6 @@
 """Offline tests for the round-9 Form 25 changes (plan step 3): hand classifications into the plan's four
 classes, the builder's own SEC limiter and the scratch-build redirect."""
-from scripts import reversal_data_form25 as f25
+from pipelines.reversal_data import form25 as f25
 
 PLAN_CLASSES = {"common_delisting", "other_class", "reorg", "transfer"}
 

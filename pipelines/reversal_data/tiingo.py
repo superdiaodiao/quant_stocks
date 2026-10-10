@@ -84,13 +84,14 @@ import time
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_prefilter as pf
+from pipelines.reversal_data import common
+from pipelines.reversal_data import prefilter as pf
+from quant.data.sources.tiingo import (  # noqa: F401  (moved there, phase 3)
+    API, PRICE_FIELDS, QUOTA_WORDS, is_quota_text, parse_body, to_frame, url_ticker)
 
 ENV_FILE = common.MAIN_CHECKOUT / ".env.tiingo"
 KEY_NAME = "TIINGO_API_KEY"
 SOURCE = "tiingo"
-API = "https://api.tiingo.com/tiingo/daily/{ticker}/prices"
 START, END = "2011-06-01", "2026-08-31"
 
 HOURLY, DAILY = 45, 900  # the free tier allows 50 an hour and 1,000 a day; stay under both
@@ -127,10 +128,7 @@ RETRY = {"deferred_quota", "error"}
 # Prefilter matches routed unfillable because Tiingo serves another company for the ticker (seen in
 # its list, or in an answer this fetcher holds); --fetch-shadowed --tickers can still ask or re-check them.
 SHADOWED_MATCHES = {"hidden", "newer_company", "fetched_wrong_entity"}
-QUOTA_WORDS = re.compile(r"limit|allocation|exceed|run over|upgrade|too many|quota", re.IGNORECASE)
 
-PRICE_FIELDS = ["date", "open", "high", "low", "close", "volume", "adjOpen", "adjHigh", "adjLow", "adjClose",
-                "adjVolume", "divCash", "splitFactor"]
 STATUS_COLUMNS = [
     "security_id", "ticker_for_source", "reason", "needed_start", "needed_end", "order", "status",
     "entity_check", "entity_notes", "http_status", "rows_total", "first_date", "last_date", "rows_in_need",
@@ -168,11 +166,6 @@ def utc_now() -> datetime:
 def safe_name(ticker: str) -> str:
     """A file-name form of the ticker."""
     return re.sub(r"[^A-Za-z0-9_-]", "_", ticker.upper())
-
-
-def url_ticker(ticker: str) -> str:
-    """Tiingo's URL form: lower case, share-class dots as dashes (BRK.B -> brk-b)."""
-    return ticker.strip().lower().replace(".", "-").replace("/", "-")
 
 
 def price_url(ticker: str, start: str = START, end: str = END) -> str:
@@ -402,36 +395,6 @@ def limiter_delay(limiter: common.SlidingWindowLimiter) -> float:
 
 
 # ------------------------------------------------------------------ the response
-
-def parse_body(data: bytes) -> tuple[list | None, str]:
-    """(price rows, "") for a list answer; (None, error text) for an error object or bad JSON."""
-    try:
-        payload = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None, "not JSON: " + common.redact(data[:200].decode("utf-8", "replace"))
-    if isinstance(payload, list):
-        return payload, ""
-    if isinstance(payload, dict):
-        text = str(payload.get("detail") or payload.get("message") or payload.get("error") or payload)
-        return None, common.redact(text[:300])
-    return None, f"unexpected JSON type {type(payload).__name__}"
-
-
-def is_quota_text(text: str) -> bool:
-    return bool(QUOTA_WORDS.search(text or ""))
-
-
-def to_frame(prices: list) -> pd.DataFrame:
-    """Tiingo rows as a frame: ``close``/``volume`` as traded, ``adj*`` adjusted, ``divCash`` as paid,
-    ``splitFactor`` new shares per old share on the ex-date."""
-    frame = pd.DataFrame(prices)
-    if not len(frame):
-        return pd.DataFrame(columns=PRICE_FIELDS)
-    frame = frame.reindex(columns=PRICE_FIELDS)
-    frame["date"] = pd.to_datetime(frame["date"].astype(str).str[:10])
-    for column in PRICE_FIELDS[1:]:
-        frame[column] = pd.to_numeric(frame[column], errors="coerce")
-    return frame.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
 
 def field_summary(prices: list, frame: pd.DataFrame, sessions: pd.DatetimeIndex | None = None) -> dict:

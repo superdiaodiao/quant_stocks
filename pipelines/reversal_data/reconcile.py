@@ -279,9 +279,9 @@ import time
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_prefilter as pf
-from scripts import reversal_data_review as review_merge
+from pipelines.reversal_data import common
+from pipelines.reversal_data import prefilter as pf
+from pipelines.reversal_data import review as review_merge
 
 CODE_VERSION = "2026-10-03.1"
 # Per-security results are rebuilt whenever this file changes (its hash is part of every signature).
@@ -1331,7 +1331,7 @@ def target_tickers(mapping: pd.DataFrame, targets: set[str]) -> set[str]:
 
 
 def load_wiki_rows(identity: dict, targets: set[str]) -> pd.DataFrame:
-    from scripts.reversal_data_wiki import READ_KW, safe_ticker
+    from pipelines.reversal_data.wiki import READ_KW, safe_ticker
 
     failed = set()
     if WIKI_ENTITY.exists():  # step 6's LastSale check (plan 4.4 R9): files that fail are left out
@@ -2983,7 +2983,7 @@ def terminal_owned_dividends() -> dict[str, list[dict]]:
     is booked once, in the terminal value (the last close still carries it), never in the series."""
     global _TERMINAL_DIVIDENDS
     if _TERMINAL_DIVIDENDS is None:
-        from scripts import reversal_data_terminal as terminal  # imported here: terminal imports this module
+        from pipelines.reversal_data import terminal  # imported here: terminal imports this module
         out = {}
         for sid, entry in terminal.REVIEWED.items():
             if entry.get("special_dividend") is None or entry.get("special_dividend_before_last_trade"):
@@ -4728,7 +4728,7 @@ def main(argv=None) -> int:
     v2_facts = None
     if common.V2_PLUS and only is None:
         # data version 2 (plan section 0, 2026-10-05): fixes, archive fills and third votes on the canonical files
-        from scripts import reversal_data_v2_fill as v2fill
+        from pipelines.reversal_data import v2_fill as v2fill
         ids, states, v2_facts = v2fill.apply_v2(ids, states, prep, PRICES_DIR, OUT, INPUTS, CACHE, prep["bundles"],
                                                 frames_for)
         mark = phase("v2_fill", mark)
@@ -4752,7 +4752,7 @@ def main(argv=None) -> int:
     summary = summarize_tables(states, prep, ids, args)
     summary["hand_review_sources"] = review_source_summary(states)
     if v2_facts is not None:
-        from scripts import reversal_data_v2_fill as v2fill
+        from pipelines.reversal_data import v2_fill as v2fill
         v2_facts["tables"] = v2fill.post_tables(SPLIT_EVENTS, REVIEWED_MOVES, OUT, INPUTS, PRICES_DIR)
         summary["v2"] = v2_facts
     mark = phase("tables_and_panel", mark)

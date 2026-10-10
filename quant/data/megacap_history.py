@@ -4,7 +4,7 @@ terminal values, monthly market-cap ranks and the engine panels; QQQ / ONEQ benc
 
 Extracted unchanged from scripts/research_megacap_oos2.py (``build``, ``market_caps``, ``rank_table``,
 ``engine_panels``, ``period_stats``, ``load_qqq`` / ``load_oneq``, ``wayback_segment`` and helpers). The raw-source
-fetchers stay in scripts/megacap_oos2_data.py (a data-build script, phase 3), which this module imports; ``build``
+fetchers are in quant/data/sources/megacap_oos2.py (moved from scripts/megacap_oos2_data.py, phase 3); ``build``
 writes its share-count fixes into the OOS.2 output folder, as before.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from quant.data.panel import TERMINAL_D5
 from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.metrics import max_drawdown, monthly as _monthly
 from quant.paths import CACHE_ROOT, output_dir
-from scripts import megacap_oos2_data as md
+from quant.data.sources import megacap_oos2 as md
 
 OUT = output_dir("megacap_oos2")                  # build() reads the share overrides and writes the fixes here
 LOCAL = md.CACHE / "built"                       # vendor-derived panels (local only)

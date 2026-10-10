@@ -52,7 +52,7 @@ import time
 from urllib.error import HTTPError
 import zipfile
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
 
 KF_HOME = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/"
 KF_LIBRARY_PAGE = KF_HOME + "data_library.html"

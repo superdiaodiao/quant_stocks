@@ -18,12 +18,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-MAIN = Path("/Users/bytedance/code/quant_stocks")
-V = {"v2": (MAIN / "research_cache/reversal_2012_2026_v2", ROOT / "output/research_only/reversal_2012_2026/inputs_v2"),
-     "v2.1": (MAIN / "research_cache/reversal_2012_2026_v2_1",
-              ROOT / "output/research_only/reversal_2012_2026/inputs_v2_1")}
-ALPACA = MAIN / "research_cache/reversal_2012_2026_v2_1_alpaca"
+from quant.data import version as dv
+
+ROOT = Path(__file__).resolve().parents[2]
+V = {v: (dv.CACHE_ROOT / dv.CACHE_NAME[v], ROOT / dv.INPUTS_PARENT / dv.INPUTS_NAME[v]) for v in ("v2", "v2.1")}
+ALPACA = dv.CACHE_ROOT / "reversal_2012_2026_v2_1_alpaca"
 OUT = ROOT / "output/research_only/reversal_2012_2026/v2_1_report"
 # plan section 0 (g), set before any v2.1 number was seen
 MAT_SHARE_PP = 0.0010         # model share moves by more than 0.10 percentage points in a year

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_reconcile as rc
+from pipelines.reversal_data import reconcile as rc
 
 SESSIONS = rc.pf.xnas_sessions("2015-01-02", "2015-03-31")
 
@@ -1175,7 +1175,7 @@ ROUND10_CONTINUED = {"885721", "1058057", "1005201", "912752", "1602065", "11004
 
 
 def test_successor_links_cover_the_26_round_8_pairs_and_continue_only_one_for_one_reorganisations():
-    from scripts import reversal_data_terminal as terminal
+    from pipelines.reversal_data import terminal
 
     assert len(rc.SUCCESSOR_LINKS) == 26 + 17 + 3  # round 8's pairs, round 10's 1:1 pairs and its three cuts
     cut_only = {p for p, link in rc.SUCCESSOR_LINKS.items() if not link["continues"]}

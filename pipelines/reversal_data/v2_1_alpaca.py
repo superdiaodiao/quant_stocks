@@ -35,23 +35,22 @@ from urllib.parse import urlencode
 import numpy as np
 import pandas as pd
 
-from scripts import reversal_data_common as common
+from pipelines.reversal_data import common
+from quant.data.sources.alpaca import (  # noqa: F401  (moved there, phase 3)
+    ADJUSTMENTS, BASE, CA_TYPES, bars_frame, corporate_actions)
 
 ALPACA = common.V2_1_ALPACA
 RAW = ALPACA / "raw"
 SERIES = ALPACA / "series"
 PLAN = common.V1_CACHE / "prefilter" / "tiingo_month2_plan.csv"
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 INPUTS_V2 = ROOT / "output" / "research_only" / "reversal_2012_2026" / "inputs_v2"
 CACHE_V2 = common.MAIN_CHECKOUT / "research_cache" / "reversal_2012_2026_v2"
 ENV = common.MAIN_CHECKOUT / ".env.alpaca"
-BASE = "https://data.alpaca.markets"
 ALPACA_START = pd.Timestamp("2016-01-04")
 TODAY = pd.Timestamp("2026-10-09")          # the last complete session before the fetch (asof and end cap)
 PRICE_END = pd.Timestamp("2026-08-31")      # plan D3
 WARMUP_DAYS, AFTER_DAYS, DELIST_AFTER_DAYS = 110, 45, 30
-ADJUSTMENTS = ("raw", "split", "all")
-CA_TYPES = "forward_split,reverse_split,unit_split,stock_dividend,cash_dividend,spin_off,name_change"
 PER_MINUTE = 150
 
 # entity rules (plan section 0, 2026-10-10; written before any series was fetched)
@@ -125,25 +124,6 @@ def interval_mask(sessions: pd.DatetimeIndex, intervals: pd.DataFrame) -> np.nda
             continue
         mask |= (sessions >= pd.Timestamp(r.start)) & (sessions <= pd.Timestamp(end))
     return mask
-
-
-def bars_frame(body: bytes | None, symbol: str) -> pd.DataFrame:
-    """date, close, volume from one /v2/stocks/bars body."""
-    if not body:
-        return pd.DataFrame(columns=["date", "close", "volume"])
-    data = json.loads(body)
-    rows = (data.get("bars") or {}).get(symbol) or []
-    if not rows:
-        return pd.DataFrame(columns=["date", "close", "volume"])
-    f = pd.DataFrame({"date": pd.to_datetime([r["t"][:10] for r in rows]),
-                      "close": [float(r["c"]) for r in rows], "volume": [float(r.get("v") or 0) for r in rows]})
-    return f.drop_duplicates("date", keep="last").sort_values("date").reset_index(drop=True)
-
-
-def corporate_actions(body: bytes | None) -> dict[str, list[dict]]:
-    if not body:
-        return {}
-    return (json.loads(body).get("corporate_actions") or {})
 
 
 def canonical_record(raw: pd.DataFrame, split_adj: pd.DataFrame, all_adj: pd.DataFrame, actions: dict,
@@ -531,7 +511,7 @@ def second_sources(sid: str, sessions: pd.DatetimeIndex) -> pd.DataFrame:
         frames.append(c.rename(columns={"src_primary": "src"})[["date", "close_raw", "tr", "src"]])
     a = common.V2_FILL / "series" / "archive" / f"{sid}.csv.gz"
     if a.exists():
-        from scripts.reversal_data_v2_fill import capture_record
+        from pipelines.reversal_data.v2_fill import capture_record
         rows = pd.read_csv(a)
         if len(rows):
             rows = rows[~rows["otc"].astype(str).str.lower().eq("true")]

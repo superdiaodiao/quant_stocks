@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_earnings as er
+from pipelines.reversal_data import earnings as er
 
 HEADER = """<HTML><HEAD><TITLE>SEC EDGAR Submission 0001193125-16-556520</TITLE>
 <!--

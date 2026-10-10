@@ -17,11 +17,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-MAIN = Path("/Users/bytedance/code/quant_stocks")
-V = {"v1": (MAIN / "research_cache/reversal_2012_2026", ROOT / "output/research_only/reversal_2012_2026/inputs"),
-     "v2": (MAIN / "research_cache/reversal_2012_2026_v2", ROOT / "output/research_only/reversal_2012_2026/inputs_v2")}
-FILL = MAIN / "research_cache/reversal_2012_2026_v2_fill"
+from quant.data import version as dv
+
+ROOT = Path(__file__).resolve().parents[2]
+V = {v: (dv.CACHE_ROOT / dv.CACHE_NAME[v], ROOT / dv.INPUTS_PARENT / dv.INPUTS_NAME[v]) for v in ("v1", "v2")}
+FILL = dv.CACHE_ROOT / "reversal_2012_2026_v2_fill"
 OUT = ROOT / "output/research_only/reversal_2012_2026/v2_report"
 
 

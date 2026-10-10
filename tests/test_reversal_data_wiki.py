@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import reversal_data_common as common
-from scripts import reversal_data_wiki as wiki
+from pipelines.reversal_data import common
+from pipelines.reversal_data import wiki
 
 HEADER = ",".join(wiki.COLUMNS)
 
