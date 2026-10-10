@@ -56,7 +56,7 @@ from quant.data.panel import TERMINAL_D5_STRESS
 from quant.evaluation.criteria import bonferroni_t, weekly_deflated_sharpe
 from quant.paths import ROOT
 from quant.strategies.canslim import (  # noqa: F401  (cs.* names read by other scripts and tests)
-    DEV_END, DEV_START, FIRST_SIGNAL, INPUTS, PRICE_START, UNIVERSE_START, Config, DateGuardError, DevData,
+    CACHE, DEV_END, DEV_START, FIRST_SIGNAL, INPUTS, PRICE_START, UNIVERSE_START, Config, DateGuardError, DevData,
     assert_window, build_features, load_dev_data, market_filter, order_cost, perf_metrics, price_features,
     qqq_benchmark, screen, signal_schedule, simulate, truncate, weekly,
 )
