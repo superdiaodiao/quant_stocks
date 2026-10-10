@@ -24,7 +24,9 @@ from urllib.request import Request, urlopen
 
 from src.io.sec_contact import sec_user_agent
 
-MAIN_CHECKOUT = Path("/Users/bytedance/code/quant_stocks")
+# ``REVERSAL_DATA_MAIN_CHECKOUT`` (testing only) points every cache path at another folder laid out like the main
+# checkout (a scratch copy), so an offline rebuild can be checked without writing the real caches. Unset = unchanged.
+MAIN_CHECKOUT = Path(os.environ.get("REVERSAL_DATA_MAIN_CHECKOUT") or "/Users/bytedance/code/quant_stocks")
 # Data version (plan section 0): v1 is frozen and read only. ``REVERSAL_DATA_VERSION=v2`` points every step at the
 # version-2 copies instead (a copy-on-write clone of the v1 cache and of the v1 inputs, built 2026-10-05), so a v2
 # rebuild never writes a v1 file.
