@@ -4,6 +4,12 @@ Extracted unchanged from scripts/research_sector_lev.py (``equity0``, ``longest_
 ``longest_underwater``: strict ``v < peak``, unlike ``metrics.longest_drawdown``), ``ulcer_index``, ``full_years``,
 ``period_metrics``); also used by research_voltarget and research_leverage_methods. The verdict on (full, H1, H2)
 is ``quant.evaluation.criteria.ab_verdict``.
+
+Added in the slimming pass, each from one study and unchanged (the docstrings state the conventions):
+``window_stats`` / ``drawdown_episode`` (sector_lev crash windows), ``t_monthly_excess`` (voltarget's ``tstat_diff``:
+no spread guard, unlike ``metrics.t_and_ir``) / ``mm_alpha`` (Moreira-Muir OLS alpha, unlike ``stats.ols_alpha``: no
+NaN handling, key ``t_alpha``), ``drawdown_info`` / ``worst_window`` (leverage_methods value paths; the longest
+underwater stretch there is in years).
 """
 from __future__ import annotations
 
@@ -78,3 +84,96 @@ def period_metrics(r: pd.Series, b: pd.Series, q: pd.Series, rf: pd.Series) -> d
             "full_years": len(fy), "share_years_beating_oneq": float((yr.loc[fy] > yb.loc[fy]).mean()) if fy else float("nan"),
             "worst_year": int(yrs.idxmin()), "worst_year_ret": float(yrs.min()),
             "worst_month": str(mr.idxmin()), "worst_month_ret": float(mr.min())}
+
+
+# ---- crash windows and drawdown episodes (from studies/sector_lev.py in the slimming pass)
+
+def window_stats(r: pd.Series, start: str, end: str) -> dict | None:
+    """Total return and max drawdown (``equity0`` curve) of daily returns ``r`` over [start, end]; None below 20
+    sessions."""
+    x = r.loc[start:end]
+    if len(x) < 20:
+        return None
+    return {"start": str(x.index[0].date()), "end": str(x.index[-1].date()), "total": float(np.prod(1 + x) - 1),
+            "max_dd": max_drawdown(equity0(x))}
+
+
+def drawdown_episode(v: pd.Series, start: str, end: str, peak_from: str | None = None) -> dict | None:
+    """Deepest drawdown of the full curve whose trough falls in [start, end]: peak, trough, recovery.
+    ``peak_from``: only peaks on/after this date count (a crash measured from its own local high)."""
+    if peak_from is not None:
+        v = v.loc[peak_from:]
+    dd = v / v.cummax() - 1
+    win = dd.loc[start:end]
+    if len(win) < 20:
+        return None
+    trough = win.idxmin()
+    peak_val = v.loc[:trough].max()
+    peak = v.loc[:trough].idxmax()
+    after = v.loc[trough:]
+    rec = after[after >= peak_val]
+    rec_dt = rec.index[0] if len(rec) else None
+    yrs = lambda a, b: (b - a).days / 365.25
+    return {"peak": str(peak.date()), "trough": str(trough.date()), "depth": float(win.min()),
+            "recovered": str(rec_dt.date()) if rec_dt is not None else "not recovered",
+            "years_underwater_peak_to_recovery": yrs(peak, rec_dt) if rec_dt is not None else
+            f">{yrs(peak, v.index[-1]):.1f}",
+            "years_trough_to_recovery": yrs(trough, rec_dt) if rec_dt is not None else f">{yrs(trough, v.index[-1]):.1f}"}
+
+
+# ---- monthly excess t and the Moreira-Muir alpha (from studies/voltarget.py in the slimming pass)
+
+def t_monthly_excess(a: pd.Series, b: pd.Series) -> float:
+    """t of the mean monthly excess of daily returns ``a`` over ``b``: mean / sd(ddof=1) * sqrt(n) of
+    ``monthly(a) - monthly(b)``, no spread guard (NaN, with a numpy warning, when there is no spread)."""
+    x = monthly(a) - monthly(b)
+    return float(x.mean() / x.std() * math.sqrt(len(x)))
+
+
+def mm_alpha(r: pd.Series, q: pd.Series, rf: pd.Series) -> dict:
+    """Moreira-Muir regression: monthly (rule - rf) on (QQQ - rf); annualised alpha (x 12), its OLS t
+    (``t_alpha``) and beta. No NaN handling or minimum sample, unlike ``quant.evaluation.stats.ols_alpha``."""
+    mrf = monthly(rf.reindex(r.index))
+    y = (monthly(r) - mrf).values
+    x = (monthly(q) - mrf).values
+    X = np.column_stack([np.ones(len(x)), x])
+    coef, *_ = np.linalg.lstsq(X, y, rcond=None)
+    resid = y - X @ coef
+    s2 = resid @ resid / (len(y) - 2)
+    se = np.sqrt(np.diag(s2 * np.linalg.inv(X.T @ X)))
+    return {"alpha_ann": float(coef[0] * 12), "t_alpha": float(coef[0] / se[0]), "beta": float(coef[1])}
+
+
+# ---- value-path drawdown details (from studies/leverage_methods.py in the slimming pass)
+
+def drawdown_info(v: pd.Series) -> dict:
+    """Max drawdown of a value path with its peak / trough / recovery dates, years from peak to recovery (or
+    underwater so far) and the longest underwater stretch in years (strict ``v < peak`` sessions / 252)."""
+    peak = v.cummax()
+    dd = v / peak - 1
+    trough = dd.idxmin()
+    pk = v.loc[:trough].idxmax()
+    after = v.loc[trough:]
+    rec = after[after >= v.loc[pk]]
+    yrs = lambda a, b: (b - a).days / 365.25
+    under = (v < peak).values
+    best = cur = 0
+    for u in under:
+        cur = cur + 1 if u else 0
+        best = max(best, cur)
+    return {"max_dd": float(dd.min()), "dd_peak": str(pk.date()), "dd_trough": str(trough.date()),
+            "dd_recovered": str(rec.index[0].date()) if len(rec) else "not recovered",
+            "years_peak_to_recovery": yrs(pk, rec.index[0]) if len(rec) else float("nan"),
+            "years_underwater_so_far": float("nan") if len(rec) else yrs(pk, v.index[-1]),
+            "longest_underwater_years": best / TRADING_DAYS}
+
+
+def worst_window(v: pd.Series, n: int) -> float:
+    """Worst ``n``-session return of a value path (-1 where the start value is not positive; NaN if too short)."""
+    x = v.values
+    if len(x) <= n:
+        return float("nan")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = x[n:] / x[:-n] - 1
+    r = np.where(x[:-n] > 0, r, -1.0)
+    return float(np.nanmin(r))

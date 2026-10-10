@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from quant.data import osap as osd
+from quant.evaluation.criteria import bh_reject_finite
+from quant.evaluation.stats import mean_t_n
+from quant.strategies import osap
 from scripts import research_livermore as lv
 from scripts import research_osap_backtest as bt
 from scripts import research_osap_screen as sc
@@ -14,10 +18,10 @@ from scripts import research_osap_screen as sc
 
 def test_tstat_matches_formula():
     x = pd.Series([1.0, 2.0, 3.0, 4.0])
-    m, t, n = sc.tstat(x)
+    m, t, n = mean_t_n(x)
     assert m == 2.5 and n == 4
     assert t == pytest.approx(2.5 / x.std(ddof=1) * 2.0)
-    assert math.isnan(sc.tstat(pd.Series([1.0]))[1])
+    assert math.isnan(mean_t_n(pd.Series([1.0]))[1])
 
 
 def test_periods_and_window():
@@ -33,9 +37,9 @@ def test_periods_and_window():
 
 def test_bh_reject():
     p = np.array([0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, np.nan])
-    rej = sc.bh_reject(p, 0.05)
+    rej = bh_reject_finite(p, 0.05)
     assert rej.tolist() == [True, True] + [False] * 7
-    assert not sc.bh_reject([np.nan, np.nan]).any()
+    assert not bh_reject_finite([np.nan, np.nan]).any()
 
 
 def _ports(sig, values_by_port, start="2014-01-31"):
@@ -48,11 +52,11 @@ def _ports(sig, values_by_port, start="2014-01-31"):
 
 def test_legs_long_is_top_port_and_ls_identity():
     p = _ports("X", {"01": [1, 2, 3], "02": [2, 2, 2], "03": [4, 4, 4], "LS": [3, 2, 1]})
-    leg = sc.legs(p)["X"]
+    leg = osd.legs(p)["X"]
     assert leg["long"].tolist() == [4, 4, 4] and leg["short"].tolist() == [1, 2, 3]
-    assert sc.check_ls_identity({"X": leg}) == []
+    assert osd.check_ls_identity({"X": leg}) == []
     p2 = _ports("Y", {"01": [1, 1], "05": [2, 2], "LS": [5, 5]})
-    assert sc.check_ls_identity(sc.legs(p2)) == ["Y"]
+    assert osd.check_ls_identity(osd.legs(p2)) == ["Y"]
 
 
 def test_screen_hurdle_flags():
@@ -81,14 +85,14 @@ def test_load_ports_rejects_data_after_end(tmp_path):
     f = tmp_path / "p.csv"
     pd.DataFrame({"signalname": ["X"], "port": ["01"], "date": ["2025-01-31"], "ret": [1.0]}).to_csv(f, index=False)
     with pytest.raises(AssertionError):
-        sc.load_ports(f)
+        osd.load_ports(f, sc.DATA_END)
 
 
 def test_load_market_parses_monthly_block(tmp_path):
     (tmp_path / "F-F_Research_Data_Factors.csv").write_text(
         "header\n\n,Mkt-RF,SMB,HML,RF\n201501,  -3.00, 0, 0,  0.10\n201502,   6.00, 0, 0, 0.00\n\n"
         " Annual Factors: January-December \n,Mkt-RF,SMB,HML,RF\n2015,  1.0, 0, 0, 0.0\n")
-    m = sc.load_market(tmp_path)
+    m = osd.load_market(tmp_path)
     assert m.tolist() == pytest.approx([-2.9, 6.0])
     assert list(m.index.strftime("%Y-%m-%d")) == ["2015-01-31", "2015-02-28"]
 
@@ -117,7 +121,7 @@ def test_signal_values_and_restatement_from_filing_date():
         (1, "opinc", "OperatingIncomeLoss", 0, "2019-12-31", 11.0, "2020-02-25"),
         (1, "gross", "GrossProfit", 0, "2019-12-31", 55.0, "2021-03-01"),       # restated a year later
     ]
-    st = bt.fundamental_states(_facts(rows))
+    st = osap.fundamental_states(_facts(rows))
     assert st["filed"].tolist() == ["2019-02-20", "2020-02-25", "2021-03-01"]
     first = st.iloc[0]
     assert first["gp"] == pytest.approx(40 / 200) and first["opr"] == pytest.approx(20 / 200)
@@ -128,7 +132,7 @@ def test_signal_values_and_restatement_from_filing_date():
 
     req = pd.DataFrame({"t": pd.to_datetime(["2019-02-20", "2019-02-22", "2020-02-25", "2020-02-28", "2021-03-05"]),
                         "cik": ["1"] * 5, "security_id": ["s"] * 5})
-    m = bt.asof_states(req, st, "2026-08-31").set_index("t")
+    m = osap.asof_states(req, st, "2026-08-31", bt.MAX_AGE_DAYS).set_index("t")
     assert np.isnan(m.loc["2019-02-20", "gp"])                # filed that very day: not usable yet
     assert m.loc["2019-02-22", "gp"] == pytest.approx(0.2)
     assert m.loc["2020-02-25", "gp"] == pytest.approx(0.2)    # new 10-K filed on t: still the old value
@@ -140,30 +144,30 @@ def test_date_guard_drops_facts_filed_after_period_end():
     rows = BASE + [(1, "rev", "Revenues", 0, "2019-12-31", 120.0, "2020-02-25"),
                    (1, "gross", "GrossProfit", 0, "2019-12-31", 90.0, "2020-02-25"),
                    (1, "assets", "Assets", 0, "2019-12-31", 300.0, "2020-02-25")]
-    st = bt.fundamental_states(_facts(rows))
+    st = osap.fundamental_states(_facts(rows))
     req = pd.DataFrame({"t": pd.to_datetime(["2020-03-31"]), "cik": ["1"], "security_id": ["s"]})
-    m = bt.asof_states(req, st, "2019-12-31")
+    m = osap.asof_states(req, st, "2019-12-31", bt.MAX_AGE_DAYS)
     assert m["gp"].iloc[0] == pytest.approx(0.2)              # the 2020 filing is invisible in a 2019 window
     assert m["filed"].iloc[0] == "2019-02-20"
 
 
 def test_stale_and_bad_values_are_dropped():
-    st = bt.fundamental_states(_facts(BASE))
+    st = osap.fundamental_states(_facts(BASE))
     req = pd.DataFrame({"t": pd.to_datetime(["2020-07-15"]), "cik": ["1"], "security_id": ["s"]})
-    m = bt.asof_states(req, st, "2026-08-31")                 # fiscal year ended > 550 days earlier
+    m = osap.asof_states(req, st, "2026-08-31", bt.MAX_AGE_DAYS)                 # fiscal year ended > 550 days earlier
     assert np.isnan(m["gp"].iloc[0]) and np.isnan(m["opr"].iloc[0])
     bad = [r for r in BASE if r[1] != "cogs"] + [(1, "gross", "GrossProfit", 0, "2018-12-31", 150.0, "2019-02-20"),
                                                  (1, "da", "DepreciationAndAmortization", 1, "2018-12-31", 9e9, "2019-02-20")]
-    v = bt.fundamental_states(_facts(bad)).iloc[0]
+    v = osap.fundamental_states(_facts(bad)).iloc[0]
     assert np.isnan(v["gp"])                                   # gross profit above revenue
     assert v["opr"] == pytest.approx(20 / 200)                 # priority: DepreciationDepletionAndAmortization wins
     huge = [r if r[1] != "da" else (1, "da", r[2], 0, r[4], 5000.0, r[6]) for r in BASE]
-    assert np.isnan(bt.fundamental_states(_facts(huge)).iloc[0]["opr"])   # numerator above revenue
+    assert np.isnan(osap.fundamental_states(_facts(huge)).iloc[0]["opr"])   # numerator above revenue
 
 
 def test_concept_priority_revenue():
     rows = BASE + [(1, "rev", "SalesRevenueNet", 3, "2018-12-31", 999.0, "2019-02-20")]
-    assert bt.fundamental_states(_facts(rows)).iloc[0]["gp"] == pytest.approx(40 / 200)
+    assert osap.fundamental_states(_facts(rows)).iloc[0]["gp"] == pytest.approx(40 / 200)
 
 
 # ================================================================ schedule, engine, freeze
@@ -171,11 +175,11 @@ def test_concept_priority_revenue():
 def test_schedule_maps_first_signal_to_period_start_and_guards_end():
     sessions = pd.bdate_range("2013-12-20", "2014-03-05")
     ts = pd.to_datetime(["2013-11-29", "2013-12-27", "2014-01-31", "2014-02-28"])
-    s = bt.schedule(ts, sessions, pd.Timestamp("2014-01-02"), pd.Timestamp("2014-03-03"))
+    s = osap.schedule(ts, sessions, pd.Timestamp("2014-01-02"), pd.Timestamp("2014-03-03"))
     assert s[pd.Timestamp("2014-01-02")] == pd.Timestamp("2013-12-27")
     assert s[pd.Timestamp("2014-02-03")] == pd.Timestamp("2014-01-31")
     assert s[pd.Timestamp("2014-03-03")] == pd.Timestamp("2014-02-28")
-    s2 = bt.schedule(ts, sessions, pd.Timestamp("2014-01-02"), pd.Timestamp("2014-02-27"))
+    s2 = osap.schedule(ts, sessions, pd.Timestamp("2014-01-02"), pd.Timestamp("2014-02-27"))
     assert max(s2) <= pd.Timestamp("2014-02-27")
 
 
@@ -205,7 +209,7 @@ def test_engine_buys_top10_keeps_buffer_and_sells_outside_top20():
              pd.Timestamp("2014-01-31"): [(x, 1) for x in order3],
              pd.Timestamp("2014-02-28"): [(x, 1) for x in order2]}
     sched = {s[0]: pd.Timestamp("2013-12-31"), s[22]: pd.Timestamp("2014-01-31"), s[42]: pd.Timestamp("2014-02-28")}
-    res = bt.simulate(w, sched, picks)
+    res = osap.simulate(w, sched, picks, bt.ACCOUNT, n_hold=bt.N_HOLD, keep_rank=bt.KEEP_RANK)
     assert res["n_buy"] == 10 + 10 and res["n_sell"] == 10
     tr = res["trades"]
     sold = set(tr.loc[tr["reason"] == "out_of_top20", "sid"])
@@ -219,8 +223,9 @@ def test_engine_buys_top10_keeps_buffer_and_sells_outside_top20():
 def test_engine_rejects_sessions_outside_window():
     w = _win()
     w.spec["effective_end"] = str(w.sessions[10].date())
-    res = bt.simulate(w, {w.sessions[0]: pd.Timestamp("2013-12-31")},
-                      {pd.Timestamp("2013-12-31"): [(f"s{i}", 1) for i in range(12)]})
+    res = osap.simulate(w, {w.sessions[0]: pd.Timestamp("2013-12-31")},
+                        {pd.Timestamp("2013-12-31"): [(f"s{i}", 1) for i in range(12)]}, bt.ACCOUNT, n_hold=bt.N_HOLD,
+                        keep_rank=bt.KEEP_RANK)
     assert res["dates"].max() == w.sessions[10]
 
 
@@ -232,6 +237,6 @@ def test_prereg_hash_detects_edits():
 
 
 def test_pass_rule():
-    assert bt.passes({"cagr": 0.20, "bench_cagr": 0.15, "t_excess_monthly": 2.1})
-    assert not bt.passes({"cagr": 0.20, "bench_cagr": 0.15, "t_excess_monthly": 1.9})
-    assert not bt.passes({"cagr": 0.10, "bench_cagr": 0.15, "t_excess_monthly": 3.0})
+    assert osap.passes({"cagr": 0.20, "bench_cagr": 0.15, "t_excess_monthly": 2.1})
+    assert not osap.passes({"cagr": 0.20, "bench_cagr": 0.15, "t_excess_monthly": 1.9})
+    assert not osap.passes({"cagr": 0.10, "bench_cagr": 0.15, "t_excess_monthly": 3.0})

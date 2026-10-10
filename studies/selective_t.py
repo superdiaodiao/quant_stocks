@@ -35,81 +35,26 @@ import pandas as pd
 
 from quant.backtest import execution
 from quant.data.rates import daily_rf
-from quant.evaluation.criteria import NORM, ab_criteria, bh_reject, bonferroni_t  # noqa: F401  (st.bh_reject)
-from quant.evaluation.metrics import (
-    TRADING_DAYS, cagr_of, core_metrics, max_drawdown, monthly, relative_metrics, t_and_ir, yearly,
-)
-from quant.paths import ROOT
-from quant.strategies.selective_t import (  # noqa: F401  (st.* names read by tests and the observation)
-    BASE_FRAC, BUFFER, CAP_MULT, CONFIGS, Cycle, END, Fam, HALF_SPREAD_BPS, Market, ONEQ_FIRST_RETURN, S2_SLIP,
-    SECONDS_PER_REQUEST, START_EQUITY, STOCKS, Spec, basket_mean, cost, exit_limit, fams_of, fetch, hs_bps, hs_of,
-    load_qqq_like, load_stock, match_returns, ohlc_frame, panel_check, raw_path, ref_specs, rsi_wilder, run_one,
-    signal, simulate, variant_spec,
+from quant.evaluation.criteria import NORM, ab_criteria, bh_reject, bonferroni_t
+from quant.evaluation.events import metrics_vs_refs, trip_stats_by_reason, trips_by_year_family
+from quant.evaluation.metrics import TRADING_DAYS, cagr_of, monthly, t_and_ir, yearly
+from quant.paths import CACHE_ROOT, ROOT
+from quant.reporting import write_json
+from quant.strategies.selective_t import (
+    CONFIGS, END, ONEQ_FIRST_RETURN, STOCKS, basket_mean, fetch, hs_bps, load_qqq_like, load_stock, panel_check,
+    qqq_bounds, raw_path, ref_specs, run_one, simulate, stock_bounds,
 )
 
 OUT = ROOT / "output/research_only/selective_t"
-
+# inputs (local caches): the 18 stocks' Yahoo charts fetched here, the calendar study's QQQ / ONEQ charts, the v2 panel
+RAW = CACHE_ROOT / "selective_t/raw"
+FETCH_LOG = CACHE_ROOT / "selective_t/fetch_log.csv"
+SOURCES = {"QQQ": CACHE_ROOT / "calendar/raw/chart_QQQ.json", "ONEQ": CACHE_ROOT / "calendar/raw/chart_ONEQ.json"}
+PANEL = CACHE_ROOT / "reversal_2012_2026_v2/prices"
 
 STOCK_PERIODS = {"half1": ("2012-01-03", "2018-12-31"), "half2": ("2019-01-02", END), "full": ("2012-01-03", END)}
-
 ASSETS = ("QQQ", "U18")
-
-
-# ======================================================================== periods, metrics
-
-def first_valid(m: Market) -> int:
-    return int(np.argmax(np.isfinite(m.sma_prev) & np.isfinite(m.rsi)))
-
-
-def qqq_bounds(m: Market) -> dict:
-    s = max(first_valid(m), 1)
-    e = int(m.s.sessions.searchsorted(pd.Timestamp(END), side="right")) - 1
-    mid = s + (e - s + 1) // 2
-    return {"full": (s, e), "half1": (s, mid - 1), "half2": (mid, e)}
-
-
-def stock_bounds(m: Market) -> dict:
-    out = {}
-    fv = max(first_valid(m), 1)
-    for k, (a, b_) in STOCK_PERIODS.items():
-        s = max(int(m.s.sessions.searchsorted(pd.Timestamp(a))), fv)
-        e = int(m.s.sessions.searchsorted(pd.Timestamp(b_), side="right")) - 1
-        if e - s > 60:
-            out[k] = (s, e)
-    return out
-
-
-def trip_stats(tr: pd.DataFrame, stock_years: float) -> dict:
-    if tr.empty:
-        return {"trips": 0, "trips_per_year": 0.0, "win_rate_net": float("nan"), "gross_per_trip_bp": float("nan"),
-                "net_per_trip_bp": float("nan"), "gross_per_trip_usd": float("nan"), "net_per_trip_usd": float("nan"),
-                "cost_per_trip_bp": float("nan"), "share_target": float("nan"), "share_timeout": float("nan"),
-                "share_end": float("nan"), "mean_days": float("nan"), "same_day_share": float("nan")}
-    net = tr["gross"] - tr["cost"]
-    rn = tr["reason"].value_counts(normalize=True)
-    return {"trips": int(len(tr)), "trips_per_year": len(tr) / stock_years,
-            "win_rate_net": float((net > 0).mean()),
-            "gross_per_trip_bp": float((tr["gross"] / tr["notional"]).mean() * 1e4),
-            "net_per_trip_bp": float((net / tr["notional"]).mean() * 1e4),
-            "gross_per_trip_usd": float(tr["gross"].mean()), "net_per_trip_usd": float(net.mean()),
-            "cost_per_trip_bp": float((tr["cost"] / tr["notional"]).mean() * 1e4),
-            "share_target": float(rn.get("target", 0.0)), "share_timeout": float(rn.get("timeout", 0.0)),
-            "share_end": float(rn.get("end", 0.0)), "mean_days": float(tr["days"].mean()),
-            "same_day_share": float(tr["same_day"].astype(bool).mean())}
-
-
-def evaluate(r: pd.Series, refs: dict, oneq: pd.Series, rf: pd.Series) -> dict:
-    m = {"start": str(r.index[0].date()), "end": str(r.index[-1].date()), "sessions": int(len(r)),
-         **core_metrics(r, rf)}
-    for tag, ref in refs.items():
-        ref = ref.reindex(r.index)
-        m[f"{tag}_cagr"] = cagr_of(ref)
-        m[f"excess_vs_{tag}"] = m["cagr"] - cagr_of(ref)
-        m[f"{tag}_max_dd"] = max_drawdown(pd.concat([pd.Series([1.0]), (1 + ref).cumprod()]))
-        t, ir = t_and_ir(monthly(r) - monthly(ref))
-        m[f"t_monthly_excess_vs_{tag}"], m[f"ir_vs_{tag}"] = t, ir
-    m.update(relative_metrics(r, oneq, rf, "oneq"))
-    return m
+VARIANTS = ("net", "gross", "touch_fill", "margin")
 
 
 def judge(per: dict) -> dict:
@@ -123,17 +68,14 @@ def judge(per: dict) -> dict:
 
 # ======================================================================== runs per asset
 
-VARIANTS = ("net", "gross", "touch_fill", "margin")
-
-
 def run(args=None) -> dict:
     if args is not None and getattr(args, "fetch", False):
-        print("FETCH:", fetch())
-    qqq, oneq = load_qqq_like("QQQ"), load_qqq_like("ONEQ")
+        print("FETCH:", fetch(RAW, FETCH_LOG))
+    qqq, oneq = load_qqq_like("QQQ", SOURCES["QQQ"]), load_qqq_like("ONEQ", SOURCES["ONEQ"])
     stocks = {}
     for sym in STOCKS:
-        if raw_path(sym).exists():
-            stocks[sym] = load_stock(sym)
+        if raw_path(sym, RAW).exists():
+            stocks[sym] = load_stock(sym, RAW)
     missing = [x for x in STOCKS if x not in stocks]
     if missing:
         raise SystemExit(f"missing raw data for {missing}; run with --fetch")
@@ -141,7 +83,7 @@ def run(args=None) -> dict:
     checks = {"QQQ": qqq.s.checks, "ONEQ": oneq.s.checks}
     pc_rows = []
     for sym, m in stocks.items():
-        pc = panel_check(m)
+        pc = panel_check(m, PANEL)
         checks[sym] = {**m.s.checks, **pc}
         pc_rows.append({"symbol": sym, **{k: v for k, v in m.s.checks.items() if k != "splits"},
                         "splits": json.dumps(m.s.checks["splits"]), **{k: (json.dumps(v) if isinstance(v, list) else v)
@@ -175,7 +117,7 @@ def run(args=None) -> dict:
         h1 = simulate(qqq, s, e, ref_specs("net")["h100"], rf)["ret"]
         oq = oneq_for(hb.index)
         for nm, rr in (("H_base", hb), ("H100", h1)):
-            mm = evaluate(rr, {"hbase": hb, "h100": h1}, oq, rf)
+            mm = metrics_vs_refs(rr, {"hbase": hb, "h100": h1}, oq, rf)
             res["assets"]["QQQ"]["references"].setdefault(pk, {})[nm] = mm
             rows.append({"asset": "QQQ", "config": nm, "variant": "net", "period": pk, **mm})
         if pk == "full":
@@ -188,8 +130,8 @@ def run(args=None) -> dict:
             for vn in VARIANTS:
                 o = run_one(qqq, s, e, cfg, "QQQ", vn, rf, ref_cache)
                 refs = {"hbase": o["hbase"], "hmatch": o["hmatch"], "h100": o["h100"]}
-                mm = evaluate(o["ret"], refs, oneq_for(o["ret"].index), rf)
-                mm.update(trip_stats(o["sim"]["trips"], years))
+                mm = metrics_vs_refs(o["ret"], refs, oneq_for(o["ret"].index), rf)
+                mm.update(trip_stats_by_reason(o["sim"]["trips"], years))
                 mm.update({"exposure": o["sim"]["exposure"], "cost_drag_per_year": o["sim"]["cost_frac"] / years,
                            "shortfall_days": o["sim"]["shortfall_days"],
                            "day_trades_per_year": o["sim"]["day_trades"] / years,
@@ -199,14 +141,14 @@ def run(args=None) -> dict:
                 if pk == "full" and vn == "net":
                     by_year[f"QQQ_{cfg}"] = yearly(o["ret"])
                     mon[f"QQQ_{cfg}_minus_hbase"] = monthly(o["ret"]) - monthly(o["hbase"])
-                    trips_year.append(trips_by_year(o["sim"]["trips"], "QQQ", cfg))
+                    trips_year.append(trips_by_year_family(o["sim"]["trips"], "QQQ", cfg))
             info["periods"][pk] = pr
         info["judgement"] = judge({pk: info["periods"][pk]["net"] for pk in qb})
         res["assets"]["QQQ"]["configs"][cfg] = info
         report_line("QQQ", cfg, info)
 
     # ---------------- U18 basket (each stock its own $10k account; basket = equal-weight mean of daily returns)
-    sb = {sym: stock_bounds(m) for sym, m in stocks.items()}
+    sb = {sym: stock_bounds(m, STOCK_PERIODS) for sym, m in stocks.items()}
     res["assets"]["U18"] = {"periods": {k: list(v) for k, v in STOCK_PERIODS.items()}, "configs": {}, "references": {}}
     for pk in STOCK_PERIODS:
         hb = basket_mean([simulate(m, *sb[x][pk], ref_specs("net")["hbase"], rf)["ret"] for x, m in stocks.items()
@@ -215,7 +157,7 @@ def run(args=None) -> dict:
                           if pk in sb[x]])
         oq = oneq_for(hb.index)
         for nm, rr in (("H_base", hb), ("H100", h1)):
-            mm = evaluate(rr, {"hbase": hb, "h100": h1}, oq, rf)
+            mm = metrics_vs_refs(rr, {"hbase": hb, "h100": h1}, oq, rf)
             res["assets"]["U18"]["references"].setdefault(pk, {})[nm] = mm
             rows.append({"asset": "U18", "config": nm, "variant": "net", "period": pk, **mm})
         if pk == "full":
@@ -229,10 +171,10 @@ def run(args=None) -> dict:
                         if pk in sb[x]}
                 r = basket_mean([o["ret"] for o in outs.values()])
                 refs = {k: basket_mean([o[k] for o in outs.values()]) for k in ("hbase", "hmatch", "h100")}
-                mm = evaluate(r, refs, oneq_for(r.index), rf)
+                mm = metrics_vs_refs(r, refs, oneq_for(r.index), rf)
                 stock_years = sum(len(o["ret"]) for o in outs.values()) / TRADING_DAYS
                 trips = pd.concat([o["sim"]["trips"].assign(symbol=x) for x, o in outs.items()], ignore_index=True)
-                mm.update(trip_stats(trips, stock_years))
+                mm.update(trip_stats_by_reason(trips, stock_years))
                 mm.update({"trips_per_year_basket_total": len(trips) / (len(r) / TRADING_DAYS),
                            "exposure": float(np.mean([o["sim"]["exposure"] for o in outs.values()])),
                            "cost_drag_per_year": float(np.mean([o["sim"]["cost_frac"] / (len(o["ret"]) / TRADING_DAYS)
@@ -247,7 +189,7 @@ def run(args=None) -> dict:
                 if vn == "net":
                     for x, o in outs.items():
                         yrs = len(o["ret"]) / TRADING_DAYS
-                        ts_ = trip_stats(o["sim"]["trips"], yrs)
+                        ts_ = trip_stats_by_reason(o["sim"]["trips"], yrs)
                         per_stock.append({"config": cfg, "period": pk, "symbol": x,
                                           "cagr": cagr_of(o["ret"]), "hbase_cagr": cagr_of(o["hbase"]),
                                           "excess_vs_hbase": cagr_of(o["ret"]) - cagr_of(o["hbase"]),
@@ -258,7 +200,7 @@ def run(args=None) -> dict:
                     if pk == "full":
                         by_year[f"U18_{cfg}"] = yearly(r)
                         mon[f"U18_{cfg}_minus_hbase"] = monthly(r) - monthly(refs["hbase"])
-                        trips_year.append(trips_by_year(trips, "U18", cfg))
+                        trips_year.append(trips_by_year_family(trips, "U18", cfg))
             info["periods"][pk] = pr
         info["judgement"] = judge({pk: info["periods"][pk]["net"] for pk in STOCK_PERIODS})
         res["assets"]["U18"]["configs"][cfg] = info
@@ -275,7 +217,7 @@ def run(args=None) -> dict:
     res["multiple_testing"] = {n: {"t_vs_hbase": t, "p_one_sided": float(pp), "bh_reject_q05": bool(rj),
                                    "above_bonferroni": bool(t >= res["bonferroni_t_one_sided_5pct"])}
                                for n, t, pp, rj in zip(names, tvals, p, rej)}
-    (OUT / "results.json").write_text(json.dumps(res, indent=2, default=str))
+    write_json(OUT / "results.json", res)
     pd.DataFrame(rows).to_csv(OUT / "summary.csv", index=False, float_format="%.6f")
     pd.DataFrame(by_year).to_csv(OUT / "by_year.csv", float_format="%.6f")
     pd.concat([x for x in trips_year if x is not None]).to_csv(OUT / "trips_by_year.csv", index=False,
@@ -285,23 +227,6 @@ def run(args=None) -> dict:
     mk.index = mk.index.astype(str)
     mk.to_csv(OUT / "monthly_excess_vs_hbase.csv", float_format="%.6f")
     return res
-
-
-def trips_by_year(tr: pd.DataFrame, asset: str, cfg: str) -> pd.DataFrame | None:
-    if tr.empty:
-        return None
-    tr = tr.copy()
-    tr["net"] = tr["gross"] - tr["cost"]
-    tr["net_bp"] = tr["net"] / tr["notional"] * 1e4
-    tr["gross_bp"] = tr["gross"] / tr["notional"] * 1e4
-    g = tr.groupby([tr["exit"].dt.year, "family"])
-    out = pd.DataFrame({"trips": g.size(), "win_rate_net": g["net"].apply(lambda x: (x > 0).mean()),
-                        "gross_bp_mean": g["gross_bp"].mean(), "net_bp_mean": g["net_bp"].mean(),
-                        "share_target": g["reason"].apply(lambda x: (x == "target").mean())}).reset_index()
-    out = out.rename(columns={"exit": "year"})
-    out.insert(0, "config", cfg)
-    out.insert(0, "asset", asset)
-    return out
 
 
 def report_line(asset: str, cfg: str, info: dict) -> None:
@@ -318,7 +243,7 @@ def main(argv=None):
     ap.add_argument("--fetch-only", action="store_true")
     a = ap.parse_args(argv)
     if a.fetch_only:
-        print(fetch())
+        print(fetch(RAW, FETCH_LOG))
         return
     run(a)
 

@@ -5,6 +5,13 @@ Extracted unchanged from scripts/research_fundamentals.py (the data assembly ``e
 ``asof_states``, the factors ``accounting_factors`` / ``market_factors`` / ``composites`` and the universe helpers
 ``load_all`` / ``sic_map`` / ``universes`` / ``reject_small_mcaps``). Also used by research_ml_cross_section and the
 S-MISP forward signal (quant.observation.smisp).
+
+The slimming pass (docs/architecture.md section 12) moved the rest of studies/fundamentals.py's engine here
+unchanged: the candidate rows and the panel assembly (``candidate_rows``, ``prepare``), the top-N targets, the
+walk-forward selector (``monthly_returns``, ``trailing_sharpe``, ``walk_forward``), the information coefficient
+(``ic_series``, ``ic_rows``) and ``family_of``. Nothing here holds study state: the derived-data cache folder
+(``cache``), the performance start, the factor signs (``sign``; the default ``SIGN`` is +1 for every factor, the
+fundamentals study passes its own signs) and the walk-forward parameters are arguments.
 """
 from __future__ import annotations
 
@@ -13,17 +20,19 @@ import json
 import math
 from datetime import date
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from quant.data import eps as pit_eps
+from quant.data import market_cap as mcap
 from quant.data import panel as stock_panel
 from quant.data import version as dv
-from quant.paths import CACHE_ROOT
+from quant.data.benchmarks import oneq_on_sessions
+from quant.data.calendar import last_session_of_each_month
 from quant.strategies import canslim as cs
 
-FCACHE = dv.versioned(CACHE_ROOT / "fundamentals")
 SECFACTS = dv.CACHE / "prefilter/security_facts.csv.gz"
 SUBMISSIONS = dv.CACHE / "raw/sec/submissions"
 PRICE_START, PERF_START, END = "2011-06-01", "2014-01-01", "2026-08-31"
@@ -143,11 +152,11 @@ ANNUAL_COLS = ["cik", "group", "prio", "kind", "end", "filed", "val"]
 EPS_COLS = ["cik", "concept", "priority", "start", "end", "val", "filed", "form", "accn"]
 
 
-def extract_all(ciks, refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+def extract_all(ciks, cache: Path, refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Annual facts and point-in-time quarterly EPS states for every CIK (all local companyfacts copies merged,
-    duplicates dropped). Cached under research_cache/fundamentals/."""
-    FCACHE.mkdir(parents=True, exist_ok=True)
-    fa, fe, fd = FCACHE / "annual_facts.csv.gz", FCACHE / "eps_states.csv.gz", FCACHE / "annual_facts.ciks.json"
+    duplicates dropped). Cached in ``cache`` (the study's derived-data folder)."""
+    cache.mkdir(parents=True, exist_ok=True)
+    fa, fe, fd = cache / "annual_facts.csv.gz", cache / "eps_states.csv.gz", cache / "annual_facts.ciks.json"
     want = sorted(c for c in set(int(c) for c in ciks) if pit_eps._cf_path(c) is not None)
     if not refresh and fa.exists() and fe.exists() and fd.exists() and set(want) <= set(json.loads(fd.read_text())):
         return (pd.read_csv(fa, dtype={"end": str, "filed": str}),
@@ -174,7 +183,7 @@ def extract_all(ciks, refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame
     a.to_csv(fa, index=False, compression="gzip")
     s.to_csv(fe, index=False, compression="gzip")
     fd.write_text(json.dumps(want))
-    (FCACHE / "factor_states.csv.gz").unlink(missing_ok=True)     # derived from the annual facts: rebuild
+    (cache / "factor_states.csv.gz").unlink(missing_ok=True)     # derived from the annual facts: rebuild
     return a, s
 
 
@@ -417,10 +426,10 @@ def company_states(facts: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def build_states(annual: pd.DataFrame, refresh: bool = False) -> pd.DataFrame:
-    cache = FCACHE / "factor_states.csv.gz"
-    if cache.exists() and not refresh:
-        return pd.read_csv(cache, dtype={"filed": str, "fy0_end": str})
+def build_states(annual: pd.DataFrame, cache: Path, refresh: bool = False) -> pd.DataFrame:
+    path = cache / "factor_states.csv.gz"
+    if path.exists() and not refresh:
+        return pd.read_csv(path, dtype={"filed": str, "fy0_end": str})
     parts = []
     for k, (cik, g) in enumerate(annual.groupby("cik")):
         st = company_states(g)
@@ -429,7 +438,7 @@ def build_states(annual: pd.DataFrame, refresh: bool = False) -> pd.DataFrame:
         if k % 500 == 0:
             print(f"  states: {k} CIKs", flush=True)
     out = pd.concat(parts, ignore_index=True)
-    out.to_csv(cache, index=False, compression="gzip")
+    out.to_csv(path, index=False, compression="gzip")
     return out
 
 
@@ -489,11 +498,11 @@ def market_factors(m: pd.DataFrame) -> pd.DataFrame:
     return m
 
 
-def zscores(panel: pd.DataFrame, cols) -> pd.DataFrame:
+def zscores(panel: pd.DataFrame, cols, sign: dict = SIGN) -> pd.DataFrame:
     """Per signal date: signed value -> cross-sectional percentile rank -> standardised (mean 0, sd 1)."""
     out = pd.DataFrame(index=panel.index)
     for f in cols:
-        v = panel[f] * SIGN[f]
+        v = panel[f] * sign[f]
         r = v.groupby(panel["s"]).rank(pct=True)
         mu = r.groupby(panel["s"]).transform("mean")
         sd = r.groupby(panel["s"]).transform("std")
@@ -501,8 +510,8 @@ def zscores(panel: pd.DataFrame, cols) -> pd.DataFrame:
     return out
 
 
-def composites(panel: pd.DataFrame) -> pd.DataFrame:
-    z = zscores(panel, FACTORS)
+def composites(panel: pd.DataFrame, sign: dict = SIGN) -> pd.DataFrame:
+    z = zscores(panel, FACTORS, sign)
     out = pd.DataFrame(index=panel.index)
     for fam in COMPOSITE_FAMILIES:
         cols = list(FAMILIES[fam])
@@ -515,11 +524,11 @@ def composites(panel: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def load_all() -> stock_panel.WinData:
+def load_all(perf_start: str) -> stock_panel.WinData:
     """``quant.data.panel.load_window`` with every panel security kept (not only the top-300 names)."""
     name = "fundamentals"
-    window = {"perf_start": PERF_START, "perf_end": END, "price_start": PRICE_START,
-              "universe_start": "2012-01-01", "judged_from": PERF_START}
+    window = {"perf_start": perf_start, "perf_end": END, "price_start": PRICE_START,
+              "universe_start": "2012-01-01", "judged_from": perf_start}
     # keep every panel id: give load_window a universe frame listing all of them by wrapping read_csv once
     real_read = pd.read_csv
 
@@ -591,11 +600,196 @@ def universes(c: pd.DataFrame) -> dict:
     return {k: v.reset_index(drop=True) for k, v in out.items()}
 
 
-def _json(x):
-    if isinstance(x, (np.floating, float)):
-        return None if not np.isfinite(x) else round(float(x), 6)
-    if isinstance(x, (np.integer,)):
-        return int(x)
-    if isinstance(x, (np.bool_,)):
-        return bool(x)
-    return str(x)
+# ======================================================================== candidates and the factor panels
+# (moved unchanged from studies/fundamentals.py)
+
+def candidate_rows(data: stock_panel.WinData, signals: list, listed: Path) -> pd.DataFrame:
+    """Every eligible panel security at each signal (latest week <= s): U300 rows from the top-300 file, plus
+    eligible listed names from ``listed`` (weekly_listed). Columns s, security_id, ticker, cik, dv50_rank, in300,
+    sic."""
+    uni = data.universe
+    wl = pd.read_csv(listed, dtype=str, usecols=["week_end", "security_id", "ticker", "eligible", "dv50_rank"])
+    wl = cs.truncate(wl, "week_end", "2012-01-01", END)
+    wl = wl[(wl["eligible"] == "True") & wl["security_id"].isin(data.close.columns)].copy()
+    wl["week_end"] = pd.to_datetime(wl["week_end"])
+    wl["dv50_rank"] = pd.to_numeric(wl["dv50_rank"], errors="coerce")
+    facts = pd.read_csv(SECFACTS, dtype=str, usecols=["security_id", "cik"]).set_index("security_id")["cik"]
+    u3 = uni[uni["dv50_rank"].notna() & uni["security_id"].isin(data.close.columns)].copy()
+    weeks3 = np.array(sorted(u3["week_end"].unique()), dtype="datetime64[ns]")
+    weeksl = np.array(sorted(wl["week_end"].unique()), dtype="datetime64[ns]")
+    by3 = {w: g for w, g in u3.groupby("week_end")}
+    byl = {w: g for w, g in wl.groupby("week_end")}
+    rows = []
+    for s in signals:
+        k3 = weeks3.searchsorted(np.datetime64(s), side="right") - 1
+        kl = weeksl.searchsorted(np.datetime64(s), side="right") - 1
+        a = by3[pd.Timestamp(weeks3[k3])][["security_id", "ticker", "cik", "dv50_rank", "sic", "multi_class_group"]] \
+            .assign(in300=True) if k3 >= 0 else pd.DataFrame()
+        b = byl[pd.Timestamp(weeksl[kl])][["security_id", "ticker", "dv50_rank"]].assign(in300=False) \
+            if kl >= 0 else pd.DataFrame()
+        b = b[~b["security_id"].isin(a["security_id"])] if len(a) else b
+        g = pd.concat([a, b], ignore_index=True)
+        g["s"] = s
+        g["universe_week"] = pd.Timestamp(weeks3[k3]) if k3 >= 0 else pd.NaT
+        rows.append(g)
+    c = pd.concat(rows, ignore_index=True)
+    c["cik"] = c["cik"].fillna(c["security_id"].map(facts)).fillna(c["security_id"].str.split(".").str[0])
+    c["cik"] = pd.to_numeric(c["cik"], errors="coerce").astype("Int64")
+    px = mcap.value_at(data.close, c["security_id"], c["s"])
+    lr = pd.to_datetime(c["security_id"].map(data.last_row))
+    c["close_s"] = px
+    c = c[np.isfinite(px) & (lr.isna() | (lr >= c["s"])).to_numpy()].copy()
+    cs.assert_window(c["universe_week"].dropna(), "2012-01-01", END, "universe weeks used")
+    c["sic"] = pd.to_numeric(c["sic"], errors="coerce")
+    miss = c["sic"].isna() & c["cik"].notna()
+    smap = sic_map(c.loc[miss, "cik"].dropna().astype(int).unique())
+    c.loc[miss, "sic"] = c.loc[miss, "cik"].map(lambda x: smap.get(int(x), np.nan) if pd.notna(x) else np.nan)
+    return c.reset_index(drop=True)
+
+
+def prepare(first_signal: str, listed: Path, cache: Path, sign: dict, perf_start: str = PERF_START):
+    """The fundamentals study's data: panel window (every security), month-end signals from ``first_signal``,
+    candidates with point-in-time market caps (data rule 1.1a: shares x price, no public-float replacement,
+    share-unit errors rejected), annual factor states and the U300 / UW factor panels with composites (``sign``),
+    ONEQ. Derived caches in ``cache``. Returns (data, sigs, cand, panels, oneq_lvl, oneq_px)."""
+    data = load_all(perf_start)
+    print("DATE GUARD:", data.guard["assertion"])
+    end = data.spec["effective_end"]
+    sigs = [s for s in last_session_of_each_month(data.sessions) if s >= pd.Timestamp(first_signal)]
+    cand = candidate_rows(data, sigs, listed)
+    ciks = sorted(cand["cik"].dropna().astype(int).unique())
+    alias = mcap.successor_ciks(data.universe)
+    sh = mcap.extract_share_facts(sorted(set(ciks) | set(alias)), cache=cache / "sec_share_facts.csv.gz")
+    sh = mcap.add_predecessor_facts(sh, alias)
+    lists = mcap.load_company_lists()
+    dv50 = (data.close_adj * data.vol_adj).rolling(50, min_periods=20).median()
+    # data rule 1.1a: shares x price is not replaced by the public float here
+    capped = mcap.market_caps(cand[["s", "security_id", "ticker", "cik", "dv50_rank", "universe_week"]]
+                              .assign(dv50_rank=cand["dv50_rank"].where(cand["in300"])), sh, lists, data.close,
+                              data.sig_idx, dv50, shares_vs_float=np.inf)
+    cand["mcap"] = capped["mcap"].to_numpy()
+    cand["mcap_src"] = capped["mcap_src"].to_numpy()
+    bad = cand["mcap_src"].astype(str).str.startswith("dollar_volume")
+    cand.loc[bad, "mcap"] = np.nan
+    cand["dv50"] = mcap.value_at(dv50, cand["security_id"], cand["s"])
+    cand = reject_small_mcaps(cand)
+    annual, eps = extract_all(ciks, cache)
+    annual = annual[annual["filed"].astype(str) <= end]
+    eps = eps[eps["avail"].astype(str) <= end]
+    states = build_states(annual, cache)
+    states = states[states["filed"].astype(str) <= end]
+    cs.assert_window(states["filed"], None, end, "fundamental filings used")
+    unis = universes(cand)
+    panels = {}
+    for u, rows in unis.items():
+        m = asof_states(rows, states, eps)
+        m = market_factors(m)
+        m = m.sort_values(["s", "security_id"]).reset_index(drop=True)
+        comp = composites(m, sign)
+        panels[u] = pd.concat([m, comp], axis=1)
+    oneq_lvl, oneq_px = oneq_on_sessions(data.sessions, PRICE_START, end)
+    return data, sigs, cand, panels, oneq_lvl, oneq_px
+
+
+def family_of(rule: str) -> str:
+    if rule.startswith("C_"):
+        return "composite"
+    return next(k for k, v in FAMILIES.items() if rule in v)
+
+
+# ======================================================================== targets, walk-forward, IC
+
+def top_targets(panel: pd.DataFrame, col: str, n: int, sign: dict) -> dict:
+    """signal -> [(sid, 1/n, dv50_rank, mcap, src)] for the n names with the best signed value (ties: security id).
+    Signals with fewer than n rankable names are skipped (no rebalance)."""
+    sgn = sign.get(col, 1)
+    out = {}
+    v = panel[["s", "security_id", "dv50_rank", "mcap", col]].dropna(subset=[col])
+    v = v.assign(key=v[col] * sgn)
+    for s, g in v.groupby("s"):
+        if len(g) < n:
+            continue
+        g = g.sort_values(["key", "security_id"], ascending=[False, True]).head(n)
+        out[s] = [(r.security_id, 1.0 / n, float(r.dv50_rank) if pd.notna(r.dv50_rank) else np.nan,
+                   float(r.mcap) if pd.notna(r.mcap) else np.nan, "") for r in g.itertuples()]
+    return out
+
+
+def monthly_returns(nav: pd.Series, base: float) -> pd.Series:
+    """Month-end-to-month-end returns of a daily NAV (month label = calendar month); the first month is measured
+    from the starting capital ``base``."""
+    me = nav.groupby(nav.index.to_period("M")).last()
+    prev = me.shift(1)
+    prev.iloc[0] = base
+    return me / prev - 1
+
+
+def trailing_sharpe(nav: pd.Series, asof: pd.Timestamp, months: int, base: float) -> float:
+    """Sharpe (mean / sd x sqrt 12) of the ``months`` monthly returns ending with the month of ``asof``, using
+    only NAV values dated on or before ``asof``; NaN without a full window."""
+    v = nav[nav.index <= asof]
+    if len(v) == 0:
+        return np.nan
+    r = monthly_returns(v, base)
+    last = pd.Timestamp(asof).to_period("M")
+    r = r[r.index <= last].tail(months)
+    if len(r) < months or r.index[-1] != last or r.std(ddof=1) == 0:
+        return np.nan
+    return float(r.mean() / r.std(ddof=1) * math.sqrt(12))
+
+
+def walk_forward(navs: dict, targets: dict, signals: list, first_year: int, months: int,
+                 base: float) -> tuple[dict, list]:
+    """Each January Y: at the last signal of December Y-1 pick the candidate with the best trailing Sharpe
+    (ties: name) and use its targets for that signal and the next 11. Returns (targets, picks)."""
+    sigs = sorted(signals)
+    out, picks = {}, []
+    dec = [s for s in sigs if s.month == 12 and s.year >= first_year - 1]
+    for s0 in dec:
+        sh = {k: trailing_sharpe(nav, s0, months, base) for k, nav in navs.items()}
+        sh = {k: v for k, v in sh.items() if np.isfinite(v)}
+        if not sh:
+            continue
+        best = sorted(sh.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        year_sigs = [s for s in sigs if s >= s0][:12]
+        for s in year_sigs:
+            if s in targets[best[0]]:
+                out[s] = targets[best[0]][s]
+        top3 = sorted(sh.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+        picks.append({"year": s0.year + 1, "selected_at": str(s0.date()), "pick": best[0], "trailing_sharpe": best[1],
+                      "runner_up": top3[1][0] if len(top3) > 1 else None,
+                      "third": top3[2][0] if len(top3) > 2 else None, "n_candidates": len(sh)})
+    return out, picks
+
+
+def ic_series(panel: pd.DataFrame, col: str, fwd: pd.Series, sign: dict) -> pd.Series:
+    """Monthly Spearman rank correlation of the signed value with the next-month total return."""
+    v = panel[["s", col]].assign(r=fwd.to_numpy()).dropna()
+    out = {}
+    for s, g in v.groupby("s"):
+        if len(g) < 20:
+            continue
+        a = (g[col] * sign.get(col, 1)).rank()
+        b = g["r"].rank()
+        out[s] = float(np.corrcoef(a, b)[0, 1])
+    return pd.Series(out, dtype=float)
+
+
+def ic_rows(panels: dict, sigs: list, sig_idx: pd.DataFrame, rules, periods: dict, sign: dict) -> list:
+    """Per universe, rule and period: months, mean IC, its t and the share of positive months (diagnostic)."""
+    out = []
+    for u, p in panels.items():
+        nxt = {s: n for s, n in zip(sigs[:-1], sigs[1:])}
+        s_next = p["s"].map(nxt)
+        i0 = mcap.value_at(sig_idx, p["security_id"], p["s"])
+        i1 = mcap.value_at(sig_idx, p["security_id"], s_next.fillna(p["s"]))
+        fwd = pd.Series(np.where(s_next.notna(), i1 / i0 - 1, np.nan), index=p.index)
+        for rule in rules:
+            ic = ic_series(p, rule, fwd, sign)
+            for pname, (a, b) in periods.items():
+                x = ic[(ic.index >= pd.Timestamp(a) - pd.Timedelta(days=5)) & (ic.index <= pd.Timestamp(b))]
+                out.append({"universe": u, "rule": rule, "family": family_of(rule), "period": pname,
+                            "months": len(x), "mean_ic": float(x.mean()) if len(x) else np.nan,
+                            "t": float(x.mean() / x.std(ddof=1) * math.sqrt(len(x))) if len(x) > 2 else np.nan,
+                            "share_positive": float((x > 0).mean()) if len(x) else np.nan})
+    return out

@@ -5,7 +5,9 @@ one loop over sessions; exact re-runs of selected configurations with per-accoun
 
 Extracted unchanged from scripts/research_t_grid.py (``grid`` / ``label``, ``CostModel``, ``make_inst``,
 ``simulate_grid``, ``exact_run``, ``hmatch_series``, ``hbase_of``, ``oneq_for``, ``load_all``, ``base_rows`` and
-helpers). Account / execution / cost rules are those of quant.strategies.selective_t.
+helpers). Account / execution / cost rules are those of quant.strategies.selective_t. The input locations (the
+QQQ / ONEQ charts, the 18 stocks' raw charts, the v2 panel and the megacap v2 study's top-20 list) are arguments of
+``load_all``, declared by studies/t_grid.py.
 """
 from __future__ import annotations
 
@@ -17,26 +19,21 @@ import pandas as pd
 
 from quant.backtest.costs import (
     CLEARING_FEE_PER_SHARE, EXCHANGE_FEE_PER_SHARE, FINRA_TAF_MAX, FINRA_TAF_PER_SHARE_SOLD,
-    PASS_THROUGH_OF_COMMISSION, SEC_FEE_PER_DOLLAR_SOLD,
+    MAXIMUM_COMMISSION_FRACTION, PASS_THROUGH_OF_COMMISSION, SEC_FEE_PER_DOLLAR_SOLD, TIERED_MINIMUM_PER_ORDER_USD,
+    tiered_rate_per_share,
 )
 from quant.backtest.execution import buy_hold_returns
 from quant.data.rates import daily_rf
+from quant.evaluation.events import basket_metrics_vs as metrics_vs, grid_trip_summary as trip_summary
 from quant.evaluation.metrics import TRADING_DAYS
-from quant.paths import ROOT
 from quant.strategies import selective_t as st
-from src.research.ibkr_cost_calibration import (
-    MAXIMUM_COMMISSION_FRACTION, TIERED_MINIMUM_PER_ORDER_USD, tiered_rate_per_share,
-)
 
 
 
-MAIN = st.MAIN
 END = st.END
 T10_END = "2026-08-31"
 T10_START = "2012-07-02"
 U18_START = "2012-01-03"
-PANEL = MAIN / "research_cache/reversal_2012_2026_v2/prices"
-TOP20 = ROOT / "output/research_only/megacap_v2/top20_by_month.csv"
 START_EQUITY = 10_000.0
 BUFFER = 5.0
 CAP_MULT = 1.10
@@ -670,9 +667,11 @@ def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: 
     return out
 
 
-def load_all(smoke: bool = False) -> dict:
-    qqq = st.load_qqq_like("QQQ")
-    oneq = st.load_qqq_like("ONEQ")
+def load_all(sources: dict, raw_dir, panel, top20, smoke: bool = False) -> dict:
+    """QQQ / ONEQ (chart files ``sources``), the U18 stocks (raw charts in ``raw_dir``, checked against the v2 panel
+    folder ``panel``) and T10: the point-in-time top 10 of the megacap v2 list ``top20`` on v2 panel closes."""
+    qqq = st.load_qqq_like("QQQ", sources["QQQ"])
+    oneq = st.load_qqq_like("ONEQ", sources["ONEQ"])
     master = qqq.s.sessions
     rf = daily_rf(master, END)
     oneq_tr = oneq.s.tr.reindex(master)
@@ -687,14 +686,14 @@ def load_all(smoke: bool = False) -> dict:
     stocks = st.STOCKS[:3] if smoke else st.STOCKS
     pc_rows = []
     for sym in stocks:
-        mk = st.load_stock(sym)
-        pc = st.panel_check(mk)
+        mk = st.load_stock(sym, raw_dir)
+        pc = st.panel_check(mk, panel)
         insts[sym] = from_market(mk, st.STOCK_HALF_SPREAD_BPS)
         checks[sym] = {**{k: v for k, v in mk.s.checks.items()}, **pc, **insts[sym].checks}
         pc_rows.append({"symbol": sym, **{k: (json.dumps(v) if isinstance(v, (list, dict)) else v)
                                           for k, v in checks[sym].items() if k != "first_real_close"}})
     # T10: point-in-time top-10 by market cap, v2 panel closes
-    top = pd.read_csv(TOP20)
+    top = pd.read_csv(top20)
     top = top[top["rank"] <= 10].copy()
     top["hold_month"] = pd.PeriodIndex(pd.to_datetime(top["s"]), freq="M") + 1
     sids = sorted(top["security_id"].astype(str).unique())
@@ -705,7 +704,7 @@ def load_all(smoke: bool = False) -> dict:
     t10_master = master[master <= pd.Timestamp(T10_END)]
     t10_insts, t10_checks = {}, []
     for sid in sids:
-        p = pd.read_csv(PANEL / f"{sid}.csv", usecols=["date", "close_raw", "split_factor", "div_cash", "tr"])
+        p = pd.read_csv(panel / f"{sid}.csv", usecols=["date", "close_raw", "split_factor", "div_cash", "tr"])
         p = p[p["close_raw"] > 0].drop_duplicates("date", keep="last")
         p = p[p["date"] <= T10_END].reset_index(drop=True)
         d = pd.DatetimeIndex(p["date"])
@@ -840,3 +839,23 @@ def oneq_for(data: dict, index: pd.DatetimeIndex) -> pd.Series | None:
 
 def hbase_of(ex: dict, reserve_code: int) -> pd.Series:
     return ex[("H100", "H_base_res10", "H_base_res25", "H_base_res50")[reserve_code]]
+
+
+def eval_ids(data: dict, base: str, ids: list, start, end, cm: CostModel, rf: pd.Series) -> dict:
+    """Exact metrics per configuration on [start, end] (fresh accounts)."""
+    ex = exact_run(data, base, ids, start, end, cm)
+    out = {}
+    g = grid()
+    for k, i in enumerate(ex["ids"]):
+        r = ex["R"][i]
+        hm = hmatch_series(ex, k)
+        res_code = int(g.loc[i, "reserve"])
+        refs = {"hmatch": hm, "hbase": hbase_of(ex, res_code), "h100": ex["H100"]}
+        expo = float((ex["sim"]["rec"]["x"][:, :, k] * ex["act"]).sum() / ex["act"].sum())
+        mm = metrics_vs(r, refs, oneq_for(data, r.dropna().index), rf, expo)
+        mm.update(trip_summary(ex, k))
+        mm["config_id"] = int(i)
+        mm["config"] = label(g.loc[i])
+        out[int(i)] = {"m": mm, "r": r, "hm": hm}
+    out["_refs"] = {"H100": ex["H100"], "H_base_res25": ex["H_base_res25"]}
+    return out

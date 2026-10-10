@@ -1,14 +1,15 @@
 """Livermore-style breakout trading of weekly relative-strength leaders (pyramiding, trailing exits), and its engine.
 
 Extracted unchanged from scripts/research_livermore.py: the rules (``parse_pivot``, ``breakout_frame``,
-``trail_frame``, ``market_state``, ``weekly_leaders``, ``Config``), the engine ``simulate``, ``Runner``, the metrics
-``perf_metrics`` / ``sub_metrics`` / ``trade_stats`` and the eligible universe. Also used by research_stops (stop
-overlays) and, for the universe / trade statistics, by indicators, oneil, earnings_events and mean_reversion.
+``trail_frame``, ``market_state``, ``weekly_leaders``, ``Config``), the engine ``simulate``, ``Runner``, the eligible
+universe and the pre-registered freeze rule (``neighbours``, ``plateau_pick``). The metrics ``perf_metrics`` /
+``sub_metrics`` / ``trade_stats`` are quant.evaluation.nav's ``nav_vs_bench_metrics`` / ``nav_vs_bench_sub_metrics``
+/ ``trade_stats`` (re-exported here under the old names). Also used by research_stops (stop overlays) and, for the
+universe / trade statistics, by indicators, oneil, earnings_events and mean_reversion.
 The study windows and the window loader are quant.data.panel (``WINDOWS``, ``load_window``).
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -18,7 +19,9 @@ from quant.backtest import stop_rules
 from quant.backtest.costs import rank_half_spread
 from quant.data import panel
 from quant.data.panel import TERMINAL_D5, WINDOWS, WinData  # noqa: F401  (lv.WINDOWS / lv.WinData)
-from quant.evaluation.metrics import max_drawdown_of_returns
+from quant.evaluation.nav import nav_vs_bench_metrics as perf_metrics
+from quant.evaluation.nav import nav_vs_bench_sub_metrics as sub_metrics  # noqa: F401  (lv.sub_metrics)
+from quant.evaluation.nav import trade_stats
 from quant.strategies import canslim as cs
 
 
@@ -27,9 +30,9 @@ def load_window(name: str, terminal_awaiting: float = TERMINAL_D5) -> WinData:
     return panel.load_window(name, WINDOWS[name], terminal_awaiting)
 
 
-INPUTS = cs.INPUTS
-CACHE = cs.CACHE
 DateGuardError = cs.DateGuardError
+
+
 def parse_pivot(pivot: str) -> tuple[int, float | None]:
     """'high252' -> (252, None); 'base50_t20' -> (50, 0.20)."""
     if pivot.startswith("high"):
@@ -362,66 +365,6 @@ def simulate(cfg: Config, data: WinData, leaders: pd.DataFrame, brk: pd.DataFram
             "trades": pd.DataFrame(trades), "orders": pd.DataFrame(orders), "open": sorted(pos)}
 
 
-def perf_metrics(nav: pd.Series, bench: pd.Series, account: float, cost: pd.Series, traded: float,
-                 exposure: pd.Series) -> dict:
-    # the starting value sits 7 days before the first close so that the first week and month keep their return
-    anchor = nav.index[0] - pd.Timedelta(days=7)
-    nav0 = pd.concat([pd.Series([account], index=[anchor]), nav])
-    bn0 = pd.concat([pd.Series([account], index=[anchor]), bench])
-    r, b = nav0.pct_change().dropna(), bn0.pct_change().dropna()
-    years = (nav.index[-1] - nav.index[0]).days / 365.25
-    cagr = (nav.iloc[-1] / account) ** (1 / years) - 1
-    bcagr = (bench.iloc[-1] / account) ** (1 / years) - 1
-    a = r - b
-    wa = (cs.weekly(nav0).pct_change() - cs.weekly(bn0).pct_change()).dropna()
-    mn, mb = nav0.resample("ME").last().dropna(), bn0.resample("ME").last().dropna()
-    ma = (mn.pct_change() - mb.pct_change()).dropna()
-    sd = a.std(ddof=1)
-    out = {
-        "start": str(nav.index[0].date()), "end": str(nav.index[-1].date()),
-        "cagr": cagr, "qqq_cagr": bcagr, "excess_cagr": cagr - bcagr,
-        "vol": r.std(ddof=1) * math.sqrt(252), "max_dd": max_drawdown_of_returns(r), "qqq_max_dd": max_drawdown_of_returns(b),
-        "sharpe": r.mean() / r.std(ddof=1) * math.sqrt(252) if r.std() > 0 else np.nan,
-        "qqq_sharpe": b.mean() / b.std(ddof=1) * math.sqrt(252),
-        "ir": a.mean() / sd * math.sqrt(252) if sd > 0 else np.nan,
-        "t_excess_weekly": wa.mean() / wa.std(ddof=1) * math.sqrt(len(wa)) if wa.std() > 0 else np.nan,
-        "t_excess_monthly": ma.mean() / ma.std(ddof=1) * math.sqrt(len(ma)) if ma.std() > 0 else np.nan,
-        "ir_weekly_per_period": wa.mean() / wa.std(ddof=1) if wa.std() > 0 else np.nan,
-        "weekly_active_skew": float(wa.skew()), "weekly_active_kurt": float(wa.kurt() + 3), "weeks": len(wa),
-        "months": len(ma), "tracking_error": sd * math.sqrt(252),
-        "turnover_one_way_per_year": traded / 2 / nav.mean() / years,
-        "cost_drag_per_year": float((cost / nav.shift(1).fillna(account)).sum() / years),
-        "cost_usd_total": float(cost.sum()),
-        "time_in_stocks": float((exposure > 0.05).mean()), "avg_exposure": float(exposure.mean()),
-        "active_weekly_mean_ann": wa.mean() * 52,
-    }
-    for n in (5, 10):
-        out[f"active_ann_drop_best{n}w"] = wa.drop(wa.nlargest(n).index).mean() * 52
-    by = {}
-    for y in sorted(set(nav.index.year)):
-        m = nav.index.year == y
-        prev_n = nav[nav.index.year < y].iloc[-1] if (nav.index.year < y).any() else account
-        prev_b = bench[bench.index.year < y].iloc[-1] if (bench.index.year < y).any() else account
-        sy, by_ = nav[m].iloc[-1] / prev_n - 1, bench[m].iloc[-1] / prev_b - 1
-        by[int(y)] = {"strategy": round(float(sy), 4), "qqq": round(float(by_), 4), "excess": round(float(sy - by_), 4)}
-    out["by_year"] = by
-    out["years_beating_qqq"] = sum(v["excess"] > 0 for v in by.values())
-    out["_monthly_active"] = ma
-    return out
-
-
-def trade_stats(trades: pd.DataFrame) -> dict:
-    if trades.empty:
-        return {"closed_trades": 0}
-    w, l_ = trades[trades["ret"] > 0], trades[trades["ret"] <= 0]
-    return {"closed_trades": int(len(trades)), "win_rate": float((trades["ret"] > 0).mean()),
-            "avg_trade_ret": float(trades["ret"].mean()), "avg_win": float(w["ret"].mean()) if len(w) else np.nan,
-            "avg_loss": float(l_["ret"].mean()) if len(l_) else np.nan,
-            "median_days": float(trades["days"].median()) if "days" in trades else np.nan,
-            "share_pyramided": float((trades["tranches"] > 1).mean()), "best_trade": float(trades["ret"].max()),
-            "worst_trade": float(trades["ret"].min())}
-
-
 class Runner:
     """Caches the frames that several configs share; runs one config on one window."""
 
@@ -466,14 +409,37 @@ class Runner:
         return m, res, bench
 
 
-def sub_metrics(nav: pd.Series, bench: pd.Series, start: str, cost: pd.Series, exposure: pd.Series,
-                account: float = 10_000.0) -> dict:
-    """Metrics on a sub-window, both series rebased to ``account`` at the last close before ``start``."""
-    before = nav.index[nav.index < pd.Timestamp(start)]
-    if not len(before):
-        return perf_metrics(nav, bench, account, cost, 0.0, exposure)
-    t0 = before[-1]
-    keep = nav.index > t0
-    n = nav[keep] / nav.loc[t0] * account
-    b = bench[keep] / bench.loc[t0] * account
-    return perf_metrics(n, b, account, cost[keep], 0.0, exposure[keep])
+# ======================================================================== pre-registered freeze rule (dev grid)
+
+def neighbours(cfg: Config, rows: list) -> list:
+    out = []
+    for r in rows:
+        diff = [f for f in RULE_FIELDS if str(r["cfg"].__getattribute__(f)) != str(getattr(cfg, f))]
+        if len(diff) == 1 or (len(diff) == 2 and set(diff) == {"tranches", "add_step"}):
+            out.append(r)
+    return out
+
+
+def plateau_pick(rows: list, min_buys: int = 30) -> tuple[dict, pd.DataFrame]:
+    """Pre-registered freeze rule: highest median net IR over (variant + its one-change neighbours), among variants
+    with >= ``min_buys`` first entries and >= 3 neighbours."""
+    scored = []
+    for r in rows:
+        nb = neighbours(r["cfg"], rows)
+        if r["m"]["n_buy"] < min_buys or len(nb) < 3:
+            continue
+        irs = [r["m"]["ir"]] + [x["m"]["ir"] for x in nb]
+        scored.append({"variant": r["variant"], "config": r["cfg"].name, "plateau_ir": float(np.median(irs)),
+                       "own_ir": r["m"]["ir"], "n_neighbours": len(nb),
+                       "neighbours_beating_qqq": sum(x["m"]["excess_cagr"] > 0 for x in nb)})
+    tab = pd.DataFrame(scored).sort_values(["plateau_ir", "own_ir"], ascending=False)
+    best = next(r for r in rows if r["variant"] == int(tab.iloc[0]["variant"]))
+    return best, tab
+
+
+def pnl_by_name(orders: pd.DataFrame) -> dict:
+    """Dollar P&L per name = sells + terminal values - buys - adds (open positions valued at the end)."""
+    pnl = {}
+    for r in orders.itertuples():
+        pnl[r.sid] = pnl.get(r.sid, 0.0) + (r.value if r.side == "sell" else -r.value)
+    return pnl

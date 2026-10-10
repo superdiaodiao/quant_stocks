@@ -4,7 +4,11 @@ the Nasdaq indices (timing engine) and on the stock panel (K-name engine).
 Extracted unchanged from scripts/research_indicators.py: the rule table ``RULES`` / ``RULE_BY_CODE`` with the
 signal functions ``r_*``, ``state_machine``, the index data ``load_index_data`` and engine ``index_sim`` (the QQQ
 sleeve engine of quant.backtest.exposure with this study's half-spreads), the stock engine ``stock_sim`` /
-``StockRunner`` and the metrics / criteria. Used by studies/indicators.py, grid_check, walk_forward and stops.
+``StockRunner``, the index metrics and the pre-registered freeze rule ``freeze_pick``. Used by studies/indicators.py,
+grid_check, walk_forward and stops. The raw ^IXIC / ^VIX chart folder is an argument (the studies pass
+research_cache/indicators/raw). The stock metrics ``stock_metrics`` / ``stock_sub_metrics`` are
+quant.evaluation.nav's ``nav_vs_oneq_metrics`` / ``nav_vs_oneq_sub_metrics`` and ``criteria`` is
+quant.evaluation.criteria.ab_oneq (re-exported here under the old names).
 """
 from __future__ import annotations
 
@@ -20,21 +24,20 @@ import pandas as pd
 from quant.backtest import exposure, stop_rules
 from quant.backtest.costs import CASH_ETF_FEE, rank_half_spread
 from quant.data import guards
-from quant.data.benchmarks import oneq_on_sessions  # noqa: F401  (ind.oneq_on_sessions)
+from quant.data.benchmarks import ONEQ_CHART, ONEQ_FIRST_RETURN, oneq_on_sessions
 from quant.data.index_history import QQQ_RAW
 from quant.data.rates import fill_rf, load_dtb3, load_kf_rf
 from quant.data.sources.yahoo import parse_chart
-from quant.evaluation.metrics import TRADING_DAYS, cagr_of, exposure_metrics, max_drawdown, max_drawdown_of_returns
-from quant.paths import CACHE_ROOT
+from quant.evaluation.criteria import ab_oneq as criteria  # noqa: F401  (ind.criteria)
+from quant.evaluation.metrics import TRADING_DAYS, cagr_of, exposure_metrics, max_drawdown
+from quant.evaluation.nav import nav_vs_oneq_metrics as stock_metrics
+from quant.evaluation.nav import nav_vs_oneq_sub_metrics as stock_sub_metrics  # noqa: F401  (ind.stock_sub_metrics)
 from quant.signals.indicators import atr, bollinger, donchian, ema, kdj, macd, rsi, sma, true_range  # noqa: F401
 from quant.strategies import canslim as cs
 from quant.strategies import livermore as lv
 
-RAW = CACHE_ROOT / "indicators/raw"
-BENCH_DIR = CACHE_ROOT / "benchmarks"
 INDEX_DEV_START, INDEX_DEV_END = "1999-03-10", "2014-12-31"
 INDEX_TEST_ENTRY, INDEX_TEST_FIRST, INDEX_TEST_END = "2014-12-31", "2015-01-02", "2026-09-30"
-ONEQ_FIRST_RETURN = "2003-10-02"
 HALF_SPREAD = {"QQQ": 1e-4, "COMP": 2e-4}
 K_STOCKS = 5
 TP_O1B = 0.15
@@ -260,11 +263,13 @@ class IndexData:
     guard: dict
 
 
-def load_index_data(end: str = INDEX_DEV_END) -> IndexData:
-    ixic = parse_ohlc(RAW / "chart_%5EIXIC_full.json", end)
+def load_index_data(end: str, raw: Path) -> IndexData:
+    """^IXIC / ^VIX from ``raw``, ^NDX / QQQ from quant.data.index_history.QQQ_RAW, ONEQ, Ken French RF and DTB3, every
+    frame truncated at ``end`` and asserted."""
+    ixic = parse_ohlc(raw / "chart_%5EIXIC_full.json", end)
     ndx = parse_ohlc(QQQ_RAW / "chart_%5ENDX.json", end)
-    vixf = parse_ohlc(RAW / "chart_%5EVIX.json", end)
-    oneq = parse_chart(BENCH_DIR / "chart_ONEQ.json", end)
+    vixf = parse_ohlc(raw / "chart_%5EVIX.json", end)
+    oneq = parse_chart(ONEQ_CHART, end)
     qqq = parse_chart(QQQ_RAW / "chart_QQQ.json", end)
     rf_kf, dtb3 = load_kf_rf(end), load_dtb3(end)
     guard = {"end": end}
@@ -326,10 +331,10 @@ def index_metrics(sim: dict, bench: dict, rf: pd.Series) -> dict:
     return m
 
 
-def criteria(cagr: float, mdd: float, b_cagr: float, b_mdd: float, t: float) -> dict:
-    a = bool(cagr > b_cagr and t >= 2)
-    b = bool(abs(mdd) <= abs(b_mdd) - 0.10 and cagr >= b_cagr - 0.03)
-    return {"A": a, "B": b, "pass": a or b}
+def align_bench(bench: dict, sim: dict) -> dict:
+    """Composite benchmark restricted to the dates of ``sim`` (both start at the same entry close)."""
+    v = bench["value"].reindex(sim["value"].index).ffill()
+    return {"value": v, "ret": v.pct_change().iloc[1:].fillna(0.0)}
 
 
 def index_targets(data: IndexData, inst: str) -> dict:
@@ -476,14 +481,17 @@ def stock_sim(rule: Rule, data, buy: pd.DataFrame, sell: pd.DataFrame, elig: dic
 
 
 class StockRunner:
-    def __init__(self, data):
+    """O10-style stock runs on one panel window: weekly eligibility, signal bars (^VIX close from ``raw``), the ONEQ /
+    QQQ benchmarks and the metrics."""
+
+    def __init__(self, data, raw: Path):
         self.data = data
         u = lv.eligible_universe(data)
         self.elig = {t: list(g.sort_values("dv50_rank")["security_id"]) for t, g in u.groupby("week_end")}
         self.rank_of = {t: dict(zip(g["security_id"], g["dv50_rank"])) for t, g in u.groupby("week_end")}
         self.carried_weeks = int(u.loc[u["carried"], "week_end"].nunique())
         self.bars = stock_bars(data)
-        self.bars["vix"] = parse_ohlc(RAW / "chart_%5EVIX.json", data.spec["effective_end"])["close"]
+        self.bars["vix"] = parse_ohlc(raw / "chart_%5EVIX.json", data.spec["effective_end"])["close"]
         lvl, px = oneq_on_sessions(data.sessions, data.spec["price_start"], data.spec["effective_end"])
         self.oneq_lvl, self.oneq_px = lvl, px
 
@@ -504,28 +512,23 @@ class StockRunner:
         return m, res, oneq, qqq
 
 
-def stock_metrics(nav, oneq, qqq, account, cost, traded, exposure) -> dict:
-    m = lv.perf_metrics(nav, oneq, account, cost, traded, exposure)
-    m["bench_cagr"], m["bench_max_dd"] = m.pop("qqq_cagr"), m.pop("qqq_max_dd")
-    m["bench_sharpe"] = m.pop("qqq_sharpe")
-    years = (nav.index[-1] - nav.index[0]).days / 365.25
-    m["qqq_cagr"] = (qqq.iloc[-1] / account) ** (1 / years) - 1
-    r = pd.concat([pd.Series([account], index=[qqq.index[0] - pd.Timedelta(days=7)]), qqq]).pct_change().dropna()
-    m["qqq_max_dd"] = max_drawdown_of_returns(r)
-    for y, v in m["by_year"].items():
-        v["oneq"] = v.pop("qqq")
-    m["years_beating_bench"] = m.pop("years_beating_qqq")
-    return m
-
-
-def stock_sub_metrics(nav, oneq, qqq, start, cost, exposure, account=10_000.0) -> dict:
-    before = nav.index[nav.index < pd.Timestamp(start)]
-    if not len(before):
-        return stock_metrics(nav, oneq, qqq, account, cost, 0.0, exposure)
-    t0 = before[-1]
-    keep = nav.index > t0
-    f = lambda s: s[keep] / s.loc[t0] * account  # noqa: E731
-    return stock_metrics(f(nav), f(oneq), f(qqq), account, cost[keep], 0.0, exposure[keep])
+def freeze_pick(grid: pd.DataFrame, t_col: str, robust_col: str | None = None) -> tuple[pd.Series, str]:
+    """Pre-registered freeze rule (ledger 0.5): among the rows passing A the highest ``t_col``, else among those
+    passing B the highest excess CAGR, else the highest ``t_col``; with ``robust_col`` first restricted to the rows
+    whose criterion also holds in the ``<robust_col>_A`` / ``_B`` columns."""
+    def choose(g):
+        a = g[g["crit_A"]]
+        if len(a):
+            return a.sort_values(t_col, ascending=False).iloc[0], "A"
+        b = g[g["crit_B"]]
+        if len(b):
+            return b.sort_values("excess_cagr", ascending=False).iloc[0], "B"
+        return g.sort_values(t_col, ascending=False).iloc[0], "none_highest_t"
+    if robust_col is not None:
+        g = grid[(grid["crit_A"] & grid[f"{robust_col}_A"]) | (~grid["crit_A"] & grid["crit_B"] & grid[f"{robust_col}_B"])]
+        if len(g):
+            return choose(g)
+    return choose(grid)
 
 
 # ---------------------------------------------------------------- post-hoc parameter grids (from scripts/research_grid_check.py)

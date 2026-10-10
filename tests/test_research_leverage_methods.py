@@ -1,15 +1,22 @@
-"""Tests for scripts/research_leverage_methods.py: margin interest, forced liquidation, rebalance policies, legs,
-futures, windows, Kelly, the date guard."""
+"""Tests for studies/leverage_methods.py and quant.strategies.leverage_methods: margin interest, forced liquidation,
+rebalance policies, legs, futures, windows, Kelly, the date guard."""
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import scripts.research_leverage_methods as lm
-from scripts.research_qqq_timing import FutureDataError, TRADING_DAYS
+import scripts.research_leverage_methods as study
+from quant.data.calendar import month_end_mask
+from quant.data.effr import load_effr
+from quant.data.guards import FutureDataError, assert_dev_dates
+from quant.evaluation.equity import drawdown_info, worst_window
+from quant.strategies import leverage_methods as lm
+
+P = study.P
 
 K = len(lm.LEGS)
 
@@ -32,31 +39,33 @@ def market(r_qqq, rl_qqq=None, rf=0.0, borrow=0.0, start="2001-01-01") -> lm.Mar
     P = np.full((T, K), 50.0)
     return lm.Market(sessions=idx, R=R, RL=RL, P=P, fin=np.zeros((T, K)), er=np.zeros((T, K)),
                      r_tr=r_qqq.copy(), rl_tr=np.minimum(rl, r_qqq), rf=np.full(T, rf), borrow=np.full(T, borrow),
-                     month_end=lm.month_end_mask(idx))
+                     month_end=month_end_mask(idx))
 
 
 def run(mk, method, L, policy, s=0, e=None, **kw):
     e = len(mk.sessions) - 1 if e is None else e
-    res = lm.simulate_batch(mk, method, L, policy, [s], [e], **kw)
+    p = replace(P, fut_basis=kw.pop("basis")) if "basis" in kw else P
+    res = lm.simulate_batch(mk, method, L, policy, [s], [e], p, **kw)
     return res, lm.path_values(res, 0, mk.sessions)
 
 
 # ---------------------------------------------------------------- order costs
 
 def test_order_cost_vec_matches_scalar():
-    from scripts.research_regime import order_cost
+    from quant.backtest.costs import etf_order_cost as order_cost
     for v, p, sell, hs in ((1234.0, 50.0, False, 1e-4), (20.0, 300.0, True, 2e-4), (90000.0, 400.0, True, 1e-4)):
-        a = lm.order_cost_vec(np.array([v]), np.array([p]), np.array([sell]), np.array([hs]))[0]
+        a = lm.order_cost_vec(np.array([v]), np.array([p]), np.array([sell]), np.array([hs]), P.min_order)[0]
         assert a == pytest.approx(order_cost(v, p, sell, hs))
-    assert lm.order_cost_vec(np.array([0.5]), np.array([50.0]), np.array([False]), np.array([1e-4]))[0] == 0.0
+    assert lm.order_cost_vec(np.array([0.5]), np.array([50.0]), np.array([False]), np.array([1e-4]),
+                             P.min_order)[0] == 0.0
 
 
 # ---------------------------------------------------------------- method weights
 
-@pytest.mark.parametrize("L", lm.LEVELS)
+@pytest.mark.parametrize("L", study.LEVELS)
 @pytest.mark.parametrize("m", ["M", "M1", "Q2", "Q3", "T3", "F"])
 def test_weights_give_target_exposure(m, L):
-    w, n = lm.method_weights(m, L)
+    w, n = lm.method_weights(m, L, P.fut_init)
     assert (w * lm.MULT).sum() + n == pytest.approx(L)
     if m in ("Q2", "Q3", "T3"):
         assert w.sum() == pytest.approx(1.0)          # no loan
@@ -128,7 +137,7 @@ def test_liquidation_triggers_at_intraday_low_and_restores_cushion():
     # after selling, requirement = equity / 1.1 at the low
     gross = 12000.0
     eq_l = 2000.0 - lm.START_EQUITY * 0                 # equity at the low (entry cost is tiny)
-    f = (eq_l - lm.LIQ_SLIP * gross) / (lm.LIQ_CUSHION * 0.25 * gross - lm.LIQ_SLIP * gross)
+    f = (eq_l - P.liq_slip * gross) / (P.liq_cushion * 0.25 * gross - P.liq_slip * gross)
     assert 0 < f < 1
     assert v.iloc[-1] < v.iloc[4]
 
@@ -198,7 +207,7 @@ def test_expiries_are_third_fridays():
 
 def test_rolling_windows_are_120_months():
     s = pd.bdate_range("1999-01-01", "2026-09-30")
-    st, en = lm.rolling_windows(s)
+    st, en = lm.rolling_windows(s, study.ROLL_FIRST, study.ROLL_LAST, study.ROLL_MONTHS)
     assert len(st) == 211
     assert s[st[0]] == pd.Timestamp("1999-03-31") and s[en[-1]] == pd.Timestamp("2026-09-30")
     for a, b in zip(st[:5], en[:5]):
@@ -208,8 +217,8 @@ def test_rolling_windows_are_120_months():
 def test_batch_paths_are_independent():
     rng = np.random.default_rng(1)
     mk = market(rng.normal(0.0004, 0.012, 400))
-    together = lm.simulate_batch(mk, "Q2", 1.5, "monthly", [10, 100], [300, 399])
-    alone = lm.simulate_batch(mk, "Q2", 1.5, "monthly", [100], [399])
+    together = lm.simulate_batch(mk, "Q2", 1.5, "monthly", [10, 100], [300, 399], P)
+    alone = lm.simulate_batch(mk, "Q2", 1.5, "monthly", [100], [399], P)
     a = lm.path_values(together, 1, mk.sessions)
     b = lm.path_values(alone, 0, mk.sessions)
     pd.testing.assert_series_equal(a, b)
@@ -217,8 +226,8 @@ def test_batch_paths_are_independent():
 
 def test_worst_window_and_drawdown():
     v = pd.Series([1.0, 2.0, 1.0, 1.5, 2.5], index=pd.bdate_range("2020-01-01", periods=5))
-    assert lm.worst_window(v, 1) == pytest.approx(-0.5)
-    dd = lm.drawdown_info(v)
+    assert worst_window(v, 1) == pytest.approx(-0.5)
+    dd = drawdown_info(v)
     assert dd["max_dd"] == pytest.approx(-0.5) and dd["dd_recovered"] == str(v.index[4].date())
 
 
@@ -229,7 +238,7 @@ def test_kelly_recovers_known_optimum():
     mu, sig = 0.10 / 252, 0.20 / math.sqrt(252)
     r = rng.normal(mu, sig, 252 * 40)
     mk = market(r)
-    k = lm.kelly(mk, 0, len(r) - 1, n_boot=20)
+    k = lm.kelly(mk, 0, len(r) - 1, study.SEED, n_boot=20)
     assert k["formula_Lstar"] == pytest.approx(r[1:].mean() * 252 / (r[1:].var() * 252), rel=1e-6)
     assert abs(k["empirical_Lstar"] - k["formula_Lstar"]) < 0.3
 
@@ -240,7 +249,7 @@ def test_effr_loader_truncates_and_fills_target(tmp_path):
     rows = ["Effective Date,Rate Type,Rate (%)", "10/01/2026,EFFR,3.90", "09/30/2026,EFFR,3.88",
             "07/05/2000,EFFR,6.80", "07/03/2000,EFFR,7.03"]
     (tmp_path / "EFFR_nyfed.csv").write_text("\n".join(rows))
-    s = lm.load_effr("2026-09-30", tmp_path)
+    s = load_effr("2026-09-30", tmp_path)
     assert s.index.max() == pd.Timestamp("2026-09-30")
     assert s.loc["1999-07-01"] == pytest.approx(0.05)
     assert s.loc["2000-06-30"] == pytest.approx(0.065)
@@ -248,4 +257,4 @@ def test_effr_loader_truncates_and_fills_target(tmp_path):
 
 def test_assert_dev_dates_rejects_future():
     with pytest.raises(FutureDataError):
-        lm.assert_dev_dates(["2026-10-01"], lm.END)
+        assert_dev_dates(["2026-10-01"], study.END)

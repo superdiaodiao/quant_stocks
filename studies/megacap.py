@@ -9,7 +9,7 @@ Rules (6 configurations, monthly; signal at the last session of a month, trade a
   M6 top 10 by market cap, cap-weighted (sanity: should track QQQ)
 
 Market cap at signal session s: quant.data.market_cap (SEC shares -> public float -> Nasdaq company list -> dollar
-volume proxy; data rule 0.2a).
+volume proxy; data rule 0.2a). Rules, ranking and engine binding: quant.strategies.megacap.
 
 Judged vs ONEQ total return in 2014-01..2019-12 and 2020-01..2026-08 (2012-2013 reported only). Costs: IBKR Tiered
 ($10k account, quant.backtest.costs). Delisted names keep their terminal return (quant.data.panel).
@@ -24,21 +24,15 @@ import json
 import numpy as np
 import pandas as pd
 
-from quant.data.market_cap import (  # noqa: F401  (mc.latest_fact_asof: tests)
-    add_predecessor_facts, extract_share_facts, latest_fact_asof, load_company_lists, market_caps, successor_ciks,
-    value_at as _value_at,
-)
 from quant.data import version as dv
-from quant.data.benchmarks import oneq_on_sessions
-from quant.data.calendar import last_session_of_each_month
-from quant.data.guards import assert_window
-from quant.data.panel import load_window
 from quant.evaluation.criteria import HALVES_AB_LABELS, ab_verdict_on, bonferroni_t
-from quant.evaluation.metrics import longest_drawdown_days, yearly  # noqa: F401  (mc.*)
-from quant.evaluation.periods import nav_window_metrics
+from quant.evaluation.metrics import yearly
+from quant.evaluation.periods import nav_window_metrics as window_metrics
 from quant.paths import ROOT
-from quant.signals.technical import momentum_frames  # noqa: F401  (mc.momentum_frames)
-from quant.strategies.megacap import ONEQ_HS, QQQ_HS, RULES, Rule, build_targets, buy_hold, simulate  # noqa: F401
+from quant.signals.technical import momentum_frames
+from quant.strategies.megacap import ONEQ_HS, QQQ_HS, RULES, build_targets, buy_hold, prepare, rank_check, simulate
+
+# ======================================================================== frozen configuration
 
 OUT = dv.versioned(ROOT / "output/research_only/megacap")
 WINDOW = "megacap"
@@ -52,38 +46,6 @@ JUDGED = ("H1 2014-2019", "H2 2020-2026-08")
 FULL = "Full 2014-2026-08"
 N_TRIALS = 6
 assert len(RULES) == N_TRIALS
-signal_sessions = last_session_of_each_month   # mc.signal_sessions (tests)
-window_metrics = nav_window_metrics
-
-
-# ======================================================================== candidates and targets
-
-def candidates(uni: pd.DataFrame, signals: list, close: pd.DataFrame, last_row: pd.Series) -> pd.DataFrame:
-    """For each signal s: the universe week with week_end <= s (latest), rows with a dv50 rank, a close at s and an
-    unfinished series. One row per company (multi-class group, else CIK): the class with the best dv50 rank."""
-    u = uni[uni["dv50_rank"].notna() & uni["security_id"].isin(close.columns)].copy()
-    weeks = np.array(sorted(u["week_end"].unique()), dtype="datetime64[ns]")
-    by_week = {w: g for w, g in u.groupby("week_end")}
-    rows = []
-    for s in signals:
-        k = weeks.searchsorted(np.datetime64(s), side="right") - 1
-        if k < 0:
-            continue
-        g = by_week[pd.Timestamp(weeks[k])].copy()
-        g["s"] = s
-        g["universe_week"] = pd.Timestamp(weeks[k])
-        rows.append(g)
-    c = pd.concat(rows, ignore_index=True)
-    px = _value_at(close, c["security_id"], c["s"])
-    lr = pd.to_datetime(c["security_id"].map(last_row))
-    c = c[np.isfinite(px) & (lr.isna() | (lr >= c["s"])).to_numpy()].copy()
-    c["cik"] = pd.to_numeric(c["cik"], errors="coerce").astype("Int64")
-    c["company"] = c["multi_class_group"].where(c["multi_class_group"].notna() & (c["multi_class_group"] != ""),
-                                                c["cik"].astype(str))
-    c["company"] = c["company"].where(c["company"] != "<NA>", c["security_id"])
-    c = c.sort_values(["s", "company", "dv50_rank", "security_id"]).drop_duplicates(["s", "company"])
-    assert_window(c["universe_week"], "2012-01-01", WINDOW_SPEC["perf_end"], "universe weeks used")
-    return c.reset_index(drop=True)
 
 
 def criteria(per: dict) -> dict:
@@ -92,38 +54,9 @@ def criteria(per: dict) -> dict:
 
 # ======================================================================== run
 
-def prepare():
-    data = load_window(WINDOW, WINDOW_SPEC)
-    end = data.spec["effective_end"]
-    print("DATE GUARD:", data.guard["assertion"])
-    dv50 = (data.close_adj * data.vol_adj).rolling(50, min_periods=20).median()
-    sigs = signal_sessions(data.sessions)
-    cand = candidates(data.universe, sigs, data.close, data.last_row)
-    ciks = cand["cik"].dropna().astype(int).unique()
-    alias = successor_ciks(data.universe)
-    facts = extract_share_facts(sorted(set(ciks) | set(alias)))
-    facts = add_predecessor_facts(facts, alias)
-    lists = load_company_lists()
-    ranked = market_caps(cand[["s", "security_id", "ticker", "cik", "dv50_rank", "universe_week"]], facts, lists,
-                         data.close, data.sig_idx, dv50)
-    oneq_lvl, oneq_px = oneq_on_sessions(data.sessions, WINDOW_SPEC["price_start"], end)
-    return data, ranked, oneq_lvl, oneq_px, end
-
-
-def rank_check(ranked: pd.DataFrame) -> pd.DataFrame:
-    """Top 20 by market cap at each December signal (for eyeballing against known history) + source shares."""
-    rows = []
-    for s, g in ranked.groupby("s"):
-        g = g[g["mcap"].notna()].sort_values("mcap", ascending=False).head(20)
-        for k, r in enumerate(g.itertuples(), 1):
-            rows.append({"s": s.date().isoformat(), "rank": k, "ticker": r.ticker, "security_id": r.security_id,
-                         "mcap_bn": round(r.mcap / 1e9, 1), "src": r.mcap_src, "dv50_rank": r.dv50_rank})
-    return pd.DataFrame(rows)
-
-
 def run(args) -> dict:
     OUT.mkdir(parents=True, exist_ok=True)
-    data, ranked, oneq_lvl, oneq_px, end = prepare()
+    data, ranked, oneq_lvl, oneq_px, end = prepare(WINDOW, WINDOW_SPEC)
     top = rank_check(ranked)
     top.to_csv(OUT / "top20_by_month.csv", index=False)
     src = top.groupby(top["s"].str[:4])["src"].value_counts(normalize=True).unstack(fill_value=0).round(3)

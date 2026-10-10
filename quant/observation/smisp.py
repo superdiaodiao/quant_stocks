@@ -56,6 +56,7 @@ from quant.data import version as dv  # noqa: E402
 from quant.data.calendar import last_session_of_each_month  # noqa: E402
 from quant.data.panel import make_index  # noqa: E402
 from quant.data.sources.ibkr_borrow_fees import BorrowSnapshots, parse_borrow_text  # noqa: E402,F401
+from quant.data.universe import investable_common_equities  # noqa: E402
 from quant.observation import prices as fp  # noqa: E402
 from quant.strategies import canslim as cs  # noqa: E402
 from quant.strategies import fundamentals as rf  # noqa: E402
@@ -63,7 +64,6 @@ from quant.strategies import ml_features as ml  # noqa: E402
 from quant.strategies import registry  # noqa: E402
 from quant.strategies import selective_t as st  # noqa: E402
 from quant.strategies import short_overlay as ro  # noqa: E402
-from src.io.security_universe import investable_common_equities  # noqa: E402
 
 NY = ZoneInfo("America/New_York")
 
@@ -131,7 +131,7 @@ def base_form(form: str) -> str:
 
 
 def sec_headers() -> dict:
-    from src.io.sec_contact import sec_user_agent
+    from quant.data.sources.sec import sec_user_agent
     return {"User-Agent": sec_user_agent(st.ROOT), "Accept-Encoding": "gzip"}
 
 

@@ -6,7 +6,7 @@ Two models are in use and both are kept exactly, because frozen results were com
   approximation for ETF switching - $0.0035/share (min $0.35, max 1% of value), $0.0005/share pass-through,
   0.3 bp regulatory fee on sells, plus a half-spread.
 - ``ibkr_order_cost`` (scripts/research_reversal_dev.py): the published Tiered commission
-  (src/research/ibkr_cost_calibration.py) plus closing-cross exchange and clearing fees, NYSE/FINRA pass-through,
+  (``base_stock_commission_usd``, a copy of src/research/ibkr_cost_calibration.py's) plus closing-cross exchange and clearing fees, NYSE/FINRA pass-through,
   SEC fee and FINRA TAF on sells, and a half-spread. Used by every stock-level study.
 
 Half-spread helpers: ``rank_half_spread`` (by dollar-volume rank bucket, floored at half a cent) and
@@ -17,9 +17,55 @@ from __future__ import annotations
 import numpy as np
 
 from quant.data.synthetic import CASH_ETF_FEE, LEV_ER, NOMINAL_PRICE  # noqa: F401  (ETF leg assumptions)
-from src.research.ibkr_cost_calibration import base_stock_commission_usd
 
 START_EQUITY = 10_000.0
+
+# ---------------------------------------------------------------- the published IBKR US-stock commission schedule
+# Copied unchanged from src/research/ibkr_cost_calibration.py (the frozen v50 machinery keeps its own copy there);
+# tests/quant/test_quant_core.py asserts that both give the same commission on a grid of orders.
+FIXED_RATE_PER_SHARE_USD = 0.005
+FIXED_MINIMUM_PER_ORDER_USD = 1.00
+TIERED_MINIMUM_PER_ORDER_USD = 0.35
+MAXIMUM_COMMISSION_FRACTION = 0.01
+TIERED_RATES = (
+    (300_000, 0.0035),
+    (3_000_000, 0.0020),
+    (20_000_000, 0.0015),
+    (100_000_000, 0.0010),
+    (float("inf"), 0.0005),
+)
+
+
+def tiered_rate_per_share(monthly_volume_shares: float) -> float:
+    if not np.isfinite(monthly_volume_shares) or monthly_volume_shares < 0:
+        raise ValueError("monthly_volume_shares must be finite and non-negative")
+    for upper_bound, rate in TIERED_RATES:
+        if monthly_volume_shares <= upper_bound:
+            return float(rate)
+    raise AssertionError("unreachable tiered commission band")
+
+
+def base_stock_commission_usd(shares: float, price: float, *, pricing_plan: str,
+                              monthly_volume_shares: float = 0.0) -> float:
+    """Published base commission without venue or regulatory fees."""
+    if not np.isfinite(shares) or shares < 0:
+        raise ValueError("shares must be finite and non-negative")
+    if not np.isfinite(price) or price <= 0:
+        raise ValueError("price must be positive and finite")
+    if shares == 0:
+        return 0.0
+    normalized_plan = str(pricing_plan).strip().lower()
+    if normalized_plan == "fixed":
+        rate = FIXED_RATE_PER_SHARE_USD
+        minimum = FIXED_MINIMUM_PER_ORDER_USD
+    elif normalized_plan == "tiered":
+        rate = tiered_rate_per_share(monthly_volume_shares)
+        minimum = TIERED_MINIMUM_PER_ORDER_USD
+    else:
+        raise ValueError("pricing_plan must be 'fixed' or 'tiered'")
+    notional = float(shares) * float(price)
+    uncapped = max(float(shares) * rate, minimum)
+    return float(min(uncapped, notional * MAXIMUM_COMMISSION_FRACTION))
 
 # ---------------------------------------------------------------- flat ETF model (qqq_timing / regime / calendar)
 COMMISSION_PER_SHARE = 0.0035

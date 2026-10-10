@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import json
 
-import numpy as np
 import pandas as pd
 
 from quant.data.megacap_history import (  # noqa: F401  (o2.* names read by tests)
@@ -36,11 +35,11 @@ from quant.data.megacap_history import (  # noqa: F401  (o2.* names read by test
 from quant.evaluation.metrics import yearly as _yearly
 from quant.paths import output_dir
 from quant.strategies import megacap as mc
-from quant.data.sources import megacap_oos2 as md   # the OOS.2 sources (SEC facts, candidate list, prices)
 
 OUT = output_dir("megacap_oos2")
 T_THRESHOLD = 2.13                               # one-sided 5% Bonferroni for 3 trials (OOS.0)
 RULES = tuple(r for r in mc.RULES if r.name in ("M1", "M2", "M6"))
+CRASH = ("2000-03-10", "2002-10-09")             # Nasdaq top .. bottom (reported only)
 
 
 # ======================================================================== metrics vs QQQ
@@ -105,10 +104,7 @@ def simulate_all(cand, sessions, panel, facts, signals, mcaps, ranks, srcs) -> d
         for y, v in ys.items():
             by_year.append({"rule": rule.name, "year": y, "strategy": v, "qqq": yq.get(y), "oneq": yo.get(y)})
         # crash: 2000-03-10 (Nasdaq top) .. 2002-10-09 (bottom), and the drawdown inside 1999-03-10..2002-12-31
-        crash = {}
-        for nm, s_ in (("strategy", nav), ("qqq", bq)):
-            v = s_[(s_.index >= pd.Timestamp("2000-03-10")) & (s_.index <= pd.Timestamp("2002-10-09"))]
-            crash[nm] = float(v.iloc[-1] / v.iloc[0] - 1)
+        crash = mc.crash_returns({"strategy": nav, "qqq": bq}, *CRASH)
         for s, lst in tg.items():
             for k, (sid, w, rk, mcap, srcx) in enumerate(lst, 1):
                 holds.append({"rule": rule.name, "signal": s.date().isoformat(), "slot": k, "key": sid,
@@ -136,43 +132,6 @@ def simulate_all(cand, sessions, panel, facts, signals, mcaps, ranks, srcs) -> d
     return out
 
 
-# ======================================================================== data checks (no returns)
-
-def venue_check(cover: pd.DataFrame, cand: pd.DataFrame) -> pd.DataFrame:
-    """Each 10-K cover's section 12(b) text against the Nasdaq interval of the candidate list. Before Nasdaq became an
-    exchange (2006-08) a Nasdaq company registered under 12(g) only ('none_12b'). Rows that disagree are flagged."""
-    k = cover[cover["form"].astype(str).str.startswith("10-K")].copy()
-    iv = cand.set_index("key")[["nasdaq_from", "nasdaq_to"]]
-    rows = []
-    for r in k.itertuples():
-        a, b = iv.loc[r.key, "nasdaq_from"], iv.loc[r.key, "nasdaq_to"]
-        filed = pd.Timestamp(r.filed)
-        inside = (not a or filed >= pd.Timestamp(a)) and (not b or filed <= pd.Timestamp(b))
-        v = r.venue_12b if isinstance(r.venue_12b, str) else ""
-        says_nasdaq = v in ("NASDAQ", "none_12b")
-        flag = (inside and v in ("NYSE", "AMEX")) or ((not inside) and v == "NASDAQ")
-        rows.append({"key": r.key, "filed": r.filed, "venue_12b": v, "inside_nasdaq_interval": inside,
-                     "flag": bool(flag), "consistent_nasdaq": bool(inside and says_nasdaq),
-                     "text": str(r.venue_text)[:160] if isinstance(r.venue_text, str) else ""})
-    return pd.DataFrame(rows)
-
-
-def share_qc(facts: pd.DataFrame, jump: float = 0.2) -> pd.DataFrame:
-    """Share counts in price-basis units (shares x F) whose ratio to the previous count is off by more than ``jump``
-    (log scale): parse errors, a count measured on the other side of a split than assumed, or real events
-    (mergers, spin-offs). Each flagged row is checked by hand (sec_share_overrides.csv)."""
-    out = []
-    for key, g in facts.groupby("key"):
-        g = g.sort_values(["asof", "filed"]).copy()
-        u = g["shares"] * g["F"]
-        g["units"] = u
-        g["ratio_prev"] = u / u.shift(1)
-        g["ratio_next"] = u.shift(-1) / u
-        bad = (np.abs(np.log(g["ratio_prev"])) > np.log(1 + jump)) | (np.abs(np.log(g["ratio_next"])) > np.log(1 + jump))
-        out.append(g[bad.fillna(False)])
-    return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
-
-
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check-ranks", action="store_true", help="only build and print the market-cap ranking")
@@ -181,26 +140,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-
-
-def sanity_vs_published(ranks: pd.DataFrame) -> pd.DataFrame:
-    """December top 15 against companiesmarketcap.com's year-end market caps (an independent vendor series) and the
-    Nasdaq-100 Trust's September 30 schedule rank (SEC-published; NDX weights include foreign names, exclude
-    financials and use modified cap weights, so only gross disagreements are informative)."""
-    rows = []
-    dec = ranks[(ranks["s"].str[5:7] == "12") & (ranks["rank"] <= 15)]
-    cmc = {}
-    for k, slug in md.CMC_SLUGS.items():
-        try:
-            cmc[k] = md.cmc_year_end_caps(slug)
-        except Exception:  # noqa: BLE001
-            cmc[k] = {}
-    for r in dec.itertuples():
-        y = int(r.s[:4])
-        ref = cmc.get(r.key, {}).get(y)
-        rows.append({"s": r.s, "rank": r.rank, "key": r.key, "mcap_bn": r.mcap_bn, "src": r.src,
-                     "cmc_year_end_bn": round(ref / 1e9, 1) if ref else None,
-                     "ratio_to_cmc": round(r.mcap_bn / (ref / 1e9), 3) if ref else None})
-    out = pd.DataFrame(rows)
-    out["flag"] = out["ratio_to_cmc"].notna() & ((out["ratio_to_cmc"] - 1).abs() > 0.15)
-    return out

@@ -2,8 +2,8 @@
 
 Extracted unchanged from scripts/research_canslim_dev.py (the single loader ``load_dev_data``, the signals
 ``price_features`` / ``market_filter`` / ``build_features``, the rule ``Config`` / ``screen`` / ``signal_schedule``, the
-engine ``simulate``, ``perf_metrics`` / ``qqq_benchmark`` / ``weekly`` and the date guard ``assert_window`` /
-``truncate`` with this study's defaults). Used by studies/canslim_dev.py and, through ``stops=``, by
+engine ``simulate`` and its binding ``run_config``, ``perf_metrics`` / ``qqq_benchmark`` and the date guard
+``assert_window`` / ``truncate`` with this study's defaults; ``weekly`` is quant.evaluation.nav's). Used by studies/canslim_dev.py and, through ``stops=``, by
 studies/stops.py; livermore / indicators / mean_reversion / earnings_events / osap_backtest / sec_alt / fundamentals
 reuse the guard, the QQQ benchmark and the order cost. Point-in-time EPS: quant.data.eps.
 """
@@ -23,6 +23,7 @@ from quant.data.guards import DateGuardError  # noqa: F401  (cs.DateGuardError)
 from quant.data.eps import attach_eps
 from quant.data.panel import TERMINAL_D5, make_index
 from quant.evaluation.metrics import max_drawdown_of_returns
+from quant.evaluation.nav import weekly  # noqa: F401  (cs.weekly)
 
 DEV_START = "2017-01-01"
 DEV_END = "2022-12-31"
@@ -431,10 +432,6 @@ def simulate(cfg: Config, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: 
             "trades": pd.DataFrame(trades)}
 
 
-def weekly(series: pd.Series) -> pd.Series:
-    return series.resample("W-FRI").last().dropna()
-
-
 def perf_metrics(nav: pd.Series, bench: pd.Series, account: float, cost: pd.Series, traded: float,
                  exposure: pd.Series) -> dict:
     assert_window(nav.index, DEV_START, DEV_END, "performance NAV")
@@ -489,3 +486,30 @@ def qqq_benchmark(qqq_idx: pd.Series, qqq_close: pd.Series, dates: pd.DatetimeIn
     q = qqq_idx.reindex(dates)
     k = order_cost(account, float(qqq_close.reindex(dates).iloc[0]), False, QQQ_HALF_SPREAD)
     return (account - k) * q / q.iloc[0]
+
+
+def run_config(cfg: Config, d: DevData, feat: pd.DataFrame, m_series: dict, weeks: list, rank_of: dict):
+    """Screen, schedule and simulate one ``cfg`` on ``d`` (a QQQ core of ``cfg.core`` beside the sleeve); metrics vs
+    QQQ with the trade counts and screen statistics: (metrics, sim result, NAV, QQQ benchmark NAV)."""
+    sel = screen(feat, cfg)
+    picks = {t: list(g["security_id"]) for t, g in sel.groupby("week_end")}
+    sched = signal_schedule(weeks, d.sessions, m_series[cfg.m_rule], cfg.rebalance)
+    sleeve_acct = cfg.account * (1 - cfg.core)
+    res = simulate(cfg, d.sessions, d.perf_idx, d.close, d.last_row, d.qqq_perf_idx, d.qqq_close, sched,
+                   picks, rank_of, sleeve_acct)
+    nav = res["nav"]
+    if cfg.core > 0:
+        nav = nav + qqq_benchmark(d.qqq_perf_idx, d.qqq_close, res["dates"], cfg.account * cfg.core)
+    bench = qqq_benchmark(d.qqq_perf_idx, d.qqq_close, res["dates"], cfg.account)
+    expo = res["exposure"] * res["nav"] / nav
+    m = perf_metrics(nav, bench, cfg.account, res["cost"], res["traded"], expo)
+    n_pass = sel.groupby("week_end").size().reindex(weeks).fillna(0)
+    m.update({k: res[k] for k in ("n_buy", "n_sell", "n_stop", "n_profit", "n_fail", "n_market_off",
+                                  "n_qqq_orders")})
+    m["avg_names_passing"] = float(n_pass.mean())
+    m["weeks_with_zero_passing"] = int((n_pass == 0).sum())
+    tr_ = res["trades"]
+    if len(tr_):
+        m["win_rate_closed"] = float((tr_["ret"] > 0).mean())
+        m["avg_trade_ret"] = float(tr_["ret"].mean())
+    return m, res, nav, bench

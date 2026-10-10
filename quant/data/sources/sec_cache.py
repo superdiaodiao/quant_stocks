@@ -18,8 +18,8 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from quant.data.sources.sec import sec_user_agent
 from quant.paths import CACHE_ROOT
-from src.io.sec_contact import sec_user_agent
 
 CACHE = CACHE_ROOT / "spinoffs"
 RAW = CACHE / "raw"

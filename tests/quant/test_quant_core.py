@@ -65,6 +65,26 @@ def test_value_cost_and_half_spreads_match_originals():
     assert costs.REBALANCE_BAND == rev.REBALANCE_BAND and costs.START_EQUITY == qt.START_EQUITY
 
 
+def test_commission_schedule_copy_matches_src():
+    """quant.backtest.costs carries a copy of the frozen src/research/ibkr_cost_calibration.py schedule."""
+    from src.research import ibkr_cost_calibration as src_ibkr
+    for name in ("FIXED_RATE_PER_SHARE_USD", "FIXED_MINIMUM_PER_ORDER_USD", "TIERED_MINIMUM_PER_ORDER_USD",
+                 "MAXIMUM_COMMISSION_FRACTION", "TIERED_RATES"):
+        assert getattr(costs, name) == getattr(src_ibkr, name)
+    for vol in (0.0, 1.0, 300_000.0, 300_001.0, 3e6, 2e7, 1e8, 1e9):
+        assert costs.tiered_rate_per_share(vol) == src_ibkr.tiered_rate_per_share(vol)
+    for plan in ("tiered", "fixed", " Tiered "):
+        for shares, price, vol in [(0, 10.0, 0.0), (1, 10.0, 0.0), (37, 251.3, 0.0), (120, 0.4, 0.0),
+                                   (5000, 4.2, 4e5), (90_000, 25.0, 5e7), (3.5, 1234.0, 0.0)]:
+            assert (costs.base_stock_commission_usd(shares, price, pricing_plan=plan, monthly_volume_shares=vol)
+                    == src_ibkr.base_stock_commission_usd(shares, price, pricing_plan=plan,
+                                                          monthly_volume_shares=vol))
+    for bad in [(-1, 10.0, "tiered"), (1, 0.0, "tiered"), (1, 10.0, "flat")]:
+        for f in (costs.base_stock_commission_usd, src_ibkr.base_stock_commission_usd):
+            with pytest.raises(ValueError):
+                f(bad[0], bad[1], pricing_plan=bad[2])
+
+
 # ======================================================================== execution
 
 def test_cent_rounding_and_limit_fills_match_intraday_t():

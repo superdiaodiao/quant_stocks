@@ -42,22 +42,20 @@ Usage:  PYTHONPATH=. .venv/bin/python -m quant study livermore [--oneshot test1|
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import math
 from dataclasses import asdict, replace
 
-import numpy as np
 import pandas as pd
 
 from quant.data import version as dv
 from quant.data.panel import TERMINAL_D5_STRESS
-from quant.evaluation.criteria import bonferroni_t, weekly_deflated_sharpe
+from quant.evaluation.criteria import bonferroni_t, oneshots_ab_vs_qqq, weekly_deflated_sharpe
 from quant.paths import ROOT
+from quant.reporting import freeze_sha256, public
 from quant.strategies import canslim as cs  # noqa: F401  (lv.cs: research_stops, tests)
 from quant.strategies.livermore import (  # noqa: F401  (lv.* names read by other scripts and tests)
-    Config, DateGuardError, RULE_FIELDS, Runner, WINDOWS, WinData, breakout_frame, load_window, perf_metrics,
-    simulate, sub_metrics, trail_frame,
+    Config, DateGuardError, RULE_FIELDS, Runner, WINDOWS, WinData, breakout_frame, load_window, neighbours,
+    perf_metrics, plateau_pick, pnl_by_name, simulate, sub_metrics, trail_frame,
 )
 
 OUT_V1 = ROOT / "output/research_only/livermore"
@@ -111,36 +109,9 @@ def build_grid() -> list[tuple[str, Config]]:
     return grid
 
 
-def neighbours(cfg: Config, rows: list) -> list:
-    out = []
-    for r in rows:
-        diff = [f for f in RULE_FIELDS if str(r["cfg"].__getattribute__(f)) != str(getattr(cfg, f))]
-        if len(diff) == 1 or (len(diff) == 2 and set(diff) == {"tranches", "add_step"}):
-            out.append(r)
-    return out
-
-
-def plateau_pick(rows: list, min_buys: int = 30) -> tuple[dict, pd.DataFrame]:
-    """Pre-registered freeze rule: highest median net IR over (variant + its one-change neighbours), among variants
-    with >= ``min_buys`` first entries and >= 3 neighbours."""
-    scored = []
-    for r in rows:
-        nb = neighbours(r["cfg"], rows)
-        if r["m"]["n_buy"] < min_buys or len(nb) < 3:
-            continue
-        irs = [r["m"]["ir"]] + [x["m"]["ir"] for x in nb]
-        scored.append({"variant": r["variant"], "config": r["cfg"].name, "plateau_ir": float(np.median(irs)),
-                       "own_ir": r["m"]["ir"], "n_neighbours": len(nb),
-                       "neighbours_beating_qqq": sum(x["m"]["excess_cagr"] > 0 for x in nb)})
-    tab = pd.DataFrame(scored).sort_values(["plateau_ir", "own_ir"], ascending=False)
-    best = next(r for r in rows if r["variant"] == int(tab.iloc[0]["variant"]))
-    return best, tab
-
-
-def fmt(v):
-    if isinstance(v, (np.floating, np.integer)) and not isinstance(v, bool):
-        return float(v)
-    return v
+def clean(m: dict, drop: tuple = ()) -> dict:
+    """``m`` without ``_monthly_active`` (and ``drop``), numpy numbers as floats."""
+    return public(m, drop=drop, convert=True, bools=False)
 
 
 def run_dev(args) -> dict:
@@ -166,7 +137,7 @@ def run_dev(args) -> dict:
               f"cost {m['cost_drag_per_year']:.2%}", flush=True)
     flat = []
     for r in rows:
-        m = {k: fmt(v) for k, v in r["m"].items() if k not in ("by_year", "_monthly_active")}
+        m = clean(r["m"], ("by_year",))
         d = asdict(r["cfg"])
         d["tranches"] = "/".join(f"{x:.3g}" for x in r["cfg"].tranches)
         flat.append({"variant": r["variant"], "tag": r["tag"], "config": r["cfg"].name, **d, **m,
@@ -194,7 +165,7 @@ def run_dev(args) -> dict:
                              "cagr": x["m"]["cagr"]} for x in nb])
         nbt.to_csv(out / f"{label}_neighbours.csv", index=False)
         return {"variant": r["variant"], "config": cfg.name, "cfg": asdict(cfg),
-                "metrics": {k: fmt(v) for k, v in m.items() if k != "_monthly_active"},
+                "metrics": clean(m),
                 "excess_spread2x": r["excess_spread2x"], "terminal_minus100_excess_cagr": ms["excess_cagr"],
                 "neighbours": nbt.to_dict("records"),
                 "neighbours_beating_qqq": int((nbt["excess_cagr"] > 0).sum()) if len(nbt) else 0,
@@ -237,13 +208,7 @@ def run_dev_drop_best_name() -> dict:
     summ = json.loads((out / "summary.json").read_text())
 
     def best_name(cfg):
-        _, res, _ = full.run(cfg)
-        o = res["orders"]
-        t = res["trades"]
-        # dollar P&L per name = sells + terminal values - buys - adds (open positions valued at the end)
-        pnl = {}
-        for r in o.itertuples():
-            pnl[r.sid] = pnl.get(r.sid, 0.0) + (r.value if r.side == "sell" else -r.value)
+        pnl = pnl_by_name(full.run(cfg)[1]["orders"])
         return max(pnl, key=pnl.get), pnl
 
     reported = {}
@@ -282,22 +247,17 @@ def frozen_config() -> tuple[Config, dict]:
     cfg = Config(**c)
     if cfg.name != fr["config_name"]:
         raise SystemExit("frozen rule file is inconsistent")
-    text = LEDGER.read_text()
-    a, b = text.index("<!-- FREEZE-BEGIN -->"), text.index("<!-- FREEZE-END -->")
-    h = hashlib.sha256(text[a:b].encode()).hexdigest()
-    if h != fr["ledger_freeze_sha256"]:
+    if freeze_sha256(LEDGER) != fr["ledger_freeze_sha256"]:
         raise SystemExit("the ledger freeze block changed after the rule was frozen")
     return cfg, fr
 
 
 def write_frozen(cfg: Config, criterion: str) -> None:
-    text = LEDGER.read_text()
-    a, b = text.index("<!-- FREEZE-BEGIN -->"), text.index("<!-- FREEZE-END -->")
     d = asdict(cfg)
     d["tranches"] = list(cfg.tranches)
     FROZEN.write_text(json.dumps({"config": d, "config_name": cfg.name, "criterion_applied": criterion,
                                   "frozen_at": pd.Timestamp.now("UTC").isoformat(),
-                                  "ledger_freeze_sha256": hashlib.sha256(text[a:b].encode()).hexdigest()}, indent=2))
+                                  "ledger_freeze_sha256": freeze_sha256(LEDGER)}, indent=2))
 
 
 def run_oneshot(name: str) -> dict:
@@ -319,9 +279,9 @@ def run_oneshot(name: str) -> dict:
     res["orders"].to_csv(out / "orders.csv", index=False)
     judged["_monthly_active"].to_csv(out / "judged_monthly_active.csv", header=["active"])
     result = {"window": name, "config": cfg.name, "frozen_at": fr["frozen_at"], "date_guard": data.guard,
-              "full_window": {k: fmt(v) for k, v in m.items() if k != "_monthly_active"},
+              "full_window": clean(m),
               "judged_window_from": data.spec["judged_from"],
-              "judged": {k: fmt(v) for k, v in judged.items() if k != "_monthly_active"},
+              "judged": clean(judged),
               "excess_spread2x": m2["excess_cagr"], "terminal_minus100_excess_cagr": ms["excess_cagr"],
               "carried_universe_weeks": int(runner.u.loc[runner.u["carried"], "week_end"].nunique()),
               "terminal_events": data.terminal_events["status"].value_counts().to_dict()
@@ -343,8 +303,8 @@ def recompute_oneshot_metrics(name: str) -> dict:
     judged = sub_metrics(d["nav"], d["qqq"], spec["judged_from"], cost, d["exposure"])
     judged["_monthly_active"].to_csv(out / "judged_monthly_active_recomputed.csv", header=["active"])
     res = {"note": "recomputed from daily_nav.csv; cost fields are zero here, see result.json for costs",
-           "full_window": {k: fmt(v) for k, v in full.items() if k != "_monthly_active"},
-           "judged": {k: fmt(v) for k, v in judged.items() if k != "_monthly_active"}}
+           "full_window": clean(full),
+           "judged": clean(judged)}
     (out / "metrics_recomputed.json").write_text(json.dumps(res, indent=2, default=str))
     return res
 
@@ -354,15 +314,7 @@ def evaluate_tests() -> dict:
     r = {n: recompute_oneshot_metrics(n) for n in ("test1", "test2")}
     ma = pd.concat([pd.read_csv(OUT / f"oneshot_{n}/judged_monthly_active_recomputed.csv", index_col=0)["active"]
                     for n in ("test1", "test2")])
-    t = float(ma.mean() / ma.std(ddof=1) * math.sqrt(len(ma)))
-    j = {n: r[n]["judged"] for n in r}
-    crit_a = {"excess_positive_each": {n: j[n]["excess_cagr"] > 0 for n in j}, "combined_months": len(ma),
-              "combined_t_monthly": t}
-    crit_a["pass"] = all(crit_a["excess_positive_each"].values()) and t >= 2
-    crit_b = {n: {"dd_shallower_pts": j[n]["max_dd"] - j[n]["qqq_max_dd"],
-                  "cagr_gap_pts": j[n]["excess_cagr"],
-                  "pass": (j[n]["max_dd"] - j[n]["qqq_max_dd"] >= 0.10) and (j[n]["excess_cagr"] >= -0.03)} for n in j}
-    crit_b["pass"] = all(v["pass"] for v in crit_b.values() if isinstance(v, dict))
+    crit_a, crit_b = oneshots_ab_vs_qqq({n: r[n]["judged"] for n in r}, ma)
     fr = json.loads(FROZEN.read_text())
     out = {"criterion_applied": fr["criterion_applied"], "A_excess_and_t": crit_a, "B_drawdown": crit_b}
     out["verdict_on_applied"] = crit_a["pass"] if fr["criterion_applied"] == "A" else crit_b["pass"]

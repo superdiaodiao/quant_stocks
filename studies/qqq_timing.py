@@ -25,7 +25,8 @@ Raw data (local only, never committed): /Users/bytedance/code/quant_stocks/resea
 Outputs: output/research_only/qqq_timing_dev/ (returns and metrics only, no vendor price levels).
 
 The data loader, the sleeve engine, the ETF cost model and the metrics are in quant (quant.data.index_history,
-quant.backtest.exposure, quant.evaluation); the rule grid and the frozen one-shot stay here.
+quant.backtest.exposure, quant.evaluation); the rules, the rule grid, the 2x calibration and the data checks are
+quant.strategies.qqq_timing. This file holds the frozen parameters and the two runs (dev grid, one-shot test).
 
 Usage:  PYTHONPATH=. .venv/bin/python -m quant study qqq_timing [--mode oneshot --test-end YYYY-MM-DD]
         (or scripts/research_qqq_timing.py)
@@ -34,26 +35,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from quant.backtest import exposure
-from quant.backtest.costs import (  # noqa: F401  (qt.* names read by tests)
-    CASH_ETF_FEE, FEES_PER_SHARE, SELL_REG_FRAC, etf_order_cost,
-)
-from quant.backtest.exposure import HALF_SPREAD, synthetic_2x, weights_for  # noqa: F401
-from quant.data import guards, index_history
-from quant.data.guards import FutureDataError  # noqa: F401
-from quant.data.index_history import DevData, QQQ_FIRST_CLOSE, NDX_LAST_BEFORE_QQQ
-from quant.data.rates import fill_rf  # noqa: F401
-from quant.data.sources import yahoo
-from quant.evaluation.criteria import bonferroni_t, deflated_sharpe, timing_criteria as evaluate_criteria
-from quant.evaluation.metrics import TRADING_DAYS, cagr_of, exposure_metrics as metrics, monthly, yearly
+from quant.backtest.costs import CASH_ETF_FEE
+from quant.backtest.exposure import simulate, synthetic_2x
+from quant.data import index_history
+from quant.data.guards import assert_dev_dates
+from quant.data.index_history import QQQ_FIRST_CLOSE, NDX_LAST_BEFORE_QQQ
+from quant.evaluation.criteria import bonferroni_t, deflated_sharpe, timing_criteria
+from quant.evaluation.metrics import TRADING_DAYS, exposure_metrics as metrics, monthly, yearly
 from quant.paths import CACHE_ROOT, output_dir
-from quant.signals.technical import month_end_only, realised_vol, trend_state  # noqa: F401
+from quant.reporting import write_json, write_period_tables
+from quant.strategies.qqq_timing import (
+    Rule, calibrate_spread, data_checks, latest_complete_month_end, qld_tracking, rule_grid, target_exposure,
+)
 
 DEV_END = "2014-12-31"
 DEV_START = QQQ_FIRST_CLOSE       # QQQ's first close; strategies and the benchmark enter at this close
@@ -64,168 +61,25 @@ QLD_CAL_START = "2006-06-22"      # first QLD close is 2006-06-21; first daily r
 CACHE = index_history.QQQ_RAW
 TIINGO_QQQ = CACHE_ROOT / "holdout_2011_2019/qqq_tiingo_2010_2020.csv"
 OUT = output_dir("qqq_timing_dev")
-EXPOSURE_LEVELS = (0.0, 1.0, 2.0)
+
+# one-shot test (approved 2026-10-03)
+ONESHOT_RULE = Rule("T01", 200, 0.02)          # frozen in docs/research_ledger_qqq_timing.md
+ONESHOT_REPORT_ONLY = Rule("T02", 200, 0.02)
+ONESHOT_ENTRY_CLOSE = "2014-12-31"             # enter at this close, so the first return is 2015-01-02
+ONESHOT_FIRST_RETURN = "2015-01-02"
+FROZEN_SPREAD = 0.0069599408878067825          # calibrated on QLD 2006-06-22 .. 2014-12-31 (dev run)
+OUT_ONESHOT = output_dir("qqq_timing_oneshot")
 
 
-# ======================================================================== the date guard and data (quant.data)
-
-def assert_dev_dates(dates, end: str = DEV_END) -> None:
-    guards.assert_dev_dates(dates, end)
-
-
-def truncate_dev(frame: pd.DataFrame, column: str = "date", end: str = DEV_END) -> pd.DataFrame:
-    return guards.truncate_dev(frame, column, end)
-
-
-def parse_chart(path, end: str = DEV_END) -> pd.DataFrame:
-    return yahoo.parse_chart(path, end)
-
-
-def load_dev_data(end: str = DEV_END) -> DevData:
-    return index_history.load_dev_data(end, CACHE)
-
-
-def order_cost(value: float, price: float, sell: bool) -> float:
-    return etf_order_cost(value, price, sell, HALF_SPREAD)
-
-
-def simulate(target: pd.Series, r1: pd.Series, r2: pd.Series, rc: pd.Series, price: pd.Series,
-             start: str, end: str, lag: int = 1, continuous: bool = False, cash_is_etf: bool = True) -> dict:
-    """``quant.backtest.exposure.simulate`` with the 1 bp ETF half-spread."""
-    return exposure.simulate(target, r1, r2, rc, price, start, end, lag, continuous, cash_is_etf)
-
-
-def calibrate_spread(data: DevData, start: str = QLD_CAL_START, end: str = DEV_END) -> dict:
-    real = data.qld.loc[start:end]
-    assert_dev_dates(real.index, DEV_END)
-    r1 = data.r1.reindex(real.index)
-    rf = data.rf.reindex(real.index)
-    target = cagr_of(real)
-    lo, hi = -0.05, 0.10
-    for _ in range(80):
-        mid = (lo + hi) / 2
-        if cagr_of(synthetic_2x(r1, rf, mid)) > target:
-            lo = mid
-        else:
-            hi = mid
-    s = (lo + hi) / 2
-    out = {"window": [str(real.index[0].date()), str(real.index[-1].date())], "sessions": int(len(real)),
-           "spread_calibrated": s}
-    for tag, sp in [("spread_0", 0.0), ("calibrated", s)]:
-        syn = synthetic_2x(r1, rf, sp)
-        d = syn - real
-        out[tag] = {"cagr_gap_syn_minus_real": cagr_of(syn) - target,
-                    "tracking_error_daily_ann": float(d.std() * math.sqrt(TRADING_DAYS)),
-                    "tracking_error_monthly_ann": float((monthly(syn) - monthly(real)).std() * math.sqrt(12)),
-                    "corr": float(np.corrcoef(syn, real)[0, 1]),
-                    "mean_daily_diff_bp": float(d.mean() * 1e4), "max_abs_daily_diff": float(d.abs().max())}
-    # tracking by calendar year (cagr gaps only; both legs are dev-period data)
-    yrs = {}
-    syn = synthetic_2x(r1, rf, s)
-    for y in sorted(set(real.index.year)):
-        m = real.index.year == y
-        yrs[int(y)] = {"gap": float(np.prod(1 + syn[m]) - np.prod(1 + real[m])),
-                       "te": float((syn[m] - real[m]).std() * math.sqrt(TRADING_DAYS))}
-    out["by_year"] = yrs
-    return out
-
-
-def data_checks(data: DevData) -> dict:
-    q = data.qqq_raw
-    adj_r = q["adjclose"].pct_change()
-    cd_r = (q["close"] + q["dividend"]) / q["close"].shift(1) - 1
-    d = (adj_r - cd_r).dropna()
-    out = {"qqq_adj_vs_close_plus_div": {"max_abs_daily_diff": float(d.abs().max()),
-                                         "cagr_adj": cagr_of(adj_r.dropna()), "cagr_close_div": cagr_of(cd_r.dropna()),
-                                         "dividends_counted": int((q["dividend"] > 0).sum())}}
-    if TIINGO_QQQ.exists():
-        t = pd.read_csv(TIINGO_QQQ)
-        t = truncate_dev(t, "date")
-        tr = pd.Series(t["adjClose"].values, index=pd.DatetimeIndex(t["date"])).pct_change().dropna()
-        yr = pd.Series(q["adjclose"].values, index=pd.DatetimeIndex(q["date"])).pct_change()
-        j = pd.concat([tr, yr], axis=1, join="inner").dropna()
-        out["qqq_yahoo_vs_tiingo_2010_2014"] = {"sessions": int(len(j)),
-                                                "max_abs_daily_diff": float((j.iloc[:, 0] - j.iloc[:, 1]).abs().max()),
-                                                "cagr_gap": cagr_of(j.iloc[:, 1]) - cagr_of(j.iloc[:, 0])}
-    ndx = data.r1.loc[:"1999-03-09"]
-    per_year = ndx.groupby(ndx.index.year).size()
-    out["ndx_pre1999"] = {"sessions_per_year_min": int(per_year.iloc[1:-1].min()),
-                          "sessions_per_year_max": int(per_year.iloc[1:-1].max()),
-                          "abs_daily_moves_over_10pct": int((ndx.abs() > 0.10).sum()),
-                          "zero_return_days": int((ndx == 0).sum())}
-    rf = data.rf.loc[DEV_START:DEV_END]
-    dt = data.dtb3.loc[DEV_START:DEV_END]
-    out["rf_check"] = {"kf_rf_mean_annualised": float(rf.mean() * TRADING_DAYS), "dtb3_mean": float(dt.mean())}
-    return out
-
-
-# ======================================================================== signals (data up to t only)
-
-
-@dataclass(frozen=True)
-class Rule:
-    family: str            # T01 T02 T12 VT VTT M01 M02
-    length: int = 0
-    band: float = 0.0
-    target: float = 0.0
-    window: int = 0
-
-    @property
-    def name(self) -> str:
-        if self.family in ("T01", "T02", "T12", "M01", "M02"):
-            return f"{self.family}_L{self.length}_b{int(round(self.band * 100))}"
-        if self.family == "VT":
-            return f"VT_t{int(self.target * 100)}_w{self.window}"
-        return f"VTT_t{int(self.target * 100)}_w{self.window}_L{self.length}"
-
-    @property
-    def continuous(self) -> bool:
-        return self.family in ("VT", "VTT")
-
-
-def target_exposure(rule: Rule, p: pd.Series, r1: pd.Series) -> pd.Series:
-    """Desired exposure decided at each close t (only data up to t)."""
-    if rule.family in ("T01", "T02", "T12", "M01", "M02"):
-        st = trend_state(p, rule.length, rule.band)
-        if rule.family.startswith("M"):
-            st = month_end_only(st)
-        on, off = {"T01": (1, 0), "T02": (2, 0), "T12": (2, 1), "M01": (1, 0), "M02": (2, 0)}[rule.family]
-        return st.map({1.0: float(on), 0.0: float(off)})
-    vt = (rule.target / realised_vol(r1, rule.window)).clip(upper=2.0)
-    if rule.family == "VT":
-        return vt
-    st = trend_state(p, rule.length, 0.02)
-    return vt.where(st != 0.0, 0.0).where(st.notna())
-
-
-def rule_grid() -> list[Rule]:
-    rules = []
-    for fam in ("T01", "T02", "T12"):
-        for L in (75, 100, 112, 125, 150, 188, 200, 250):
-            for b in (0.0, 0.01, 0.02, 0.03, 0.05):
-                rules.append(Rule(fam, L, b))
-    for t in (0.15, 0.20, 0.25):
-        for w in (20, 60):
-            rules.append(Rule("VT", target=t, window=w))
-    for t in (0.15, 0.20, 0.25):
-        for w in (20, 60):
-            for L in (150, 200):
-                rules.append(Rule("VTT", L, 0.02, t, w))
-    for fam in ("M01", "M02"):
-        for L in (150, 200):
-            rules.append(Rule(fam, L, 0.0))
-    return rules
-
-
-# ======================================================================== main
+# ======================================================================== development run
 
 def run(args) -> dict:
-    data = load_dev_data(DEV_END)
+    data = index_history.load_dev_data(DEV_END, CACHE)
     print("DATE GUARD: every vendor frame truncated at", DEV_END, "and asserted;",
           {k: v["last"] for k, v in data.guard.items() if isinstance(v, dict)})
-    assert_dev_dates(data.sessions)
-    checks = data_checks(data)
-    cal = calibrate_spread(data)
+    assert_dev_dates(data.sessions, DEV_END)
+    checks = data_checks(data, TIINGO_QQQ, DEV_START, DEV_END)
+    cal = calibrate_spread(data, QLD_CAL_START, DEV_END, DEV_END)
     spread = cal["spread_calibrated"]
     print(f"synthetic 2x: calibrated spread {spread:.4%}/yr on {cal['window']}, "
           f"TE {cal['calibrated']['tracking_error_daily_ann']:.2%}, corr {cal['calibrated']['corr']:.4f}")
@@ -255,7 +109,7 @@ def run(args) -> dict:
                "length": rule.length if is_rule else None, "band": rule.band if is_rule else None,
                "vol_target": rule.target if is_rule else None, "vol_window": rule.window if is_rule else None}
         sim = simulate(target, r1, r2, rc_etf, data.price, *periods["dev"], continuous=cont)
-        assert_dev_dates(sim["ret"].index)
+        assert_dev_dates(sim["ret"].index, DEV_END)
         row.update(metrics(sim, bench["dev"], data.rf))
         sim2 = simulate(target, r1, r2, rc_etf, data.price, *periods["second"], continuous=cont)
         m2 = metrics(sim2, bench["second"], data.rf)
@@ -284,57 +138,29 @@ def run(args) -> dict:
 
     OUT.mkdir(parents=True, exist_ok=True)
     grid.to_csv(OUT / "grid.csv", index=False, float_format="%.6f")
-    pd.DataFrame(yearly_tab).to_csv(OUT / "by_year.csv", float_format="%.6f")
-    mk = pd.DataFrame(monthly_keep)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(OUT / "monthly_returns.csv", float_format="%.6f")
+    write_period_tables(OUT, yearly_tab, monthly_keep)
     summary = {"guard": data.guard, "data_checks": checks, "synthetic_2x_calibration": cal,
                "n_counted_configs": n, "bonferroni_t_one_sided_5pct": hurdle,
                "best_by_t": {"config": best["config"], "t": best["t_monthly_excess"], "dsr": dsr_best},
                "note": "development period only (1999-03-10 .. 2014-12-31); second period 1986-10 .. 1999-03 on NDX price"}
-    (OUT / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
+    write_json(OUT / "summary.json", summary, default=float)
     print(f"{n} counted configs, Bonferroni one-sided 5% t = {hurdle:.2f}; best t {best['config']} "
           f"{best['t_monthly_excess']:.2f}, DSR {dsr_best['dsr']:.3f}")
     return summary
 
 
-# ======================================================================== one-shot test (approved 2026-10-03)
-
-ONESHOT_RULE = Rule("T01", 200, 0.02)          # frozen in docs/research_ledger_qqq_timing.md
-ONESHOT_REPORT_ONLY = Rule("T02", 200, 0.02)
-ONESHOT_ENTRY_CLOSE = "2014-12-31"             # enter at this close, so the first return is 2015-01-02
-ONESHOT_FIRST_RETURN = "2015-01-02"
-FROZEN_SPREAD = 0.0069599408878067825          # calibrated on QLD 2006-06-22 .. 2014-12-31 (dev run)
-OUT_ONESHOT = output_dir("qqq_timing_oneshot")
-
-
-def latest_complete_month_end(today: pd.Timestamp) -> pd.Timestamp:
-    return (pd.Timestamp(today).normalize().replace(day=1) - pd.Timedelta(days=1))
-
-
-def qld_tracking(data: DevData, spread: float, start: str, end: str) -> dict:
-    real = data.qld.loc[start:end]
-    syn = synthetic_2x(data.r1.reindex(real.index), data.rf.reindex(real.index), spread)
-    d = syn - real
-    by = {int(y): float(np.prod(1 + syn[real.index.year == y]) - np.prod(1 + real[real.index.year == y]))
-          for y in sorted(set(real.index.year))}
-    return {"window": [str(real.index[0].date()), str(real.index[-1].date())], "sessions": int(len(real)),
-            "cagr_real": cagr_of(real), "cagr_synthetic": cagr_of(syn), "cagr_gap_syn_minus_real": cagr_of(syn) - cagr_of(real),
-            "tracking_error_daily_ann": float(d.std() * math.sqrt(TRADING_DAYS)),
-            "tracking_error_monthly_ann": float((monthly(syn) - monthly(real)).std() * math.sqrt(12)),
-            "corr": float(np.corrcoef(syn, real)[0, 1]), "gap_by_year": by}
-
+# ======================================================================== one-shot test
 
 def run_oneshot(args) -> dict:
     end = pd.Timestamp(args.test_end) if args.test_end else latest_complete_month_end(pd.Timestamp.today())
     end_s = str(end.date())
-    data = load_dev_data(end_s)
+    data = index_history.load_dev_data(end_s, CACHE)
     last = data.sessions.max()
     if last > end or (end - last).days > 4:
         raise ValueError(f"last session {last.date()} does not close the month ending {end_s}")
     print("ONE-SHOT TEST: frames truncated at", end_s, {k: v["last"] for k, v in data.guard.items() if isinstance(v, dict)})
     kf_last = data.guard["kf_rf"]["last"]
-    cal = calibrate_spread(data, QLD_CAL_START, DEV_END)       # same dev window: must reproduce the frozen value
+    cal = calibrate_spread(data, QLD_CAL_START, DEV_END, DEV_END)   # same dev window: must reproduce the frozen value
     if abs(cal["spread_calibrated"] - FROZEN_SPREAD) > 1e-6:
         raise ValueError(f"calibrated spread {cal['spread_calibrated']} differs from the frozen {FROZEN_SPREAD}")
     spread = FROZEN_SPREAD
@@ -362,14 +188,11 @@ def run_oneshot(args) -> dict:
         res[rule.name] = m
         by_year[rule.name] = yearly(sim["ret"])
         mon[rule.name] = monthly(sim["ret"])
-    res["criteria_" + ONESHOT_RULE.name] = evaluate_criteria(res[ONESHOT_RULE.name], m_q)
+    res["criteria_" + ONESHOT_RULE.name] = timing_criteria(res[ONESHOT_RULE.name], m_q)
     res["qld_tracking_2015_on"] = qld_tracking(data, spread, ONESHOT_FIRST_RETURN, end_s)
     OUT_ONESHOT.mkdir(parents=True, exist_ok=True)
-    (OUT_ONESHOT / "results.json").write_text(json.dumps(res, indent=2, default=float))
-    pd.DataFrame(by_year).to_csv(OUT_ONESHOT / "by_year.csv", float_format="%.6f")
-    mk = pd.DataFrame(mon)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(OUT_ONESHOT / "monthly_returns.csv", float_format="%.6f")
+    write_json(OUT_ONESHOT / "results.json", res, default=float)
+    write_period_tables(OUT_ONESHOT, by_year, mon)
     crit = res["criteria_" + ONESHOT_RULE.name]
     print(json.dumps({"criteria": crit, **{k: {x: res[k][x] for x in ("cagr", "max_dd", "calmar")}
                                            for k in ("QQQ_buyhold", ONESHOT_RULE.name, ONESHOT_REPORT_ONLY.name)}},

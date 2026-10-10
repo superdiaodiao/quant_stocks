@@ -24,12 +24,12 @@ from __future__ import annotations
 import argparse
 import json
 
-import numpy as np
 import pandas as pd
 
 from quant.data import panel
 from quant.data import version as dv
-from quant.paths import ROOT
+from quant.evaluation.stats import spearman
+from quant.paths import CACHE_ROOT, ROOT
 from quant.strategies import indicators as ri
 from quant.strategies import livermore as lv
 from quant.strategies.indicators import (  # noqa: F401  (gc.* names read by tests)
@@ -37,6 +37,7 @@ from quant.strategies.indicators import (  # noqa: F401  (gc.* names read by tes
 )
 
 OUT = dv.versioned(ROOT / "output/research_only/grid_check")
+RAW = CACHE_ROOT / "indicators/raw"     # ^IXIC / ^VIX charts of the indicators study
 
 INDEX_PERIODS = {"dev": (ri.INDEX_DEV_START, ri.INDEX_DEV_END),
                  "test": (ri.INDEX_TEST_ENTRY, ri.INDEX_TEST_END)}
@@ -63,7 +64,7 @@ def assert_in_period(dates, first: str, last: str, what: str = "series") -> None
 
 def index_grid(period: str) -> pd.DataFrame:
     start, end = INDEX_PERIODS[period]
-    data = ri.load_index_data(end)                     # every frame truncated at ``end`` and asserted
+    data = ri.load_index_data(end, RAW)                # every frame truncated at ``end`` and asserted
     for v in data.guard.values():
         if isinstance(v, dict):
             assert pd.Timestamp(v["last"]) <= pd.Timestamp(end)
@@ -94,7 +95,7 @@ def index_grid(period: str) -> pd.DataFrame:
 def stock_grid(period: str) -> pd.DataFrame:
     data = lv.load_window(STOCK_PERIODS[period])    # frozen data version 1, truncated and asserted
     print(data.guard["assertion"])
-    runner = ri.StockRunner(data)
+    runner = ri.StockRunner(data, RAW)
     judged_from = data.spec["judged_from"]
     rows = []
     for kind, grid in GRIDS.items():
@@ -116,10 +117,6 @@ def stock_grid(period: str) -> pd.DataFrame:
 
 
 # ======================================================================== analysis
-
-def spearman(x: pd.Series, y: pd.Series) -> float:
-    return float(np.corrcoef(x.rank(), y.rank())[0, 1])
-
 
 def summarise(allg: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     picks, corr = [], []

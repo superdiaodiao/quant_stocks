@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_spinoffs as sp
+from quant.backtest.costs import volume_tier_half_spread as half_spread
+from quant.data.spinoff_prices import choose_series
+from quant.strategies import spinoffs as sp
 from scripts import research_spinoffs_events as ev
 
 
@@ -54,17 +56,17 @@ def test_choose_series_rejects_a_reused_ticker_and_keeps_when_issued_rows():
     start = pd.Timestamp("2016-05-02")
     old = _series("2011-01-03", 3000, "yahoo:OLD")   # another company under the same ticker years before
     wi = _series("2016-04-20", 300, "wiki:NEW")      # when-issued rows 12 days before: allowed
-    best, why = sp.choose_series([old, wi], start)
+    best, why = choose_series([old, wi], start)
     assert best["source"].iloc[0] == "wiki:NEW" and "yahoo:OLD" in why[0]
 
 
 def test_half_spread_tiers():
-    assert sp.half_spread(1e8, 50) == pytest.approx(5e-4)
-    assert sp.half_spread(2e7, 50) == pytest.approx(10e-4)
-    assert sp.half_spread(5e6, 50) == pytest.approx(25e-4)
-    assert sp.half_spread(1e6, 50) == pytest.approx(50e-4)
-    assert sp.half_spread(float("nan"), 50) == pytest.approx(50e-4)
-    assert sp.half_spread(1e8, 2.0) == pytest.approx(0.005 / 2.0)   # at least half a tick
+    assert half_spread(1e8, 50) == pytest.approx(5e-4)
+    assert half_spread(2e7, 50) == pytest.approx(10e-4)
+    assert half_spread(5e6, 50) == pytest.approx(25e-4)
+    assert half_spread(1e6, 50) == pytest.approx(50e-4)
+    assert half_spread(float("nan"), 50) == pytest.approx(50e-4)
+    assert half_spread(1e8, 2.0) == pytest.approx(0.005 / 2.0)   # at least half a tick
 
 
 def test_regular_way_index_counts_sessions_from_the_first_regular_way_day():

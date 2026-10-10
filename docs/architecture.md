@@ -2,7 +2,8 @@
 
 > 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）、第 2 阶段（其余 10 月份研究、`quant/strategies`、
 > `quant/observation`）、第 3 阶段（数据流水线进 `pipelines/`、各数据商代码进 `quant/data/sources/`、v2.1 进
-> `quant.data.version`，见第 11 节）和第 4 阶段（旧研究脚本移到 `archive/`，见第 10 节）都已完成。
+> `quant.data.version`，见第 11 节）和第 4 阶段（旧研究脚本移到 `archive/`，见第 10 节）都已完成；之后的瘦身轮
+> （研究变薄、指标口径命名、`quant/reporting.py`）见第 12 节。
 > 本文用中文说明，代码里的名字（模块、函数、目录）保持英文。
 
 ## 1. 为什么要改
@@ -59,7 +60,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     periods.py              两折切分 halves、return_period_metrics、nav_window_metrics
   observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp
   cli.py                    python -m quant list / study <name> / strategies / run <strategy>
-  prereg.py                 事先登记块（PREREG-BEGIN/END）的摘要和冻结文件
+  reporting.py              写结果文件、运行日志、事先登记块（PREREG-BEGIN/END）摘要（第 12 节；原 prereg.py）
 studies/                    每个事先登记的研究一个文件：读数据 → 策略 + 引擎 → 评估 → 写 output/research_only/<name>/
 pipelines/                  数据构建：只写数据文件；研究只读它们的输出，从不导入 pipelines
   reversal_data/            反转 2012–2026 数据：每个步骤一个模块，build.py 是 v1 / v2 / v2.1 通用的不动点运行器
@@ -282,7 +283,7 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
 - `quant` 读 `src` 的地方：`ibkr_cost_calibration`（成本表）、`io.sec_contact`（SEC 联系人）、
   `io.security_universe`（S-MISP 观察）。
 - 研究里仍有不少“研究专属但写法相近”的函数（各自的 period_metrics、perf_metrics、criteria 标签等），它们的
-  口径或输出键不同，合并会改变输出，保持原样。
+  口径或输出键不同，合并会改变输出，保持原样。（瘦身轮已把它们挪进 `quant/evaluation`，各起一个名字，见第 12 节。）
 
 ## 10. 第 4 阶段做了什么
 
@@ -495,3 +496,115 @@ prefilter → yahoo → reconcile → terminal → earnings → universe → val
 - `factors` 仍导入 `scripts.research_v5_trend_core_satellite`（第 4 阶段如果移动它，要留转发文件）。
 - `.github/workflows/tests.yml` 的 `compileall` 只覆盖 `src scripts tests`，不含 `quant studies pipelines`（工作流
   文件属于冻结范围，本阶段没有改，建议主人加上）。
+
+## 12. 瘦身（第 5 轮）：研究变薄、`quant` 更内聚
+
+### 12.1 目标和做法
+
+第 2 阶段之后 `studies/` 仍有约 15,800 行（平均每个研究约 480 行），研究文件里混着引擎、规则、数据读取、各自一份的
+指标函数和写文件的样板代码。本轮把每个研究里的代码分成四类处理：
+
+| 类别 | 处理 |
+|---|---|
+| (a) 可复用的引擎 / 信号 / 规则 / 数据读取 | 原样（不改一个算式）挪进 `quant`：规则 + 引擎进 `quant/strategies/<topic>.py`，纯数据读取进 `quant/data/<topic>.py`；研究专属的常数和路径改成参数 |
+| (b) 研究配置（事先登记的冻结参数） | 研究文件顶部的声明式数据：冻结的 dataclass（如 `leverage_methods.P = Params(...)`、`ml_cross_section.CFG = ModelConfig(...)`、`calendar.SPREADS`）、字典、元组 |
+| (c) 写结果 / 日志 / 登记摘要的样板 | 共享的 `quant/reporting.py` |
+| (d) 死代码 | 全仓 grep（quant、studies、scripts、src、tests、archive、pipelines，含 `scripts.research_<name>.X` 这类经转发文件的用法）+ 导入图确认无人使用后删除 |
+
+研究文件现在的固定结构：文档字符串 → 冻结参数（含 `OUT` 等路径）→ `run(args)`（读数据 → 调 `quant` 的引擎 → 评估 →
+写文件）→ `main(argv)`。`OUT`、`OUT_ONESHOT` 仍是研究模块的属性，并且在调用时才读取（黄金测试会把它们指到临时目录），
+从不作为 `quant` 函数的默认参数。
+
+### 12.2 新的约定
+
+- **`quant/reporting.py`**（新）：`write_json`（`indent` / `default` / 结尾换行都是参数，对应各研究原来的写法）、
+  `scalar` / `public`（numpy 标量转 Python、去掉 `_` 开头的私有键，`bools=` 区分原来两种写法）、`json_default` /
+  `json_rounded`（两种 `default=` 钩子）、`RunLog`（打印并写 `run_log.txt`）、`write_monthly_csv` /
+  `write_period_tables`（按年、按月表）、`freeze_block` / `freeze_sha256`（台账 FREEZE 块的摘要）、
+  `Preregistration`（原 `quant/prereg.py`，已删除；`include_end=True` 是 osap_backtest 的“摘要含结束标记”口径）。
+- **指标的不同口径各有一个名字和一个位置**（文档字符串写明口径），真正的重复删掉：
+  - `evaluation/stats.py`：`t_of_mean(min_n)`、`mean_t_n`、`mean_t_n_se`（三种 t 值写法：最少样本、NaN 处理、浮点运算
+    顺序不同）、`one_sided_p_normal`、`ols_alpha`、`spearman`、`spearman_finite`；
+  - `evaluation/criteria.py`：`bh_reject`（分母含 NaN）、`bh_reject_finite`（只数有限值）、`bh_reject_rank_share`
+    （`q * (rank / n)` 的运算顺序）、`bonferroni_t`（正态）与 `bonferroni_t_student`（t 分布二分），以及各研究的 A/B
+    判定 `ab_oneq`、`ab_oneq_halves`、`oneshots_ab_vs_qqq`、`oneshots_ab_vs_oneq`；
+  - `evaluation/equity.py`（ETF 净值曲线，按交易日）：新增 `window_stats`、`drawdown_episode`、`t_monthly_excess`、
+    `mm_alpha`、`drawdown_info`、`worst_window`；
+  - `evaluation/nav.py`（新，股票组合的美元净值，按日历窗口）：`nav_vs_bench_metrics`（原 livermore `perf_metrics`）、
+    `nav_vs_oneq_metrics`（原 indicators `stock_metrics`）、`oneq_nav_metrics`（原 stops `metrics`）、
+    `return_vs_bench_metrics`（原 walk_forward `ret_metrics`）等；原名在原模块里保留为别名；
+  - `evaluation/periods.py`：新增 `segment_metrics`、`longest_underwater_sessions`（sec_alt）；
+  - `evaluation/events.py`（新，事件研究和逐笔统计）：CAR / BHAR 汇总、`trip_stats_*`、`weekly_overlay_metrics`
+    （reversal_dev）、t_grid 的窗口统计等；
+  - `evaluation/rescore.py`（新）：benchmark_composite 用的日历年化和基准窗口。
+  - 判定“是不是重复”的标准是**同样的代码、同样的浮点运算顺序**：例如 `a - b >= -0.03` 与 `a >= b - 0.03` 不算重复；
+    fundamentals 的 BH 与 `criteria.bh_reject` 运算顺序不同，所以另起名字保留。
+- **`quant/strategies` 不再带研究专属的路径和常数**：indicators 的 `RAW` / `BENCH_DIR`、t_grid 的 `TOP20`（另一个研究
+  megacap_v2 的输出）和 `PANEL`、selective_t 的 `CACHE` / `RAW` / `FETCH_LOG` / `SOURCES`、short_overlay 的 `EFFR_CSV`、
+  ml_features / fundamentals 的派生缓存目录，都由研究（以及前瞻观察的调用处，值不变）传进去。
+  `tests/quant/test_study_library_surface.py` 检查策略模块里没有 `output/research_only`。
+- **不再有跨模块改全局变量**：`ml_features` 原来 `rf.FCACHE = MCACHE`，fundamentals 研究原来就地 `SIGN.update(...)` 改策略
+  模块的字典（同一个 pytest 进程里会悄悄影响后面的测试）；现在缓存目录和符号字典都是显式参数。
+- **`quant` 读 `src` 只剩两个桥接模块**：`quant/data/sources/sec.py` 再导出 `sec_user_agent`，`quant/data/universe.py`
+  再导出 `investable_common_equities`；两个源文件都在 v50 / sue_lt_v1 的冻结闭包里，所以不复制、不移动。IBKR 佣金表
+  （`src/research/ibkr_cost_calibration.py`，不在闭包里，但仍由 src 使用）复制进 `quant.backtest.costs`，
+  `test_quant_core.py` 断言两份完全一致。`test_study_library_surface.py` 检查只有这两个模块导入 `src`。
+
+### 12.3 行数
+
+| 范围 | 之前 | 之后 |
+|---|---|---|
+| `studies/`（34 个文件） | 15,816 | 6,733 |
+| `quant/strategies` | 4,338 | 11,828 |
+| `quant/data` | 4,022 | 5,444 |
+| `quant/evaluation` | 495 | 1,562 |
+| `quant/backtest` | 650 | 696 |
+| `quant/observation` | 2,133 | 2,140 |
+| `quant/signals` | 173 | 173 |
+| `quant/*.py`（顶层：cli、paths、reporting …） | 133 | 242 |
+| `quant` 合计 | 11,944 | 22,085 |
+| `studies` + `quant` 合计 | 27,760 | 28,818 |
+
+合计多了约 1,060 行：都是新模块的文档字符串（写明口径和出处）、显式参数和导入，没有改任何算式。
+
+研究文件中仍超过约 250 行的有 7 个，原因：livermore（351，六种模式：开发网格、去掉最好一只的稳健性、冻结、两次一次性
+检验、复算、评估，外加与 `Config` 对应的 40 行规则说明）、indicators（273，指数和股票两套开发网格 + 两次一次性检验 +
+冻结）、oneil（272，校准、冻结、检验、FFTY 背景、杯柄例子）、ml_cross_section（270，64 个特征和超参数的登记配置、参考
+组合清单）、fundamentals（267，96 个检验的运行循环和多重检验表）、selective_t（252）、walk_forward（253）。剩下的都是
+研究自己的流程和报告，再拆只是把一个研究分散到更多文件。
+
+### 12.4 等价性怎么验证的
+
+- **基准**：瘦身前的提交 `c0a22d707` 的 `git archive`；**新代码**：瘦身后的提交。两边各放进同一份上游输出
+  （`suggest-task-visibility-25008f` 检出里的 `output/research_only`，只读复制），用同一个脚本依次运行 57 条命令：
+  第 2 阶段黄金文件里的全部 inprocess 和 harness 任务（含一次性检验、数据 v2 研究、grid_check 全量、walk_forward），
+  外加 regime / megacap（含 `--check-ranks`）/ selective_t 三个试点、`ml_cross_section --smoke --years 2019`、前瞻观察
+  `--dry-run --as-of 2026-10-09`、`python -m quant list / strategies`。逐文件比 sha256（`.gz` 解压后比，JSON 去掉耗时键），
+  标准输出（去掉耗时）也比。
+- **保护**：每条命令都在 `sandbox-exec` 里运行，禁止写主检出的 `research_cache` 和 `output`，网络被堵死。几个研究会无条件
+  往 `research_cache` 写派生文件（megacap_oos2、megacap_oos3、canslim_dev），拷贝里用一个 `fake_cache`（这三个目录是
+  APFS 克隆，其余是指向真缓存的只读符号链接），真缓存一个字节都没写。
+- **结果**：57 条命令里 54 条的输出文件和标准输出逐字节相同（`.gz` 只差文件头时间戳、JSON 只差 `runtime_s`）。剩下 3 条
+  只差与内容无关的东西：benchmark_composite 的 `summary.json` 记录了原始数据目录 `str(RAW)`，在拷贝里是各自的
+  `fake_cache` 路径（真实运行时两边都是同一个真缓存路径）；short_overlay `--run`、index_exclusion `--run` 的
+  `run_log.txt` 和标准输出只差耗时（`runtime_s`、`(Ns)` 进度）。去掉拷贝路径和耗时后完全相同。
+  index_exclusion 的 numpy 警告现在从 `quant/evaluation/stats.py` 发出（`ols_alpha` 挪到了那里），只出现在 stderr。
+- 另外：`tests/quant`（`QUANT_GOLDEN_SLOW=1`，试点黄金 + 第 2 阶段 inprocess 黄金）在拷贝里与基准一样通过（canslim_dev
+  的黄金在沙箱里两边都失败，因为它要写真缓存；它的 harness 任务逐字节相同）；研究相关的测试文件和 CI 可移植测试集的失败
+  集合与基准完全相同；冻结根（v50 / v50r2 / v50r3 / sue_lt_v1 和工作流引用的脚本，19 个根、73 个文件）的闭包摘要逐个相同，
+  四个 `status` 输出相同（0 / 0 / 3 / 0）；`compileall`（src scripts tests archive quant studies pipelines）通过。
+  `pipelines/`、`src/`、`scripts/`、`.github/` 没有改动。
+
+### 12.5 留下的问题
+
+- 几个策略模块因为是原样搬入而变大：`t_grid` 861 行、`oneil` 711、`short_overlay` 646、`indicators` 557、
+  `leverage_methods` 553、`ml_models` 519。下一步可以按“规则 / 引擎 / 诊断表”再拆，但要保持逐字节等价。
+- 7 个研究文件仍在 250 行以上（12.3）。
+- selective_t 的研究缓存路径（`SOURCES`、`RAW`、`PANEL`）现在在 `studies/selective_t.py`、`studies/t_grid.py` 和
+  `quant/observation/runner.py` 三处声明；要合成一处，需要一个共享的数据路径模块。
+- `quant/data/spinoff_events.py` 仍有模块常数 `OUT = output_dir("spinoffs")`（数据模块里的研究输出路径，测试锁定）。
+- `quant/strategies/reversal_dev._RANK_CACHE` 是按 `id(data)` 的模块级缓存（原样搬入）。
+- 为了让测试和前瞻观察不改，部分旧名字保留为别名（如 `livermore.perf_metrics`、`indicators.stock_metrics`、
+  `short_overlay.tstat`）。
+- canslim_dev、megacap_oos2、megacap_oos3 每次运行都会往 `research_cache` 重写派生文件（内容不变），行为未改。
+- benchmark_composite 的 `summary.json` 记录了本机的原始数据绝对路径。

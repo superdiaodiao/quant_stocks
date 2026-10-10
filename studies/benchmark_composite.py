@@ -11,19 +11,25 @@ Benchmarks (raw Yahoo chart JSON, kept local under research_cache/benchmarks/):
                             evenly over the sessions of that year.
   * QQQ adjusted close   -- the benchmark the research originally used, for reference.
 
+The benchmark loader is quant.data.composite_benchmark and the re-scoring conventions quant.evaluation.rescore;
+this file reads the saved rule series (one function per file layout) and re-applies the criteria post hoc.
+
 Usage: PYTHONPATH=. .venv/bin/python -m quant study benchmark_composite   (or scripts/research_benchmark_composite.py)
 """
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from quant.data.composite_benchmark import load_benchmarks
 from quant.evaluation.metrics import max_drawdown as max_dd
+from quant.evaluation.rescore import bench_window, cagr_calendar as cagr, summarise, tables
+from quant.evaluation.stats import t_of_mean
 from quant.paths import CACHE_ROOT, OUTPUT_ROOT, ROOT
+from quant.reporting import write_json
 
 RES = OUTPUT_ROOT
 OUT = RES / "benchmark_composite"
@@ -31,114 +37,7 @@ RAW = CACHE_ROOT / "benchmarks"
 ONEQ_ER = 0.0021
 
 
-def parse_chart(path: Path) -> tuple[pd.DataFrame, pd.Series]:
-    r = json.loads(path.read_text())["chart"]["result"][0]
-    ts = pd.to_datetime(r["timestamp"], unit="s", utc=True).tz_convert("America/New_York")
-    q = r["indicators"]["quote"][0]
-    adj = r["indicators"].get("adjclose", [{}])[0].get("adjclose") or q["close"]
-    df = pd.DataFrame({"close": q["close"], "adj": adj}, index=pd.DatetimeIndex(ts.strftime("%Y-%m-%d")))
-    divs = r.get("events", {}).get("dividends", {})
-    d = pd.Series({pd.Timestamp(pd.to_datetime(v["date"], unit="s", utc=True).tz_convert("America/New_York")
-                                .strftime("%Y-%m-%d")): v["amount"] for v in divs.values()}, dtype=float)
-    return df.dropna(), d.sort_index()
-
-
-def load_benchmarks() -> tuple[pd.DataFrame, pd.Series]:
-    oneq, oneq_div = parse_chart(RAW / "chart_ONEQ.json")
-    ixic, _ = parse_chart(RAW / "chart_%5EIXIC.json")
-    qqq, _ = parse_chart(RAW / "chart_QQQ.json")
-    # estimated Composite dividend yield per calendar year (from ONEQ distributions, fee added back)
-    yrs = sorted(set(oneq.index.year))
-    yld = {}
-    for y in yrs:
-        px = oneq.loc[oneq.index.year == y, "close"].mean()
-        yld[y] = float(oneq_div[oneq_div.index.year == y].sum() / px + ONEQ_ER)
-    yld = pd.Series(yld)
-    idx = ixic.index
-    n_per_year = pd.Series(idx.year, index=idx).map(pd.Series(idx.year).value_counts())
-    daily_y = pd.Series(idx.year, index=idx).map(yld) / n_per_year
-    ixic_tr_ret = ixic["close"].pct_change() + daily_y
-    level = pd.DataFrame({
-        "ONEQ": oneq["adj"],
-        "IXIC_TR_est": (1 + ixic_tr_ret.fillna(0)).cumprod(),
-        "IXIC_price": ixic["close"],
-        "QQQ": qqq["adj"],
-    })
-    return level, yld
-
-
-# ----------------------------------------------------------------------------- metrics
-
-def cagr(growth: float, start: pd.Timestamp, end: pd.Timestamp) -> float:
-    yrs = (end - start).days / 365.25
-    return float(growth ** (1 / yrs) - 1)
-
-
-def tstat(x: pd.Series) -> float:
-    x = x.dropna()
-    return float(x.mean() / x.std(ddof=1) * math.sqrt(len(x))) if x.std(ddof=1) > 0 else float("nan")
-
-
-def bench_window(level: pd.DataFrame, base: pd.Timestamp, end: pd.Timestamp, dates=None) -> pd.DataFrame:
-    """Benchmark NAVs (base = 1 at the close of ``base``) on ``dates`` (default: all sessions in the window)."""
-    lv = level.loc[(level.index >= base) & (level.index <= end), ["ONEQ", "IXIC_TR_est", "QQQ"]]
-    if lv.index[0] != base or lv.index[-1] != end:
-        raise ValueError(f"benchmark sessions do not match the rule window {base.date()}..{end.date()}")
-    nav = lv / lv.iloc[0]
-    if dates is not None:
-        missing = pd.DatetimeIndex(dates).difference(nav.index)
-        if len(missing):
-            raise ValueError(f"benchmark missing rule dates: {list(missing[:5])}")
-        nav = nav.reindex(dates)
-    return nav
-
-
-def summarise(name: str, label: str, rule_nav: pd.Series, bnav: pd.DataFrame, rule_mdd: float | None,
-              bench_mdd: dict, monthly: pd.DataFrame, yearly: pd.DataFrame, extra: dict | None = None) -> dict:
-    start, end = rule_nav.index[0], rule_nav.index[-1]
-    out = {"name": name, "label": label, "base_close": str(start.date()), "end": str(end.date()),
-           "years": round((end - start).days / 365.25, 3)}
-    out["cagr"] = {"rule": cagr(rule_nav.iloc[-1] / rule_nav.iloc[0], start, end)}
-    for b in ("ONEQ", "IXIC_TR_est", "QQQ"):
-        out["cagr"][b] = cagr(bnav[b].iloc[-1] / bnav[b].iloc[0], start, end)
-    out["excess_cagr"] = {f"vs_{b}": out["cagr"]["rule"] - out["cagr"][b] for b in ("ONEQ", "IXIC_TR_est", "QQQ")}
-    out["max_dd"] = {"rule": rule_mdd, **bench_mdd}
-    mx_c = monthly["rule"] - monthly["ONEQ"]
-    mx_q = monthly["rule"] - monthly["QQQ"]
-    mx_i = monthly["rule"] - monthly["IXIC_TR_est"]
-    out["months"] = int(len(monthly))
-    out["monthly_excess_vs_ONEQ"] = {"mean": float(mx_c.mean()), "std": float(mx_c.std(ddof=1)), "t": tstat(mx_c),
-                                     "ir_ann": float(mx_c.mean() / mx_c.std(ddof=1) * math.sqrt(12))}
-    out["monthly_excess_vs_IXIC_TR_est"] = {"mean": float(mx_i.mean()), "t": tstat(mx_i)}
-    out["monthly_excess_vs_QQQ"] = {"mean": float(mx_q.mean()), "t": tstat(mx_q)}
-    oneq_minus_qqq = monthly["ONEQ"] - monthly["QQQ"]
-    out["ONEQ_minus_QQQ_monthly_t"] = tstat(oneq_minus_qqq)
-    out["by_year"] = {str(y): {k: round(float(v), 6) for k, v in row.items()} for y, row in yearly.iterrows()}
-    if extra:
-        out.update(extra)
-    return out
-
-
-def tables(rule: pd.Series, bnav: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Monthly and by-year returns from NAV series (first point is the base)."""
-    nav = pd.concat([rule.rename("rule"), bnav], axis=1)
-    def per(group):
-        last = nav.groupby(group).last()
-        prev = last.shift(1)
-        prev.iloc[0] = nav.iloc[0]
-        return last / prev - 1
-    m = per(nav.index.to_period("M"))
-    y = per(nav.index.year)
-    # drop the base point if it is the only observation in its period
-    if (nav.index.to_period("M") == nav.index[0].to_period("M")).sum() == 1:
-        m = m.iloc[1:]
-    if (nav.index.year == nav.index[0].year).sum() == 1:
-        y = y.iloc[1:]
-    for t in (m, y):
-        t["excess_vs_ONEQ"] = t["rule"] - t["ONEQ"]
-        t["excess_vs_QQQ"] = t["rule"] - t["QQQ"]
-    return m, y
-
+# ----------------------------------------------------------------------------- cases
 
 def daily_nav_case(name, label, path, level, rebase=None, end=None, rule_col="nav"):
     df = pd.read_csv(path, parse_dates=["date"]).set_index("date")
@@ -221,7 +120,7 @@ def reversal_case(level):
     return s, m, y
 
 
-def criteria_recheck(c: dict) -> dict:
+def criteria_recheck(c: dict, out_dir: Path) -> dict:
     """The pre-registered pass rules, re-applied with ONEQ in place of QQQ. Post hoc: information only."""
     out = {"note": "post hoc: benchmark changed after the results were seen; does not replace the original verdicts"}
     for k in ("qqq200_T01_L200_b2", "dow_R_p5_D15"):
@@ -236,10 +135,10 @@ def criteria_recheck(c: dict) -> dict:
         r["pass_all_three"] = bool(r["c1_pass_ge_10pp"] and r["c2_pass"] and r["c3_pass_shortfall_le_3pp"])
         out[k] = r
     t1, t2 = c["livermore20_test1"], c["livermore20_test2_judged"]
-    mx = pd.concat([pd.read_csv(OUT / f"{n}_monthly.csv", index_col=0).eval("rule - ONEQ")
+    mx = pd.concat([pd.read_csv(out_dir / f"{n}_monthly.csv", index_col=0).eval("rule - ONEQ")
                     for n in ("livermore20_test1", "livermore20_test2_judged")])
     a = {"A1_test1_excess": t1["excess_cagr"]["vs_ONEQ"], "A2_test2_excess": t2["excess_cagr"]["vs_ONEQ"],
-         "A3_combined_months": int(len(mx)), "A3_combined_t": tstat(mx)}
+         "A3_combined_months": int(len(mx)), "A3_combined_t": t_of_mean(mx, 2)}
     a["pass_A"] = bool(a["A1_test1_excess"] > 0 and a["A2_test2_excess"] > 0 and a["A3_combined_t"] >= 2)
     for n, s in (("test1", t1), ("test2", t2)):
         a[f"B_{n}_dd_shallower_pts"] = s["max_dd"]["rule"] - s["max_dd"]["ONEQ"]
@@ -248,7 +147,7 @@ def criteria_recheck(c: dict) -> dict:
 
 
 def main(argv=None):
-    level, yld = load_benchmarks()
+    level, yld = load_benchmarks(RAW, ONEQ_ER)
     OUT.mkdir(parents=True, exist_ok=True)
     cases = [
         monthly_case("qqq200_T01_L200_b2", "ONE-SHOT TEST: QQQ 200-day rule T01_L200_b2, 2015-01-02..2026-09-30",
@@ -279,8 +178,8 @@ def main(argv=None):
         mm.to_csv(OUT / f"{s['name']}_monthly.csv", float_format="%.6f")
         mm.index.name, y.index.name = "month", "year"
         y.to_csv(OUT / f"{s['name']}_by_year.csv", float_format="%.6f")
-    summary["criteria_recheck_post_hoc"] = criteria_recheck(summary["cases"])
-    (OUT / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
+    summary["criteria_recheck_post_hoc"] = criteria_recheck(summary["cases"], OUT)
+    write_json(OUT / "summary.json", summary, default=float)
     print(json.dumps(summary["criteria_recheck_post_hoc"], indent=1, default=float))
     rows = []
     for s in summary["cases"].values():

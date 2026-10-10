@@ -5,6 +5,10 @@ Extracted unchanged from studies/selective_t.py (phase 1 study; the engine moved
 forward observation, quant.observation, and research_t_grid use it without importing a study): ``Market`` /
 ``market_from_frame`` / ``load_qqq_like`` / ``load_stock`` / ``fetch``, ``Spec`` / ``Fam`` / ``Cycle``, ``simulate``,
 ``run_one``, ``match_returns``, ``basket_mean`` and the frozen parameters.
+
+The module holds no study cache path: the raw chart folder, the fetch log, the QQQ / ONEQ chart files and the v2
+panel folder are arguments (``raw_path`` / ``fetch`` / ``load_stock`` / ``load_qqq_like`` / ``panel_check``), declared
+by the callers (studies/selective_t.py, studies/t_grid.py, quant.observation.runner).
 """
 from __future__ import annotations
 
@@ -28,17 +32,13 @@ from quant.data.guards import assert_dev_dates
 from quant.data.ohlc import OHLCSeries, build_real_ohlc
 from quant.data.sources import yahoo
 from quant.evaluation.metrics import TRADING_DAYS
-from quant.paths import MAIN_CHECKOUT as MAIN, ROOT  # noqa: F401  (ROOT: forward observation)
+from quant.paths import MAIN_CHECKOUT as MAIN, ROOT  # noqa: F401  (MAIN, ROOT: read by quant.observation.smisp)
 from quant.signals import technical
 from quant.strategies import registry
 
 
 
 END = "2026-09-30"
-CACHE = MAIN / "research_cache/selective_t"
-RAW = CACHE / "raw"
-FETCH_LOG = CACHE / "fetch_log.csv"
-PANEL = MAIN / "research_cache/reversal_2012_2026_v2/prices"
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 FETCH_START = "2011-01-01"
@@ -75,8 +75,6 @@ CONFIGS = {   # name -> [(family, trigger, parameter key)]
     "S3-D": [("S3", "D", "D")], "S3-Ya": [("S3", "Y", "Ya")], "S3-Yb": [("S3", "Y", "Yb")],
     "S4a": [("S1", "X", "Xa"), ("S3", "Y", "Ya")], "S4b": [("S1", "RSI", "RSI"), ("S3", "D", "D")],
 }
-SOURCES = {"QQQ": MAIN / "research_cache/calendar/raw/chart_QQQ.json",       # the calendar study's QQQ / ONEQ
-           "ONEQ": MAIN / "research_cache/calendar/raw/chart_ONEQ.json"}
 ceil_cent = execution.ceil_cent
 floor_cent = execution.floor_cent
 
@@ -102,19 +100,20 @@ def chart_url(symbol: str, period1: str, period2: str) -> str:
     return CHART.format(symbol=symbol) + "?" + params
 
 
-def raw_path(sym: str) -> Path:
-    return RAW / f"{sym}.json.gz"
+def raw_path(sym: str, raw_dir: Path) -> Path:
+    return raw_dir / f"{sym}.json.gz"
 
 
-def fetch(symbols=STOCKS, getter=None, sleep=time.sleep) -> dict:
-    """One request per symbol without a cached body, one per 2 s; stops at the first 401/403/429."""
-    RAW.mkdir(parents=True, exist_ok=True)
+def fetch(raw_dir: Path, fetch_log: Path, symbols=STOCKS, getter=None, sleep=time.sleep) -> dict:
+    """One request per symbol without a cached body in ``raw_dir``, one per 2 s; stops at the first 401/403/429.
+    Every request is appended to ``fetch_log``."""
+    raw_dir.mkdir(parents=True, exist_ok=True)
     period2 = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
     out = {}
-    if not FETCH_LOG.exists():
-        FETCH_LOG.write_text("fetched_utc,symbol,http_status,bytes\n")
+    if not fetch_log.exists():
+        fetch_log.write_text("fetched_utc,symbol,http_status,bytes\n")
     for sym in symbols:
-        if raw_path(sym).exists():
+        if raw_path(sym, raw_dir).exists():
             out[sym] = "cached"
             continue
         url = chart_url(sym, FETCH_START, period2)
@@ -126,7 +125,7 @@ def fetch(symbols=STOCKS, getter=None, sleep=time.sleep) -> dict:
                 with urlopen(Request(url, headers=HEADERS), timeout=30) as resp:
                     data, status = resp.read(), resp.status
         except HTTPError as exc:
-            with FETCH_LOG.open("a") as fh:
+            with fetch_log.open("a") as fh:
                 fh.write(f"{now},{sym},{exc.code},0\n")
             out[sym] = f"HTTP {exc.code}"
             if exc.code in STOP_CODES:
@@ -139,11 +138,11 @@ def fetch(symbols=STOCKS, getter=None, sleep=time.sleep) -> dict:
         if not res[0] or (res[0].get("meta") or {}).get("dataGranularity") != "1d":
             out[sym] = "not daily / empty"
         else:
-            tmp = raw_path(sym).with_suffix(".tmp")
+            tmp = raw_path(sym, raw_dir).with_suffix(".tmp")
             tmp.write_bytes(gzip.compress(data, mtime=0))
-            tmp.rename(raw_path(sym))
+            tmp.rename(raw_path(sym, raw_dir))
             out[sym] = "ok"
-        with FETCH_LOG.open("a") as fh:
+        with fetch_log.open("a") as fh:
             fh.write(f"{now},{sym},{status},{len(data)}\n")
         print(f"fetch: {sym} {out[sym]} ({len(data)} bytes)")
         sleep(SECONDS_PER_REQUEST)
@@ -182,24 +181,26 @@ def market_from_frame(sym: str, df: pd.DataFrame, splits: dict) -> Market:
     return Market(sym, s, factor, sma * factor, np.r_[np.nan, sma[:-1]] * factor, rsi_wilder(adj))
 
 
-def load_qqq_like(sym: str) -> Market:
-    df = yahoo.parse_ohlc(SOURCES[sym], END)
+def load_qqq_like(sym: str, source: Path) -> Market:
+    """QQQ / ONEQ from the Yahoo chart file ``source`` (the calendar study's cache), truncated at END."""
+    df = yahoo.parse_ohlc(source, END)
     assert_dev_dates(df["date"], END)
-    return market_from_frame(sym, df, yahoo.split_events(SOURCES[sym], END))
+    return market_from_frame(sym, df, yahoo.split_events(source, END))
 
 
-def load_stock(sym: str) -> Market:
-    payload = json.loads(gzip.decompress(raw_path(sym).read_bytes()))
+def load_stock(sym: str, raw_dir: Path) -> Market:
+    payload = json.loads(gzip.decompress(raw_path(sym, raw_dir).read_bytes()))
     df, splits = ohlc_frame(payload, END)
     assert_dev_dates(df["date"], END)
     return market_from_frame(sym, df, splits)
 
 
-def panel_check(m: Market) -> dict:
-    """Yahoo-derived real closes vs the frozen v2 panel close_raw on common dates; split dates vs split_factor."""
+def panel_check(m: Market, panel_dir: Path) -> dict:
+    """Yahoo-derived real closes vs the frozen v2 panel close_raw (``panel_dir/<security id>.csv``) on common dates;
+    split dates vs split_factor."""
     frames = []
     for sid in PANEL_IDS.get(m.sym, []):
-        p = PANEL / f"{sid}.csv"
+        p = panel_dir / f"{sid}.csv"
         if p.exists():
             frames.append(pd.read_csv(p, usecols=["date", "close_raw", "split_factor"]))
     if not frames:
@@ -475,3 +476,30 @@ def run_one(m: Market, s: int, e: int, config: str, asset_class: str, vn: str, r
 
 def basket_mean(series: list) -> pd.Series:
     return pd.concat(series, axis=1).mean(axis=1, skipna=True).dropna()
+
+
+# ======================================================================== judged periods (session index bounds)
+
+def first_valid(m: Market) -> int:
+    return int(np.argmax(np.isfinite(m.sma_prev) & np.isfinite(m.rsi)))
+
+
+def qqq_bounds(m: Market) -> dict:
+    """full / half1 / half2 (equal session counts) from the first session with SMA20 and RSI14 to END."""
+    s = max(first_valid(m), 1)
+    e = int(m.s.sessions.searchsorted(pd.Timestamp(END), side="right")) - 1
+    mid = s + (e - s + 1) // 2
+    return {"full": (s, e), "half1": (s, mid - 1), "half2": (mid, e)}
+
+
+def stock_bounds(m: Market, periods: dict) -> dict:
+    """The calendar ``periods`` {name: (first, last)} as session bounds, from the first valid session; periods
+    with no more than 60 sessions are left out."""
+    out = {}
+    fv = max(first_valid(m), 1)
+    for k, (a, b_) in periods.items():
+        s = max(int(m.s.sessions.searchsorted(pd.Timestamp(a))), fv)
+        e = int(m.s.sessions.searchsorted(pd.Timestamp(b_), side="right")) - 1
+        if e - s > 60:
+            out[k] = (s, e)
+    return out

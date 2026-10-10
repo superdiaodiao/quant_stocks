@@ -5,7 +5,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import research_intraday_t as m
+from quant.backtest.execution import ceil_cent, fill_buy_limit as fill_t2, fill_sell_limit as fill_t1, floor_cent
+from quant.data.ohlc import OHLCSeries, build_real_ohlc, real_factor
+from quant.strategies import intraday_t as m
+from scripts import research_intraday_t as study
 
 
 def make(o, h, lo, c, div=None, split=None, atr=0.02):
@@ -14,7 +17,7 @@ def make(o, h, lo, c, div=None, split=None, atr=0.02):
     c = np.asarray(c, float)
     split = np.ones(n) if split is None else np.asarray(split, float)
     tr = pd.Series(c, index=dates).pct_change()
-    return m.Series_("QQQ", dates, np.asarray(o, float), np.asarray(h, float), np.asarray(lo, float), c,
+    return OHLCSeries("QQQ", dates, np.asarray(o, float), np.asarray(h, float), np.asarray(lo, float), c,
                      np.r_[np.nan, c[:-1]] / split, split, np.zeros(n) if div is None else np.asarray(div, float),
                      np.full(n, atr), tr, {})
 
@@ -26,25 +29,25 @@ def q_reserve(p=100.0, cap=None):
 
 
 def test_cent_rounding():
-    assert m.ceil_cent(101.001) == pytest.approx(101.01)
-    assert m.ceil_cent(101.00) == pytest.approx(101.00)
-    assert m.floor_cent(98.999) == pytest.approx(98.99)
-    assert m.floor_cent(99.00) == pytest.approx(99.00)
+    assert ceil_cent(101.001) == pytest.approx(101.01)
+    assert ceil_cent(101.00) == pytest.approx(101.00)
+    assert floor_cent(98.999) == pytest.approx(98.99)
+    assert floor_cent(99.00) == pytest.approx(99.00)
 
 
 def test_fill_t1_rules():
-    assert m.fill_t1(102.0, 103.0, 101.0, True) == 102.0            # gap above the limit: opening auction
-    assert m.fill_t1(100.0, 101.06, 101.0, True) == 101.0           # traded through by >= 0.05%
-    assert m.fill_t1(100.0, 101.03, 101.0, True) is None            # touched, not through
-    assert m.fill_t1(100.0, 101.0, 101.0, False) == 101.0           # touch fill (report-only variant)
-    assert m.fill_t1(10.0, 10.105, 10.10, True) is None             # one tick needed on a cheap price
-    assert m.fill_t1(10.0, 10.11, 10.10, True) == 10.10
+    assert fill_t1(102.0, 103.0, 101.0, True) == 102.0            # gap above the limit: opening auction
+    assert fill_t1(100.0, 101.06, 101.0, True) == 101.0           # traded through by >= 0.05%
+    assert fill_t1(100.0, 101.03, 101.0, True) is None            # touched, not through
+    assert fill_t1(100.0, 101.0, 101.0, False) == 101.0           # touch fill (report-only variant)
+    assert fill_t1(10.0, 10.105, 10.10, True) is None             # one tick needed on a cheap price
+    assert fill_t1(10.0, 10.11, 10.10, True) == 10.10
 
 
 def test_fill_t2_rules():
-    assert m.fill_t2(98.0, 97.0, 99.0, True) == 98.0
-    assert m.fill_t2(100.0, 98.94, 99.0, True) == 99.0
-    assert m.fill_t2(100.0, 98.97, 99.0, True) is None
+    assert fill_t2(98.0, 97.0, 99.0, True) == 98.0
+    assert fill_t2(100.0, 98.94, 99.0, True) == 99.0
+    assert fill_t2(100.0, 98.97, 99.0, True) is None
 
 
 def test_hold_has_no_trips_and_tracks_price():
@@ -123,12 +126,12 @@ def test_split_and_dividend():
 
 def test_real_factor_and_atr_shift():
     dates = pd.bdate_range("2020-01-01", periods=4)
-    f = m.real_factor(dates, {str(dates[2].date()): 2.0})
+    f = real_factor(dates, {str(dates[2].date()): 2.0})
     assert list(f) == [2.0, 2.0, 1.0, 1.0]
     n = 30
     df = pd.DataFrame({"date": pd.bdate_range("2020-01-01", periods=n).strftime("%Y-%m-%d"),
                        "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "adjclose": 100.0, "dividend": 0.0})
-    d = m.build("QQQ", df, {})
+    d = build_real_ohlc("QQQ", df, {})
     assert np.isnan(d.atr_pct[20]) and d.atr_pct[21] == pytest.approx(0.02)   # 20 true ranges up to t-1
 
 
@@ -150,7 +153,7 @@ def test_rebalance_band():
 def test_judge():
     base = {"excess_vs_h75": 0.01, "excess_vs_oneq": 0.01, "t_monthly_excess_vs_h75": 2.5,
             "t_monthly_excess_vs_oneq": 2.1, "dd_shallower_than_oneq_pp": 0.0}
-    j = m.judge({"half1": base, "half2": base, "full": base})
+    j = study.judge({"half1": base, "half2": base, "full": base})
     assert j["adds_value_vs_h75"] and j["A"] and not j["B"]
     bad = dict(base, excess_vs_h75=-0.001)
-    assert not m.judge({"half1": base, "half2": bad, "full": base})["adds_value_vs_h75"]
+    assert not study.judge({"half1": base, "half2": bad, "full": base})["adds_value_vs_h75"]

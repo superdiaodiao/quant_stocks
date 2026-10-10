@@ -13,50 +13,42 @@ Pre-registered in docs/research_ledger_mean_reversion.md, section 0 (written bef
 Timing: every signal uses closes up to t; orders fill at the close of t+1 (MOC). Same-close fills are a report-only
 sensitivity. Costs: IBKR Pro Tiered (ETF model of scripts/research_regime.py; stock model of
 scripts/research_reversal_dev.py). Benchmark: ONEQ total return. Outputs carry returns and metrics only.
+
+The state machine and both engines are quant.strategies.mean_reversion; this file holds the frozen parameters
+(``CFG``, the stock windows) and the runs.
+
+Usage:  PYTHONPATH=. .venv/bin/python -m quant study mean_reversion [--etf-only | --stocks-only]
 """
 from __future__ import annotations
 
 import argparse
-import json
-import math
 
 import numpy as np
 import pandas as pd
 
-from quant.backtest.costs import etf_order_cost
-from quant.backtest.costs import rank_half_spread
-from quant.backtest.target_weights import buy_hold_weights, entry_index, two_state
+from quant.backtest.target_weights import buy_hold_weights, entry_index
 from quant.data import etf_panel
 from quant.data import panel
 from quant.data import version as dv
 from quant.data.guards import assert_dev_dates
 from quant.data.panel import TERMINAL_D5_STRESS
-from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.criteria import REGIME_AB_LABELS, ab_verdict, bonferroni_t
 from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthly, yearly
 from quant.evaluation.periods import halves, return_period_metrics
 from quant.paths import CACHE_ROOT, ROOT
-from quant.signals.indicators import sma
-from quant.strategies import canslim as cs
+from quant.reporting import RunLog, write_json, write_monthly_csv, write_period_tables
 from quant.strategies import indicators as ind
-from quant.strategies import livermore as lv
+from quant.strategies.mean_reversion import (
+    Params, StockInputs, connors_state, etf_sim, etf_trade_stats, etf_weights, load_etf, stock_result,
+)
 
 END = "2026-09-30"
 OUT = dv.versioned(ROOT / "output/research_only/mean_reversion")
 QLD_PATH = CACHE_ROOT / "qqq_timing/raw/chart_QLD.json"
-ETF_HALF_SPREAD = {"QQQ": 1e-4, "QLD": 2e-4, "ONEQ": 2e-4, "CASH": 0.0}
-ONEQ_HALF_SPREAD = 2e-4
-
-RSI_N = 2
-SMA_LONG = 200
-SMA_EXIT = 5
-QQQ_ENTRY_RSI = 10.0
-STOCK_ENTRY_RSI = 5.0
-MAX_HOLD = 10            # sessions after the entry fill
-K = 5
-SLOT = 0.20
-N_UNIVERSE = 100
-ACCOUNT = 10_000.0
+CFG = Params(rsi_n=2, sma_long=200, sma_exit=5, qqq_entry_rsi=10.0, stock_entry_rsi=5.0,
+             max_hold=10,               # sessions after the entry fill
+             k=5, slot=0.20, n_universe=100, account=10_000.0,
+             etf_half_spread={"QQQ": 1e-4, "QLD": 2e-4, "ONEQ": 2e-4, "CASH": 0.0}, oneq_half_spread=2e-4)
 N_TRIALS = 4
 
 STOCK_WINDOWS = {
@@ -67,154 +59,14 @@ STOCK_WINDOWS = {
 }
 
 
-# ======================================================================== signals (causal)
-
-
-def rsi2(p):
-    return ind.rsi(p, RSI_N)
-
-
-def connors_state(p: pd.Series, entry_rsi: float = QQQ_ENTRY_RSI) -> pd.Series:
-    """Decision state at each close: 1 in a trade, 0 flat, NaN before the indicators exist."""
-    long_ma, exit_ma, r = sma(p, SMA_LONG), sma(p, SMA_EXIT), rsi2(p)
-    defined = (long_ma.notna() & exit_ma.notna() & r.notna()).to_numpy()
-    entry = ((p > long_ma) & (r < entry_rsi)).to_numpy()
-    exit_ = (p > exit_ma).to_numpy()
-    out = np.full(len(p), np.nan)
-    s = None
-    for i in range(len(p)):
-        if not defined[i]:
-            if s is not None:
-                out[i] = s
-            continue
-        if s is None:
-            s = 0.0
-        if s == 0.0 and entry[i]:
-            s = 1.0
-        elif s == 1.0 and exit_[i]:
-            s = 0.0
-        out[i] = s
-    return pd.Series(out, index=p.index)
-
-
 # ======================================================================== QQQ rules
 
-def load_etf(end: str = END):
-    d = etf_panel.load_data(end)
-    q = parse_chart(QLD_PATH, end)
-    assert_dev_dates(q["date"], end)
-    ix = pd.DatetimeIndex(q["date"])
-    extra = ix.difference(d.sessions)
-    if len(extra):
-        raise ValueError(f"QLD has sessions not in the QQQ calendar: {list(extra[:5])}")
-    d.adj["QLD"] = pd.Series(q["adjclose"].values, index=ix).reindex(d.sessions)
-    d.close["QLD"] = pd.Series(q["close"].values, index=ix).reindex(d.sessions)
-    listed = d.sessions[d.sessions >= ix[0]]
-    missing = int(d.adj["QLD"].reindex(listed).isna().sum())
-    if missing:
-        raise ValueError(f"QLD misses {missing} QQQ sessions after listing")
-    d.rets["QLD"] = d.adj["QLD"].pct_change(fill_method=None)
-    d.guard["QLD"] = {"first": q["date"].iloc[0], "last": q["date"].iloc[-1], "rows": int(len(q)),
-                      "missing_sessions_after_listing": missing}
-    return d
-
-
-def etf_weights(rule: str, state: pd.Series) -> pd.DataFrame:
-    if rule == "R1":
-        on, off, cols = {"QQQ": 1.0}, {"CASH": 1.0}, ("QQQ", "CASH")
-    elif rule == "R2":
-        on, off, cols = {"QQQ": 0.5, "QLD": 0.5}, {"QQQ": 1.0}, ("QQQ", "QLD")
-    else:
-        raise KeyError(rule)
-    return two_state(state, on, off, cols)
-
-
-def etf_sim(w: pd.DataFrame, rets: pd.DataFrame, close: pd.DataFrame, start_i: int, lag: int = 1,
-            costs: bool = True) -> dict:
-    """Same mechanics as research_regime.simulate, plus a cost-free CASH leg and the pre-trade value per session."""
-    cols = list(w.columns)
-    W, R, P = w.values, rets[cols].values, close[cols].values
-    end_i = len(w) - 1
-    h = np.zeros(len(cols))
-    cash = ACCOUNT
-    last = None
-    values, pre, execd = [], [], []
-    trades = orders = 0
-    cost_frac = 0.0
-    for i in range(start_i, end_i + 1):
-        if i > start_i:
-            r = R[i]
-            if np.any(np.isnan(r[h > 0])):
-                raise ValueError(f"missing return for a held asset on {w.index[i].date()}")
-            h = h * (1 + np.nan_to_num(r))
-        total = h.sum() + cash
-        pre.append(total)
-        tgt = W[i - lag]
-        if np.any(np.isnan(tgt)):
-            raise ValueError(f"no target on {w.index[i - lag].date()}")
-        if last is None or not np.allclose(tgt, last, atol=1e-12, rtol=0):
-            new = tgt * total
-            delta = new - h
-            c = 0.0
-            for k in range(len(cols)):
-                if cols[k] == "CASH" or abs(delta[k]) <= 1.0:
-                    continue
-                if costs:
-                    c += etf_order_cost(abs(delta[k]), P[i, k], delta[k] < 0, ETF_HALF_SPREAD[cols[k]])
-                orders += 1
-            if last is not None:
-                trades += 1
-            h = new * (1 - c / total)
-            cash = 0.0
-            cost_frac += c / total
-            last = tgt.copy()
-        values.append(h.sum() + cash)
-        execd.append(last.copy())
-    idx = w.index[start_i:end_i + 1]
-    v = pd.Series(values, index=idx)
-    return {"value": v, "pre": pd.Series(pre, index=idx), "ret": v.pct_change().iloc[1:],
-            "executed": pd.DataFrame(execd, index=idx, columns=cols), "switches": trades, "orders": orders,
-            "cost_frac": cost_frac}
-
-
-def episodes(in_state: pd.Series) -> list:
-    """(entry fill i, exit fill i) positions of completed trades; ``in_state`` = executed state after each close."""
-    s = in_state.to_numpy().astype(int)
-    out, e = [], (0 if s[0] == 1 else None)
-    for i in range(1, len(s)):
-        if s[i] == 1 and s[i - 1] == 0:
-            e = i
-        elif s[i] == 0 and s[i - 1] == 1 and e is not None:
-            out.append((e, i))
-            e = None
-    return out
-
-
-def etf_trade_stats(sim: dict, in_state: pd.Series, default_ret: pd.Series) -> dict:
-    eps = episodes(in_state)
-    rows = []
-    for e, x in eps:
-        tr = sim["value"].iloc[x] / sim["pre"].iloc[e] - 1
-        span = default_ret.iloc[e + 1:x + 1]
-        base = float((1 + span.fillna(0)).prod() - 1)
-        rows.append({"entry": str(in_state.index[e].date()), "exit": str(in_state.index[x].date()),
-                     "sessions": x - e, "ret": tr, "default_ret": base, "win": bool(tr > base)})
-    t = pd.DataFrame(rows)
-    held_days = in_state.iloc[:-1]
-    return {"trades": int(len(t)), "win_rate": float(t["win"].mean()) if len(t) else float("nan"),
-            "avg_trade_ret": float(t["ret"].mean()) if len(t) else float("nan"),
-            "avg_trade_minus_default": float((t["ret"] - t["default_ret"]).mean()) if len(t) else float("nan"),
-            "median_sessions": float(t["sessions"].median()) if len(t) else float("nan"),
-            "open_at_end": bool(in_state.iloc[-1] == 1), "time_in_market": float(held_days.mean()),
-            "_trades": t}
-
-
-def run_etf(lines: list) -> dict:
-    d = load_etf(END)
+def run_etf(log: RunLog) -> dict:
+    d = load_etf(END, QLD_PATH)
     print("DATE GUARD: every ETF frame truncated at", END, "and asserted;",
           {k: v["last"] for k, v in d.guard.items() if isinstance(v, dict)})
     p = d.adj["QQQ"]
-    state = connors_state(p)
+    state = connors_state(p, CFG)
     rets = d.rets.copy()
     rets["CASH"] = d.rf
     close = d.close.copy()
@@ -223,7 +75,7 @@ def run_etf(lines: list) -> dict:
     for rule, assets, default in (("R1", ("QQQ",), "CASH"), ("R2", ("QQQ", "QLD"), "QQQ")):
         w = etf_weights(rule, state)
         s_i = entry_index(w, d, assets, False)
-        sim = etf_sim(w, rets, close, s_i)
+        sim = etf_sim(w, rets, close, s_i, CFG)
         bq = buy_hold_weights("ONEQ", d.sessions, d.rets, d.close, s_i, etf_panel.HALF_SPREAD)
         qq = buy_hold_weights("QQQ", d.sessions, d.rets, d.close, s_i, etf_panel.HALF_SPREAD)
         r, b, q = sim["ret"], bq["ret"], qq["ret"]
@@ -241,13 +93,13 @@ def run_etf(lines: list) -> dict:
                 "switches_per_year": sim["switches"] / years, "cost_drag_per_year": sim["cost_frac"] / years,
                 **{k: v for k, v in ts.items() if not k.startswith("_")}}
         for tag, kw in (("same_close", dict(lag=0)), ("no_costs", dict(costs=False))):
-            s2 = etf_sim(w, rets, close, s_i, **kw)
+            s2 = etf_sim(w, rets, close, s_i, CFG, **kw)
             info[f"sens_{tag}"] = {"cagr": cagr_of(s2["ret"]), "max_dd": max_drawdown(s2["value"]),
                                    "cagr_minus_oneq": cagr_of(s2["ret"]) - full["oneq_cagr"]}
         if rule == "R1":
             r0 = rets.copy()
             r0["CASH"] = 0.0
-            s3 = etf_sim(w, r0, close, s_i)
+            s3 = etf_sim(w, r0, close, s_i, CFG)
             info["sens_cash_0pct"] = {"cagr": cagr_of(s3["ret"]), "max_dd": max_drawdown(s3["value"]),
                                       "cagr_minus_oneq": cagr_of(s3["ret"]) - full["oneq_cagr"]}
         res[rule] = info
@@ -264,242 +116,30 @@ def run_etf(lines: list) -> dict:
                 f"QQQ {full['qqq_cagr']:+.2%}) MDD {full['max_dd']:.1%} (ONEQ {full['oneq_max_dd']:.1%}) "
                 f"t {full['t_monthly_excess_vs_oneq']:+.2f} trades {ts['trades']} win {ts['win_rate']:.0%} "
                 f"in-market {ts['time_in_market']:.0%} pass={crit['pass']}")
-        print(line)
-        lines.append(line)
+        log.say(line)
     pd.DataFrame(rows).to_csv(OUT / "etf_summary.csv", index=False, float_format="%.6f")
-    pd.DataFrame(by_year).to_csv(OUT / "etf_by_year.csv", float_format="%.6f")
-    mk = pd.DataFrame(mon)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(OUT / "etf_monthly_returns.csv", float_format="%.6f")
+    write_period_tables(OUT, by_year, mon, prefix="etf_")
     return {"guard": d.guard, "rules": res}
 
 
 # ======================================================================== stock rules
 
-class StockInputs:
-    """Signals, eligibility and benchmarks for one window (every frame from ``quant.data.panel.load_window``)."""
-
-    def __init__(self, data):
-        self.data = data
-        u = lv.eligible_universe(data)
-        self.rank_of = {t: dict(zip(g["security_id"], g["dv50_rank"])) for t, g in u.groupby("week_end")}
-        top = u[u["dv50_rank"] <= N_UNIVERSE]
-        self.elig = {t: list(g["security_id"]) for t, g in top.groupby("week_end")}
-        for t in self.rank_of:
-            self.elig.setdefault(t, [])
-        self.carried_weeks = int(u.loc[u["carried"], "week_end"].nunique())
-        p = data.sig_idx
-        self.rsi = rsi2(p)
-        self.entry = (p > sma(p, SMA_LONG)) & (self.rsi < STOCK_ENTRY_RSI)
-        self.exit = p > sma(p, SMA_EXIT)
-        lvl, px = ind.oneq_on_sessions(data.sessions, data.spec["price_start"], data.spec["effective_end"])
-        self.oneq_lvl, self.oneq_px = lvl, px
-
-
-def stock_sim(inp: StockInputs, idle: str = "cash", lag: int = 1, spread_mult: float = 1.0,
-              account: float = ACCOUNT) -> dict:
-    data = inp.data
-    sessions = data.sessions
-    perf = sessions[(sessions >= pd.Timestamp(data.spec["perf_start"])) &
-                    (sessions <= pd.Timestamp(data.spec["effective_end"]))]
-    cs.assert_window(perf, data.spec["perf_start"], data.spec["effective_end"], "simulation sessions")
-    cols = list(data.perf_idx.columns)
-    col = {s: i for i, s in enumerate(cols)}
-    I = data.perf_idx.reindex(perf).to_numpy()
-    P = data.close.reindex(perf).to_numpy()
-    E = inp.entry.reindex(index=perf, columns=cols).fillna(False).to_numpy()
-    X = inp.exit.reindex(index=perf, columns=cols).fillna(False).to_numpy()
-    RS = inp.rsi.reindex(index=perf, columns=cols).to_numpy()
-    OL = inp.oneq_lvl.reindex(perf).to_numpy()
-    OP = inp.oneq_px.reindex(perf).to_numpy()
-    lr = data.last_row.reindex(cols).to_numpy()
-    weeks = sorted(inp.elig)
-    wk_pos = np.searchsorted(np.array(weeks, dtype="datetime64[ns]"), perf.values, side="right") - 1
-
-    cash, o_units = account, 0.0
-    pos: dict = {}
-    pend_sell: dict = {}
-    pend_buy: list = []
-    navs, expo, costs, inmkt = (np.zeros(len(perf)) for _ in range(4))
-    traded = 0.0
-    counts = {"buy": 0, "sell_sma5": 0, "sell_time": 0, "delisted": 0, "oneq_orders": 0, "skipped_no_cash": 0}
-    trades = []
-
-    def hs(sid, price, i):
-        w = weeks[wk_pos[i]] if wk_pos[i] >= 0 else None
-        return rank_half_spread(inp.rank_of.get(w, {}).get(sid, np.nan), price, spread_mult)
-
-    def stock_value(i):
-        return sum(p["units"] * I[i, col[s]] for s, p in pos.items())
-
-    def decide(i, n_after_sells):
-        """Exit and entry decisions at the close of perf[i]."""
-        d = perf[i]
-        sells = {}
-        for sid, p in pos.items():
-            c = col[sid]
-            held = i - p["entry_i"]          # 0 on the fill day (lag 1): the exit rule is checked there too
-            if X[i, c]:
-                sells[sid] = "sma5"
-            elif held >= MAX_HOLD - lag:     # lag 1: decided on session 9, filled on session 10 after entry
-                sells[sid] = "time"
-        slots = K - (n_after_sells - len(sells))
-        buys = []
-        if slots > 0 and wk_pos[i] >= 0:
-            cand = []
-            for sid in inp.elig[weeks[wk_pos[i]]]:
-                c = col.get(sid)
-                if c is None or sid in pos or not E[i, c]:
-                    continue
-                if pd.notna(lr[c]) and (lr[c] <= d if lag == 1 else lr[c] < d):
-                    continue
-                cand.append((RS[i, c], sid))
-            buys = [s for _, s in sorted(cand)[:slots]]
-        return sells, buys
-
-    def execute(i, sells, buys):
-        nonlocal cash, o_units, traded
-        day_cost, acted = 0.0, False
-        for sid, reason in sorted(sells.items()):
-            if sid not in pos:
-                continue
-            p = pos.pop(sid)
-            c = col[sid]
-            val = p["units"] * I[i, c]
-            k = cs.order_cost(val, P[i, c], True, hs(sid, P[i, c], i))
-            cash += val - k
-            day_cost += k
-            traded += val
-            counts[f"sell_{reason}"] += 1
-            trades.append({"sid": sid, "entry": str(perf[p["entry_i"]].date()), "exit": str(perf[i].date()),
-                           "reason": reason, "ret": (val - k) / p["paid"] - 1, "sessions": i - p["entry_i"],
-                           "shares": p["shares"]})
-            acted = True
-        nav_now = cash + o_units * OL[i] + stock_value(i)
-        for sid in buys:
-            if len(pos) >= K or sid in pos:
-                continue
-            c = col[sid]
-            d = perf[i]
-            if not (np.isfinite(I[i, c]) and np.isfinite(P[i, c])) or (pd.notna(lr[c]) and lr[c] < d):
-                continue
-            px = P[i, c]
-            sh = math.floor(SLOT * nav_now / px)
-            avail = cash + (o_units * OL[i] * (1 - 2 * ONEQ_HALF_SPREAD) - 1.0 if idle == "oneq" else 0.0)
-            while sh >= 1 and sh * px + cs.order_cost(sh * px, px, False, hs(sid, px, i)) > avail:
-                sh = math.floor(min(sh - 1, (avail - 1.0) / px))
-            if sh < 1:
-                counts["skipped_no_cash"] += 1
-                continue
-            amt = sh * px
-            k = cs.order_cost(amt, px, False, hs(sid, px, i))
-            cash -= amt + k
-            day_cost += k
-            traded += amt
-            pos[sid] = {"units": amt / I[i, c], "entry_i": i, "paid": amt + k, "shares": sh}
-            counts["buy"] += 1
-            acted = True
-        return day_cost, acted
-
-    def park(i, force):
-        """R4: move idle money into ONEQ (whole shares) after the day's stock orders."""
-        nonlocal cash, o_units, traded
-        if idle != "oneq" or not (force or cash < 0 or cash > OP[i]):
-            return 0.0
-        cur_val = o_units * OL[i]
-        total = cash + cur_val
-        tgt_sh = math.floor(total / OP[i])
-        cur_sh = cur_val / OP[i]
-        while True:
-            delta_val = tgt_sh * OP[i] - cur_val
-            k = cs.order_cost(abs(delta_val), OP[i], delta_val < 0, ONEQ_HALF_SPREAD) if abs(delta_val) > 0.01 else 0.0
-            if total - tgt_sh * OP[i] - k >= 0 or tgt_sh <= 0:
-                break
-            tgt_sh -= 1
-        if abs(tgt_sh - cur_sh) < 0.5 and cash >= 0:
-            return 0.0
-        delta_val = tgt_sh * OP[i] - cur_val
-        k = cs.order_cost(abs(delta_val), OP[i], delta_val < 0, ONEQ_HALF_SPREAD)
-        o_units += delta_val / OL[i]
-        cash -= delta_val + k
-        traded += abs(delta_val)
-        counts["oneq_orders"] += 1
-        return k
-
-    for i, d in enumerate(perf):
-        day_cost, acted = 0.0, False
-        for sid in [s for s in pos if pd.notna(lr[col[s]]) and d > lr[col[s]]]:
-            p = pos.pop(sid)
-            val = p["units"] * I[i, col[sid]]
-            cash += val
-            counts["delisted"] += 1
-            trades.append({"sid": sid, "entry": str(perf[p["entry_i"]].date()), "exit": str(d.date()),
-                           "reason": "delisted", "ret": val / p["paid"] - 1, "sessions": i - p["entry_i"],
-                           "shares": p["shares"]})
-            pend_sell.pop(sid, None)
-            acted = True
-        if lag == 1:
-            c1, a1 = execute(i, pend_sell, pend_buy)
-            day_cost += c1
-            acted |= a1
-            pend_sell, pend_buy = {}, []
-            if i < len(perf) - 1:
-                pend_sell, pend_buy = decide(i, len(pos))
-        else:
-            if i < len(perf) - 1:
-                s, b = decide(i, len(pos))
-                c1, a1 = execute(i, s, b)
-                day_cost += c1
-                acted |= a1
-        day_cost += park(i, force=(i == 0) or acted)
-        sv = stock_value(i)
-        navs[i] = cash + o_units * OL[i] + sv
-        expo[i] = sv / navs[i] if navs[i] > 0 else 0.0
-        inmkt[i] = 1.0 if pos else 0.0
-        costs[i] = day_cost
-    return {"dates": perf, "nav": pd.Series(navs, index=perf), "exposure": pd.Series(expo, index=perf),
-            "in_market": pd.Series(inmkt, index=perf), "cost": pd.Series(costs, index=perf), "traded": traded,
-            "counts": counts, "trades": pd.DataFrame(trades), "open": sorted(pos)}
-
-
-def benchmarks(inp: StockInputs, dates, account: float = ACCOUNT):
-    q = inp.oneq_lvl.reindex(dates)
-    kc = cs.order_cost(account, float(inp.oneq_px.reindex(dates).iloc[0]), False, ONEQ_HALF_SPREAD)
-    oneq = (account - kc) * q / q.iloc[0]
-    qqq = cs.qqq_benchmark(inp.data.qqq_perf_idx, inp.data.qqq_close, dates, account)
-    return oneq, qqq
-
-
-def stock_result(inp: StockInputs, idle: str, **kw) -> tuple[dict, dict]:
-    res = stock_sim(inp, idle=idle, **kw)
-    oneq, qqq = benchmarks(inp, res["dates"])
-    m = ind.stock_metrics(res["nav"], oneq, qqq, ACCOUNT, res["cost"], res["traded"], res["exposure"])
-    t = res["trades"]
-    m["closed_trades"] = int(len(t))
-    m["win_rate"] = float((t["ret"] > 0).mean()) if len(t) else float("nan")
-    m["avg_trade_ret"] = float(t["ret"].mean()) if len(t) else float("nan")
-    m["median_sessions"] = float(t["sessions"].median()) if len(t) else float("nan")
-    m["time_in_market"] = float(res["in_market"].mean())
-    m.update({f"n_{k}": v for k, v in res["counts"].items()})
-    res["oneq"], res["qqq"] = oneq, qqq
-    return m, res
-
-
-def run_stocks(lines: list) -> dict:
+def run_stocks(log: RunLog) -> dict:
     out = {}
     year_rows, mon = [], {}
     for fold in STOCK_WINDOWS:
         data = panel.load_window(f"mr_{fold}", STOCK_WINDOWS[fold])
         print(data.guard["assertion"])
-        inp = StockInputs(data)
-        stress = StockInputs(panel.load_window(f"mr_{fold}", STOCK_WINDOWS[fold], terminal_awaiting=TERMINAL_D5_STRESS))
+        inp = StockInputs(data, CFG)
+        stress = StockInputs(panel.load_window(f"mr_{fold}", STOCK_WINDOWS[fold], terminal_awaiting=TERMINAL_D5_STRESS),
+                             CFG)
         for rule, idle in (("R3", "cash"), ("R4", "oneq")):
-            m, res = stock_result(inp, idle)
+            m, res = stock_result(inp, idle, CFG)
             crit = ind.criteria(m["cagr"], m["max_dd"], m["bench_cagr"], m["bench_max_dd"], m["t_excess_monthly"])
             sens = {}
             for tag, src, kw in (("spread2x", inp, dict(spread_mult=2.0)), ("same_close", inp, dict(lag=0)),
                                  ("terminal_minus100", stress, {})):
-                ms, _ = stock_result(src, idle, **kw)
+                ms, _ = stock_result(src, idle, CFG, **kw)
                 sens[tag] = {"cagr": ms["cagr"], "excess_cagr": ms["excess_cagr"], "max_dd": ms["max_dd"],
                              "t_excess_monthly": ms["t_excess_monthly"]}
             if fold == "F1":
@@ -513,8 +153,8 @@ def run_stocks(lines: list) -> dict:
                         "sensitivities": sens, "carried_universe_weeks": inp.carried_weeks,
                         "open_positions_at_end": res["open"], "guard": data.guard}
             res["trades"].to_csv(OUT / f"trades_{key}.csv", index=False, float_format="%.6f")
-            nav0 = pd.concat([pd.Series([ACCOUNT], index=[res["nav"].index[0] - pd.Timedelta(days=1)]), res["nav"]])
-            bn0 = pd.concat([pd.Series([ACCOUNT], index=[res["oneq"].index[0] - pd.Timedelta(days=1)]), res["oneq"]])
+            nav0 = pd.concat([pd.Series([CFG.account], index=[res["nav"].index[0] - pd.Timedelta(days=1)]), res["nav"]])
+            bn0 = pd.concat([pd.Series([CFG.account], index=[res["oneq"].index[0] - pd.Timedelta(days=1)]), res["oneq"]])
             mon[key] = monthly(nav0.pct_change().dropna())
             mon[f"ONEQ_{fold}"] = monthly(bn0.pct_change().dropna())
             tim = res["in_market"].groupby(res["in_market"].index.year).mean()
@@ -530,15 +170,12 @@ def run_stocks(lines: list) -> dict:
                     f"{m['qqq_cagr']:+.2%}) MDD {m['max_dd']:.1%} (ONEQ {m['bench_max_dd']:.1%}) t "
                     f"{m['t_excess_monthly']:+.2f} trades {m['closed_trades']} win {m['win_rate']:.0%} in-market "
                     f"{m['time_in_market']:.0%} cost {m['cost_drag_per_year']:.2%}/yr pass={crit['pass']}")
-            print(line, flush=True)
-            lines.append(line)
+            log.say(line)
     for rule in ("R3", "R4"):
         f1, f2 = out[f"{rule}_F1"]["criteria"]["pass"], out[f"{rule}_F2"]["criteria"]["pass"]
         out[f"{rule}_verdict"] = "pass" if (f1 and f2) else ("unstable (one fold only)" if (f1 or f2) else "fail")
     pd.DataFrame(year_rows).to_csv(OUT / "stock_by_year.csv", index=False, float_format="%.6f")
-    mk = pd.DataFrame(mon)
-    mk.index = mk.index.astype(str)
-    mk.to_csv(OUT / "stock_monthly_returns.csv", float_format="%.6f")
+    write_monthly_csv(OUT / "stock_monthly_returns.csv", mon)
     return out
 
 
@@ -546,14 +183,14 @@ def run_stocks(lines: list) -> dict:
 
 def run(args) -> dict:
     OUT.mkdir(parents=True, exist_ok=True)
-    lines: list = []
+    log = RunLog()
     res = {"n_trials": N_TRIALS, "bonferroni_t_one_sided_5pct": bonferroni_t(N_TRIALS)}
     if not args.stocks_only:
-        res["etf"] = run_etf(lines)
+        res["etf"] = run_etf(log)
     if not args.etf_only:
-        res["stocks"] = run_stocks(lines)
-    (OUT / "results.json").write_text(json.dumps(res, indent=2, default=str))
-    (OUT / "run_log.txt").write_text("\n".join(lines) + "\n")
+        res["stocks"] = run_stocks(log)
+    write_json(OUT / "results.json", res)
+    log.write(OUT / "run_log.txt")
     return res
 
 
