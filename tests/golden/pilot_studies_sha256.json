@@ -1,0 +1,29 @@
+{
+ "_note": "SHA-256 of every output file written by the pre-migration scripts/research_<name>.py (master dc99a861f), data version v1. tests/quant/test_pilot_goldens.py re-runs studies/<name>.py and requires byte-identical files.",
+ "studies": {
+  "megacap": {
+   "by_year.csv": "d4c7c1133e4520c457d187335b035c89f641322887431bf5a5d522e4b9508f63",
+   "holdings_by_signal.csv": "632c6285a1b621998bc5ec9d34b11c8b25b5e829ea7f7322728cbafc7569d4bc",
+   "mcap_source_share_top20.csv": "7258e511d6dcdab2e114de157d701cf725c41c13c1d59dff5f0f850b304d5f3b",
+   "nav_daily.csv": "eab2e0bf78a4d4b8e0dede25cae3ec24417d720b73489749b86fa36700a63603",
+   "results.json": "c1f9d2f1149812c5ff2f65d6a2ca8668a3279fa50950f1ab7a256631e22d64dc",
+   "summary.csv": "01c4220a143e90ed5bcc8a55612dc5d5cce0c28f46ed299a38ecbc7c05906ee8",
+   "top20_by_month.csv": "f35399e938c5ac22c8dd1703a1de59466016d737254aec2dd21263b28ab0378b"
+  },
+  "regime": {
+   "by_year.csv": "68942fa533ddb3a4c67a23d5ba187f51192d3c2372c7e51550135e7e7533dd27",
+   "monthly_returns.csv": "f7eead703388fe8ed7669ec079c347fa02ea9fa10a92c0c3206461886b59945c",
+   "results.json": "6a9193955e47ed900ae4eb0cde7a1ee671590c8aa5fab9eecc8771851086a48a",
+   "summary.csv": "b8d1f30198591a49cea8f8a1bca36b4968174c2c79d2922623614fd3761d6fcb"
+  },
+  "selective_t": {
+   "by_year.csv": "763ff4d29f2cf3a4e286382e3814a926ffce2efe419e4c3cb63abb265e9e21d7",
+   "data_checks.csv": "d9697e64a99c3afb8ad96e1b08b9dd6ebea1aa24cf8ee4c9e7e17cea34ba9717",
+   "monthly_excess_vs_hbase.csv": "f610ade30c5cc27666cc68eae656e4fe8e29d3fa8217aaba43ff698b9675e753",
+   "per_stock.csv": "e513754b1cf3b7e1e46440f59450b4b9131dfbfa75bcf930a79b782af4506650",
+   "results.json": "59f0751a38dbe8415566da2a2d0bf73f447821f69f7080c53d3309b7510d8f6c",
+   "summary.csv": "c206d48436c4924f2d1bf550625f714ced0f81d88c993d174dd7e76e862ac6fa",
+   "trips_by_year.csv": "fd4c3386298c6b4005bbdc89322a7244c19d17e6b2e9defa7a546fdb60a3d843"
+  }
+ }
+}
