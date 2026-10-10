@@ -30,11 +30,8 @@ import numpy as np
 import pandas as pd
 
 from quant.data.megacap_history import (  # noqa: F401  (o2.* names read by tests)
-    CMC_PRICE_RANKED, CUT_AFTER_NASDAQ_DAYS, END, FIRST_SIGNAL, FRESH_DAYS, FULL, JUDGE_FROM, LOCAL, ONEQ_CHART,
-    ONEQ_FROM, PERIODS, QQQ_CHART, SNAPSHOT_SIGNALS, SPLIT_RATIOS, SPLIT_TOL, START, TERMINAL_CASH, TERMINAL_D5,
-    _cmc_price_mcap, _nearest_ratio, _segment_from_source, _source_splits, _tiingo_tr, build,
-    engine_panels, factor_at, fix_share_outliers, load_oneq, load_qqq, market_caps, name_prices, nasdaq_on,
-    period_stats, rank_table, share_facts, signal_sessions, split_units, wayback_segment,
+    END, FULL, JUDGE_FROM, LOCAL, ONEQ_FROM, PERIODS, SNAPSHOT_SIGNALS, build, engine_panels, fix_share_outliers,
+    load_oneq, load_qqq, market_caps, period_stats, rank_table, signal_sessions, split_units,
 )
 from quant.evaluation.metrics import yearly as _yearly
 from quant.paths import output_dir

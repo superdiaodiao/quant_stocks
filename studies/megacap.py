@@ -34,11 +34,11 @@ from quant.data.calendar import last_session_of_each_month
 from quant.data.guards import assert_window
 from quant.data.panel import load_window
 from quant.evaluation.criteria import HALVES_AB_LABELS, ab_verdict_on, bonferroni_t
-from quant.evaluation.metrics import longest_drawdown_days, max_drawdown, monthly, yearly  # noqa: F401  (mc.*)
+from quant.evaluation.metrics import longest_drawdown_days, yearly  # noqa: F401  (mc.*)
 from quant.evaluation.periods import nav_window_metrics
 from quant.paths import ROOT
 from quant.signals.technical import momentum_frames  # noqa: F401  (mc.momentum_frames)
-from quant.strategies.megacap import ACCOUNT, ONEQ_HS, QQQ_HS, RULES, Rule, build_targets, buy_hold, simulate  # noqa: F401
+from quant.strategies.megacap import ONEQ_HS, QQQ_HS, RULES, Rule, build_targets, buy_hold, simulate  # noqa: F401
 
 OUT = dv.versioned(ROOT / "output/research_only/megacap")
 WINDOW = "megacap"

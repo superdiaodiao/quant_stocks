@@ -50,16 +50,15 @@ import pandas as pd
 
 from quant.data import version as dv
 from quant.data.eps import (  # noqa: F401  (cs.* names read by other scripts and tests)
-    CF_DIRS, CF_FETCH_DIR, EPS_CACHE, EPS_CONCEPTS, _cf_path, _days, attach_eps, build_eps_states, eps_asof,
-    eps_states, extract_eps_facts, fetch_companyfacts,
+    EPS_CACHE, attach_eps, build_eps_states, eps_asof, eps_states, fetch_companyfacts,
 )
 from quant.data.panel import TERMINAL_D5_STRESS
 from quant.evaluation.criteria import bonferroni_t, weekly_deflated_sharpe
 from quant.paths import ROOT
 from quant.strategies.canslim import (  # noqa: F401  (cs.* names read by other scripts and tests)
-    CACHE, CASH_RATE, DEV_END, DEV_START, FIRST_SIGNAL, INPUTS, PRICE_START, QQQ_HALF_SPREAD, UNIVERSE_START, Config,
-    DateGuardError, DevData, assert_window, build_features, load_dev_data, market_filter, order_cost, perf_metrics,
-    price_features, qqq_benchmark, screen, signal_schedule, simulate, truncate, weekly,
+    DEV_END, DEV_START, FIRST_SIGNAL, INPUTS, PRICE_START, UNIVERSE_START, Config, DateGuardError, DevData,
+    assert_window, build_features, load_dev_data, market_filter, order_cost, perf_metrics, price_features,
+    qqq_benchmark, screen, signal_schedule, simulate, truncate, weekly,
 )
 
 OUT = dv.versioned(ROOT / "output/research_only/canslim_dev_2017_2022")

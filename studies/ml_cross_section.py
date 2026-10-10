@@ -38,9 +38,7 @@ from quant.strategies import canslim as cs  # noqa: E402
 from quant.strategies import fundamentals as rf  # noqa: E402
 from quant.strategies import megacap as mc  # noqa: E402
 from quant.strategies.ml_features import (  # noqa: E402,F401  (ml.* names read by other scripts and tests)
-    CONT_FEATURES, END, FF12_RANGES, FIRST_SIGNAL, FUND_FEATURES, MCACHE, PANEL_CACHE, PERF_START, PRICE_FEATURES,
-    PRICE_START, build_panel, ff12, price_feature_frames, price_features, qqq_total_returns, require_v2, sample_at,
-    u300_candidates,
+    CONT_FEATURES, FUND_FEATURES, PRICE_FEATURES, build_panel, ff12, price_features,
 )
 
 OUT = ROOT / "output/research_only/ml_cross_section"

@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from tests.quant.originals.qqq_timing import (
+from originals.qqq_timing import (
     COMMISSION_MAX_FRAC, COMMISSION_MIN, COMMISSION_PER_SHARE, FEES_PER_SHARE, SELL_REG_FRAC, TRADING_DAYS,
     assert_dev_dates, cagr_of, max_drawdown, monthly, parse_chart, truncate_dev, yearly,
 )

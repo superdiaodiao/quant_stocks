@@ -26,7 +26,7 @@ from quant.data.rates import fill_rf, load_dtb3, load_kf_rf
 from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.metrics import TRADING_DAYS, cagr_of, exposure_metrics, max_drawdown, max_drawdown_of_returns
 from quant.paths import CACHE_ROOT
-from quant.signals.indicators import atr, bollinger, donchian, ema, kdj, macd, rsi, sma, true_range, wilder  # noqa: F401
+from quant.signals.indicators import atr, bollinger, donchian, ema, kdj, macd, rsi, sma, true_range  # noqa: F401
 from quant.strategies import canslim as cs
 from quant.strategies import livermore as lv
 

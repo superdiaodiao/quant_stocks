@@ -2,7 +2,7 @@
 functions tests/quant/test_quant_core.py compares the quant core with. Do not edit."""
 from __future__ import annotations
 import pandas as pd
-from tests.quant.originals import reversal_dev as rev
+from originals import reversal_dev as rev
 from scripts import study_data_version as dv  # noqa: E402
 
 

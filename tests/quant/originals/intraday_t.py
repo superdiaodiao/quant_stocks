@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from tests.quant.originals.reversal_dev import order_cost
+from originals.reversal_dev import order_cost
 
 
 END = "2026-09-30"

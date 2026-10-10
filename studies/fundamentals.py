@@ -37,12 +37,9 @@ from quant.strategies import canslim as cs
 from quant.strategies import indicators as ind
 from quant.strategies import megacap as mc
 from quant.strategies.fundamentals import (  # noqa: F401  (rf.* names read by tests)
-    ANNUAL_COLS, ANNUAL_FORMS, COMPOSITES, COMPOSITE_FAMILIES, END, EPS_COLS, EPS_Q, FACTORS, FAMILIES, FCACHE, FLOW,
-    PERF_START, PRICE_START, FLOW_PS, FLOW_SH, FY0_GROUPS, INT_COV_CAP, MAX_FY_AGE, MAX_Q_AGE, MIN_MCAP_WIDE, MIN_PRICE_WIDE, SECFACTS,
-    SIGN, SMALL_MCAP_RATIO, STOCK, SUBMISSIONS, _days, _growth_abs, _json, _ord, _payloads, _ratio,
-    accounting_factors, asof_states, build_states, company_states, composites, extract_all, facts_from_payload,
-    fiscal_years, load_all, market_factors, pick, pick_stock, piotroski, reject_small_mcaps, sic_map, universes,
-    year_inputs, zscores,
+    ANNUAL_COLS, COMPOSITES, END, FACTORS, FAMILIES, FCACHE, PRICE_START, INT_COV_CAP, SECFACTS, SIGN, STOCK,
+    _json, accounting_factors, asof_states, build_states, company_states, composites, extract_all, load_all,
+    market_factors, pick, piotroski, reject_small_mcaps, sic_map, universes, year_inputs, zscores,
 )
 
 OUT_V1 = ROOT / "output/research_only/fundamentals"

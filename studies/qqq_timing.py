@@ -42,19 +42,16 @@ import pandas as pd
 
 from quant.backtest import exposure
 from quant.backtest.costs import (  # noqa: F401  (qt.* names read by tests)
-    CASH_ETF_FEE, COMMISSION_MAX_FRAC, COMMISSION_MIN, COMMISSION_PER_SHARE, FEES_PER_SHARE, LEV_ER, NOMINAL_PRICE,
-    SELL_REG_FRAC, START_EQUITY, etf_order_cost,
+    CASH_ETF_FEE, FEES_PER_SHARE, SELL_REG_FRAC, etf_order_cost,
 )
-from quant.backtest.exposure import HALF_SPREAD, VT_BAND, synthetic_2x, weights_for  # noqa: F401
+from quant.backtest.exposure import HALF_SPREAD, synthetic_2x, weights_for  # noqa: F401
 from quant.data import guards, index_history
 from quant.data.guards import FutureDataError  # noqa: F401
 from quant.data.index_history import DevData, QQQ_FIRST_CLOSE, NDX_LAST_BEFORE_QQQ
 from quant.data.rates import fill_rf  # noqa: F401
 from quant.data.sources import yahoo
 from quant.evaluation.criteria import bonferroni_t, deflated_sharpe, timing_criteria as evaluate_criteria
-from quant.evaluation.metrics import (  # noqa: F401
-    TRADING_DAYS, cagr_months, cagr_of, exposure_metrics as metrics, max_drawdown, monthly, yearly,
-)
+from quant.evaluation.metrics import TRADING_DAYS, cagr_of, exposure_metrics as metrics, monthly, yearly
 from quant.paths import CACHE_ROOT, output_dir
 from quant.signals.technical import month_end_only, realised_vol, trend_state  # noqa: F401
 

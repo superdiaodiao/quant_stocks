@@ -3,10 +3,10 @@ functions tests/quant/test_quant_core.py compares the quant core with. Do not ed
 from __future__ import annotations
 from pathlib import Path
 import pandas as pd
-from tests.quant.originals import qqq_timing as qt  # noqa: E402  (Yahoo parser + date guard, RF, index simulator, metrics)
-from tests.quant.originals import livermore as lv  # noqa: E402  (stock windows loader, universe, metrics)
-from tests.quant.originals import canslim_dev as cs  # noqa: E402  (order cost, QQQ benchmark)
-from tests.quant.originals import reversal_dev as rev  # noqa: E402  (half spread, deflated Sharpe)
+from originals import qqq_timing as qt  # noqa: E402  (Yahoo parser + date guard, RF, index simulator, metrics)
+from originals import livermore as lv  # noqa: E402  (stock windows loader, universe, metrics)
+from originals import canslim_dev as cs  # noqa: E402  (order cost, QQQ benchmark)
+from originals import reversal_dev as rev  # noqa: E402  (half spread, deflated Sharpe)
 
 
 BENCH_DIR = Path("/Users/bytedance/code/quant_stocks/research_cache/benchmarks")

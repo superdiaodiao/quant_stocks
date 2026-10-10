@@ -39,7 +39,7 @@ import numpy as np
 import pandas as pd
 
 from quant.backtest.costs import (  # noqa: F401  (rev.* names read by tests and the cost-model docs)
-    CLEARING_FEE_PER_SHARE, EXCHANGE_FEE_PER_SHARE, FINRA_TAF_MAX, FINRA_TAF_PER_SHARE_SOLD, HALF_SPREAD_BPS,
+    CLEARING_FEE_PER_SHARE, EXCHANGE_FEE_PER_SHARE, FINRA_TAF_PER_SHARE_SOLD, HALF_SPREAD_BPS,
     HALF_SPREAD_UNRANKED_BPS, PASS_THROUGH_OF_COMMISSION, REBALANCE_BAND, SEC_FEE_PER_DOLLAR_SOLD,
     ibkr_order_cost as order_cost, rank_half_spread as half_spread,
 )

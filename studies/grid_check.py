@@ -33,7 +33,7 @@ from quant.paths import ROOT
 from quant.strategies import indicators as ri
 from quant.strategies import livermore as lv
 from quant.strategies.indicators import (  # noqa: F401  (gc.* names read by tests)
-    DC_ENTRY, DC_EXIT, GRIDS, MA_LONG, MA_SHORT, OWNER_REF, PARAM_NAMES, donchian_grid, ma_grid, make_rule,
+    GRIDS, OWNER_REF, PARAM_NAMES, donchian_grid, ma_grid, make_rule,
 )
 
 OUT = dv.versioned(ROOT / "output/research_only/grid_check")

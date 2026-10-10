@@ -31,11 +31,9 @@ from quant.evaluation.stats import t_sf  # noqa: E402
 from quant.prereg import Preregistration  # noqa: E402
 from quant.paths import ROOT  # noqa: E402
 from quant.strategies.short_overlay import (  # noqa: E402,F401  (so.* names read by tests)
-    ACCOUNT, ALPHA_ONE_SIDED, BAND, BIG_RANK, BORROW_BIG, BORROW_HTB, BORROW_REST, BUFFER_MULT, CREDIT_FREE,
-    CREDIT_SPREAD, Cfg, DAYCOUNT, EFFR_CSV, FOLDS, FULL_RATE_NAV, HTB_VOL_Q, INIT_CAP, KS, LIQ_SLIP, MAINT_LONG,
-    MARGIN_SPREAD, MISP_MIN, MISP_PARTS, MODES, Market, NS, N_TRIALS, QQQ_BAND, QQQ_HALF_SPREAD, REGT_INIT,
-    SIGNALS, basket_diagnostics, bonferroni_t, borrow_rates, build_market, daily_interest, fold_bounds, folds_for,
-    leg_summary, load_effr, loser_orders, misp_score, month_returns, ols_alpha, pct_rank, schedule, select_shorts,
+    ACCOUNT, BORROW_BIG, BORROW_HTB, BORROW_REST, Cfg, FOLDS, KS, MODES, Market, NS, N_TRIALS, SIGNALS,
+    basket_diagnostics, bonferroni_t, borrow_rates, build_market, daily_interest, fold_bounds, folds_for,
+    leg_summary, load_effr, loser_orders, misp_score, month_returns, ols_alpha, schedule, select_shorts,
     short_maint, signal_scores, simulate, terminal_variant, tstat,
 )
 

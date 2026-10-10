@@ -31,7 +31,7 @@ import pandas as pd
 from quant.backtest.costs import etf_order_cost as order_cost  # noqa: F401  (rr.order_cost: sector_lev, tests)
 from quant.backtest.target_weights import entry_index, simulate_target_weights, two_state
 from quant.data.calendar import month_end_mask
-from quant.data.etf_panel import BENCH, HALF_SPREAD, TICKERS, Data, load_data  # noqa: F401  (rr.* for tests)
+from quant.data.etf_panel import BENCH, HALF_SPREAD, Data, load_data  # noqa: F401  (rr.* for tests)
 from quant.data.guards import assert_dev_dates
 from quant.data.sources.yahoo import parse_chart
 from quant.evaluation.criteria import REGIME_AB_LABELS, ab_verdict, bonferroni_t

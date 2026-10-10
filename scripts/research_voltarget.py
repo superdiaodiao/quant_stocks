@@ -1,9 +1,5 @@
-"""Moved to studies/voltarget.py (docs/architecture.md, phase 2).
-
-This wrapper keeps the commands written in docs/research_ledger_voltarget.md working
-(``PYTHONPATH=. .venv/bin/python scripts/research_voltarget.py``) and makes ``import scripts.research_voltarget`` return
-the moved module itself, so attribute reads and writes by other scripts and tests reach the real code.
-"""
+"""Moved to studies/voltarget.py (docs/architecture.md section 5). Running this file runs that module;
+importing it returns that module itself, so the ledger commands and every caller keep working."""
 import sys
 from pathlib import Path
 

@@ -36,8 +36,8 @@ import numpy as np
 import pandas as pd
 
 from quant.backtest.costs import ibkr_order_cost as order_cost, tick_half_spread
-from quant.backtest.execution import (  # noqa: F401  (it.* names read by tests)
-    THROUGH_FRAC, TICK, buy_hold_returns, ceil_cent, fill_buy_limit as fill_t2, fill_sell_limit as fill_t1, floor_cent,
+from quant.backtest.execution import (
+    buy_hold_returns, ceil_cent, fill_buy_limit as fill_t2, fill_sell_limit as fill_t1, floor_cent,
 )
 from quant.data.guards import assert_dev_dates
 from quant.data.ohlc import OHLCSeries as Series_, build_real_ohlc as build, real_factor  # noqa: F401

@@ -1,9 +1,5 @@
-"""Moved to studies/benchmark_composite.py (docs/architecture.md, phase 2).
-
-This wrapper keeps the existing commands working
-(``PYTHONPATH=. .venv/bin/python scripts/research_benchmark_composite.py``) and makes ``import scripts.research_benchmark_composite`` return
-the moved module itself, so attribute reads and writes by other scripts and tests reach the real code.
-"""
+"""Moved to studies/benchmark_composite.py (docs/architecture.md section 5). Running this file runs that module;
+importing it returns that module itself, so the ledger commands and every caller keep working."""
 import sys
 from pathlib import Path
 

@@ -39,14 +39,12 @@ from quant.evaluation.criteria import NORM, ab_criteria, bh_reject, bonferroni_t
 from quant.evaluation.metrics import (
     TRADING_DAYS, cagr_of, core_metrics, max_drawdown, monthly, relative_metrics, t_and_ir, yearly,
 )
-from quant.paths import MAIN_CHECKOUT as MAIN, ROOT  # noqa: F401  (st.ROOT / st.MAIN: forward_prices)
+from quant.paths import ROOT
 from quant.strategies.selective_t import (  # noqa: F401  (st.* names read by tests and the observation)
-    BAND, BASE_FRAC, BUFFER, CACHE, CAP_MULT, CHART, CONFIGS, Cycle, END, FETCH_LOG, FETCH_START, Fam,
-    HALF_SPREAD_BPS, HEADERS, MARGIN_SPREAD, MAX_HOLD, Market, ONEQ_FIRST_RETURN, PANEL, PANEL_IDS, PARAMS, RAW,
-    RSI_N, S2_SLIP, SECONDS_PER_REQUEST, SMA_N, SOURCES, START_EQUITY, STOCKS, STOCK_HALF_SPREAD_BPS, STOP_CODES,
-    Spec, basket_mean, ceil_cent, chart_url, cost, exit_limit, fams_of, fetch, floor_cent, hs_bps, hs_of,
-    load_qqq_like, load_stock, market_from_frame, match_returns, ohlc_frame, panel_check, raw_path, ref_specs,
-    rsi_wilder, run_one, signal, simulate, variant_spec,
+    BASE_FRAC, BUFFER, CAP_MULT, CONFIGS, Cycle, END, Fam, HALF_SPREAD_BPS, Market, ONEQ_FIRST_RETURN, S2_SLIP,
+    SECONDS_PER_REQUEST, START_EQUITY, STOCKS, Spec, basket_mean, cost, exit_limit, fams_of, fetch, hs_bps, hs_of,
+    load_qqq_like, load_stock, match_returns, ohlc_frame, panel_check, raw_path, ref_specs, rsi_wilder, run_one,
+    signal, simulate, variant_spec,
 )
 
 OUT = ROOT / "output/research_only/selective_t"

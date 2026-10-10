@@ -18,11 +18,11 @@ from quant.data import calendar, guards, ohlc, panel, rates, version
 from quant.data.sources import yahoo
 from quant.evaluation import criteria, metrics
 from scripts import study_data_version as dv
-from tests.quant.originals import calendar as cal
-from tests.quant.originals import canslim_dev as cs
-from tests.quant.originals import intraday_t as it
-from tests.quant.originals import qqq_timing as qt
-from tests.quant.originals import reversal_dev as rev
+from originals import calendar as cal
+from originals import canslim_dev as cs
+from originals import intraday_t as it
+from originals import qqq_timing as qt
+from originals import reversal_dev as rev
 
 RNG = np.random.default_rng(20261010)
 
@@ -261,8 +261,8 @@ def test_oneq_and_panel_loaders_match_originals():
     from quant.data.benchmarks import ONEQ_CHART, oneq_on_sessions
     if not ONEQ_CHART.exists() or not (version.CACHE / "prices/daily_panel.csv.gz").exists():
         pytest.skip("research cache not available")
-    from tests.quant.originals import indicators as ind
-    from tests.quant.originals import livermore as lv
+    from originals import indicators as ind
+    from originals import livermore as lv
     want = lv.load_window("test2")
     got = panel.load_window("test2", lv.WINDOWS["test2"])
     for f in ("sig_idx", "perf_idx", "close", "close_adj", "vol_adj", "universe", "terminal_events"):

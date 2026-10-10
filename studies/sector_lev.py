@@ -31,16 +31,16 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from quant.backtest.costs import LEV_ER, NOMINAL_PRICE, START_EQUITY, etf_order_cost as order_cost  # noqa: F401
+from quant.backtest.costs import LEV_ER, START_EQUITY  # noqa: F401
 from quant.backtest.flagged_weights import buy_hold, entry_index, simulate  # noqa: F401  (sl.* for tests)
 from quant.data.calendar import month_end_mask
 from quant.data.guards import assert_dev_dates  # noqa: F401
 from quant.data.sector_etfs import (  # noqa: F401  (sl.* names read by tests)
-    CAL_START, ETFS, INDICES, LEVERAGE_LEGS, LEG_HALF_SPREAD as HALF_SPREAD, ONEQ_START, PRIOR_QQQ, RAW, SECTORS, SPREAD_2X, Data,
-    build_legs, chain_qqq, data_checks as _data_checks, load_data as _load_data,
+    ETFS, LEVERAGE_LEGS, ONEQ_START, RAW, SECTORS, SPREAD_2X, Data, build_legs, data_checks as _data_checks,
+    load_data as _load_data,
 )
 from quant.evaluation.criteria import ab_verdict as evaluate, bonferroni_t
-from quant.evaluation.equity import equity0, full_years, longest_underwater as longest_drawdown, period_metrics, ulcer_index  # noqa: F401
+from quant.evaluation.equity import equity0, longest_underwater as longest_drawdown, period_metrics  # noqa: F401
 from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthly, yearly  # noqa: F401
 from quant.paths import output_dir
 from quant.signals.technical import trend_state

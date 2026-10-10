@@ -17,7 +17,9 @@ import pandas as pd
 
 from quant.backtest import stop_rules
 from quant.backtest.costs import ibkr_order_cost, rank_half_spread
+from quant.data import guards
 from quant.data import version as dv
+from quant.data.guards import DateGuardError  # noqa: F401  (cs.DateGuardError)
 from quant.data.eps import attach_eps
 from quant.data.panel import TERMINAL_D5, make_index
 from quant.evaluation.metrics import max_drawdown_of_returns
@@ -33,27 +35,14 @@ QQQ_HALF_SPREAD = 0.0001
 CASH_RATE = 0.0   # IBKR pays no interest on the first $10,000 of cash
 
 
-class DateGuardError(AssertionError):
-    pass
-
-
 def assert_window(dates, start: str | None = None, end: str = DEV_END, what: str = "dates") -> None:
-    """Raise when any date is after ``end`` (or before ``start``)."""
-    values = pd.to_datetime(pd.Series(list(dates)) if not isinstance(dates, (pd.Series, pd.Index)) else dates)
-    values = values.dropna()
-    if not len(values):
-        return
-    if values.max() > pd.Timestamp(end):
-        raise DateGuardError(f"{what}: {values.max().date()} is after {end}")
-    if start is not None and values.min() < pd.Timestamp(start):
-        raise DateGuardError(f"{what}: {values.min().date()} is before {start}")
+    """``quant.data.guards.assert_window`` with this study's end as the default."""
+    guards.assert_window(dates, start, end, what)
 
 
 def truncate(frame: pd.DataFrame, column: str, start: str, end: str = DEV_END) -> pd.DataFrame:
-    s = frame[column].astype(str)
-    out = frame.loc[(s >= start) & (s <= end)].copy()
-    assert_window(out[column], start, end, column)
-    return out
+    """``quant.data.guards.truncate_window`` with this study's end as the default."""
+    return guards.truncate_window(frame, column, start, end)
 
 
 @dataclass

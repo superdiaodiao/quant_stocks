@@ -37,11 +37,9 @@ from quant.evaluation.metrics import TRADING_DAYS, cagr_of, max_drawdown, monthl
 from quant.strategies import selective_t as st
 from quant.paths import ROOT
 from quant.strategies.t_grid import (  # noqa: F401  (tg.* names read by tests and the observation)
-    ACC_KEYS, AXES, BAND_HALF, BUFFER, CAP_MULT, CostModel, DIRS, DIR_NONE, EXITS, FRACS, GLOB_KEYS, HOLDS, Inst,
-    K_SIGMA, Leg, MARGIN_SPREAD, MEASURES, MEAS_SMA, MIN_OBS, PANEL, Q_HI, Q_LO, RATE, REGIMES, RESERVES, Rows,
-    SHAPE, SMA_LENS, START_EQUITY, T10_END, T10_START, THROUGH_FRAC, TICK, TOP20, U18_START, base_rows, build_rows,
-    ceil_cent, cfg_arrays, cost_vec, exact_run, expanding_thresholds, floor_cent, grid, hbase_of, hmatch_series,
-    indicator_block, label, load_all, make_inst, measures, oneq_for, ref_codes, simulate_grid, t10_spells,
+    ACC_KEYS, AXES, BUFFER, CostModel, DIRS, DIR_NONE, GLOB_KEYS, MARGIN_SPREAD, Rows, SHAPE, START_EQUITY,
+    T10_END, T10_START, U18_START, base_rows, cfg_arrays, cost_vec, exact_run, expanding_thresholds, grid,
+    hbase_of, hmatch_series, label, load_all, make_inst, oneq_for, simulate_grid, t10_spells,
 )
 
 MAIN = st.MAIN

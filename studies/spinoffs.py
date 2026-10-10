@@ -33,7 +33,7 @@ import pandas as pd
 
 from quant.backtest.costs import ibkr_order_total as order_cost, volume_tier_half_spread as half_spread  # noqa: F401
 from quant.data.sources import sec_cache as sec
-from quant.data.sources.daily_series import WIKI, _yahoo_frame, series_wiki, series_yahoo  # noqa: F401  (sp.*: tests)
+from quant.data.sources.daily_series import series_wiki, series_yahoo
 from quant.paths import ROOT
 
 OUT = ROOT / "output/research_only/spinoffs"

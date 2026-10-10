@@ -56,9 +56,8 @@ from quant.evaluation.criteria import bonferroni_t, weekly_deflated_sharpe
 from quant.paths import ROOT
 from quant.strategies import canslim as cs  # noqa: F401  (lv.cs: research_stops, tests)
 from quant.strategies.livermore import (  # noqa: F401  (lv.* names read by other scripts and tests)
-    CACHE, INPUTS, Config, DateGuardError, RULE_FIELDS, Runner, WINDOWS, WinData, breakout_frame, eligible_universe,
-    load_window, market_state, parse_pivot, perf_metrics, simulate, sub_metrics, trade_stats, trail_frame,
-    weekly_leaders,
+    Config, DateGuardError, RULE_FIELDS, Runner, WINDOWS, WinData, breakout_frame, load_window, perf_metrics,
+    simulate, sub_metrics, trail_frame,
 )
 
 OUT_V1 = ROOT / "output/research_only/livermore"

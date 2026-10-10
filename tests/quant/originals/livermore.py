@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from tests.quant.originals import canslim_dev as cs
-from tests.quant.originals import reversal_dev as rev
+from originals import canslim_dev as cs
+from originals import reversal_dev as rev
 from scripts import study_data_version as dv
 
 
