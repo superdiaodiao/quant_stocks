@@ -1,0 +1,334 @@
+<title>quant_stocks 研究总览</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;800&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a research ledger — one reading column, wide tables scroll inside their own frames; state shown as pills */
+:root{
+  --bg:#f3f5f6; --surface:#ffffff; --ink:#18232d; --muted:#5b6873; --line:#d9dfe3;
+  --accent:#1f5f8b; --accent-soft:#e3eef5;
+  --pass:#2f7d4f; --pass-soft:#e2f1e7; --fail:#a3433b; --fail-soft:#f6e4e2;
+  --risk:#9a6a12; --risk-soft:#f6eddb; --watch:#5a4fa0; --watch-soft:#ebe8f6; --ref:#55636e; --ref-soft:#e8ecef;
+  --display:"Noto Serif SC","Songti SC",serif; --body:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11171c; --surface:#182129; --ink:#e3e9ee; --muted:#93a1ac; --line:#2b3741;
+  --accent:#7db6dd; --accent-soft:#1c3243;
+  --pass:#7cc79a; --pass-soft:#1d3327; --fail:#e39389; --fail-soft:#3a2321;
+  --risk:#e0b866; --risk-soft:#3a2f17; --watch:#b3a9ec; --watch-soft:#2a2645; --ref:#a9b5be; --ref-soft:#26313a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11171c; --surface:#182129; --ink:#e3e9ee; --muted:#93a1ac; --line:#2b3741;
+  --accent:#7db6dd; --accent-soft:#1c3243;
+  --pass:#7cc79a; --pass-soft:#1d3327; --fail:#e39389; --fail-soft:#3a2321;
+  --risk:#e0b866; --risk-soft:#3a2f17; --watch:#b3a9ec; --watch-soft:#2a2645; --ref:#a9b5be; --ref-soft:#26313a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.7;margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:20px;padding-block:28px 64px;display:grid;gap:44px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;line-height:1.3}
+h1{font-size:clamp(28px,4.4vw,40px);font-weight:800}
+h2{font-size:22px;font-weight:800;display:flex;align-items:baseline;gap:10px}
+h2 small{font-family:var(--body);font-size:13px;font-weight:400;color:var(--muted)}
+h3{font-size:16px;font-weight:600}
+p{margin:0;max-width:68ch}
+a{color:var(--accent)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+section{display:grid;gap:16px;min-width:0}
+.eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+header{display:grid;gap:14px;border-bottom:2px solid var(--ink);padding-bottom:22px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+.stat b{display:block;font-family:var(--mono);font-size:24px;font-variant-numeric:tabular-nums;line-height:1.2}
+.stat span{color:var(--muted);font-size:13px}
+.verdict{background:var(--accent-soft);border-left:4px solid var(--accent);padding:16px 18px;border-radius:0 6px 6px 0;display:grid;gap:8px}
+.verdict p{max-width:none}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;counter-reset:step;list-style:none;margin:0;padding:0}
+.flow li{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:4px;counter-increment:step}
+.flow li::before{content:counter(step);font-family:var(--mono);color:var(--accent);font-weight:600}
+.flow li span{color:var(--muted);font-size:13px;line-height:1.55}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:4px 12px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip:focus-visible,.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.06em;color:var(--muted);font-weight:500;background:var(--surface);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.cat{white-space:nowrap;color:var(--muted);font-size:13px}
+td.name{font-weight:500;min-width:160px}
+td .doc{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:2px}
+.pill{display:inline-block;white-space:nowrap;font-size:12px;font-weight:500;border-radius:4px;padding:1px 8px}
+.p-fail{color:var(--fail);background:var(--fail-soft)} .p-risk{color:var(--risk);background:var(--risk-soft)}
+.p-watch{color:var(--watch);background:var(--watch-soft)} .p-ref{color:var(--ref);background:var(--ref-soft)}
+.p-pass{color:var(--pass);background:var(--pass-soft)}
+.count{color:var(--muted);font-size:13px}
+.lessons{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.lesson{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:grid;gap:6px}
+.lesson p{font-size:14px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.two>*{min-width:0}
+pre{margin:0;font-family:var(--mono);font-size:13px;line-height:1.6;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px;overflow-x:auto}
+.cmd{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.cmd code{white-space:pre-wrap;word-break:break-all;font-size:12.5px}
+.cmd p{grid-column:1/-1;color:var(--muted);font-size:13px}
+.copy{font:inherit;font-size:12px;border:1px solid var(--line);background:transparent;color:var(--accent);border-radius:4px;padding:2px 10px;cursor:pointer}
+ul.plain{margin:0;padding-left:1.2em;display:grid;gap:4px}
+.layers{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.layers li{display:grid;grid-template-columns:110px 1fr;gap:12px;border-bottom:1px dashed var(--line);padding-bottom:8px}
+.layers li b{font-weight:500}
+.layers li span{color:var(--muted);font-size:14px}
+.log li{color:var(--muted)} .log li b{color:var(--ink);font-family:var(--mono);font-weight:600;margin-right:6px}
+footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
+@media (max-width:520px){.layers li{grid-template-columns:1fr;gap:2px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">个人量化研究 · IBKR 约 1 万美元账户</div>
+  <h1>能不能稳定跑赢纳斯达克？</h1>
+  <p>目标是找到一个扣掉真实成本后，能长期跑赢纳斯达克综合指数（以 ONEQ 含分红为基准）的策略。项目只做研究和模拟，从不连接券商、从不下单。</p>
+  <div class="meta"><span>最后更新：<b id="updated">2026-10-11</b></span><span>代码：<a href="https://github.com/superdiaodiao/quant_stocks">superdiaodiao/quant_stocks</a></span><span>数据备份：私有仓库 quant_stocks_data</span></div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<section>
+  <div class="verdict">
+    <h3>到目前为止的结论</h3>
+    <p>测过的方向里，没有一个能在<strong>不多冒风险</strong>的前提下稳定跑赢纳指。看起来跑赢的，都是靠加杠杆或更集中地押注巨头，换一段历史就失灵。只想跑赢纳斯达克综合指数，最简单的是持有 QQQ（长期每年多约 2 个点）。几个"差一点通过"的候选正在用以后的真实行情观察，不投钱。</p>
+  </div>
+</section>
+
+<section>
+  <h2>研究怎么做 <small>每一步的规矩都写在台账里</small></h2>
+  <ol class="flow">
+    <li><b>建数据</b><span>多来源交叉核对，冻结成版本，以后不再改动</span></li>
+    <li><b>先登记</b><span>规则和通过标准先写进台账，再算结果，不许看了结果改规则</span></li>
+    <li><b>回测检验</b><span>历史分两段，一段挑参数、另一段检验，再反过来；按 IBKR 真实成本扣费</span></li>
+    <li><b>提高门槛</b><span>试的组合越多，统计门槛越高，防止碰巧好看</span></li>
+    <li><b>前瞻观察</b><span>差一点通过的放进观察，用以后的真实数据检验 2–3 年</span></li>
+    <li><b>才考虑投钱</b><span>观察期满并达标，才可能实盘；目前没有</span></li>
+  </ol>
+  <p class="count">通过标准（和 ONEQ 比，两段都要满足其一）：A 收益更高，且月度超额收益的 t 值 ≥ 门槛（≥2，试得多时更高）；B 最大回撤浅 10 个点以上，且年化落后不超过 3 个点。</p>
+</section>
+
+<section>
+  <h2>研究总表 <small id="tablecount"></small></h2>
+  <div class="filters" id="catFilters" role="group" aria-label="按类别筛选"></div>
+  <div class="filters" id="verdictFilters" role="group" aria-label="按结果筛选"></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>类别</th><th>方向</th><th>结果</th><th>要点</th></tr></thead>
+    <tbody id="studies"></tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>反复出现的规律</h2>
+  <div class="lessons">
+    <div class="lesson"><h3>指数被巨头带着走</h3><p>纳指按市值加权。选股策略持有的巨头不够多，在 2014 年以后"最大几家涨得最多"的行情里，结构上就会落后。</p></div>
+    <div class="lesson"><h3>择时能少亏，但会踏空</h3><p>均线、波动、大盘状态这些信号能躲开一部分下跌，但急跌后的反弹往往错过，扣成本后打不过一直持有。</p></div>
+    <div class="lesson"><h3>跑赢的多是在冒更多风险</h3><p>加杠杆、集中持有巨头、卖期权叠加，跑赢靠的是承担更多风险。比如集中巨头在 2014–2026 年通过，换到 1999–2013 年全部失败。</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>正在观察 <small>只观察，不投钱</small></h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>候选</th><th>规则（冻结）</th><th>开始</th><th>判定</th><th>运行在</th><th>状态</th></tr></thead>
+    <tbody id="watch"></tbody>
+  </table></div>
+  <p class="count">判定规则：满 24 个月前不下结论；第 36 个月时，累计超额 &gt; 0 且月度超额 t ≥ 2 才算有效。记录在 <a href="https://github.com/superdiaodiao/quant_stocks/blob/master/docs/forward_observation_log.md">forward_observation_log.md</a>。</p>
+</section>
+
+<section>
+  <h2>数据</h2>
+  <div class="two">
+    <div style="display:grid;gap:12px">
+      <div class="tablebox"><table style="min-width:420px">
+        <thead><tr><th>版本</th><th>冻结</th><th>内容</th><th>缺口超 2% 的年份</th></tr></thead>
+        <tbody id="versions"></tbody>
+      </table></div>
+      <p class="count">数据：2012–2026 年纳斯达克股票每日行情、退市终值、SEC 财报、每周成交额前 300 名。来源有 Nasdaq Data Link、Yahoo、Tiingo、Alpaca、SEC、archive.org 等。与 QuantConnect 比对，周收益 99.8% 一致；换版本重算所有研究，结论不变。</p>
+    </div>
+    <div style="display:grid;gap:10px">
+      <h3>保护措施</h3>
+      <ul class="layers">
+        <li><b>只读</b><span>三个冻结版本的本地缓存设为只读，误操作也改不了</span></li>
+        <li><b>程序拒写</b><span>构建程序遇到冻结版本直接拒绝，除非明确加参数</span></li>
+        <li><b>指纹清单</b><span>每个文件都有 SHA-256 清单，<code>quant data verify</code> 逐个核对</span></li>
+        <li><b>每周检查</b><span>Mac 每周日自动核对一次，有问题弹通知</span></li>
+        <li><b>私有备份</b><span>42 个数据包、约 10.5 GB，带清单，可一条命令恢复</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>代码结构</h2>
+  <div class="two">
+<pre>quant/          公共代码库
+  data/           读数据、数据来源、版本、保护
+  signals/        动量、RSI、均线偏离……
+  strategies/     策略规则 + 冻结策略登记表
+  backtest/       回测引擎、成交规则、IBKR 成本
+  evaluation/     年化、回撤、t 值、通过标准
+  observation/    前瞻观察
+studies/        每项研究一个文件
+pipelines/      数据构建流水线（v1/v2/v2.1）
+qc/             QuantConnect 算法
+docs/           台账、汇总、架构文档
+scripts/        命令行入口 + 旧命令转调
+archive/        早期旧研究（只移动未删除）</pre>
+    <div style="display:grid;gap:10px" id="cmds"></div>
+  </div>
+</section>
+
+<section>
+  <h2>自动运行</h2>
+  <div class="tablebox"><table style="min-width:560px">
+    <thead><tr><th>任务</th><th>在哪</th><th>什么时候</th></tr></thead>
+    <tbody id="jobs"></tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>文档</h2>
+  <ul class="plain" id="docs"></ul>
+</section>
+
+<section>
+  <h2>更新记录</h2>
+  <ul class="plain log" id="log"></ul>
+</section>
+
+<footer>本页由 Claude 维护，内容随研究进展更新。数字出自仓库里的台账和汇总文件；以台账为准。</footer>
+</div>
+
+<script>
+// ---- 更新本页时只改这里的数据 ----
+const UPDATED = "2026-10-11";
+const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
+const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
+const STUDIES = [
+  ["选股","周度短线反转","fail","扣成本后不显著","research_ledger_reversal_2012_2026.md"],
+  ["选股","CAN SLIM","fail","232 种组合都没跑赢 QQQ","research_ledger_canslim.md"],
+  ["选股","欧奈尔完整方法（含带柄茶杯）","fail","两轮交叉检验都没通过","research_ledger_oneil.md"],
+  ["选股","利弗莫尔","fail","两段检验都没通过","research_ledger_livermore.md"],
+  ["选股","技术指标和通道（含你原来的策略）","fail","扩大股票池后仍没通过","research_ledger_indicators.md"],
+  ["选股","网格调参、滚动选参","fail","挑出的最优参数在新数据上不灵","research_ledger_indicators.md"],
+  ["选股","内部人士买入、复制大师持仓","fail","没通过（覆盖不全）","research_ledger_sec_alt.md"],
+  ["选股","212 个学术信号","fail","大中盘只做多，0 个通过","research_ledger_osap.md"],
+  ["选股","40 个财务指标（本地）","fail","96 次检验，0 个通过","research_ledger_fundamentals.md"],
+  ["选股","20 个财务指标（QuantConnect）","fail","0 个通过","research_ledger_qc_factors.md"],
+  ["选股","市销率最低的 10 只","watch","t 3.09 刚过线，去掉错误数据后 2.84；最惨跌 70%","research_ledger_qc_factors.md"],
+  ["选股","神奇公式、Piotroski、小盘动量","fail","没通过；去掉可疑数据后仍不通过","research_ledger_qc_smallcap.md"],
+  ["选股","中小盘财报超预期、价值加动量","fail","没通过","research_ledger_qc_round2.md"],
+  ["选股","大盘股财报事件","fail","两折都没通过","research_ledger_earnings_events.md"],
+  ["选股","机器学习选股（3 种模型、64 特征）","fail","8 个试验 0 个通过；只能认出最差的股票","research_ledger_ml_cross_section.md"],
+  ["选股","分拆股（233 个事件）","fail","对小中盘有效应，对纳指不显著","research_ledger_spinoffs.md"],
+  ["选股","纳斯达克 100 成分调整（309 个事件）","fail","加入股涨幅在第一天就完成，买不到","research_ledger_ndx_recon.md"],
+  ["选股","复制纳指 + 剔除预测输家","fail","剔除每年只差 −1.0 到 +0.4 点","research_ledger_index_exclusion.md"],
+  ["选股","集中持有巨头（M1–M6）","risk","2014–2026 通过；1999–2013 全部失败，崩盘跌 73–85%","research_ledger_megacap.md"],
+  ["择时","QQQ 均线择时","fail","一次性检验没通过","research_ledger_qqq_timing.md"],
+  ["择时","道氏理论","fail","一次性检验没通过","research_ledger_dow_theory.md"],
+  ["择时","按大盘状态切换（含双动量）","fail","没通过","research_ledger_regime.md"],
+  ["择时","日历和隔夜效应","fail","没通过","research_ledger_calendar.md"],
+  ["择时","行业轮动","fail","没通过","research_ledger_sector_lev.md"],
+  ["择时","波动率控仓（8 种设置）","risk","通过的那种其实是一直拿 1.37 倍杠杆","research_ledger_voltarget.md"],
+  ["择时","短线超跌反弹 RSI(2)","fail","\"通过\"来自 QQQ 本身强于 ONEQ","research_ledger_mean_reversion.md"],
+  ["择时","止损调整","fail","没通过","research_ledger_stops.md"],
+  ["交易方式","每天机械做T","fail","10 个配置全部不如拿着不动","research_ledger_intraday_t.md"],
+  ["交易方式","有条件 / 跨天做T","watch","\"跌深 10% 加买\"形式通过，可能是幸存者偏差","research_ledger_selective_t.md"],
+  ["交易方式","做T 全网格（184,320 个配置）","watch","无一通过；RSI2 极低时加买最稳，每年只多 0.3–0.6 点","research_ledger_t_grid.md"],
+  ["交易方式","拿 QQQ + 做空输家","watch","错误定价空头有信号，叠加后 t 2.34 低于门槛 3.0","research_ledger_short_overlay.md"],
+  ["杠杆与期权","均线上方加杠杆 B3","risk","多赚主要来自杠杆；泡沫顶起算最惨跌 87%","research_ledger_sector_lev.md"],
+  ["杠杆与期权","卖期权全网格（3,584 个配置）","risk","不加杠杆 0 个跑赢；通过的是约 1.5 倍杠杆","research_ledger_qc_options_grid.md"],
+  ["杠杆与期权","大盘股卖看跌全网格（6,720 个配置）","risk","不加杠杆 0 个跑赢；叠加版 2022 年亏 60%","research_ledger_qc_stock_puts.md"],
+  ["杠杆与期权","长期看涨期权加杠杆（384 个配置）","risk","比直接借钱加杠杆每年贵约 1.3 点","research_ledger_qc_leaps.md"],
+  ["杠杆与期权","加杠杆方式对比（1.0–2.0 倍）","ref","1999–2009 越加越亏，2010 后多赚很多；定期调仓不会被强平","research_ledger_leverage_methods.md"],
+  ["杠杆与期权","因子基金、IBD 50、卖看跌指数","ref","这十几年都跑输 QQQ",""],
+];
+const WATCH = [
+  ["市销率最低的 10 只","全市场市销率最低 10 只，每月调仓（QuantConnect）","2026-08","2029-07","你的 QuantConnect","等 QC 更新 8 月以后数据"],
+  ["大盘股跌深加仓 S3-Yb","18 只大盘股，低于 20 日均线 10% 加买 1/3，最多拿 20 天","2026-10-12","2029-09","GitHub Actions","已开始，暂无交易"],
+  ["QQQ RSI2 抄底 SEL-A","RSI2 低于自身第 2 百分位加买底仓 1/2，最多 10 天","2026-10-12","2029-09","GitHub Actions","已开始，暂无交易"],
+  ["QQQ RSI2 抄底 SEL-P","同上，加买整个底仓，最多 20 天","2026-10-12","2029-09","GitHub Actions","已开始，暂无交易"],
+  ["错误定价做空 S-MISP","1.2 倍 QQQ + 做空错误定价最差 10 只（20%）","2026-11","2029-10","GitHub Actions","10-30 第一次信号"],
+  ["sue-lt-v1","盈利意外、低换手（更早的研究）","2026-10-30 前冻结","2027-10-29","GitHub Actions","冻结准备中"],
+  ["v50r3","每月 5 只（样本外已否定，只作运维检查）","2026-09-30","—","GitHub Actions","运行中"],
+];
+const VERSIONS = [
+  ["v1","2026-10-03","第一版，多来源交叉核对","2012、2013、2018"],
+  ["v2","2026-10-06","补缺口（archive.org 等）、改正 8 处公司事件、查实 50 只退市股","2012"],
+  ["v2.1","2026-10-10","用 Alpaca 补了 322 只 2016 年后退市的股票","2012"],
+];
+const CMDS = [
+  ["PYTHONPATH=. .venv/bin/python -m quant strategies","列出所有冻结的策略"],
+  ["PYTHONPATH=. .venv/bin/python -m quant study megacap","重跑某一项研究"],
+  ["PYTHONPATH=. .venv/bin/python -m quant run SEL-A --dry-run","试运行一个观察中的策略"],
+  ["PYTHONPATH=. .venv/bin/python -m quant data verify","核对冻结数据有没有被改动"],
+  ["bash scripts/restore_data.sh cache-reversal-v1-2026-10-11 /tmp/restore","从私有仓库恢复一个数据包"],
+];
+const JOBS = [
+  ["前瞻观察，自动提交记录","GitHub Actions","每月 1–6 日美股收盘后"],
+  ["抓取 IBKR 借股费","GitHub Actions","每天两次（北京时间 6:30、21:00）"],
+  ["自动测试","GitHub Actions","每次推送代码"],
+  ["同步借股费到本机","你的 Mac","每天 12:00"],
+  ["核对冻结数据","你的 Mac","每周日 10:00，有问题弹通知"],
+  ["备份借股费和观察数据","你的 Mac","每月 2 日 12:30"],
+];
+const DOCS = [
+  ["docs/research_summary_2026_10.md","所有研究的结论汇总"],
+  ["docs/architecture.md","代码结构、依赖规则、各阶段整理记录"],
+  ["docs/forward_observation_checklist.md","观察规则（冻结）"],
+  ["docs/forward_observation_log.md","每月观察记录"],
+  ["docs/reversal_2012_2026_data_report_v2_1.md","数据 v2.1 报告"],
+  ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
+];
+const LOG = [
+  ["2026-10-11","发布本页；代码完成四阶段重组和精简；数据加只读保护、每周核对和私有备份"],
+];
+// ---- 以下是渲染 ----
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+$("updated").textContent = UPDATED;
+const counts = v => STUDIES.filter(s => s[2] === v).length;
+$("stats").innerHTML = [
+  [STUDIES.length, "个研究方向"], ["20 万+", "个参数组合"], [counts("watch") , "个方向有候选在观察"],
+  [counts("risk"), "个靠多冒风险"], ["0", "个不冒风险就稳定跑赢"]
+].map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
+let cat = "全部", ver = "全部";
+const cats = ["全部", ...new Set(STUDIES.map(s => s[0]))];
+const vers = ["全部", ...Object.keys(VERDICTS).filter(k => counts(k))];
+function chips(el, list, cur, label, onPick) {
+  el.innerHTML = list.map(x => `<button class="chip" id="${el.id}-${esc(x)}" aria-pressed="${x === cur}" data-v="${esc(x)}">${esc(label(x))}</button>`).join("");
+  el.querySelectorAll("button").forEach(b => b.onclick = () => onPick(b.dataset.v));
+}
+function render() {
+  chips($("catFilters"), cats, cat, x => x, v => { cat = v; render(); });
+  chips($("verdictFilters"), vers, ver, x => x === "全部" ? "全部结果" : VERDICTS[x][0], v => { ver = v; render(); });
+  const rows = STUDIES.filter(s => (cat === "全部" || s[0] === cat) && (ver === "全部" || s[2] === ver));
+  $("tablecount").textContent = `显示 ${rows.length} / ${STUDIES.length} 项`;
+  $("studies").innerHTML = rows.map(([c, n, v, note, doc]) =>
+    `<tr><td class="cat">${esc(c)}</td><td class="name">${esc(n)}${doc ? `<a class="doc" href="${GH}docs/${esc(doc)}">${esc(doc)}</a>` : ""}</td>` +
+    `<td><span class="pill ${VERDICTS[v][1]}">${esc(VERDICTS[v][0])}</span></td><td>${esc(note)}</td></tr>`).join("");
+}
+render();
+$("watch").innerHTML = WATCH.map(([a, b, c, d, e, f]) =>
+  `<tr><td class="name">${esc(a)}</td><td>${esc(b)}</td><td class="mono">${esc(c)}</td><td class="mono">${esc(d)}</td><td>${esc(e)}</td><td><span class="pill p-watch">${esc(f)}</span></td></tr>`).join("");
+$("versions").innerHTML = VERSIONS.map(([a, b, c, d]) =>
+  `<tr><td class="mono">${esc(a)}</td><td class="mono">${esc(b)}</td><td>${esc(c)}</td><td>${esc(d)}</td></tr>`).join("");
+$("cmds").innerHTML = CMDS.map(([c, d], i) =>
+  `<div class="cmd"><code id="cmd${i}">${esc(c)}</code><button class="copy" data-i="${i}">复制</button><p>${esc(d)}</p></div>`).join("");
+document.querySelectorAll(".copy").forEach(b => b.onclick = async () => {
+  const el = $("cmd" + b.dataset.i);
+  try { await navigator.clipboard.writeText(el.textContent); b.textContent = "已复制"; }
+  catch { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "已选中"; }
+  setTimeout(() => b.textContent = "复制", 1500);
+});
+$("jobs").innerHTML = JOBS.map(([a, b, c]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td><td>${esc(c)}</td></tr>`).join("");
+$("docs").innerHTML = DOCS.map(([p, d]) => `<li><a href="${GH}${esc(p)}"><code>${esc(p)}</code></a>　${esc(d)}</li>`).join("");
+$("log").innerHTML = LOG.map(([d, t]) => `<li><b>${esc(d)}</b>${esc(t)}</li>`).join("");
+</script>
