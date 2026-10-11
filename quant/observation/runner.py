@@ -69,6 +69,8 @@ import pandas as pd  # noqa: E402
 
 from quant.backtest.execution import buy_hold_returns  # noqa: E402
 from quant.data.guards import assert_dev_dates  # noqa: E402
+from quant.data.sources import http as qhttp  # noqa: E402
+from quant.data.sources import tiingo as tq  # noqa: E402
 from quant.data.sources.yahoo import parse_ohlc, split_events  # noqa: E402
 from quant.evaluation.metrics import monthly, t_and_ir  # noqa: E402
 from quant.observation import prices as fp  # noqa: E402
@@ -136,9 +138,12 @@ def b_source(now: datetime | None = None) -> str:
 
 def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=None, sleep=time.sleep,
           history: Path | None = fp.HISTORY_STATE, source: str | None = None, tiingo_getter=None,
-          source_log: Path | None = None) -> dict:
+          source_log: Path | None = None, quota_log: Path | None = None) -> dict:
     """Re-download every symbol (the forward data grow each month). Source: Tiingo (from 2026-11, ``b_source``),
-    Yahoo as fallback (one request per 2 s, stop at 401/403/429). With the committed history state the vendor is
+    Yahoo as fallback (one request per 2 s, stop at 401/403/429). Tiingo is asked only for the symbols the account's
+    monthly budget allows (``quant.data.sources.tiingo.check_budget`` over every ledger it can see, including this
+    runner's own ``quota_ledger.csv`` next to the fetch log, where each Tiingo request is logged); the rest go to
+    Yahoo. With the committed history state the vendor is
     asked only for a recent tail; the history through the decision close is rebuilt from the state's ratios and
     the overlapping days are checked (``forward_prices.merge_history``). Bodies are stored as plain JSON (the QQQ /
     ONEQ loaders of the research code read plain JSON)."""
@@ -147,6 +152,14 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
     state = fp.load_history_state(history) if history is not None else None
     source = source or b_source()
     source_log = source_log or log.with_name("fetch_sources.csv")
+    quota_log = quota_log or log.with_name("quota_ledger.csv")
+    tiingo_ok = set()
+    if source == "tiingo":
+        allowed, refused = tq.check_budget(symbols, extra=[quota_log])
+        tiingo_ok = set(allowed)
+        if refused:
+            print(f"fetch: Tiingo's monthly symbol budget is used up for {len(refused)} symbols "
+                  f"({' '.join(refused)}); Yahoo for those")
     fp.log_line(log, "fetched_utc,symbol,http_status,bytes")
     fp.log_line(source_log, "fetched_utc,symbol,source,history_check")
     out, stop_yahoo = {}, False
@@ -157,11 +170,15 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
             start = (pd.Timestamp(last) - pd.Timedelta(days=fp.TAIL_DAYS)).strftime("%Y-%m-%d")
         now = fp.utc_stamp()
         payload, used = None, None
-        if source == "tiingo":
+        if source == "tiingo" and sym in tiingo_ok:
+            status = "200"
             try:
                 payload, used = fp.tiingo_chart(sym, start, period2, getter=tiingo_getter), "tiingo"
             except Exception as exc:  # noqa: BLE001 - any Tiingo failure falls back to Yahoo
+                status = str(getattr(exc, "code", "") or type(exc).__name__)
                 print(f"fetch: Tiingo failed for {sym} ({type(exc).__name__}); Yahoo fallback")
+            qhttp.append_line(quota_log, "fetched_utc,source,month,symbol,status",
+                              ",".join((now, "tiingo", now[:7], sym, status)), compressed=False)
         if payload is None:
             if stop_yahoo:
                 out[sym] = "skipped (Yahoo stopped)"

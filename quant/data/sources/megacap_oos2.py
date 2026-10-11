@@ -14,6 +14,7 @@ re-runnable):
 
 SEC requests carry src/io/sec_contact.sec_user_agent() (never printed), at most 7 a second (shared limiter).
 Raw bodies stay under research_cache/megacap_oos2/ (git-ignored); outputs that go to git are SEC facts, IDs, ranks.
+Requests are logged to the study's own ledger there (``LEDGER``), never to a data version's cache.
 
 Usage:  PYTHONPATH=. .venv/bin/python scripts/megacap_oos2_data.py {qqq|sec} [--dei-only]   (the build)
         (qqq: Nasdaq-100 Trust schedules -> qqq_schedule_top45.csv, the candidate generator; sec: filings, covers,
@@ -29,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from quant.data import version as dv
-from quant.data.sources import http, sec
+from quant.data.sources import http, sec, tiingo
 from quant.paths import CACHE_ROOT, OUTPUT_ROOT
 
 CACHE = CACHE_ROOT / "megacap_oos2"
@@ -47,10 +48,20 @@ COVER_BYTES = 100_000
 
 # ======================================================================== SEC plumbing
 
-def cached_get(url: str, cache_path, **kwargs) -> bytes:
-    """A cached GET logged to the reversal pipeline's request ledger of the current data version (as
-    reversal_data_common.cached_get did for this module)."""
-    return http.cached_get(url, cache_path, ledger=http.Ledger(dv.RAW_INDEX, dv.QUOTA_LEDGER), **kwargs)
+# The studies' own request ledger. Until 2026-10-11 these requests were logged to the reversal pipeline's ledger of
+# the data version in force (research_cache/reversal_2012_2026/raw_index.csv.gz, quota_ledger.csv), i.e. into the
+# frozen v1 cache; the rows already there stay (the pipeline reads only rows before FROZEN_UTC).
+LEDGER = http.Ledger(CACHE / "raw_index.csv.gz", CACHE / "quota_ledger.csv")
+
+
+def study_ledger(local) -> http.Ledger:
+    """The request ledger of a study cache folder ``local`` (``raw_index.csv.gz`` / ``quota_ledger.csv`` in it)."""
+    return http.Ledger(local / "raw_index.csv.gz", local / "quota_ledger.csv")
+
+
+def cached_get(url: str, cache_path, ledger: http.Ledger | None = None, **kwargs) -> bytes:
+    """A cached GET logged to ``ledger`` (default: this study's own ``LEDGER`` in research_cache/megacap_oos2)."""
+    return http.cached_get(url, cache_path, ledger=LEDGER if ledger is None else ledger, **kwargs)
 
 
 def sec_get(url: str, cache_name: str, range_bytes: int | None = None) -> bytes:
@@ -440,9 +451,8 @@ TIINGO_DELISTED = CACHE_ROOT / "tiingo_delisted"
 
 
 def tiingo_month_symbols() -> set:
-    month = pd.Timestamp.now(tz="UTC").strftime("%Y-%m")
-    q = pd.read_csv(dv.QUOTA_LEDGER, dtype=str, keep_default_na=False)
-    return set(q.loc[(q["source"] == "tiingo") & (q["month"] == month), "symbol"].str.upper())
+    """Symbols the Tiingo account already asked this month, across every ledger (``quant.data.sources.tiingo``)."""
+    return tiingo.month_symbols(pd.Timestamp.now(tz="UTC").strftime("%Y-%m"))
 
 
 def tiingo_daily(symbol: str) -> pd.DataFrame | None:

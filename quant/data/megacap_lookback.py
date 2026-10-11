@@ -21,7 +21,7 @@ import pandas as pd
 from quant.data import megacap_history as o2     # the OOS.2 data build (Wayback segments, Tiingo levels)
 from quant.data import version as dv
 from quant.data.sources import http
-from quant.data.sources import megacap_oos2 as md      # the OOS.2 sources (cached_get on the pipeline ledger)
+from quant.data.sources import megacap_oos2 as md      # the OOS.2 sources (cached_get; this study logs to its own ledger)
 
 
 def yahoo_pre(symbol: str, local: Path, pre_from: str, pre_to: str, url_to: str) -> pd.Series | None:
@@ -30,8 +30,9 @@ def yahoo_pre(symbol: str, local: Path, pre_from: str, pre_to: str, url_to: str)
            "&interval=1d&events=div%2Csplits&includeAdjustedClose=true")
     try:
         body = md.cached_get(url, local / "raw/yahoo" / f"{symbol}__{pre_from}_{pre_to}.json.gz", source="yahoo",
-                                 headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
-                                 limiter=md.YAHOO_LIMITER, symbol=symbol, timeout=30)
+                             ledger=md.study_ledger(local),
+                             headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                             limiter=md.YAHOO_LIMITER, symbol=symbol, timeout=30)
     except Exception as exc:  # noqa: BLE001
         print(f"  yahoo pre {symbol}: {exc}")
         return None
@@ -51,15 +52,18 @@ def yahoo_pre(symbol: str, local: Path, pre_from: str, pre_to: str, url_to: str)
 
 
 def tiingo_pre(symbol: str, local: Path, pre_from: str, pre_to: str) -> pd.Series | None:
-    if symbol.upper() not in md.tiingo_month_symbols():
+    cache = local / "raw/tiingo" / f"{symbol}__{pre_from}_{pre_to}.json.gz"
+    # a cached answer costs no quota (until 2026-10-11 the month check came first, so a cached answer was ignored in
+    # a month the symbol had not been asked, and the result depended on the month of the run)
+    if not cache.exists() and symbol.upper() not in md.tiingo_month_symbols():
         print(f"  tiingo pre {symbol}: not counted this month -> not asked")
         return None
     url = f"https://api.tiingo.com/tiingo/daily/{symbol.lower()}/prices?startDate={pre_from}&endDate={pre_to}"
-    key = http.read_env_key(dv.DATA_MAIN / ".env.tiingo", "TIINGO_API_KEY")
+    key = "" if cache.exists() else http.read_env_key(dv.DATA_MAIN / ".env.tiingo", "TIINGO_API_KEY")
     try:
-        body = md.cached_get(url, local / "raw/tiingo" / f"{symbol}__{pre_from}_{pre_to}.json.gz", source="tiingo",
-                                 symbol=symbol.upper(), limiter=md.TIINGO_LIMITER, timeout=60,
-                                 headers={"Authorization": f"Token {key}", "Content-Type": "application/json"})
+        body = md.cached_get(url, cache, source="tiingo", ledger=md.study_ledger(local),
+                             symbol=symbol.upper(), limiter=md.TIINGO_LIMITER, timeout=60,
+                             headers={"Authorization": f"Token {key}", "Content-Type": "application/json"})
     except Exception as exc:  # noqa: BLE001
         print(f"  tiingo pre {symbol}: {type(exc).__name__}")
         return None
