@@ -3,7 +3,8 @@
 > 状态：第 1 阶段（共享核心库 `quant/` + 3 个试点）、第 2 阶段（其余 10 月份研究、`quant/strategies`、
 > `quant/observation`）、第 3 阶段（数据流水线进 `pipelines/`、各数据商代码进 `quant/data/sources/`、v2.1 进
 > `quant.data.version`，见第 11 节）和第 4 阶段（旧研究脚本移到 `archive/`，见第 10 节）都已完成；之后的瘦身轮
-> （研究变薄、指标口径命名、`quant/reporting.py`）见第 12 节。
+> （研究变薄、指标口径命名、`quant/reporting.py`）见第 12 节；冻结数据的保护（分开的请求台账、Tiingo 额度、
+> 清单和 `python -m quant data verify / lock`）见第 13 节。
 > 本文用中文说明，代码里的名字（模块、函数、目录）保持英文。
 
 ## 1. 为什么要改
@@ -405,7 +406,8 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
 prefilter → yahoo → reconcile → terminal → earnings → universe → validate（v2 只在第一轮先跑 archive parse），每步是
 `python -m pipelines.reversal_data.<step>` 子进程，直到监视的输出哈希与上一轮相同。v2 / v2.1 的轮数上限、日志目录
 （`<cache>/v2_build`、`v2_1_build`）、`pass_N.json` 的键名都与原来两个脚本相同；v1 是冻结的，必须加 `--allow-v1`
-（用于临时副本）。
+（用于临时副本）。2026-10-11 起三个版本都算冻结，统一要 `--allow-frozen-rebuild`（`--allow-v1` 是它的旧名字，仍然
+有效），见第 13 节。
 
 ### 11.4 依赖规则
 
@@ -606,5 +608,125 @@ prefilter → yahoo → reconcile → terminal → earnings → universe → val
 - `quant/strategies/reversal_dev._RANK_CACHE` 是按 `id(data)` 的模块级缓存（原样搬入）。
 - 为了让测试和前瞻观察不改，部分旧名字保留为别名（如 `livermore.perf_metrics`、`indicators.stock_metrics`、
   `short_overlay.tstat`）。
-- canslim_dev、megacap_oos2、megacap_oos3 每次运行都会往 `research_cache` 重写派生文件（内容不变），行为未改。
+- canslim_dev、megacap_oos2、megacap_oos3 每次运行都会往 `research_cache` 重写派生文件（内容不变），行为未改
+  （写的是各自的研究目录，不是冻结的版本缓存，见 13.3）。
 - benchmark_composite 的 `summary.json` 记录了本机的原始数据绝对路径。
+
+## 13. 冻结数据的保护（2026-10-11）
+
+### 13.1 为什么
+
+v1、v2、v2.1 三个数据版本都已冻结（`quant.data.version.FROZEN_UTC`），但之前没有任何东西能阻止别的代码悄悄改它们：
+11.7 发现 megacap_oos2 / oos3 在冻结之后往 v1 缓存的请求台账（`raw_index.csv.gz`、`quota_ledger.csv`）里又记了几行
+Tiingo 请求。本节加了四道保护：分开的请求台账、流水线拒绝写冻结版本、按文件 sha256 的清单和 `verify`、只读开关。
+
+### 13.2 分开的请求台账和 Tiingo 额度
+
+- **megacap 研究的台账**：`quant/data/sources/megacap_oos2.py` 的 `cached_get` 默认记到
+  `research_cache/megacap_oos2/{raw_index.csv.gz,quota_ledger.csv}`（`LEDGER`）；OOS.3 的回看历史
+  （`quant/data/megacap_lookback.py`）记到 `research_cache/megacap_oos3/`（`study_ledger(local)`）。台账只在真的发出请求
+  时才写，离线读缓存不写。v1 台账里已有的那几行不动（流水线只读 `FROZEN_UTC` 之前的行）。
+- **Tiingo 额度是整个账户的**（免费版每月 500 个不同代码），而各调用方记在各自的台账里，所以
+  `quant/data/sources/tiingo.py` 新增 `account_ledgers` / `month_symbols` / `check_budget`：把
+  `research_cache/*/quota_ledger.csv`（各版本缓存、v2 fill、v2.1 Alpaca、探针、megacap 两个研究、前瞻观察）和
+  `$FORWARD_OBS_CACHE/quota_ledger.csv`（GitHub Actions）里本月的 Tiingo 代码合起来去重计数。所有 Tiingo 调用方请求前
+  都先问它：
+  - `pipelines/reversal_data/tiingo.py`：预算 = 所有台账的本月代码数 + `--already-used`（账户页上有、任何台账里都没有的
+    数），停在 480（`pf.TIINGO_MONTH_STOP`）；
+  - megacap 的 `tiingo_daily` / `tiingo_pre`：只请求本月已经算过的代码（不新增代码）；`tiingo_pre` 现在先看缓存
+    （缓存命中不花额度；以前先查本月台账，换个月份运行结果就会变——在 10 月运行结果相同）；
+  - 前瞻观察 `fetch`（B1 / B2，2026-11 起用 Tiingo）：只对预算允许的代码请求 Tiingo，其余走 Yahoo；每次 Tiingo 请求记到
+    抓取日志旁边的 `quota_ledger.csv`。GitHub Actions 上看不到本机台账，所以本机调用方停在 480，给它的 20 个代码留出余量。
+- `python -m quant data quota` 列出每个台账本月的 Tiingo 代码数和合计（2026-10：合计 500，额度已用完）。
+
+### 13.3 谁在往冻结缓存里写（排查结果）
+
+- **静态**：在 `quant/`、`studies/`、`scripts/`、`src/` 里查了所有引用 `dv.CACHE` / `CACHE_ROOT/"reversal_2012_2026*"` /
+  `RAW_INDEX` / `QUOTA_LEDGER` 的代码：研究和库只读这些缓存（价格面板、universe、prefilter、SEC 原始文件、KF 因子、
+  WIKI 序列），唯一的写入就是上面 megacap 的请求台账（只在联网请求时）。
+- **动态**：在改动前的代码（`17a144cde`）上，用第 12.4 节的 57 条研究命令（第 2 阶段黄金的全部任务 + 三个试点 +
+  `ml_cross_section --smoke`、前瞻观察 `--dry-run` 等）在临时树里跑了一遍：三个版本缓存、v2 fill、v2.1 Alpaca 都是
+  APFS 克隆，`REVERSAL_DATA_MAIN_CHECKOUT` 和 `quant.paths.CACHE_ROOT` 都指向克隆，真缓存和真 `output` 由
+  `sandbox-exec` 禁止写入，断网。跑完后克隆里被改过的文件只有 `canslim_dev/features.csv.gz`、
+  `megacap_oos2/built/{ranks_top20_by_month_with_mcap,nav_daily}.csv`、`megacap_oos3/built/nav_daily.csv`，都在研究自己的
+  缓存目录里；三个版本缓存一个文件都没变（对克隆跑 `quant data verify` 全部 OK），也没有任何写入被沙箱拦下。
+- 所以需要改道的只有 megacap 的台账。canslim_dev、fundamentals、ml_cross_section 的派生缓存本来就在
+  `research_cache/canslim_dev(_v2)`、`fundamentals(_v2)`、`ml_cross_section_v2`（每个研究自己的目录），路径没有改，
+  输出和黄金文件因此不受影响。
+
+### 13.4 流水线拒绝写冻结版本
+
+- `quant.data.version`：`is_frozen(version)`（有 `FROZEN_UTC` 即冻结）、`frozen_versions()`、`cache_dir()`、`inputs_dir()`。
+- `pipelines/reversal_data/common.py`：`frozen_flag(argv)` 取出 `--allow-frozen-rebuild`；`refuse_frozen(step, allow,
+  writes)` 在步骤要写的路径落在某个冻结版本的缓存或 inputs 里、又没给这个开关时停下（说明原因）。写版本缓存 / inputs 的
+  每个步骤在做任何事之前都检查：prefilter、yahoo、reconcile、terminal、earnings、universe、validate、security_master、
+  listings、wiki、review、factors、form25、tiingo。只写别处的模式按它真正写的位置判断：`terminal --offline --out-dir`、
+  `security_master --offline --out-dir`、`universe --out-dir`、`form25 --offline --out-dir` 不需要开关；`validate --only`、
+  `tiingo --dry-run` 什么都不写，也不需要。只写自己 fill / 探针目录的步骤（v2_archive、v2_fill、v2_1_*、source_probe、
+  报告）不受影响（v2_archive 接受并忽略这个开关，因为运行器会传给每一步）。
+- `build.py`：任何冻结版本都要 `--allow-frozen-rebuild`（`--allow-v1` 是旧名字，仍然有效），并把它传给每一步。
+- 注意：reconcile 的缓存签名含 `reconcile.py` 自身的哈希（11.7），这次加了几行检查，下一次真正重建会重算所有证券
+  （结果相同，只是慢）。
+
+### 13.5 清单和 `verify`
+
+- `state/data_manifests/{v1,v2,v2_1}.json.gz`（入库，共约 23 MB）：每个版本缓存的全部文件，加上该版本入库的 inputs
+  （git 跟踪的文件），每个文件只有路径、大小和 sha256，没有任何数据内容；未入库的 `special_distributions.csv`
+  （备份里也有）作为“可选”项，存在时核对。跳过 `.DS_Store`、`__pycache__`、`._*`，与备份清单的规则相同。
+- 生成：`python -m quant data manifest --version V`（已存在时不加 `--force` 拒绝覆盖）。三份清单生成于 2026-10-11，
+  文件数 165,332 / 166,755 / 167,369（缓存）+ 20 / 22 / 22（入库 inputs）+ 1（可选）。
+- **与备份核对**：私有仓库 `superdiaodiao/quant_stocks_data` 的 `cache-reversal-v1/v2/v2-1-2026-10-11` 三个 Release 的
+  `.manifest.json`（只下载了清单）与新清单逐条比较：165,333 / 166,756 / 167,370 条全部相同（路径、大小、sha256），
+  双方都没有多出或缺少的文件。
+- `python -m quant data verify [--version v1|v2|v2.1|all] [--quick]`：把真缓存和本检出的 inputs 与清单比，列出变了、缺了、
+  多出来的文件，有任何一项就返回 1；`--quick` 只比大小（几秒），完整核对每个版本约 30 秒。也报告缓存是否已锁。
+  2026-10-11 在真缓存上运行（只读）：三个版本全部 OK（0 变、0 缺、0 多）。
+- 什么时候重新生成清单：只有在有意重建一个冻结版本之后（unlock → 带 `--allow-frozen-rebuild` 重建 → `verify` 列出
+  差别 → 逐个核对 → `manifest --force` → 提交 → lock）。
+
+### 13.6 只读开关 `lock` / `unlock`
+
+`python -m quant data lock [--version ...]` 去掉冻结缓存里每个文件和目录的写权限（文件 444、目录 555），之后任何写入
+（覆盖、追加、新建文件、`to_csv`）都会直接报 `PermissionError`，不会悄悄改掉文件；`unlock` 把属主的写权限加回来
+（恢复成 644 / 755）。inputs 不锁（git 和 `verify` 保护它们）。在临时克隆上测试过：lock 后三种写法都报
+`PermissionError`，`verify` 显示已锁、内容不变；unlock 后权限恢复。用 `restore_data.sh` 恢复冻结版本的备份、或者有意
+重建之前，要先 `unlock`。真缓存目前**没有**锁：合并后由主人确认一切无误再运行 `python -m quant data lock`。
+
+### 13.7 等价性怎么验证的
+
+真缓存在整个过程中一个字节都没写：所有运行都在 `sandbox-exec` 里（禁止写真 `research_cache` 和主检出的 `output`）、
+断网，用的是 APFS 克隆加 `REVERSAL_DATA_MAIN_CHECKOUT` / `QUANT_SCRATCH_CACHE` 重定向；最后对真缓存跑 `verify` 仍全部 OK。
+
+- **研究输出**：改动前（`17a144cde`）和改动后的代码，各在一棵临时树里（同一份上游输出快照、各自的缓存克隆）跑同样的
+  57 条命令（12.4 的清单）。54 条的输出文件和标准输出逐字节相同；另 3 条只差与内容无关的东西，与 12.4 相同：
+  benchmark_composite 的 `summary.json` 记录了各自克隆的原始数据路径，short_overlay `--run`、index_exclusion `--run`
+  的 `run_log.txt` 只差 `runtime_s` 和进度耗时。两棵树里研究写到自己缓存目录的 4 个文件也相同（megacap 的三个逐字节，
+  `canslim_dev/features.csv.gz` 解压后相同，只差 gzip 头里的时间），且与真缓存里的现有文件相同。跑完后两棵树的三个版本
+  缓存克隆 `verify` 都是 OK。
+- **黄金测试**：`tests/quant`（`QUANT_GOLDEN_SLOW=1`，试点黄金 + 第 2 阶段黄金）在工作树里 51 通过、1 跳过，唯一失败
+  的 canslim_dev 黄金是因为它要写真 `research_cache/canslim_dev`（沙箱禁止，12.4 里改动前也一样）；在临时树里（缓存指向
+  克隆）canslim_dev 黄金通过，那里失败的 3 个是临时树把 `CACHE_ROOT` 改到克隆路径造成的路径断言（在工作树里通过）。
+  前瞻观察测试（含黄金）27 个全过。
+- **流水线重建**：在新代码上（临时副本，五个流水线缓存都是克隆）先确认不加开关时 `build --version v2` 和
+  `security_master` 都被拒绝，再用 `build --version v2 --allow-frozen-rebuild`、`v1 --allow-v1`、
+  `v2.1 --allow-frozen-rebuild` 各跑一轮，然后对副本跑 `quant data verify`：三个版本缓存里的价格文件、
+  `prices/daily_panel.csv.gz`、prefilter / universe / earnings / terminal 的全部表、inputs 里除 security master 两张表
+  以外的全部 csv / csv.gz 都与清单逐字节相同。不同的只有：JSON 摘要和 `daily_panel.signature`（时间、代码哈希）、
+  reconcile 的状态 pickle（含 `reconcile.py` 的哈希，见 13.4）、新的运行日志，以及 v2 / v2.1 的
+  `reconcile/superseded_prices_<今天>/`（重写价格文件前留的旧副本，与未变的价格文件逐字节相同）。
+  security_master 原地重建与入库版本差 4 行，原因是临时副本里 `stocks_list_dir/nasdaq/` 只链接了 `snapshots`（这一步按
+  当前工作目录找整个目录，11.7）；把整个目录链接上之后，改动前和改动后的代码各做一次 `--offline --out-dir` 构建，三张表
+  都与入库版本逐字节相同、两者彼此相同。form25 `--offline --out-dir`（不需要开关）的输出也与入库版本相同。
+- **其他**：可移植 CI 测试集（374 个文件）3111 通过、2 跳过；`compileall`（src scripts tests archive quant studies
+  pipelines）通过；冻结根（v50 / v50r2 / v50r3 / sue_lt_v1 和工作流引用的脚本，19 个根、73 个文件）的闭包摘要与改动前
+  逐个相同，四个 `status` 输出相同（0 / 0 / 3 / 0）；`.github/`、`src/`、`scripts/record_borrow_fees.py` 没有改动，
+  前瞻观察工作流用到的 `quant/observation/runner.py` 只在 Tiingo 分支里加了额度检查（离线 `--dry-run` 输出不变）。
+
+### 13.8 留下的问题
+
+- GitHub Actions 上的前瞻观察只看得到自己的台账；本机调用方停在 480 是靠约定给它留余量。
+- v2 fill（`reversal_2012_2026_v2_fill`）和 v2.1 Alpaca（`reversal_2012_2026_v2_1_alpaca`）两个目录是 v2 / v2.1 的来源，
+  但不在清单和 lock 的范围里（它们没有自己的 `FROZEN_UTC`）；需要的话可以按同样办法加上。
+- 清单入库约 23 MB（哈希本身不可压缩）。
+- prefilter 的第 1 个月 Tiingo 预算仍只读本版本台账在 `FROZEN_UTC` 之前的行（这是历史计划的复现，不是新请求的预算）。
+- megacap 的 `tiingo_daily` 在缓存命中时仍会读一次 `.env.tiingo`（原样未改）。

@@ -259,6 +259,24 @@ scripts/backup_data.sh all                                    # 全部备份（�
 `--force` 不会覆盖。`backup_data.sh` 打包（tar pax + zstd，分片小于 1.9 GiB）、写清单、上传，
 然后重新下载、解压并逐个文件核对。细节见 [docs/data_release.md](docs/data_release.md) 第 15 节。
 
+### 5.4.2 冻结数据的保护
+
+v1、v2、v2.1 三个数据版本都已冻结（`quant/data/version.py` 的 `FROZEN_UTC`），它们的缓存
+`research_cache/reversal_2012_2026*` 和入库的 inputs 不能再变。仓库里有每个版本的清单
+`state/data_manifests/<版本>.json.gz`（每个文件的路径、大小和 SHA-256，没有数据内容）：
+
+```bash
+PYTHONPATH=. .venv/bin/python -m quant data verify              # 三个版本逐个文件核对，有任何不同就返回非 0
+PYTHONPATH=. .venv/bin/python -m quant data verify --version v1 --quick   # 只比大小，几秒钟
+PYTHONPATH=. .venv/bin/python -m quant data lock                # 把三个冻结缓存改成只读
+PYTHONPATH=. .venv/bin/python -m quant data unlock              # 改回可写（有意重建或恢复备份前）
+PYTHONPATH=. .venv/bin/python -m quant data quota               # Tiingo 本月已用的代码数（所有台账合计）
+```
+
+数据流水线不加 `--allow-frozen-rebuild` 就拒绝写冻结版本；研究只读这些缓存，自己的派生文件写在
+`research_cache/<研究名>/`。用 `restore_data.sh` 恢复冻结版本的备份之前要先 `unlock`。细节见
+[docs/architecture.md](docs/architecture.md) 第 13 节。
+
 ### 5.5 运行测试
 
 ```bash
