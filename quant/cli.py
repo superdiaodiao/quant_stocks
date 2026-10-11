@@ -1,5 +1,6 @@
 """Command line: ``python -m quant list``, ``python -m quant study <name> [args]``, ``python -m quant strategies`` and
-``python -m quant run <strategy> [args]``.
+``python -m quant run <strategy> [args]``; ``python -m quant data {verify,manifest,lock,unlock,quota}`` protects the
+frozen data versions (quant.data.protect, docs/architecture.md section 13).
 
 ``study`` runs ``studies/<name>.py``'s ``main`` with the remaining arguments, exactly as the legacy
 ``scripts/research_<name>.py`` command does. ``strategies`` lists the frozen named strategies of
@@ -44,6 +45,11 @@ def main(argv=None) -> int:
     sub.add_parser("strategies", help="list the frozen named strategies")
     rn = sub.add_parser("run", help="run a frozen strategy's entry point (remaining arguments go to it)")
     rn.add_argument("name", choices=list(registry.STRATEGIES))
+    sub.add_parser("data", help="verify / manifest / lock / unlock the frozen data versions; Tiingo quota",
+                   add_help=False)
+    if argv[:1] == ["data"]:
+        from quant.data import protect
+        return protect.main(argv[1:])
     a, rest = ap.parse_known_args(argv)
     if a.cmd == "list":
         for name in study_names():
