@@ -3300,6 +3300,7 @@ def configure_reconcile(root: Path | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--offline", action="store_true",
                         help="no requests (any socket connection is refused): build from the cache only")
@@ -3318,6 +3319,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="read series_ends.csv and the canonical price files from this reconcile --out-dir build "
                              "(ROOT/reconcile, ROOT/prices) instead of CACHE")
     args = parser.parse_args(argv)
+    # an offline scratch rebuild (--offline --out-dir) writes only under OUT_DIR
+    common.refuse_frozen("terminal", allow_frozen,
+                         [Path(args.out_dir)] if args.out_dir and args.offline and not args.reconcile_out else None)
     if args.offline:
         forbid_network()
     configure_paths(Path(args.out_dir) if args.out_dir else None)

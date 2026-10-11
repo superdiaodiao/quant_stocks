@@ -1256,7 +1256,9 @@ def run() -> dict:
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args()
+    argv, allow_frozen = common.frozen_flag()
+    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args(argv)
+    common.refuse_frozen("factors", allow_frozen)
     result = run()
     sources, checks = result["sources"], result["checks"]
     for name in list(KF_DATA_ZIPS.values()) + list(KF_SIC_ZIPS.values()) + ["VIX_History.csv"]:

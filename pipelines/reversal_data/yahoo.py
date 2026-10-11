@@ -1535,6 +1535,7 @@ def odd_ratio_volume_summary(events: pd.DataFrame) -> dict:
 # ------------------------------------------------------------------ main
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--fetch", action="store_true", help="fetch the symbols not yet cached, then build")
     parser.add_argument("--fetch-only", action="store_true", help="fetch, do not build")
@@ -1544,6 +1545,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--period1", default=PERIOD1, help="first day asked (default 2011-06-01; a need start "
                                                            "for --retry of a truncated answer)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("yahoo", allow_frozen)
     candidates = pd.read_csv(CANDIDATES, dtype=str, keep_default_na=False)
     requests = request_rows(candidates, alternates=sec_alternates(pd.read_csv(MASTER, dtype=str, keep_default_na=False)))
     symbols = sorted(set(requests["symbol"]))

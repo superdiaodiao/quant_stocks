@@ -4676,6 +4676,7 @@ def review_source_summary(states: dict[str, dict]) -> dict:
 
 def main(argv=None) -> int:
     global MIN_FREE_MB, WRITE_SOURCE_CACHE, REVIEW_DIR, APPLY_REVIEW
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--only", default="", help="comma-separated security ids: build these, write no tables")
     parser.add_argument("--rebuild", action="store_true",
@@ -4696,6 +4697,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-review", action="store_true",
                         help="read no hand-review verdicts (the queues as the vote leaves them)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("reconcile", allow_frozen)
     MIN_FREE_MB, WRITE_SOURCE_CACHE = args.min_free_mb, not args.no_source_cache
     if args.review_dir:
         REVIEW_DIR = Path(args.review_dir)

@@ -1567,6 +1567,7 @@ def redirect(out_dir: Path | None = None, master_dir: Path | None = None) -> Non
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
     parser.add_argument("--out-dir", type=Path, help="scratch build: write every output under this directory")
@@ -1574,6 +1575,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="read ticker_rows_raw.csv.gz and snapshot_dates.json from this directory")
     args = parser.parse_args(argv)
     redirect(args.out_dir, args.master_dir)
+    common.refuse_frozen("form25", allow_frozen,
+                         [OUTPUT, DERIVED, COMPARISON] + ([] if args.offline else [SEC_RAW, common.RAW_INDEX]))
     table = build(offline=args.offline)
     comparison = compare_with_sue_lt(table)
     common.atomic_write(COMPARISON, (json.dumps(comparison, indent=2, default=str) + "\n").encode())

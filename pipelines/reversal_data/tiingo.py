@@ -22,8 +22,10 @@ What it does:
   quota ledger) and a ``SlidingWindowLimiter`` of 45 an hour and 900 a day (one per
   ``--spacing`` seconds), seeded from the quota ledger so a restart does not reset the windows;
 - the monthly budget starts from ``--already-used`` (required for any run that may ask Tiingo:
-  the unique symbols the account page shows this month that the ledger does not); before a
-  ticker new this month it checks ledger + already-used against 480 (``pf.TIINGO_MONTH_STOP``,
+  the unique symbols the account page shows this month that no ledger does); before a
+  ticker new this month it checks the account's symbols in every ledger (``quant.data.sources.tiingo.month_symbols``:
+  this version's ledger, the other versions', the mega-cap studies', the forward observation's) + already-used
+  against 480 (``pf.TIINGO_MONTH_STOP``,
   the prefilter plans to the same stop; ``--month-stop`` may raise it to the free tier's 500 on purpose,
   never more) and ``--max-mb`` of Tiingo bytes. A stop defers the
   rest (``deferred_quota``) and still checks cached answers. Refusals stop cleanly: HTTP 429 or
@@ -86,6 +88,7 @@ import pandas as pd
 
 from pipelines.reversal_data import common
 from pipelines.reversal_data import prefilter as pf
+from quant.data.sources import tiingo as tq
 from quant.data.sources.tiingo import (  # noqa: F401  (moved there, phase 3)
     API, PRICE_FIELDS, QUOTA_WORDS, is_quota_text, parse_body, to_frame, url_ticker)
 
@@ -813,10 +816,18 @@ def release_lock(path: Path | None = None) -> None:
         pass
 
 
+def account_symbols(month: str) -> set[str]:
+    """Unique Tiingo symbols asked this month by the whole account: every ledger (``tq.month_symbols``: the version
+    ledgers, the mega-cap studies', the forward observation's ...) plus this run's ledger wherever it points."""
+    return tq.month_symbols(month, extra=[common.QUOTA_LEDGER])
+
+
 def budget_state(month: str, already_used: int | None) -> dict:
     used = common.quota_used(SOURCE, month, unique_symbols=True)
-    return {"ledger_unique_symbols": used, "already_used_outside_ledger": already_used,
-            "counted_symbols": used + (already_used or 0), "rolling_30d_ledger_symbols": rolling_symbols(30),
+    account = len(account_symbols(month))
+    return {"ledger_unique_symbols": used, "account_unique_symbols": account,
+            "already_used_outside_ledger": already_used,
+            "counted_symbols": account + (already_used or 0), "rolling_30d_ledger_symbols": rolling_symbols(30),
             "requests_this_month": common.quota_used(SOURCE, month),
             "mb_this_month": round(bytes_this_month(month) / 1e6, 1)}
 
@@ -847,8 +858,8 @@ def run(args) -> int:
     live = not args.dry_run and not args.offline
     if live and args.already_used is None:
         raise SystemExit("--already-used is required for a run that may ask Tiingo: the unique symbols this month that "
-                         "the quota ledger does not show (the Tiingo account page's count minus the ledger's "
-                         f"{common.quota_used(SOURCE, month, unique_symbols=True)}; --dry-run prints both)")
+                         "no ledger shows (the Tiingo account page's count minus the ledgers' "
+                         f"{len(account_symbols(month))}; --dry-run prints both)")
     if args.fetch_shadowed and not args.tickers:
         raise SystemExit("--fetch-shadowed asks rows Tiingo serves another company for; name them with --tickers")
     candidates, status, order, selected = plan_rows(args)
@@ -897,7 +908,8 @@ def dry_run(args, month: str, selected: pd.DataFrame, todo: list[str], position:
               + (f" ambiguous={' '.join(ambiguous_flags(first))}" if ambiguous_flags(first) else ""))
     new_symbols = len(todo) - hidden - cached
     log(f"dry run: {len(todo)} tickers, {hidden} not asked (Tiingo serves another row), {cached} cached, "
-        f"{new_symbols} new symbols; ledger {before['ledger_unique_symbols']} unique symbols this month, "
+        f"{new_symbols} new symbols; ledgers {before['account_unique_symbols']} unique symbols this month "
+        f"(this version's {before['ledger_unique_symbols']}), "
         f"--already-used {args.already_used if args.already_used is not None else 'not given (0 assumed)'}, "
         f"stop at {args.month_stop}: room {room}, so {min(new_symbols, max(room, 0))} would be asked and "
         f"{max(new_symbols - max(room, 0), 0)} deferred")
@@ -918,7 +930,7 @@ def _run(args, month, candidates, status, todo, position, selected) -> int:
     limiter = make_limiter(args.hourly, args.daily, seed[seed["fetched_utc"] >= day_ago], spacing=args.spacing)
     log(f"limiter: {args.hourly}/hour, {args.daily}/day, one per {args.spacing:g} s; seeded with "
         f"{len(limiter.stamps)} ledger requests of the last day")
-    month_symbols = symbols_this_month(month)
+    month_symbols = symbols_this_month(month) | account_symbols(month)
     counted = before["counted_symbols"]
     # ``blocked``: a budget or rate stop. Uncached tickers after it are deferred; cached ones cost
     # nothing and are still checked. ``stop``: an auth failure, repeated refusals or errors, or an
@@ -958,7 +970,7 @@ def _run(args, month, candidates, status, todo, position, selected) -> int:
             result = fetch_one(ticker, headers, limiter, offline=args.offline)
             if result["requested"] and new_symbol:
                 month_symbols.add(ticker.upper())
-                counted = common.quota_used(SOURCE, month, unique_symbols=True) + (args.already_used or 0)
+                counted = len(account_symbols(month)) + (args.already_used or 0)
             if result["outcome"] == "not_cached":
                 log(f"[{k}/{len(todo)}] {ticker}: not cached (offline), skipped")
                 continue
@@ -1033,6 +1045,7 @@ def finish(args, month, status, selected, position, started, before, done, skipp
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--limit", type=int, default=0, help="process only the first N tickers in priority order")
     parser.add_argument("--dry-run", action="store_true", help="print the order; no request")
@@ -1061,6 +1074,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tickers", default="", help="comma-separated tickers to restrict to (kept in priority order)")
     parser.add_argument("--candidates", default=str(CANDIDATES))
     args = parser.parse_args(argv)
+    if not args.dry_run:   # a dry run prints the order and writes nothing
+        common.refuse_frozen("tiingo", allow_frozen, [OUT_DIR, RAW_DIR, common.QUOTA_LEDGER, common.RAW_INDEX])
     if args.hourly > HOURLY or args.daily > DAILY or args.month_stop > MONTH_LIMIT:
         parser.error(f"limits above {HOURLY}/hour, {DAILY}/day or {MONTH_LIMIT} symbols a month are not allowed")
     if args.month2:

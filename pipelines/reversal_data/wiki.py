@@ -67,6 +67,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
+from pipelines.reversal_data import common  # the frozen-version guard (common.refuse_frozen)
 from pipelines.reversal_data.common import (
     CACHE,
     INPUTS,
@@ -1110,11 +1111,13 @@ def known_issues(frame: pd.DataFrame, facts: dict) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--max-wait", type=float, default=1800, help="seconds to wait for an export file")
     parser.add_argument("--skip-filtered-export", action="store_true")
     parser.add_argument("--check-only", action="store_true", help="only rerun the stored-file comparison")
     args = parser.parse_args(argv)
+    common.refuse_frozen("wiki", allow_frozen)
     if not args.check_only:
         frame, origin = acquire(args.max_wait, args.skip_filtered_export)
         print(f"{len(frame):,} rows, {frame['ticker'].nunique():,} tickers", flush=True)

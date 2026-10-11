@@ -69,6 +69,7 @@ from urllib.parse import parse_qsl, quote, urlsplit
 import exchange_calendars as xcals
 import pandas as pd
 
+from pipelines.reversal_data import common  # the frozen-version guard (common.refuse_frozen)
 from pipelines.reversal_data.common import (
     CACHE, INPUTS, RAW, SlidingWindowLimiter, atomic_write, cached_get, sha256_bytes, sha256_file,
 )
@@ -1004,11 +1005,13 @@ def summarise(index: pd.DataFrame, captures: list[dict], processed: list[dict], 
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--from", dest="from_", default="2011")
     parser.add_argument("--to", default="2019")
     parser.add_argument("--max-fetch", type=int, default=None, help="stop after this many captures (testing)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("listings", allow_frozen)
     summary = build(args.from_, args.to, args.max_fetch)
     print(json.dumps(summary, indent=2, default=str))
     return 0

@@ -2588,6 +2588,7 @@ def missing_quarters(quarters: pd.DataFrame, scope: pd.DataFrame) -> pd.DataFram
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="never request; build from the cache only")
     parser.add_argument("--limit-ciks", type=int, default=0, help="a trial on the first N CIKs (writes CACHE/earnings/trial)")
@@ -2612,6 +2613,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verdicts", type=Path, default=HAND_VERDICTS,
                         help="the checker's hand-sample verdicts (JSON keyed by accession)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("earnings", allow_frozen)
     set_sec_rate(args.sec_rate)
     if args.hand_sample:
         run_hand_sample(args.offline, args.out_dir, args.verdicts)

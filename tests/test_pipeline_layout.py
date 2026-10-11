@@ -58,7 +58,8 @@ def test_the_runner_plans_each_version_and_refuses_v1_without_allow():
     assert [s for s, _ in build.PLANS["v1"]["steps"]] == [s for s, _ in build.PLANS["v2.1"]["steps"]]
     assert build.PLANS["v2"]["dir"] == "v2_build" and build.PLANS["v2.1"]["dir"] == "v2_1_build"
     out = _run(["-m", "pipelines.reversal_data.build", "--version", "v1"])
-    assert out.returncode != 0 and "--allow-v1" in out.stderr
+    # every frozen version needs --allow-frozen-rebuild (--allow-v1 is its old name; tests/test_data_protection.py)
+    assert out.returncode != 0 and "--allow-frozen-rebuild" in out.stderr and "--allow-v1" in out.stderr
 
 
 def test_pass_hash_keys_keep_the_old_names(tmp_path, monkeypatch):

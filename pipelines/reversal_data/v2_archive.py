@@ -799,6 +799,7 @@ def status() -> dict:
 
 
 def main(argv=None) -> None:
+    argv, _ = common.frozen_flag(argv)
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=["targets", "index", "fetch", "parse", "cmc", "quantquote", "yahoo_otc", "status"])
     ap.add_argument("--limit", type=int, default=0)

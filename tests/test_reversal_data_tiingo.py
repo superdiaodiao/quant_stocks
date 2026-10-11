@@ -313,6 +313,8 @@ def sandbox(tmp_path, monkeypatch):
     """Every path in tmp_path, the key faked, and a network that answers from ``answers``."""
     monkeypatch.setattr(common, "QUOTA_LEDGER", tmp_path / "quota_ledger.csv")
     monkeypatch.setattr(common, "RAW_INDEX", tmp_path / "raw_index.csv.gz")
+    # the account-wide count reads every ledger under research_cache; here only the sandbox's ledger exists
+    monkeypatch.setattr(tiingo.tq, "account_ledgers", lambda: [])
     for name in ("RAW_DIR", "OUT_DIR", "PRICES_DIR"):
         monkeypatch.setattr(tiingo, name, tmp_path / name.lower())
     for name, file in (("STATUS", "fetch_status.csv"), ("SUMMARY", "fetch_summary.json"), ("LOCK", "fetch.lock")):

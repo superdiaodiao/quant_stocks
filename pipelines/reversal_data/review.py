@@ -642,12 +642,14 @@ def merge(root: Path = ROUND_DIR, out_dir: Path | None = None, existing_terminal
 
 
 def main(argv=None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", default=str(ROUND_DIR), help="the round's review folder")
     parser.add_argument("--out-dir", default="", help="where the merged files go (default <root>/merged)")
     parser.add_argument("--inputs", default=str(common.INPUTS),
                         help="the INPUTS folder whose queue tables the verdicts must match ('' to skip the check)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("review", allow_frozen, [Path(args.out_dir) if args.out_dir else Path(args.root)])
     summary = merge(Path(args.root), Path(args.out_dir) if args.out_dir else None,
                     inputs=Path(args.inputs) if args.inputs else None)
     print(json.dumps({k: summary[k] for k in ("accepted", "merged_rows", "rejected", "data_changes")}, indent=1))

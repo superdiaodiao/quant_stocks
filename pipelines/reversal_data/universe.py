@@ -3074,6 +3074,7 @@ def assert_no_vendor_values(top: pd.DataFrame, summary: pd.DataFrame) -> None:
 # ------------------------------------------------------------------ main
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--tiingo-status", type=Path, default=TIINGO_STATUS,
                         help="the Tiingo fetch status file to read (default: the running fetch's own); a fixed "
@@ -3086,6 +3087,9 @@ def main(argv: list[str] | None = None) -> int:
                              f"(main files; older pages of CIKs with investment-company evidence), at "
                              f"{SEC_FETCH_PER_SECOND} requests a second; the build itself reads local files only")
     args = parser.parse_args(argv)
+    # a scratch build (--out-dir, no SEC fetch) writes every output under OUT_DIR
+    common.refuse_frozen("universe", allow_frozen,
+                         [Path(args.out_dir)] if args.out_dir and not args.fetch_sec_submissions else None)
     started = datetime.now(timezone.utc)
     out_dir = Path(args.out_dir) if args.out_dir else OUT
     top300_file = out_dir / TOP300_FILE.name if args.out_dir else TOP300_FILE

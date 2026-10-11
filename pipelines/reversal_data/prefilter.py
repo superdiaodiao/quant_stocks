@@ -3856,6 +3856,7 @@ def y_active_all_facts(candidates: pd.DataFrame, facts: pd.DataFrame, before: pd
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="never download (the Tiingo list must be cached)")
     parser.add_argument("--rebuild-daily", action="store_true", help="re-read every price file")
@@ -3872,6 +3873,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="write the unfillable list to CACHE/prefilter/unfillable_rebuilt.csv and leave "
                              "INPUTS/unfillable.csv as it is (when another owner holds that file)")
     args = parser.parse_args(argv)
+    common.refuse_frozen("prefilter", allow_frozen)
     started = time.time()
     trial = Path(args.out_dir) if args.out_dir else None
     if trial is not None:

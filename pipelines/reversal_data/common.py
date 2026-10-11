@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import sys
 import time  # noqa: F401  (tests patch common.time.sleep)
 
 from quant.data import version as _version
@@ -51,6 +53,51 @@ STAMP_DATE = _version.stamp_date()
 SEC_PER_SECOND = _sec.SEC_PER_SECOND
 SEC_USER_AGENT = _sec.user_agent()
 SEC_LIMITER = _sec.SEC_LIMITER
+
+
+# ======================================================================== frozen versions are written only on purpose
+
+ALLOW_FROZEN = "--allow-frozen-rebuild"
+
+
+def frozen_flag(argv: list[str] | None = None) -> tuple[list[str], bool]:
+    """(``argv`` without ``--allow-frozen-rebuild``, whether it was given). Every step that writes a version's cache
+    or inputs accepts the flag (the runner passes it on to each step of a deliberate rebuild)."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    return [a for a in argv if a != ALLOW_FROZEN], ALLOW_FROZEN in argv
+
+
+def frozen_roots() -> list[Path]:
+    """The caches and inputs folders of every frozen version (``quant.data.version.FROZEN_UTC``): the inputs both in
+    this checkout and relative to the working directory (the steps address them relative to it)."""
+    roots = []
+    for version in _version.frozen_versions():
+        roots += [_version.cache_dir(version), _version.inputs_dir(version),
+                  Path.cwd() / _version.INPUTS_PARENT / _version.INPUTS_NAME[version]]
+    return roots
+
+
+def frozen_targets(paths) -> list[Path]:
+    """The ``paths`` that lie in (or are) a frozen version's cache or inputs folder."""
+    roots = [os.path.realpath(r) for r in frozen_roots()]
+    hits = []
+    for p in paths:
+        real = os.path.realpath(Path(p) if Path(p).is_absolute() else Path.cwd() / p)
+        if any(real == r or real.startswith(r + os.sep) for r in roots):
+            hits.append(Path(p))
+    return hits
+
+
+def refuse_frozen(step: str, allow: bool, writes=None) -> None:
+    """Stop ``step`` before it writes into a frozen version, unless ``--allow-frozen-rebuild`` was given. ``writes``:
+    what the step writes (default: the version's cache and inputs and the request ledger, read at call time)."""
+    writes = [CACHE, INPUTS, RAW_INDEX, QUOTA_LEDGER] if writes is None else writes
+    hits = frozen_targets(writes)
+    if hits and not allow:
+        raise SystemExit(
+            f"{step}: data version {DATA_VERSION} is frozen (FROZEN_UTC {_version.FROZEN_UTC.get(DATA_VERSION)}) and "
+            f"this step writes {hits[0]}. Pass {ALLOW_FROZEN} to rebuild it on purpose (meant for scratch copies, "
+            "REVERSAL_DATA_MAIN_CHECKOUT); docs/architecture.md section 13.")
 
 
 def ledger() -> http.Ledger:

@@ -13,6 +13,10 @@ unchanged.
   ``reversal_2012_2026_v2_1``) and ``_v2_1`` study outputs. Studies pre-registered on frozen v2 check ``IS_V2`` and
   refuse it.
 
+Every version with a ``FROZEN_UTC`` is frozen: the pipeline refuses to write its cache or inputs without
+``--allow-frozen-rebuild``, ``python -m quant data verify`` checks them against ``state/data_manifests/<version>.json.gz``
+and ``python -m quant data lock`` makes the caches read-only (docs/architecture.md section 13).
+
 Rules and frozen-rule files are never versioned. ``REVERSAL_DATA_MAIN_CHECKOUT`` (testing only) points the versioned
 caches at another folder laid out like the main checkout, so an offline rebuild can be checked in a scratch copy;
 unset, every path is the main checkout's, as before.
@@ -54,6 +58,26 @@ FROZEN_UTC = {"v1": "2026-10-03T07:34:22+00:00", "v2": "2026-10-05T20:55:03+00:0
 # the request ledger of the versioned cache (quant.data.sources.http.Ledger)
 RAW_INDEX = CACHE / "raw_index.csv.gz"
 QUOTA_LEDGER = CACHE / "quota_ledger.csv"
+
+
+def is_frozen(version: str | None = None) -> bool:
+    """True when ``version`` (default: the version in force) has a ``FROZEN_UTC``: its cache and inputs are written
+    only by a deliberate rebuild (``--allow-frozen-rebuild``; docs/architecture.md section 13)."""
+    return bool(FROZEN_UTC.get(version or DATA_VERSION))
+
+
+def frozen_versions() -> list[str]:
+    return [v for v in VERSIONS if is_frozen(v)]
+
+
+def cache_dir(version: str) -> Path:
+    """The version's cache folder (``research_cache/<CACHE_NAME>`` of the main checkout, or of the testing redirect)."""
+    return CACHE_ROOT / CACHE_NAME[version]
+
+
+def inputs_dir(version: str, root: Path | None = None) -> Path:
+    """The version's committed inputs folder in the checkout ``root`` (default: this one)."""
+    return (ROOT if root is None else Path(root)) / INPUTS_PARENT / INPUTS_NAME[version]
 
 
 def stamp_date(version: str | None = None) -> str:

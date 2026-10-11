@@ -2616,12 +2616,16 @@ def redirect_outputs(out_dir: Path | None = None, form25: Path | None = None) ->
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--offline", action="store_true", help="use cached responses only")
     parser.add_argument("--out-dir", type=Path, help="scratch build: write every output under this directory")
     parser.add_argument("--form25", type=Path, help="read the step-3 table from this file (default INPUTS)")
     args = parser.parse_args(argv)
     redirect_outputs(args.out_dir, args.form25)
+    # an offline scratch build (--offline --out-dir) writes only under OUT_DIR
+    common.refuse_frozen("security_master", allow_frozen,
+                         [Path(args.out_dir)] if args.out_dir and args.offline else None)
     master, intervals, stats, evidence, history = build(offline=args.offline)
     common.atomic_write(MASTER, master.to_csv(index=False).encode("utf-8"))
     common.atomic_write(PERIODIC_HISTORY, history.to_csv(index=False).encode("utf-8"))

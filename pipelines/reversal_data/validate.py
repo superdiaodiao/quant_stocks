@@ -3640,6 +3640,7 @@ def write_outputs(ctx: Context, results: list[dict], manifest: bool = True) -> t
 
 
 def main(argv=None) -> int:
+    argv, allow_frozen = common.frozen_flag(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--only", default="", help="comma-separated check names (printed, nothing written)")
     parser.add_argument("--no-manifest", action="store_true", help="write the summary but not the manifest")
@@ -3652,6 +3653,8 @@ def main(argv=None) -> int:
                         help="write the multi_source_agreement review batch (default CACHE/review/round10/multi_source/"
                              "batch_01.csv) and stop; no check is run")
     args = parser.parse_args(argv)
+    if not args.only:   # --only prints and writes nothing
+        common.refuse_frozen("validate", allow_frozen)
     ctx = Context(universe_dir=args.universe_dir, out_dir=args.out_dir)
     if args.write_multi_source_batch is not None:
         target = (Path(args.write_multi_source_batch) if args.write_multi_source_batch

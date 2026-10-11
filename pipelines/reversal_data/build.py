@@ -14,8 +14,13 @@ Steps of one pass, in the order of the version-1 rebuilds:
   only (a snapshot of what the fetch has cached); the other steps repeat until a fixed point.
 - ``v2.1``: v2 plus the Alpaca SIP fill. The archive captures are not re-parsed (the v2 fill's parsed series are read
   as they are); the Alpaca series are those ``reversal_data_v2_1_alpaca.py confirm`` accepted (run it first).
-- ``v1``: frozen (plan section 0). Rebuilding it rewrites the frozen v1 files, so it needs ``--allow-v1``; it is
-  meant for scratch copies (``REVERSAL_DATA_MAIN_CHECKOUT``), e.g. to show that a code change leaves v1 unchanged.
+- ``v1``: the first version (plan section 0).
+
+Every version with a ``FROZEN_UTC`` (``quant.data.version``; today v1, v2 and v2.1) is frozen: rebuilding it rewrites
+its files, so it needs ``--allow-frozen-rebuild`` (``--allow-v1`` is the old name, still accepted). The runner passes
+the flag on to each step, which refuses a frozen version without it. A frozen rebuild is meant for scratch copies
+(``REVERSAL_DATA_MAIN_CHECKOUT``), e.g. to show that a code change leaves the frozen files unchanged; afterwards
+``python -m quant data verify`` checks them against the committed manifests (docs/architecture.md section 13).
 
 The steps repeat until the hashes of the pass's outputs equal the previous pass's (a fixed point), at most
 ``--max-passes``. Each pass's hashes go to ``<cache>/<build dir>/pass_N.json`` (``v2_build``, ``v2_1_build``,
@@ -26,6 +31,8 @@ Usage::
     PYTHONPATH=. .venv/bin/python -m pipelines.reversal_data.build --version v2.1          # to a fixed point
     PYTHONPATH=. .venv/bin/python -m pipelines.reversal_data.build --version v2 --max-passes 1
     PYTHONPATH=. .venv/bin/python -m pipelines.reversal_data.build --version v2 --from reconcile   # start a pass at a step
+    REVERSAL_DATA_MAIN_CHECKOUT=/scratch/main PYTHONPATH=. .venv/bin/python -m pipelines.reversal_data.build \
+        --version v1 --allow-frozen-rebuild --max-passes 1                                     # a frozen version
 """
 from __future__ import annotations
 
@@ -43,6 +50,7 @@ from quant.data import version as dv
 
 ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
+ALLOW_FROZEN = "--allow-frozen-rebuild"   # the same flag every step accepts (pipelines.reversal_data.common)
 STEPS = [
     ("archive_parse", ["v2_archive", "parse"]),
     ("prefilter", ["prefilter", "--offline"]),
@@ -109,11 +117,13 @@ def pass_hashes(version: str) -> dict:
     return out
 
 
-def run_step(version: str, name: str, argv: list[str], log_dir: Path) -> float:
+def run_step(version: str, name: str, argv: list[str], log_dir: Path, allow_frozen: bool = False) -> float:
     env = {**os.environ, "REVERSAL_DATA_VERSION": version, "PYTHONPATH": str(ROOT)}
     started = time.time()
     log = log_dir / f"{dt.datetime.now().strftime('%Y%m%dT%H%M%S')}_{name}.log"
     module, *args = argv
+    if allow_frozen:
+        args = [*args, ALLOW_FROZEN]
     with log.open("w") as handle:
         code = subprocess.run([PY, "-m", f"pipelines.reversal_data.{module}"] + args, cwd=ROOT, env=env,
                               stdout=handle, stderr=subprocess.STDOUT).returncode
@@ -129,12 +139,15 @@ def main(argv=None) -> int:
     ap.add_argument("--version", required=True, choices=dv.VERSIONS)
     ap.add_argument("--max-passes", type=int, default=None, help="default 3 (v1, v2) or 4 (v2.1)")
     ap.add_argument("--from", dest="start", default="", help="start the first pass at this step")
-    ap.add_argument("--allow-v1", action="store_true", help="v1 is frozen: rebuild it only on purpose")
+    ap.add_argument(ALLOW_FROZEN, "--allow-v1", dest="allow_frozen", action="store_true",
+                    help="the version is frozen (FROZEN_UTC set): rebuild it only on purpose (--allow-v1: old name)")
     args = ap.parse_args(argv)
     version = args.version
     plan = PLANS[version]
-    if version == "v1" and not args.allow_v1:
-        raise SystemExit("v1 is frozen (plan section 0): pass --allow-v1 to rebuild it (meant for scratch copies)")
+    if dv.is_frozen(version) and not args.allow_frozen:
+        raise SystemExit(f"{version} is frozen (FROZEN_UTC {dv.FROZEN_UTC[version]}): pass {ALLOW_FROZEN} to rebuild "
+                         "it (--allow-v1 is the old name; meant for scratch copies, REVERSAL_DATA_MAIN_CHECKOUT)")
+    allow_frozen = dv.is_frozen(version)
     cache, inputs = cache_dir(version), inputs_dir(version)
     if not cache.exists() or not inputs.exists():
         raise SystemExit(plan["missing"])
@@ -154,7 +167,7 @@ def main(argv=None) -> int:
             first = 1 if plan["first_pass_only"] else 0
         timings = {}
         for name, step in steps[first:]:
-            timings[name] = round(run_step(version, name, step, out / "logs"), 1)
+            timings[name] = round(run_step(version, name, step, out / "logs", allow_frozen), 1)
         hashes = pass_hashes(version)
         record = {"pass": k, "finished_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                   "timings_s": timings, "hashes": hashes}
