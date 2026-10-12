@@ -277,6 +277,18 @@ PYTHONPATH=. .venv/bin/python -m quant data quota               # Tiingo 本月�
 `research_cache/<研究名>/`。用 `restore_data.sh` 恢复冻结版本的备份之前要先 `unlock`。细节见
 [docs/architecture.md](docs/architecture.md) 第 13 节。
 
+
+### 5.4.3 定时任务（全部在 GitHub 上，不依赖本机）
+
+| 任务 | 仓库 | 时间 |
+|---|---|---|
+| 前瞻观察，自动提交记录（`forward_observation.yml`） | quant_stocks | 每月 1–6 日美股收盘后 |
+| 自动测试（`tests.yml`） | quant_stocks | 每次推送 |
+| IBKR 借股费快照，存进当月的 `borrow-fees-YYYY-MM` Release | quant_stocks_data（私有） | 每天两次（UTC 13:00、22:30） |
+| 下载全部数据备份，逐个文件对照清单核对（`verify_backups.yml`） | quant_stocks_data（私有） | 每月 3 日 |
+
+失败时 GitHub 会给仓库所有者发邮件。本机冻结数据的核对可以随时手动运行 `python -m quant data verify`。
+
 ### 5.5 运行测试
 
 ```bash

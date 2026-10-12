@@ -158,7 +158,7 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);paddin
         <li><b>只读</b><span>三个冻结版本的本地缓存设为只读，误操作也改不了</span></li>
         <li><b>程序拒写</b><span>构建程序遇到冻结版本直接拒绝，除非明确加参数</span></li>
         <li><b>指纹清单</b><span>每个文件都有 SHA-256 清单，<code>quant data verify</code> 逐个核对</span></li>
-        <li><b>每周检查</b><span>Mac 每周日自动核对一次，有问题弹通知</span></li>
+        <li><b>每月核对</b><span>GitHub 每月下载全部备份，逐个文件对照清单，失败发邮件</span></li>
         <li><b>私有备份</b><span>42 个数据包、约 10.5 GB，带清单，可一条命令恢复</span></li>
       </ul>
     </div>
@@ -208,7 +208,7 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-11";
+const UPDATED = "2026-10-12";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
 const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
 const STUDIES = [
@@ -272,12 +272,10 @@ const CMDS = [
   ["bash scripts/restore_data.sh cache-reversal-v1-2026-10-11 /tmp/restore","从私有仓库恢复一个数据包"],
 ];
 const JOBS = [
-  ["前瞻观察，自动提交记录","GitHub Actions","每月 1–6 日美股收盘后"],
-  ["抓取 IBKR 借股费","GitHub Actions","每天两次（北京时间 6:30、21:00）"],
-  ["自动测试","GitHub Actions","每次推送代码"],
-  ["同步借股费到本机","你的 Mac","每天 12:00"],
-  ["核对冻结数据","你的 Mac","每周日 10:00，有问题弹通知"],
-  ["备份借股费和观察数据","你的 Mac","每月 2 日 12:30"],
+  ["前瞻观察，自动提交记录","GitHub（quant_stocks）","每月 1–6 日美股收盘后"],
+  ["自动测试","GitHub（quant_stocks）","每次推送代码"],
+  ["抓取 IBKR 借股费，存进私有仓库","GitHub（quant_stocks_data）","每天两次（北京时间 6:30、21:00）"],
+  ["下载全部备份，逐个文件核对","GitHub（quant_stocks_data）","每月 3 日，失败发邮件"],
 ];
 const DOCS = [
   ["docs/research_summary_2026_10.md","所有研究的结论汇总"],
@@ -288,6 +286,7 @@ const DOCS = [
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
 const LOG = [
+  ["2026-10-12","定时任务全部改到 GitHub：借股费存进私有仓库，备份每月自动核对；不再依赖 Mac"],
   ["2026-10-11","发布本页；代码完成四阶段重组和精简；数据加只读保护、每周核对和私有备份"],
 ];
 // ---- 以下是渲染 ----

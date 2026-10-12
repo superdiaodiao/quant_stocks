@@ -385,7 +385,7 @@ M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻�
 | 探针和 v2 抓取器各写一遍的 QuantQuote 读取 | `quant/data/sources/quantquote.py` |
 | `quant/observation/smisp.py`：parse_borrow_text、BorrowSnapshots | `quant/data/sources/ibkr_borrow_fees.py`（smisp 从这里导入，名字不变） |
 
-不动的：`scripts/record_borrow_fees.py`（借券费记录器）。`.github/workflows/borrow_fees.yml` 只稀疏检出这一个文件、
+不动的：`scripts/record_borrow_fees.py`（借券费记录器）。（2026-10-12 起由私有仓库 quant_stocks_data 的 borrow_fees 工作流运行，那里有它的副本）；原来公开仓库的 `borrow_fees.yml` 只稀疏检出这一个文件、
 用裸 `python3` 运行，它导入不了本仓库的包，所以它必须保持自包含；它也是工作流引用的冻结文件（第 6 节）。读取端在
 `quant/data/sources/ibkr_borrow_fees.py`。
 

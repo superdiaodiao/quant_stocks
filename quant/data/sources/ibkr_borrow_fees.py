@@ -2,7 +2,7 @@
 and the reader of the daily snapshots (moved unchanged from quant/observation/smisp.py, phase 3).
 
 The recorder is ``scripts/record_borrow_fees.py``. It stays a self-contained script at that path: the borrow-fee
-workflow (.github/workflows/borrow_fees.yml) checks out only that one file and runs it with a bare ``python3``, so it
+workflow (since 2026-10-12 the borrow_fees workflow of the private repo superdiaodiao/quant_stocks_data, which keeps a copy) checks out only that one file and runs it with a bare ``python3``, so it
 cannot import this package. Its ``parse_header`` is the recorder's own row count check; ``parse_borrow_text`` below
 reads the rows.
 """
