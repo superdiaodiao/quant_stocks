@@ -347,12 +347,13 @@ GLOB_KEYS = ("n", "sM", "sM2", "sF", "nO", "sO", "sO2", "sMO", "acct_days")
 
 
 def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: bool = False,
-                  record_trades: bool = False) -> dict:
+                  record_trades: bool = False, equity: float = START_EQUITY) -> dict:
     """Run every configuration in ``codes`` on every account of ``rows``. Returns per-year accumulators (and, with
     ``record``, the daily per-account returns / exposures and basket returns; with ``record_trades``, the list of
     closed T-trades: account row, configuration column, leg, entry / exit session index, exit reason ('target',
     'timeout', or 'end' = closed at the account's last close), days held and net return in bp, the value the
-    ``sNet`` accumulator adds). Neither option changes the simulation."""
+    ``sNet`` accumulator adds). Neither option changes the simulation. ``equity``: each account's starting value
+    (default the study's $10k; signal_combo runs the frozen configurations at their size inside a $10k book)."""
     R, T = rows.c.shape
     N = len(codes["direction"])
     meas, dirc, exitc = codes["measure"], codes["direction"], codes["exit"]
@@ -472,12 +473,12 @@ def simulate_grid(rows: Rows, codes: dict, cm: CostModel = CostModel(), record: 
         if ini.any():
             p0 = rows.prevc[ini, t][:, None]
             hs0 = np.maximum(rows.hs_bps[ini][:, None] / 1e4, 0.005 / p0)
-            b0 = np.floor(bf[None, :] * (START_EQUITY - BUFFER) / (p0 * (1 + hs0)))
+            b0 = np.floor(bf[None, :] * (equity - BUFFER) / (p0 * (1 + hs0)))
             c0 = cost_vec(b0, np.broadcast_to(p0, b0.shape), False, rows.hs_bps[ini][:, None], cm)
             base[ini] = b0
-            settled[ini] = START_EQUITY - b0 * p0 - c0
+            settled[ini] = equity - b0 * p0 - c0
             pending[ini] = 0.0
-            vprev[ini] = START_EQUITY
+            vprev[ini] = equity
             dead[ini] = False
             S.reset_rows(ini)
             B.reset_rows(ini)
@@ -784,13 +785,13 @@ def base_rows(data: dict, base: str, start: str | None = None, end: str | None =
 
 
 def exact_run(data: dict, base: str, ids: list, start: str | None, end: str | None, cm: CostModel,
-              record_trades: bool = False) -> dict:
-    """Fresh $10k accounts over [start, end]; configs ``ids`` plus the 4 references. Daily basket series. With
-    ``record_trades``, ``out["trades"]`` lists every T-trade (``simulate_grid``; ``cfg`` k = ``ids[k]``, then the
-    references)."""
+              record_trades: bool = False, equity: float = START_EQUITY) -> dict:
+    """Fresh $10k accounts (``equity``) over [start, end]; configs ``ids`` plus the 4 references. Daily basket
+    series. With ``record_trades``, ``out["trades"]`` lists every T-trade (``simulate_grid``; ``cfg`` k = ``ids[k]``,
+    then the references)."""
     rows = base_rows(data, base, start, end)
     codes_df = pd.concat([grid().iloc[list(ids)], ref_codes()], ignore_index=True)
-    sim = simulate_grid(rows, cfg_arrays(codes_df), cm, record=True, record_trades=record_trades)
+    sim = simulate_grid(rows, cfg_arrays(codes_df), cm, record=True, record_trades=record_trades, equity=equity)
     rec = sim["rec"]
     sess = rows.sessions
     act = rec["act"]                     # (T, R)

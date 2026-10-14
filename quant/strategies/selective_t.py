@@ -283,17 +283,18 @@ def exit_limit(m: Market, t: int, cy: Cycle) -> float:
     return ceil_cent(min(sma, tgt) if np.isfinite(sma) and sma > cy.entry_px else tgt)
 
 
-def simulate(m: Market, s: int, e: int, spec: Spec, rf: pd.Series | None = None) -> dict:
-    """$10,000 at the close of s-1; sessions s..e. Daily values, trip records, counters."""
+def simulate(m: Market, s: int, e: int, spec: Spec, rf: pd.Series | None = None,
+             equity: float = START_EQUITY) -> dict:
+    """``equity`` ($10,000 by default) at the close of s-1; sessions s..e. Daily values, trip records, counters."""
     d, sym, on, cash_mode = m.s, m.sym, spec.costs, spec.mode == "cash"
     p0 = d.close[s - 1]
-    b = int(math.floor(spec.base_frac * (START_EQUITY - BUFFER) / (p0 * (1 + hs_of(sym, p0)))))
+    b = int(math.floor(spec.base_frac * (equity - BUFFER) / (p0 * (1 + hs_of(sym, p0)))))
     c0 = cost(b, p0, False, sym, on)
-    settled, pending = START_EQUITY - b * p0 - c0, 0.0
-    cost_frac = c0 / START_EQUITY
+    settled, pending = equity - b * p0 - c0, 0.0
+    cost_frac = c0 / equity
     cycles: dict[str, Cycle | None] = {f.family: None for f in spec.fams}
     queued: dict[str, tuple[Fam, int] | None] = {f.family: None for f in spec.fams}
-    trips, values, expo, shortfall, interest = [], [START_EQUITY], [], 0, 0.0
+    trips, values, expo, shortfall, interest = [], [equity], [], 0, 0.0
     month = d.sessions.to_period("M")
     rfv = rf.reindex(d.sessions).fillna(0.0).to_numpy() if rf is not None else np.zeros(len(d.sessions))
 

@@ -118,6 +118,17 @@ def deflated_sharpe(sr: float, n_obs: int, skew: float, kurt: float, sr_trials: 
     return {"n_trials": n, f"sr0_{period}": sr0, "dsr": float(NORM.cdf(z)), "z": z}
 
 
+def deflated_sharpe_n(sr: float, n_obs: int, skew: float, kurt: float, n_trials: int, var_trials: float) -> dict:
+    """``deflated_sharpe`` with the trial count and the variance of the trials' Sharpe ratios given directly (for a
+    family of trials too large to list; signal_combo). Same formula and per-period Sharpe ratios."""
+    g = 0.5772156649
+    sr0 = math.sqrt(var_trials) * ((1 - g) * NORM.inv_cdf(1 - 1 / n_trials)
+                                   + g * NORM.inv_cdf(1 - 1 / (n_trials * math.e)))
+    denom = math.sqrt(max(1 - skew * sr + (kurt - 1) / 4 * sr ** 2, 1e-12))
+    z = (sr - sr0) * math.sqrt(n_obs - 1) / denom
+    return {"n_trials": int(n_trials), "var_trials": float(var_trials), "sr0": sr0, "dsr": float(NORM.cdf(z)), "z": z}
+
+
 def weekly_deflated_sharpe(sr: float, n_obs: int, skew: float, kurt: float, sr_trials: np.ndarray) -> dict:
     """``deflated_sharpe`` of weekly Sharpe ratios (key ``sr0_weekly``): scripts/research_reversal_dev.py's version,
     also used by the stock studies that took it from there."""
