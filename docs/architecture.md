@@ -35,6 +35,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     panel.py                Nasdaq 时点股票面板：load_window、make_index、退市终值常数
     ohlc.py                 按真实成交价重建的日线 OHLC（整股引擎、挂限价单用）
     market_cap.py           时点市值（SEC 股数 → 公众流通值 → Nasdaq 名单 → 成交额代理）
+    bitcoin.py              BTC 多源核对、主序列、对齐到美股交易日（bitcoin 研究）
     sources/                各数据商：请求地址、带缓存和请求台账的下载、解析（密钥只从环境变量/.env 读，绝不打印）
       http.py               cached_get（先缓存再解析、404 记标记、请求台账 Ledger 由调用方给）、限速器、原子写、脱敏
       sec.py                SEC 联系人（src/io/sec_contact，绝不打印）、每秒 7 次的共享限速器、请求头
@@ -46,6 +47,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
       ibkr_borrow_fees.py   IBKR 借券费文件解析和每日快照读取（记录器 scripts/record_borrow_fees.py 必须自包含）
       megacap_oos2.py       1998–2013 超大盘样本外的取数和解析（SEC 封面、Wayback、Yahoo、CMC、Tiingo）
       sec_cache.py、daily_series.py   分拆 / NDX 研究的缓存请求（第 2 阶段）
+      crypto.py             BTC-USD 日线（Coinbase / Kraken / Bitstamp / Yahoo）的请求与解析，UTC 日期约定（bitcoin 研究）
   signals/                  信号：纯函数，只用到 t 日收盘为止的数据
     technical.py            sma_state、trailing_return、vol_state、inverse_vol_weights、rsi_wilder、momentum_frames
   strategies/               每个策略一个模块：规则 + 引擎（从研究里原样抽出）；registry.py 登记冻结的命名策略

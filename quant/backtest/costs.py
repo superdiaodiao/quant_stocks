@@ -154,3 +154,23 @@ def volume_tier_half_spread(dollar_volume: float, price: float, mult: float = 1.
 def tick_half_spread(bps: float, price: float) -> float:
     """``bps`` basis points, but at least half a cent per share."""
     return max(bps / 1e4, 0.005 / price)
+
+
+# ---------------------------------------------------------------- IBKR spot crypto (Paxos / Zero Hash), bitcoin study
+# Published schedule (interactivebrokers.com/en/pricing/commissions-cryptocurrencies.php, read 2026-10-14):
+# 0.18% of trade value up to USD 100,000 monthly trade value (0.15% to 1M, 0.12% above), minimum USD 1.75 per order
+# but no more than 1% of trade value; "no added spreads, markups or custody fees"; Paxos passes through USD 0.15 a
+# month per open Paxos account. The market spread is still paid (a half-spread fraction of value, the caller's).
+CRYPTO_RATE = 0.0018
+CRYPTO_MIN = 1.75
+CRYPTO_MAX_FRAC = 0.01
+PAXOS_MONTHLY_FEE = 0.15
+
+
+def ibkr_crypto_cost(value: float, half_spread: float, rate: float = CRYPTO_RATE, minimum: float = CRYPTO_MIN,
+                     max_frac: float = CRYPTO_MAX_FRAC) -> float:
+    """Cost in dollars of one spot-crypto order of ``value`` dollars: max(rate x value, minimum) capped at
+    ``max_frac`` x value, plus ``half_spread`` x value. Fractional coins, so no share rounding."""
+    if value <= 0:
+        return 0.0
+    return min(max(rate * value, minimum), max_frac * value) + half_spread * value

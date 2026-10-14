@@ -108,8 +108,7 @@ def test_quant_and_studies_import_no_pipeline_and_no_data_script():
 
 
 def test_the_borrow_fee_recorder_stays_self_contained():
-    # .github/workflows/borrow_fees.yml checks out only this file and runs it with a bare python3
+    # the borrow_fees workflow of the private repo quant_stocks_data runs a copy of this file with a bare python3
     names = _imports(ROOT / "scripts" / "record_borrow_fees.py")
     assert all(n.split(".")[0] in sys.stdlib_module_names or n == "__future__" or n.startswith("__future__.")
                for n in names), names
-    assert "scripts/record_borrow_fees.py" in (ROOT / ".github/workflows/borrow_fees.yml").read_text()

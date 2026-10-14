@@ -101,3 +101,31 @@ def month_end_only(sig: pd.Series) -> pd.Series:
     is_me = pd.Series(idx.to_period("M"), index=idx) != pd.Series(idx.to_period("M"), index=idx).shift(-1)
     is_me.iloc[-1] = False   # the last session of the data is not known to be a month end
     return sig.where(is_me.values).ffill()
+
+
+# ---- 7-day (crypto) calendar signals, bitcoin study. Same rule: only data up to and including the close of t.
+
+def sma_cross_state(p: pd.Series, fast: int, slow: int) -> pd.Series:
+    """1.0 if SMA(fast)_t > SMA(slow)_t, 0.0 if not, NaN until the slow average exists."""
+    f = p.rolling(fast, min_periods=fast).mean()
+    s = p.rolling(slow, min_periods=slow).mean()
+    return (f > s).astype(float).where(s.notna() & f.notna())
+
+
+def realised_vol_ann(r: pd.Series, window: int, periods_per_year: float) -> pd.Series:
+    """Rolling sample std of the last ``window`` returns (incl. t) x sqrt(periods_per_year), e.g. 365 for a
+    7-day calendar."""
+    return r.rolling(window, min_periods=window).std() * math.sqrt(periods_per_year)
+
+
+def month_end_momentum_state(p: pd.Series, months: int) -> pd.Series:
+    """Time-series momentum decided on each month's last row: 1.0 if P(month end) / P(month end ``months`` earlier)
+    - 1 > 0, else 0.0; carried forward to the next month end, NaN before it exists. The last row of the data is not
+    treated as a month end (the next row is unknown), as ``quant.data.calendar.month_end_mask``."""
+    per = p.index.to_period("M")
+    me = np.zeros(len(p), dtype=bool)
+    me[:-1] = per[:-1] != per[1:]
+    pm = p[me]
+    mom = pm / pm.shift(months) - 1
+    st = (mom > 0).astype(float).where(mom.notna())
+    return st.reindex(p.index).ffill()
