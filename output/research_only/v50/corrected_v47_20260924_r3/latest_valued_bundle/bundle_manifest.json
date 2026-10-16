@@ -1,13 +1,13 @@
 {
-  "as_of": "2026-10-14",
+  "as_of": "2026-10-15",
   "broker_action_authorized": false,
-  "created_at": "2026-10-15T05:53:52+00:00",
+  "created_at": "2026-10-16T01:44:36+00:00",
   "files": {
-    "index_close_provenance.json": "20a9077813f709b6634ebedb10a42ab0d545434ee488ddf094df0db853842de2",
-    "nasdaq_index.csv": "c0a65f157694ade763aae0461d41d4ab70c57865ef6e966f63406bb79e59e889",
+    "index_close_provenance.json": "116ec2576c572b684aeaca434c363ff3be7ab6cdc556fc578d1dc82eddafe3ac",
+    "nasdaq_index.csv": "90b07f6269c275ed771bfb8531eab9b45dbc5f9e2711966560e53364c5e144e4",
     "provider_adjustments.csv": "c3dc76b51f76c933680a506de8e02b57791fca69da35cdb27ee3545b641ae640",
-    "qqq.csv": "59c4940caa03b02702a4b5b345f726b0cda07fcdd6d4bbd37519682ac69b9210",
-    "qqq.provenance.json": "a3dae0de26956a551c4a52782085ed6131d9a6a8a676c03ff49fece8e3e2814f"
+    "qqq.csv": "c5f753caa36b0b1c0075dbe437451c7279e5ead3991a466e142f480f1efc31bb",
+    "qqq.provenance.json": "1ef06fb0cd233042bd0f5ce3818a49aff0e8b08067ead7404b3ef1d89361faa7"
   },
   "formal_financial_files_modified": false,
   "formal_market_files_modified": false,
@@ -31,12 +31,12 @@
   "mark_procedure": "v50r3-exposure-aware-mark",
   "market_refresh": {
     "index_refresh": {
-      "expected_session": "2026-10-14",
-      "fallback_used": false,
+      "expected_session": "2026-10-15",
+      "fallback_used": true,
       "historical_latest_date": "2026-10-14",
-      "index_file_sha256": "45b5de2347feeb8002ce2ab5c37032712fbe32104fe7d0d6520c9825929d3464",
+      "index_file_sha256": "d65545839b25f4a58269801e914a3deb3417b3c58855681a007dae859ae93174",
       "provenance_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/index_close_provenance.json",
-      "source": "nasdaq_historical",
+      "source": "nasdaq_official_closed_chart_info",
       "source_verified": true
     },
     "seed": {
@@ -58,7 +58,7 @@
       "counts": {
         "updated": 5
       },
-      "end": "2026-10-14",
+      "end": "2026-10-15",
       "failures": [],
       "provider_adjustments_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/provider_adjustments.csv",
       "provider_adjustments_recorded": [],
@@ -92,13 +92,13 @@
       "SMCI",
       "WDAY"
     ],
-    "frozen_through": "2026-10-13",
+    "frozen_through": "2026-10-14",
     "revised_frozen_rows": 1,
     "revisions": {
       "NASDAQ": {
         "fresh_rows_appended": 1,
-        "frozen_rows_kept": 5731,
-        "frozen_through": "2026-10-13",
+        "frozen_rows_kept": 5732,
+        "frozen_through": "2026-10-14",
         "revised_frozen_rows": 1,
         "revised_sample": [
           {
@@ -114,28 +114,28 @@
   "price_files": {
     "ILMN": {
       "file": "prices/ilmn.csv",
-      "latest_date": "2026-10-14",
-      "sha256": "b04f3580ee5447a32e77b66324cf26156a506ad69533ccffa84424dfa800e154"
+      "latest_date": "2026-10-15",
+      "sha256": "ce0c54425e38a7e2c477e4069d55a2b1bd70db1a96ec42013bcfbc3ada068975"
     },
     "OKTA": {
       "file": "prices/okta.csv",
-      "latest_date": "2026-10-14",
-      "sha256": "4895c6ce218cd086cd7206ebb7dfaea317a1f97f4ff7504bae2e5e95abe4b2e4"
+      "latest_date": "2026-10-15",
+      "sha256": "58b89812b1533b9ae62c86716e0aa84285e87210a9de815393bedad7fb5a893d"
     },
     "PLTR": {
       "file": "prices/pltr.csv",
-      "latest_date": "2026-10-14",
-      "sha256": "729cdfa208fee11157d93a4b6f7fee05aff349698b455c82aee1d1d93dc58266"
+      "latest_date": "2026-10-15",
+      "sha256": "b06864c4bac2d652bd6295eb93ae2b7bc6ab037622d7af97337b2371e7f9b5ab"
     },
     "SMCI": {
       "file": "prices/smci.csv",
-      "latest_date": "2026-10-14",
-      "sha256": "0d9da48d76fd5e63f79555e4fa63e7c16d20d802b151aceb9760a554f3fb7331"
+      "latest_date": "2026-10-15",
+      "sha256": "9f51e5deea3c4c3097a99064b80e7c93bf1980580bcfe130ba7ce96c6d997879"
     },
     "WDAY": {
       "file": "prices/wday.csv",
-      "latest_date": "2026-10-14",
-      "sha256": "b96e1ed40ec7a189b3be9aaf0b8487845a0f97bc0a0f3c75a6e9ee50c5ba4012"
+      "latest_date": "2026-10-15",
+      "sha256": "f0ed6961a5dce553e421b9576a0f86946f30013287e290c33a9a488bf078121d"
     }
   },
   "purpose": "MARK",
@@ -159,7 +159,7 @@
       "nasdaq_universe": "b08b5ab9abc34dbbb30ba679fc664a28dda012b0b7e0ac0d5818912523a81cf1"
     },
     "formal_market_files_modified": false,
-    "qqq_cutoff": "2026-10-14",
+    "qqq_cutoff": "2026-10-15",
     "shared_companyfacts_cache_modified": false
   },
   "schema_version": 2
