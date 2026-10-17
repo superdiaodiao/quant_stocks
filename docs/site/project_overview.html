@@ -208,7 +208,7 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-14";
+const UPDATED = "2026-10-17";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
 const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
 const STUDIES = [
@@ -242,6 +242,7 @@ const STUDIES = [
   ["交易方式","每天机械做T","fail","10 个配置全部不如拿着不动","research_ledger_intraday_t.md"],
   ["交易方式","有条件 / 跨天做T","watch","\"跌深 10% 加买\"形式通过，可能是幸存者偏差","research_ledger_selective_t.md"],
   ["交易方式","做T 全网格（184,320 个配置）","watch","无一通过；RSI2 极低时加买最稳，每年只多 0.3–0.6 点","research_ledger_t_grid.md"],
+  ["交易方式","分钟级盘中交易（20 个配置）","fail","最好的噪声带单独年化 8.7%；成本和 PDT 限制是关键","research_ledger_intraday_minute.md"],
   ["交易方式","拿 QQQ + 做空输家","watch","错误定价空头有信号，叠加后 t 2.34 低于门槛 3.0","research_ledger_short_overlay.md"],
   ["杠杆与期权","均线上方加杠杆 B3","risk","多赚主要来自杠杆；泡沫顶起算最惨跌 87%","research_ledger_sector_lev.md"],
   ["杠杆与期权","卖期权全网格（3,584 个配置）","risk","不加杠杆 0 个跑赢；通过的是约 1.5 倍杠杆","research_ledger_qc_options_grid.md"],
@@ -288,6 +289,7 @@ const DOCS = [
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
 const LOG = [
+  ["2026-10-17","新增分钟级盘中交易研究（QQQ，20 个配置全部不通过）"],
   ["2026-10-14","新增两项研究：合并差一点通过的信号（不通过）、比特币（择时无效；QQQ 加少量比特币多赚但未过门槛）"],
   ["2026-10-12","定时任务全部改到 GitHub：借股费存进私有仓库，备份每月自动核对；不再依赖 Mac"],
   ["2026-10-11","发布本页；代码完成四阶段重组和精简；数据加只读保护、每周核对和私有备份"],
