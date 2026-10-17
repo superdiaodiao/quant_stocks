@@ -104,3 +104,20 @@ def chart_url(symbol: str, period1: str, period2: str) -> str:
     params = urlencode({"period1": _epoch(period1), "period2": _epoch(period2), "interval": "1d",
                         "events": "div,splits", "includeAdjustedClose": "true"}, safe=",")
     return CHART.format(symbol=symbol) + "?" + params
+
+
+def parse_chart_exchange(path: Path, end: str) -> pd.DataFrame:
+    """Chart JSON of a non-US index -> date, close, adjclose; dates in the exchange's own time zone
+    (``meta.exchangeTimezoneName``), not New York: a Tokyo session opens at 09:00 JST, which is the previous
+    calendar day in New York, so ``parse_chart`` would shift every Asian date back by one (international study).
+    Rows without a close are dropped; truncated at ``end`` at once; duplicate dates raise."""
+    j = json.loads(Path(path).read_text())["chart"]["result"][0]
+    tz = j["meta"].get("exchangeTimezoneName") or "America/New_York"
+    ts = pd.to_datetime(j["timestamp"], unit="s", utc=True).tz_convert(tz)
+    q = j["indicators"]["quote"][0]
+    adj = j["indicators"].get("adjclose", [{}])[0].get("adjclose") or q["close"]
+    df = pd.DataFrame({"date": ts.strftime("%Y-%m-%d"), "close": q["close"], "adjclose": adj})
+    df = truncate_dev(df.dropna(subset=["close"]), "date", end)
+    if df["date"].duplicated().any():
+        raise ValueError(f"duplicate dates in {path}")
+    return df.reset_index(drop=True)
