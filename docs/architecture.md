@@ -61,7 +61,9 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     metrics.py              cagr_of、max_drawdown、monthly、yearly、t_and_ir、core_metrics、relative_metrics …
     criteria.py             A/B 通过标准（ab_criteria）、bonferroni_t、bh_reject、deflated_sharpe
     periods.py              两折切分 halves、return_period_metrics、nav_window_metrics
-  observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp
+  observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp；
+                            daily + health（入口 scripts/forward_observation_daily.py，每个交易日自检，
+                            独立重算触发条件，不调用冻结模拟器）、health_issue（GitHub issue 开/关）
   cli.py                    python -m quant list / study <name> / strategies / run <strategy>
   reporting.py              写结果文件、运行日志、事先登记块（PREREG-BEGIN/END）摘要（第 12 节；原 prereg.py）
 studies/                    每个事先登记的研究一个文件：读数据 → 策略 + 引擎 → 评估 → 写 output/research_only/<name>/

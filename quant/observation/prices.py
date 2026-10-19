@@ -51,6 +51,7 @@ NY = ZoneInfo("America/New_York")
 ALPACA_BARS = "https://data.alpaca.markets/v2/stocks/bars"
 ALPACA_PER_MINUTE = 200
 ALPACA_SYMBOLS_PER_CALL = 200
+ALPACA_RECENT_MINUTES = 16            # free plan: SIP bars of the last 15 minutes are refused (HTTP 403)
 TIINGO_DAILY = "https://api.tiingo.com/tiingo/daily/{sym}/prices"
 TIINGO_FROM_MONTH = "2026-11"         # first month with Tiingo quota for the forward runner
 STATE_DIR = ROOT / "state/forward_observation"
@@ -189,10 +190,29 @@ def payload_frame(payload: dict) -> tuple[pd.DataFrame, dict, dict]:
 
 # ======================================================================== Alpaca
 
+def alpaca_end(end: str, now: datetime | None = None) -> str:
+    """The ``end`` parameter of an Alpaca bars request. A date-only end covers that whole day, and the free plan
+    refuses SIP data of the last 15 minutes (HTTP 403 "subscription does not permit querying recent SIP data", seen
+    for any end date of today or later): unless the day ended ALPACA_RECENT_MINUTES ago (in New York, the later
+    midnight), the end becomes a timestamp no later than now - ALPACA_RECENT_MINUTES (RFC 3339), which still holds
+    every completed daily bar (stamped at midnight New York)."""
+    now_utc = pd.Timestamp(now or datetime.now(timezone.utc)).tz_convert("UTC")
+    cap = now_utc - pd.Timedelta(minutes=ALPACA_RECENT_MINUTES)
+    if len(str(end)) != 10:                                        # already a timestamp
+        t = pd.Timestamp(end)
+        t = t.tz_convert("UTC") if t.tzinfo else t.tz_localize("UTC")
+        return min(t, cap).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if pd.Timestamp(end, tz=NY) + pd.Timedelta(days=1) <= cap:
+        return end
+    return min(pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1), cap).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def alpaca_bars(symbols, start: str, end: str, adjustment: str, headers: dict, getter=None,
-                sleep=time.sleep) -> dict:
-    """{symbol: DataFrame(date -> o, h, l, c, v)} for daily SIP bars (paginated, <= 200 requests a minute)."""
+                sleep=time.sleep, now: datetime | None = None) -> dict:
+    """{symbol: DataFrame(date -> o, h, l, c, v)} for daily SIP bars (paginated, <= 200 requests a minute).
+    ``end`` is capped at now - 16 minutes (``alpaca_end``)."""
     get = getter or http_get
+    end = alpaca_end(end, now)
     out: dict = {}
     syms = list(dict.fromkeys(symbols))
     gap = 60.0 / ALPACA_PER_MINUTE

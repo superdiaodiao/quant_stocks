@@ -305,7 +305,11 @@ def fetch_charts(symbols: dict, out_dir: Path, period1: str, period2: str, gette
     headers = fp.alpaca_headers() if use_alpaca else None
     if todo and headers is not None:
         end_alp = ydate(pd.Timestamp(period2) - pd.Timedelta(days=1))
-        got = fp.alpaca_charts(list(todo.values()), period1, end_alp, headers, getters.get("alpaca"), sleep)
+        try:
+            got = fp.alpaca_charts(list(todo.values()), period1, end_alp, headers, getters.get("alpaca"), sleep)
+        except Exception as exc:  # noqa: BLE001 - fetch plumbing: an Alpaca refusal or outage falls back to Yahoo
+            print(f"alpaca: {type(exc).__name__} {getattr(exc, 'code', '') or ''}; Yahoo for these charts")
+            got = {}
         for y, x in todo.items():
             if x in got and got[x]["chart"]["result"][0]["timestamp"]:
                 fp.save_payload(got[x], out_dir / f"{y}.json.gz")

@@ -775,9 +775,15 @@ def smisp_fetch(as_of: str, raw_dir: Path = RAW, smisp_dir: Path | None = None) 
             break
         signals[s] = sc
     if signals:
-        print("S-MISP held charts:", fs.fetch_held(signals, base / "held"))
+        held_error = None
+        try:
+            print("S-MISP held charts:", fs.fetch_held(signals, base / "held"))
+        except Exception as exc:  # noqa: BLE001 - the EFFR is still refreshed; the error is raised after it
+            held_error = exc
         fs.fetch_effr(base / "EFFR_nyfed.csv",
                       start=str((pd.Timestamp(fs.FIRST_SIGNAL) - pd.Timedelta(days=40)).date()))
+        if held_error is not None:
+            raise held_error
     else:
         print(f"S-MISP: no signal due through {as_of} (first signal {fs.FIRST_SIGNAL}, known once a later session "
               "exists)")

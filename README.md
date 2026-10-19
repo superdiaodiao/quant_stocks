@@ -282,7 +282,8 @@ PYTHONPATH=. .venv/bin/python -m quant data quota               # Tiingo 本月�
 
 | 任务 | 仓库 | 时间 |
 |---|---|---|
-| 前瞻观察，自动提交记录（`forward_observation.yml`） | quant_stocks | 每月 1–6 日美股收盘后 |
+| 前瞻观察 + 每日自检（`forward_observation_daily.yml`）：更新记录（当月行是临时的，下月第一个交易日定稿）、检查数据新鲜度/完整性、两家数据商在整个观察窗口上是否一致（收盘价、分红/复权收益、大幅波动要第二家确认）、用独立实现复算 B1/B2 信号和成交价、B3 月末信号文件、历史数字和已定稿的月行有没有被改、上次运行是否漏了交易日；有检查失败（或结果没推送成功）就让任务失败，并开/更新 issue “Forward observation health”（@ 仓库主人，GitHub 会发邮件），恢复后自动关闭；每周最后一个交易日晚上把警告汇总到 issue “Forward observation weekly warnings”。这个任务是记录和 `state/forward_observation/` 的唯一写入者，本地运行默认不写文件（`--write` 才写） | quant_stocks | 每个交易日晚上 UTC 23:30、次日 01:30、03:30（纽约 18:00 后；前两次是“早跑”，当天数据还没出只算警告，03:30 那次是当晚定论，还缺就失败） |
+| 前瞻观察手动试运行（`forward_observation.yml`，只打印不提交；原每月定时已并入上一行） | quant_stocks | 手动 |
 | 自动测试（`tests.yml`） | quant_stocks | 每次推送 |
 | IBKR 借股费快照，存进当月的 `borrow-fees-YYYY-MM` Release | quant_stocks_data（私有） | 每天两次（UTC 13:00、22:30） |
 | 下载全部数据备份，逐个文件对照清单核对（`verify_backups.yml`） | quant_stocks_data（私有） | 每月 3 日 |

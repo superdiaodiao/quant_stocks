@@ -40,8 +40,10 @@ The B3 table (S-MISP short overlay) has its own columns and evaluation; they are
 
 ## Status
 
-- As-of date of the last run: 2026-10-09; data through: 2026-10-09.
-- **observation starts 2026-10-12** for B1 / B2 (accounts open at the 2026-10-12 close). No forward sessions yet, so no trades and no returns.
+- As-of date of the last run: 2026-10-16; data through: 2026-10-16.
+- B1 S3-Yb (U18 basket): 1 month(s) through 2026-10; cumulative excess vs H_match -0.09 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-A (QQQ, config 29876): 1 month(s) through 2026-10; cumulative excess vs H_match -0.02 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-P (QQQ, config 29916): 1 month(s) through 2026-10; cumulative excess vs H_match -0.02 pp; no verdict before month 24, verdict at month 36.
 - B3 S-MISP short overlay (N=10, k=20%, MN): **observation starts at the 2026-10-30 month-end signal** (the last session of October 2026), executed at the next close; no forward month yet.
 
 ## B1 S3-Yb (U18 basket)
@@ -51,6 +53,7 @@ Rule: config `S3-Yb`, stock parameters (`scripts/research_selective_t.py`).
 <!-- table:B1:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10 | 1 | INTC 10-14→open | -1.94% | -1.81% | -1.85% | 0.734 | -4.08% | -0.09 | -0.09 |  | 10-13..10-16 (4) | provisional |
 <!-- table:B1:end -->
 
 ## B2 SEL-A (QQQ, config 29876)
@@ -60,6 +63,7 @@ Rule: config 29876 `RSI2 p2 B OPP H10 1/2 res25 ALL` (`scripts/research_t_grid.p
 <!-- table:SEL-A:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10 | 1 | none | -3.64% | -3.64% | -3.61% | 0.741 | -4.08% | -0.02 | -0.02 |  | 10-13..10-16 (4) | provisional |
 <!-- table:SEL-A:end -->
 
 ## B2 SEL-P (QQQ, config 29916)
@@ -69,6 +73,7 @@ Rule: config 29916 `RSI2 p2 B OPP H20 1 res25 ALL` (`scripts/research_t_grid.py`
 <!-- table:SEL-P:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-10 | 1 | none | -3.64% | -3.64% | -3.61% | 0.741 | -4.08% | -0.02 | -0.02 |  | 10-13..10-16 (4) | provisional |
 <!-- table:SEL-P:end -->
 
 ## B3 S-MISP short overlay (N=10, k=20%, MN)

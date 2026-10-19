@@ -1,0 +1,208 @@
+name: Forward observation (daily)
+
+# Runs the forward observation of docs/forward_observation_checklist.md section B (S3-Yb, QQQ RSI2-dip
+# SEL-A / SEL-P, S-MISP short overlay) every US trading day and checks its health (B0.8):
+# scripts/forward_observation_daily.py fetches the data, runs the frozen runner as of the last completed
+# NYSE session, runs quant/observation/health.py and writes state/forward_observation/health.json.
+#
+# This workflow replaces the schedule of forward_observation.yml (now a manual dry run only). The runner
+# is idempotent and decides finality from the data alone: a month's row turns final only once the data hold
+# a session of a later month, and an S-MISP signal is computed only once the data show that its session
+# was the month's last. So the first daily run of a new month is exactly the monthly finalisation the
+# monthly job did (same command, same rule, never earlier), and the current month's row stays provisional
+# and is refreshed daily. This job is the only writer of the log and the state (a local run is a dry run).
+#
+# Schedule: a session counts as complete from 18:00 New York time (the runner's convention). 23:30 UTC is
+# 19:30 EDT / 18:30 EST, 01:30 UTC is 21:30 EDT / 20:30 EST, 03:30 UTC is 23:30 EDT / 22:30 EST. GitHub
+# starts scheduled runs late (hours, at busy times) and sometimes drops one, so there are three runs.
+# The first two are "early" (--early): a bar missing only for the session just closed, or a missing
+# second vendor, is a warning there. The 03:30 UTC run is the evening's last word and fails on them; a
+# series more than one session behind fails on every run. Reruns of a session are idempotent: files are
+# committed only when they changed.
+#
+# Notification: on a failing check the job fails (GitHub emails whoever last changed the cron lines, if
+# Actions notifications are on) and the issue "Forward observation health" is opened or updated with an
+# @mention of the repository owner (GitHub emails a mentioned user); it is closed automatically once all
+# checks pass. A comment is added only when the failures change. On the week's last evening the warnings,
+# if any, are posted to the issue "Forward observation weekly warnings". Run once by hand with test_alert
+# to see the email and the issue arrive. Optional dead-man switch: set the secret HEALTHCHECK_PING_URL
+# (e.g. a healthchecks.io check, schedule "30 3 * * 2-6" UTC, grace about 8 hours); each completed run
+# pings it, so a job that stops running (disabled workflow, Actions outage, pushes that keep failing)
+# raises an alert from outside.
+
+on:
+  schedule:
+    - cron: "30 23 * * 1-5"
+    - cron: "30 1 * * 2-6"
+    - cron: "30 3 * * 2-6"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Check only: write and commit nothing, leave the issue alone"
+        type: boolean
+        default: false
+      accept_replay:
+        description: "Accept changed recorded numbers after a reviewed change (rewrites the replay state)"
+        type: boolean
+        default: false
+      accept_data:
+        description: "Accept reviewed data differences (second vendor, day moves, total returns; e.g. a corporate action)"
+        type: boolean
+        default: false
+      test_alert:
+        description: "Force a failing check to test the email and the issue (writes nothing)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  actions: write          # deletes old cache entries of this job
+
+concurrency:
+  group: forward-observation
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      FINAL_CRON: "30 3 * * 2-6"
+
+    steps:
+    # the branch tip when the job starts (not the commit the run was created at): a run that waited in the
+    # concurrency queue then starts from the previous run's bot commit
+    - uses: actions/checkout@v5
+      with:
+        ref: ${{ github.ref }}
+        persist-credentials: false
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+
+    - name: Restore raw-data cache
+      uses: actions/cache/restore@v4
+      with:
+        path: .cache
+        key: forward-obs-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: forward-obs-
+
+    - name: Run the observation and its health checks
+      id: daily
+      env:
+        FORWARD_OBS_CACHE: .cache
+        ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+        ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+        SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        EVENT: ${{ github.event_name }}
+        SCHEDULE: ${{ github.event.schedule }}
+        DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        ACCEPT: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_replay }}
+        ACCEPT_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_data }}
+        TEST_ALERT: ${{ github.event_name == 'workflow_dispatch' && inputs.test_alert }}
+      run: |
+        args="--fetch --fetch-smisp --report-out $RUNNER_TEMP/health_report.json"
+        if [ "$EVENT" = "schedule" ] && [ "$SCHEDULE" != "$FINAL_CRON" ]; then args="$args --early"; fi
+        if [ "$DRY" = "true" ] || [ "$TEST_ALERT" = "true" ]; then args="$args --dry-run"; fi
+        if [ "$TEST_ALERT" = "true" ]; then args="$args --test-alert"; fi
+        if [ "$ACCEPT" = "true" ]; then args="$args --accept-replay"; fi
+        if [ "$ACCEPT_DATA" = "true" ]; then args="$args --accept-data"; fi
+        set +e
+        PYTHONPATH=. python scripts/forward_observation_daily.py $args
+        code=$?
+        set -e
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Commit the log, health.json and state when changed
+      id: commit
+      if: ${{ always() && steps.daily.outputs.code != '' && !(github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.test_alert)) }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BRANCH: ${{ github.ref_name }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add docs/forward_observation_log.md state/forward_observation
+        if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+        session=$(python -c "import json; print(json.load(open('state/forward_observation/health.json'))['session'])" || date -u +%F)
+        git commit -m "forward observation: daily update ($session)"
+        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        # the log and the state are owned by this job: on a conflict this run's files win (-X theirs in a rebase)
+        for i in 1 2 3 4 5; do
+          if git pull --rebase -X theirs origin "$BRANCH" && git push origin "HEAD:$BRANCH"; then exit 0; fi
+          git rebase --abort 2>/dev/null || true
+          sleep $((i * 15))
+        done
+        echo "::error::Could not push the results after 5 attempts."
+        exit 1
+
+    # a signal's raw S-MISP inputs (universe charts, SEC files) are never read again once its frozen signal file
+    # is committed; the held charts, the EFFR and the listing snapshots stay
+    - name: Prune the raw-data cache
+      if: ${{ always() && steps.commit.outcome == 'success' }}
+      run: |
+        for f in $(git ls-files 'state/forward_observation/smisp/s_*.csv'); do
+          d=".cache/smisp/$(basename "$f" .csv)"
+          if [ -d "$d" ]; then echo "prune $d"; rm -rf "$d"; fi
+        done
+
+    # saved even when a check failed, so a half-done S-MISP download resumes and the Tiingo quota ledger survives
+    - name: Save raw-data cache
+      if: always()
+      uses: actions/cache/save@v4
+      with:
+        path: .cache
+        key: forward-obs-${{ github.run_id }}-${{ github.run_attempt }}
+
+    - name: Delete old raw-data cache entries (keep the newest 3)
+      if: always()
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        gh cache list --key forward-obs- --sort created_at --order desc --limit 100 --json id --jq '.[3:][].id' \
+          | xargs -r -n1 gh cache delete
+
+    - name: Report to the health issue
+      if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run && !inputs.test_alert) }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        CODE: ${{ steps.daily.outputs.code }}
+        COMMIT: ${{ steps.commit.outcome }}
+        MENTION: "@${{ github.repository_owner }}"
+      run: |
+        PYTHONPATH=. python -m quant.observation.health_issue --report "$RUNNER_TEMP/health_report.json" \
+          --exit-code "${CODE:-did not run}" --run-url "$RUN_URL" --commit-outcome "$COMMIT" --mention "$MENTION"
+
+    - name: Ping the dead-man switch (optional secret HEALTHCHECK_PING_URL)
+      if: ${{ always() && github.event_name == 'schedule' && steps.daily.outputs.code != '' && steps.commit.outcome != 'failure' }}
+      continue-on-error: true
+      env:
+        PING_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
+      run: |
+        if [ -z "$PING_URL" ]; then echo "no HEALTHCHECK_PING_URL secret: skipped"; exit 0; fi
+        curl -fsS -m 10 --retry 3 -o /dev/null "$PING_URL"
+
+    - name: Fail the job when a check failed or the results were not pushed
+      if: always()
+      env:
+        CODE: ${{ steps.daily.outputs.code }}
+        COMMIT: ${{ steps.commit.outcome }}
+      run: |
+        if [ -z "$CODE" ]; then echo "::error::The daily step did not run."; exit 1; fi
+        if [ "$COMMIT" = "failure" ]; then echo "::error::The results were not pushed; see the commit step."; exit 1; fi
+        if [ "$CODE" != "0" ]; then echo "::error::Health check failed (exit $CODE); see the log above and the issue."; fi
+        exit "$CODE"
