@@ -208,7 +208,7 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-18";
+const UPDATED = "2026-10-19";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
 const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
 const STUDIES = [
@@ -276,7 +276,7 @@ const CMDS = [
   ["bash scripts/restore_data.sh cache-reversal-v1-2026-10-11 /tmp/restore","从私有仓库恢复一个数据包"],
 ];
 const JOBS = [
-  ["前瞻观察，自动提交记录","GitHub（quant_stocks）","每月 1–6 日美股收盘后"],
+  ["前瞻观察 + 每日自检（数据、信号、历史记录），出错开问题单并发邮件","GitHub（quant_stocks）","每个交易日美股收盘后（跑 3 次）"],
   ["自动测试","GitHub（quant_stocks）","每次推送代码"],
   ["抓取 IBKR 借股费，存进私有仓库","GitHub（quant_stocks_data）","每天两次（北京时间 6:30、21:00）"],
   ["下载全部备份，逐个文件核对","GitHub（quant_stocks_data）","每月 3 日，失败发邮件"],
@@ -290,6 +290,7 @@ const DOCS = [
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
 const LOG = [
+  ["2026-10-19","观察改为每个交易日自检，出错第二个交易日就会收到邮件"],
   ["2026-10-18","新增其他国家股市研究：择时规则在 8 个市场都没多赚，国家轮动不通过"],
   ["2026-10-17","新增分钟级盘中交易研究（QQQ，20 个配置全部不通过）"],
   ["2026-10-14","新增两项研究：合并差一点通过的信号（不通过）、比特币（择时无效；QQQ 加少量比特币多赚但未过门槛）"],
