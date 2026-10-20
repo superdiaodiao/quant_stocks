@@ -6,22 +6,22 @@
    "status": "ok"
   },
   {
-   "message": "all 20 series end at the last completed session 2026-10-16",
+   "message": "all 20 series end at the last completed session 2026-10-19",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "20 series clean from 2026-08-28 to 2026-10-16 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "20 series clean from 2026-08-28 to 2026-10-19 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "20 series vs alpaca: 200 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
+   "message": "20 series vs alpaca: 220 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
    "name": "vendor_agreement",
    "status": "ok"
   },
   {
-   "message": "runner trades match the independent rules: B1 1 trade(s), SEL-A 0 trade(s), SEL-P 0 trade(s)",
+   "message": "runner trades match the independent rules: B1 2 trade(s), SEL-A 1 trade(s), SEL-P 1 trade(s)",
    "name": "signal_consistency",
    "status": "ok"
   },
@@ -51,18 +51,18 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-10-16",
- "host": "local",
- "last_run_session": "2026-10-16",
+ "data_end": "2026-10-19",
+ "host": "actions",
+ "last_run_session": "2026-10-19",
  "next_session": [
-  "B1 INTC: open since 10-14 (holding day 3 of 20; sell limit resting)",
-  "B1 AMD: close <= 0.9 x SMA20 at the 10-16 close: buy at the next open",
-  "SEL-A: RSI2 at or below its expanding 2nd percentile at the 10-16 close: buy at the next open",
-  "SEL-P: RSI2 at or below its expanding 2nd percentile at the 10-16 close: buy at the next open",
-  "B2 RSI2 at the 10-16 close: 0.6 (entry level 2.3, exit level 60.7)"
+  "B1 INTC: open since 10-14 (holding day 4 of 20; sell limit resting)",
+  "B1 AMD: open since 10-19 (holding day 1 of 20; sell limit resting)",
+  "SEL-A: open since 10-19 (holding day 1 of 10); holding",
+  "SEL-P: open since 10-19 (holding day 1 of 20); holding",
+  "B2 RSI2 at the 10-19 close: 42.7 (entry level 2.3, exit level 60.7)"
  ],
  "schema": 2,
- "session": "2026-10-16",
+ "session": "2026-10-19",
  "sources": {
   "cross_check": "on",
   "stored": "yahoo"
