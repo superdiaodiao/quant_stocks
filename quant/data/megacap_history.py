@@ -405,7 +405,10 @@ def load_oneq() -> pd.DataFrame:
     return q.set_index("date")
 
 
-def build():
+def build(write_fixes: bool = True):
+    """The OOS.2 candidates, sessions, price panels, price-source table, share facts and per-name metadata. With
+    ``write_fixes`` (OOS.2 / OOS.3) the share-count fixes are written to the OOS.2 output folder; the dip_2x study
+    reads the same build without writing anything."""
     LOCAL.mkdir(parents=True, exist_ok=True)
     cand = md.load_candidates()
     cal = md.yahoo_daily("MSFT")
@@ -433,7 +436,8 @@ def build():
     facts["F"] = facts["F"] * facts["key"].map(g).fillna(1.0).where(facts["key"].map(
         lambda k: metas.get(k, {}).get("splits") is None), 1.0)
     facts, fixes = fix_share_outliers(facts)
-    fixes.to_csv(OUT / "sec_share_fixes.csv", index=False)
+    if write_fixes:
+        fixes.to_csv(OUT / "sec_share_fixes.csv", index=False)
     print(f"share-count fixes: {len(fixes)} ({(fixes['fix'].str.startswith('split') ).sum() if len(fixes) else 0} split-side,"
           f" {(fixes['fix'].str.startswith('dropped')).sum() if len(fixes) else 0} dropped)")
     return cand, sessions, panel, pd.DataFrame(src_rows), facts, metas

@@ -36,6 +36,9 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     ohlc.py                 按真实成交价重建的日线 OHLC（整股引擎、挂限价单用）
     market_cap.py           时点市值（SEC 股数 → 公众流通值 → Nasdaq 名单 → 成交额代理）
     bitcoin.py              BTC 多源核对、主序列、对齐到美股交易日（bitcoin 研究）
+    leveraged_etfs.py       真实单股 2 倍 ETF（NVDL、TSLL、AAPU 等）的清单、Yahoo 日线、Alpaca 日线和收盘前报价价差（dip_2x 研究）
+    inverse_etfs.py         反向 ETF（PSQ −1 倍、SQQQ −3 倍）的 Yahoo 日线、每日重置的合成模型、利差校准和跟踪统计（sma200_short 研究）
+    sma200_short.py         sma200_short 研究的读数：QQQ 族（总收益、拆股调整价、分红、RF、EFFR、ONEQ*、PSQ / SQQQ）、指数级长历史、按自然日计息的 T-bill
     sources/                各数据商：请求地址、带缓存和请求台账的下载、解析（密钥只从环境变量/.env 读，绝不打印）
       http.py               cached_get（先缓存再解析、404 记标记、请求台账 Ledger 由调用方给）、限速器、原子写、脱敏
       sec.py                SEC 联系人（src/io/sec_contact，绝不打印）、每秒 7 次的共享限速器、请求头
@@ -57,10 +60,13 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     execution.py            执行约定：分位取整、限价单“穿价成交”、信号次日执行、整股买入持有
     target_weights.py       ETF 配置引擎：目标权重表，目标变化才交易
     rebalance.py            股票组合引擎：按总回报指数持仓，先卖后买，25% 不交易带
+    long_short.py           多 / 空仓 / 空引擎：保证金卖空（Reg T 保证金、IBKR 利息、借券费、替代分红、强平）和反向 ETF 两种实现；指数级引擎 simulate_index_ls
   evaluation/               评估层：只吃收益/净值序列
     metrics.py              cagr_of、max_drawdown、monthly、yearly、t_and_ir、core_metrics、relative_metrics …
     criteria.py             A/B 通过标准（ab_criteria）、bonferroni_t、bh_reject、deflated_sharpe
+                            相关试验：effective_trials（有效次数）、sidak_t、bootstrap_max_t（重抽样最大 t 门槛；dip_2x 事后检查）
     periods.py              两折切分 halves、return_period_metrics、nav_window_metrics
+    episodes.py             每段持仓（多 / 空仓 / 空）的收益、亏钱段数（来回挨打）、各状态的时间占比
   observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp；
                             daily + health（入口 scripts/forward_observation_daily.py，每个交易日自检，
                             独立重算触发条件，不调用冻结模拟器）、health_issue（GitHub issue 开/关）

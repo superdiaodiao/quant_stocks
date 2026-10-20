@@ -217,3 +217,43 @@ def bh_reject_rank_share(p, q: float = 0.05) -> np.ndarray:
         k = np.max(np.nonzero(ok)[0])
         rej[order[:k + 1]] = True
     return rej
+
+
+# ---- correlated trials (dip_2x review, report only): the number of effectively independent tests and a family-wise
+# max-t hurdle that keeps the correlation between configurations.
+
+def effective_trials(x) -> dict:
+    """Effective number of independent tests among the columns of ``x`` (observations x tests), from the eigenvalues
+    of their correlation matrix: Nyholt (2004) 1 + (M - 1)(1 - var(lambda) / M) and Li & Ji (2005)
+    sum(1[lambda >= 1] + lambda - floor(lambda))."""
+    lam = np.clip(np.linalg.eigvalsh(np.corrcoef(np.asarray(x, float).T)), 0.0, None)
+    m = len(lam)
+    return {"tests": m, "nyholt": float(1 + (m - 1) * (1 - np.var(lam, ddof=1) / m)),
+            "li_ji": float(np.sum((lam >= 1).astype(float) + (lam - np.floor(lam))))}
+
+
+def sidak_t(n_eff: float, alpha: float = 0.05) -> float:
+    """One-sided normal critical value for ``n_eff`` independent trials at family-wise level ``alpha`` (Sidak)."""
+    return NORM.inv_cdf((1 - alpha) ** (1 / n_eff))
+
+
+def bootstrap_max_t(x, mean_block: float, n_boot: int, seed: int, q: float = 0.95) -> float:
+    """``q`` quantile of the largest column t-statistic of ``x`` (observations x tests) under zero means: stationary
+    bootstrap (Politis-Romano, geometric blocks of mean length ``mean_block``, wrapping around) of the demeaned rows,
+    the same rows drawn for every column so the correlation between tests is kept."""
+    y = np.asarray(x, float)
+    y = y - y.mean(axis=0)
+    n = len(y)
+    rng = np.random.default_rng(seed)
+    out = np.empty(n_boot)
+    for b in range(n_boot):
+        start = rng.integers(n, size=n)
+        new = rng.random(n) < 1.0 / mean_block
+        new[0] = True
+        seg = np.cumsum(new) - 1                          # block number of each draw
+        first = np.flatnonzero(new)                       # draw position where each block starts
+        pos = np.arange(n) - first[seg]                   # offset inside the block
+        idx = (start[first][seg] + pos) % n
+        z = y[idx]
+        out[b] = np.max(z.mean(axis=0) / z.std(axis=0, ddof=1) * math.sqrt(n))
+    return float(np.quantile(out, q))
