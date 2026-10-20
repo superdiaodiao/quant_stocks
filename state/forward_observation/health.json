@@ -46,7 +46,7 @@
    "status": "ok"
   },
   {
-   "message": "first daily run on GitHub Actions (the earlier record came from a local run)",
+   "message": "no session missed since the previous completed run",
    "name": "pipeline_liveness",
    "status": "ok"
   }
