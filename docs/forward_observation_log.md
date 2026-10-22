@@ -40,10 +40,10 @@ The B3 table (S-MISP short overlay) has its own columns and evaluation; they are
 
 ## Status
 
-- As-of date of the last run: 2026-10-20; data through: 2026-10-20.
-- B1 S3-Yb (U18 basket): 1 month(s) through 2026-10; cumulative excess vs H_match -0.09 pp; no verdict before month 24, verdict at month 36.
-- B2 SEL-A (QQQ, config 29876): 1 month(s) through 2026-10; cumulative excess vs H_match +0.04 pp; no verdict before month 24, verdict at month 36.
-- B2 SEL-P (QQQ, config 29916): 1 month(s) through 2026-10; cumulative excess vs H_match +0.04 pp; no verdict before month 24, verdict at month 36.
+- As-of date of the last run: 2026-10-21; data through: 2026-10-21.
+- B1 S3-Yb (U18 basket): 1 month(s) through 2026-10; cumulative excess vs H_match -0.03 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-A (QQQ, config 29876): 1 month(s) through 2026-10; cumulative excess vs H_match +0.30 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-P (QQQ, config 29916): 1 month(s) through 2026-10; cumulative excess vs H_match +0.30 pp; no verdict before month 24, verdict at month 36.
 - B3 S-MISP short overlay (N=10, k=20%, MN): **observation starts at the 2026-10-30 month-end signal** (the last session of October 2026), executed at the next close; no forward month yet.
 
 ## B1 S3-Yb (U18 basket)
@@ -53,7 +53,7 @@ Rule: config `S3-Yb`, stock parameters (`scripts/research_selective_t.py`).
 <!-- table:B1:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10 | 1 | INTC 10-14→open; AMD 10-19→open | -1.04% | -0.90% | -0.96% | 0.738 | -3.02% | -0.09 | -0.09 |  | 10-13..10-20 (6) | provisional |
+| 2026-10 | 1 | INTC 10-14→open; AMD 10-19→open | -0.70% | -0.63% | -0.67% | 0.740 | -2.01% | -0.03 | -0.03 |  | 10-13..10-21 (7) | provisional |
 <!-- table:B1:end -->
 
 ## B2 SEL-A (QQQ, config 29876)
@@ -63,7 +63,7 @@ Rule: config 29876 `RSI2 p2 B OPP H10 1/2 res25 ALL` (`scripts/research_t_grid.p
 <!-- table:SEL-A:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10 | 1 | 10-19→open | -2.92% | -2.85% | -2.96% | 0.778 | -3.02% | +0.04 | +0.04 |  | 10-13..10-20 (6) | provisional |
+| 2026-10 | 1 | 10-19→open | -1.94% | -2.10% | -2.24% | 0.804 | -2.01% | +0.30 | +0.30 |  | 10-13..10-21 (7) | provisional |
 <!-- table:SEL-A:end -->
 
 ## B2 SEL-P (QQQ, config 29916)
@@ -73,7 +73,7 @@ Rule: config 29916 `RSI2 p2 B OPP H20 1 res25 ALL` (`scripts/research_t_grid.py`
 <!-- table:SEL-P:start -->
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-10 | 1 | 10-19→open | -2.92% | -2.85% | -2.96% | 0.778 | -3.02% | +0.04 | +0.04 |  | 10-13..10-20 (6) | provisional |
+| 2026-10 | 1 | 10-19→open | -1.94% | -2.10% | -2.24% | 0.804 | -2.01% | +0.30 | +0.30 |  | 10-13..10-21 (7) | provisional |
 <!-- table:SEL-P:end -->
 
 ## B3 S-MISP short overlay (N=10, k=20%, MN)

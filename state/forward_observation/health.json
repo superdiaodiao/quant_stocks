@@ -6,17 +6,17 @@
    "status": "ok"
   },
   {
-   "message": "all 20 series end at the last completed session 2026-10-20",
+   "message": "all 20 series end at the last completed session 2026-10-21",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "20 series clean from 2026-08-28 to 2026-10-20 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "20 series clean from 2026-08-28 to 2026-10-21 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "20 series vs alpaca: 240 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
+   "message": "20 series vs alpaca: 260 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
    "name": "vendor_agreement",
    "status": "ok"
   },
@@ -51,18 +51,18 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-10-20",
+ "data_end": "2026-10-21",
  "host": "actions",
- "last_run_session": "2026-10-20",
+ "last_run_session": "2026-10-21",
  "next_session": [
-  "B1 INTC: open since 10-14 (holding day 5 of 20; sell limit resting)",
-  "B1 AMD: open since 10-19 (holding day 2 of 20; sell limit resting)",
-  "SEL-A: open since 10-19 (holding day 2 of 10); holding",
-  "SEL-P: open since 10-19 (holding day 2 of 20); holding",
-  "B2 RSI2 at the 10-20 close: 39.9 (entry level 2.3, exit level 60.7)"
+  "B1 INTC: open since 10-14 (holding day 6 of 20; sell limit resting)",
+  "B1 AMD: open since 10-19 (holding day 3 of 20; sell limit resting)",
+  "SEL-A: open since 10-19 (holding day 3 of 10); RSI2 at or above its median: sell at the next open",
+  "SEL-P: open since 10-19 (holding day 3 of 20); RSI2 at or above its median: sell at the next open",
+  "B2 RSI2 at the 10-21 close: 74.9 (entry level 2.3, exit level 60.7)"
  ],
  "schema": 2,
- "session": "2026-10-20",
+ "session": "2026-10-21",
  "sources": {
   "cross_check": "on",
   "stored": "yahoo"
