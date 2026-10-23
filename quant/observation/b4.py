@@ -611,8 +611,8 @@ def fetch(b4_dir=None, getter=None, sleep=time.sleep, pacer=None) -> dict:
     p = paths(b4_dir)
     out = {"btc": bdata.fetch_btc(p["b4_dir"], getter=getter, sleep=sleep, pacer=pacer)}
     try:
-        bdata.fetch_dtb3(p["b4_dir"], getter)
-        out["dtb3"] = "ok"
+        src = bdata.fetch_dtb3(p["b4_dir"], getter, pacer=pacer)
+        out["dtb3"] = "ok" if src == "fred" else "ok from Yahoo ^IRX (FRED failed)"
     except Exception as exc:  # noqa: BLE001 - the previous file stays
         out["dtb3"] = f"error {type(exc).__name__}"
     return out

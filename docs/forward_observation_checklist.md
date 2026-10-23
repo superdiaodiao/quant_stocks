@@ -377,3 +377,9 @@ These gaps make the forward universe and data close to, but not identical with, 
 #### B4.6 Don't
 
 Don't recompute a frozen mega-cap signal file, change a rule, a parameter, the universe steps, the costs or the comparisons, or trade any of these lines. Don't read a positive t before month 24 as evidence.
+
+#### B4 amendment (2026-10-23, before any B4 forward session)
+- **T-bill fallback:** FRED DTB3 timed out from the GitHub runner on the first Actions dry run (2026-10-23).
+  - When FRED fails, `DTB3.csv` is now written from Yahoo `^IRX`, the CBOE 13-week T-bill discount rate. It is on the same basis as DTB3, and the daily job reports a warning naming the source.
+  - Checked against FRED over 2026-01-02..2026-10-22 (202 days): `^IRX` − DTB3 averages −1.2 bp, with a maximum of 6 bp.
+  - Only V3's cash leg uses this rate. No rule changes.

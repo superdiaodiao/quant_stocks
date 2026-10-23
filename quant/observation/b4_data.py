@@ -194,14 +194,41 @@ def load_btc(base: Path | None = None, end: str | None = None) -> Btc | None:
 
 # ======================================================================== T-bill (FRED DTB3)
 
-def fetch_dtb3(base: Path | None = None, getter=None, start: str = DTB3_FROM) -> Path:
+IRX_SYMBOL = "^IRX"                  # CBOE 13-week T-bill discount rate (percent), DTB3's fallback (checklist B4)
+
+
+def _irx_as_dtb3_csv(data: bytes, start: str, end: str) -> bytes:
+    """Yahoo ^IRX chart JSON -> a FRED-format DTB3 CSV body (observation_date, DTB3 in percent)."""
+    j = json.loads(data)["chart"]["result"][0]
+    ts = pd.to_datetime(j["timestamp"], unit="s", utc=True).tz_convert("America/New_York").strftime("%Y-%m-%d")
+    close = j["indicators"]["quote"][0]["close"]
+    rows = [f"{d},{c:.2f}" for d, c in zip(ts, close) if c is not None and start <= d <= end]
+    if len(rows) < 5:
+        raise RuntimeError("^IRX: too few rows")
+    return ("observation_date,DTB3\n" + "\n".join(rows) + "\n").encode()
+
+
+def fetch_dtb3(base: Path | None = None, getter=None, start: str = DTB3_FROM, pacer=None) -> str:
+    """FRED DTB3 into ``DTB3.csv``; FRED often times out from GitHub runners, so after it fails the same file is
+    written from Yahoo ^IRX (the 13-week bill discount rate, same basis; only V3's cash leg uses it). Returns the
+    source used ("fred" or "irx"); raises when both fail (the previous file stays)."""
     p = Path(base or cache_dir()) / "DTB3.csv"
-    data = _get(DTB3_URL.format(a=start), {"User-Agent": "Mozilla/5.0"}, getter)
-    text = data.decode()
-    if "DTB3" not in text.splitlines()[0] or len(text.splitlines()) < 5:
-        raise RuntimeError("DTB3 CSV: unexpected content")
-    fp.write_atomic(p, data)
-    return p
+    try:
+        data = _get(DTB3_URL.format(a=start), {"User-Agent": "Mozilla/5.0"}, getter)
+        text = data.decode()
+        if "DTB3" not in text.splitlines()[0] or len(text.splitlines()) < 5:
+            raise RuntimeError("DTB3 CSV: unexpected content")
+        fp.write_atomic(p, data)
+        return "fred"
+    except Exception as fred_exc:  # noqa: BLE001 - fall back to ^IRX
+        if pacer is not None and pacer.stopped:
+            raise RuntimeError(f"FRED {type(fred_exc).__name__}; ^IRX skipped (Yahoo stopped)") from fred_exc
+        today = datetime.now(timezone.utc).date()
+        if pacer is not None:
+            pacer.wait()
+        body = _get(chart_url(IRX_SYMBOL, start, str(today + timedelta(days=1))), YAHOO_HEADERS, getter)
+        fp.write_atomic(p, _irx_as_dtb3_csv(body, start, str(today)))
+        return "irx"
 
 
 def load_rf(base: Path | None, sessions: pd.DatetimeIndex, end: str) -> pd.Series | None:

@@ -449,3 +449,21 @@ def test_qld_and_ibit_are_fetched_from_august_2026():
     assert pd.Timestamp(fo.FETCH_START["QLD"]) < pd.Timestamp(hc.START_CLOSE) - pd.Timedelta(
         days=hc.INTEGRITY_FROM_DAYS)                  # before the integrity window (2026-08-28)
     assert fo.FETCH_START["QQQ"] == "1999-01-01" and fo.FETCH_START["ONEQ"] == "2003-01-01"      # B1 / B2 unchanged
+
+
+def test_dtb3_falls_back_to_irx_when_fred_fails(tmp_path):
+    import json as _json
+    from quant.observation import b4_data as _bd
+    ts = [1767364200 + 86400 * i for i in range(6)]          # 2026-01-02 onwards, 14:30 UTC
+    body = _json.dumps({"chart": {"result": [{"timestamp": ts,
+                                               "indicators": {"quote": [{"close": [3.6, 3.61, None, 3.62, 3.63, 3.64]}]}}]}}).encode()
+
+    def getter(url, headers):
+        if "stlouisfed" in url:
+            raise TimeoutError("down")
+        assert "%5EIRX" in url or "^IRX" in url
+        return body
+
+    assert _bd.fetch_dtb3(tmp_path, getter=getter, start="2026-01-01") == "irx"
+    lines = (tmp_path / "DTB3.csv").read_text().splitlines()
+    assert lines[0] == "observation_date,DTB3" and len(lines) == 6 and lines[1].endswith(",3.60")
