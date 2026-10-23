@@ -240,7 +240,7 @@ def test_limits_above_the_free_tier_are_refused():
     # round 7: the month's last symbols may be spent on purpose, up to the free tier's 500, never past it
     with pytest.raises(SystemExit):
         tiingo.main(["--month-stop", "501"])
-    assert tiingo.MONTH_LIMIT == 500 and tiingo.MONTH_STOP == 480
+    assert tiingo.MONTH_LIMIT == 500 and tiingo.MONTH_STOP == 478     # 2026-10-24: 22 left to GitHub Actions
 
 
 def test_month2_selects_the_yahoo_fallbacks_budget_deferrals_and_the_tier_c_rest(tmp_path):
@@ -383,8 +383,8 @@ def test_trial_limit_fetches_the_top_tickers_once_and_writes_only_the_status_fil
 
 def test_monthly_symbol_stop_defers_the_rest(sandbox):
     sandbox["answers"] = {"AAA": sandbox["good"], "BBB": sandbox["good"], "CCC": sandbox["good"]}
-    assert run(sandbox, "--already-used", "479") == 0
-    assert len(sandbox["urls"]) == 1  # 479 + AAA = 480: stop before BBB
+    assert run(sandbox, "--already-used", "477") == 0
+    assert len(sandbox["urls"]) == 1  # 477 + AAA = 478: stop before BBB
     status = tiingo.load_status().set_index("ticker_for_source")["status"]
     assert status["AAA"] == "done_review" and status["BBB"] == "deferred_quota" and status["CCC"] == "deferred_quota"
     assert "monthly symbol stop" in json.loads(tiingo.SUMMARY.read_text())["stop"]
@@ -436,7 +436,7 @@ def test_dry_run_and_offline_make_no_request(sandbox):
 def test_cached_tickers_after_a_stop_are_still_checked_without_a_request(sandbox):
     sandbox["answers"] = {"AAA": sandbox["good"], "BBB": sandbox["good"]}
     common.atomic_write(tiingo.raw_path("CCC"), gzip.compress(sandbox["good"], mtime=0))
-    assert run(sandbox, "--already-used", "479") == 0
+    assert run(sandbox, "--already-used", "477") == 0
     status = tiingo.load_status()
     by = status.groupby("ticker_for_source")["status"].agg(set)
     assert by["AAA"] == {"done_review"} and by["BBB"] == {"deferred_quota"} and by["CCC"] == {"done_review"}

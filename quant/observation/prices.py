@@ -94,6 +94,27 @@ def http_get(url: str, headers: dict, timeout: int = 60) -> bytes:
         return gzip.decompress(data) if resp.headers.get("Content-Encoding") == "gzip" else data
 
 
+class YahooPacer:
+    """One pace and one stop flag for the Yahoo requests of a run (the daily job's B1 / B2 fetch fallback, the B4 ETF
+    fetch and both second-vendor loops): at most one request every ``gap`` seconds across all of them, and after a
+    401 / 403 / 429 none of them asks Yahoo again in that run."""
+
+    def __init__(self, gap: float = 2.0, sleep=time.sleep, clock=time.monotonic):
+        self.gap, self.sleep, self.clock = gap, sleep, clock
+        self.last: float | None = None
+        self.stopped: str | None = None
+
+    def wait(self) -> None:
+        if self.last is not None:
+            left = self.gap - (self.clock() - self.last)
+            if left > 0:
+                self.sleep(left)
+        self.last = self.clock()
+
+    def stop(self, why: str) -> None:
+        self.stopped = self.stopped or why
+
+
 def yahoo_get(sym: str, period1: str, period2: str, getter=None) -> bytes:
     """One Yahoo v8 daily chart (``research_selective_t.chart_url`` / ``HEADERS``). ``getter(url)`` for tests. The
     callers keep the research politeness: at most one request every 2 s, stop at ``st.STOP_CODES``."""
@@ -285,8 +306,9 @@ def tiingo_chart(sym: str, start: str, end: str, key: str | None = None, getter=
     if not key:
         raise RuntimeError("no Tiingo key (TIINGO_API_KEY)")
     url = TIINGO_DAILY.format(sym=sym.lower()) + "?" + urlencode({"startDate": start, "endDate": end,
-                                                                  "format": "json", "token": key})
-    rows = json.loads((getter or http_get)(url, {"Accept": "application/json"}))
+                                                                  "format": "json"})
+    # the key goes in the Authorization header, never in the URL (quant.data.sources.tiingo)
+    rows = json.loads((getter or http_get)(url, {"Accept": "application/json", "Authorization": f"Token {key}"}))
     if not rows:
         raise ValueError(f"Tiingo: no rows for {sym}")
     return tiingo_rows_to_payload(sym, rows)

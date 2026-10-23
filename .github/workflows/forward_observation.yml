@@ -2,7 +2,8 @@ name: Forward observation
 
 # Manual dry run of scripts/forward_observation.py for the frozen candidates of
 # docs/forward_observation_checklist.md section B (S3-Yb, QQQ RSI2-dip SEL-A/SEL-P,
-# S-MISP short overlay): it prints the log the runner would write and commits nothing.
+# S-MISP short overlay, and the B4 lines M1 M2 M3 M6, LEV-B3, V3, BT4b): it prints the
+# log the runner would write and commits nothing.
 # Its monthly schedule (first days of the month) was folded into
 # forward_observation_daily.yml on 2026-10-19: that workflow runs the same runner every
 # trading day, finalises a month on the first session of the next one exactly as this

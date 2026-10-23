@@ -31,6 +31,10 @@ each returns ok / warn / fail with a one-line message:
   that day (named), a failure otherwise.
 - ``pipeline_liveness``: the previous completed daily run covered the previous session.
 
+The B4 lines (checklist B4, 2026-10-24) have their own checks in ``quant.observation.health_b4``; here only
+``replay_drift`` (their daily numbers, B4 input kinds ``b4px`` / ``b4m`` / ``b4btc`` / ``b4rf``, ``REPLAY_TOL_NAME``)
+and ``log_status`` (their tables) take them in. Nothing changes for B1-B3.
+
 "Independent" means the trigger and exit conditions are recomputed here from the raw vendor files with code that
 shares nothing with the frozen simulators (quant.strategies.selective_t / t_grid) or their loaders; the registered
 values (checklist B1 / B2 / B3) are transcribed below on purpose instead of imported, so a change to a frozen module
@@ -89,6 +93,13 @@ PRICE_BAND = 0.005                         # rule fill-price return minus runner
 REPLAY_TOL = 1e-9                          # recorded daily returns, closed trades
 REPLAY_TOL_OF = {"hmatch": 2e-6, "oneq": 2e-6, "qqq": 2e-6, "nav": 1e-4}   # series on adjusted closes (seen: 5e-7)
 #                                            (B3 NAV: Alpaca rounds adjusted closes to the cent)
+# B4 (checklist B4, added 2026-10-24): the ETF lines are built on adjusted closes (as H_match: 2e-6); the mega-cap lines
+# on Alpaca adjusted closes rounded to the cent (as the B3 NAV: 1e-4). Looked up by the full name before the kind.
+B4_LINES = ("M1", "M2", "M3", "M6", "LEV-B3", "V3", "BT4b")
+B4_MEGA = ("M1", "M2", "M3", "M6")
+REPLAY_TOL_NAME = {**{f"{k}.{x}": 1e-4 for k in B4_MEGA for x in ("ret",)},
+                   **{f"{k}.{x}": 2e-6 for k in ("LEV-B3", "V3", "BT4b") for x in ("ret", "match", "ibit")}}
+BTC_FP_TOL = 1e-9                          # B4 BTC closes (Bitstamp candles are final once closed)
 FP_FIELDS = ("c", "o", "h", "l", "a", "d", "s")   # input ratios: close / previous, open / high / low over the close,
 #                                                   adjusted close / previous, dividend / close, split
 FP_TOL = {"c": 1e-8, "o": 1e-8, "h": 1e-8, "l": 1e-8, "a": 2e-6, "d": 1e-8, "s": 1e-9}   # a revision is larger
@@ -928,7 +939,10 @@ def check_log_status(text: str, data_end, line_ends: dict | None = None) -> Chec
             own = (line_ends or {}).get(t.group("key"))
             lim = pd.Timestamp(own).to_period("M") if own is not None else last
             want = "final" if mon < lim else "provisional"
-            if mon > lim or status != want:
+            if mon > lim:
+                items.append(f"{t.group('key')} {cells[0]}: a row after the line's last session "
+                             f"{_d(own if own is not None else data_end)}")
+            elif status != want:
                 items.append(f"{t.group('key')} {cells[0]}: status '{status}', expected '{want}' with data through "
                              f"{_d(own if own is not None else data_end)}")
     if items:
@@ -1032,9 +1046,10 @@ def check_b3(state_dir: Path, target, calendar: pd.DatetimeIndex, line: dict | N
         h = file_sha256(p)
         old = (known_hashes or {}).get(p.name)
         if old and old != h:
-            fails.append(f"{p.name}: changed after it was first recorded (frozen signal files are never recomputed)")
+            fails.append(f"{p.name}: changed after it was first recorded (frozen signal files are never recomputed; "
+                         "restore it from Git)")
         if not f:
-            hashes[p.name] = h
+            hashes[p.name] = old or h               # the first recorded hash stays: a changed file fails until restored
             signals[s] = sc
     executable = [s for s in signals if next_session(s, calendar) is not None and next_session(s, calendar) <= target]
     if executable:
@@ -1180,7 +1195,8 @@ def input_changes(prev: dict, cur: dict, before: str | None = None) -> list:
     ``before`` (the previous run's data end: its last bar may still be corrected that evening) are left out: no
     number compared here depends on them."""
     out = []
-    for kind, tol in (("px", FP_TOL), ("b3", FP_TOL_B3), ("effr", EFFR_TOL)):
+    for kind, tol in (("px", FP_TOL), ("b3", FP_TOL_B3), ("effr", EFFR_TOL), ("b4px", FP_TOL), ("b4m", FP_TOL_B3),
+                      ("b4btc", BTC_FP_TOL), ("b4rf", EFFR_TOL)):
         prev_k, cur_k = prev.get(kind) or {}, cur.get(kind) or {}
         if kind == "effr":
             prev_k, cur_k = {"EFFR": prev_k}, {"EFFR": cur_k}
@@ -1209,6 +1225,13 @@ def _needs(what: str, stocks) -> set:
     line, kind = what.split(".")
     if kind == "oneq":
         return {("px", "ONEQ")}
+    if line in B4_LINES:
+        if kind == "qqq":
+            return {("px", "QQQ")}
+        if kind == "ibit":
+            return {("px", "QQQ"), ("b4px", "IBIT")}
+        return {"LEV-B3": {("px", "QQQ"), ("b4px", "QLD")}, "V3": {("px", "QQQ"), ("b4px", "QLD"), ("b4rf", None)},
+                "BT4b": {("px", "QQQ"), ("b4btc", None)}}.get(line, {("b4m", None)})
     if line == "B1":
         return {("px", s) for s in stocks}
     if line in B2_RULES or kind == "qqq":
@@ -1223,7 +1246,7 @@ def _explained(what: str, day: str, changes: list, stocks=()) -> list:
             if ((kind, key) in need or (kind, None) in need) and per <= day]
 
 
-_FINAL_ROW = re.compile(r"(B1|SEL-A|SEL-P|B3) (\d{4}-\d{2}): a final row changed")
+_FINAL_ROW = re.compile(r"(B1|SEL-A|SEL-P|B3|M1|M2|M3|M6|LEV-B3|V3|BT4b) (\d{4}-\d{2}): a final row changed")
 
 
 def check_replay(prev: dict | None, cur_numbers: dict, cur_inputs: dict, data_end, runner_warnings=(),
@@ -1251,7 +1274,7 @@ def check_replay(prev: dict | None, cur_numbers: dict, cur_inputs: dict, data_en
     keep = {"series": {}, "trades": {}, "b3_held": {}}
     for name, old in pn["series"].items():
         line, kind = name.split(".")
-        tol = REPLAY_TOL_OF.get(kind, REPLAY_TOL)
+        tol = REPLAY_TOL_NAME.get(name, REPLAY_TOL_OF.get(kind, REPLAY_TOL))
         new = cn["series"].get(name, {})
         for day, x in old.items():
             if kind == "hmatch":

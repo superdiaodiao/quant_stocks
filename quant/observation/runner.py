@@ -9,6 +9,10 @@
   (``schedule`` / ``simulate`` / ``basket_diagnostics`` / ``month_returns``) on a monthly U300 signal built from
   fresh data by scripts/forward_smisp.py (checklist section B3). First signal at the 2026-10-30 close, executed at
   the next close (2026-11-02).
+- B4 (owner decision 2026-10-24): M1, M2, M3, M6, LEV-B3, V3 and BT4b, computed by quant/observation/b4.py and
+  written after the B1-B3 tables (``compute_all`` / ``render_all``; ``compute`` and ``render_log`` are unchanged).
+  ``--no-b4`` does not run them and keeps the previous log's B4 part unchanged (as does a B4 part that cannot be
+  rendered: B1-B3 are written either way).
 
 No simulator logic is reimplemented here: this file only fetches and loads data the way the research scripts do,
 chooses the forward window and turns the research functions' outputs into a monthly table. The frozen parameters of
@@ -96,7 +100,9 @@ START_CLOSE = _B1["start_close"]     # B1 / B2 accounts open at this close (in-s
 assert all(v["start_close"] == START_CLOSE for v in _B2.values())
 STOCKS = _B1["universe"]            # B1: the 18 names
 SYMBOLS = ("QQQ", "ONEQ") + STOCKS
-FETCH_START = {"QQQ": "1999-01-01", "ONEQ": "2003-01-01"}   # stocks: st.FETCH_START (without the history state)
+FETCH_START = {"QQQ": "1999-01-01", "ONEQ": "2003-01-01",    # stocks: st.FETCH_START (without the history state)
+               "QLD": "2026-08-01", "IBIT": "2026-08-01"}     # B4 legs: nothing reads them before the integrity
+#                                                               window (2026-08-28); a short series saves Tiingo bytes
 B1_CONFIG = _B1["config"]          # research_selective_t.run_one(config, "stock", "net")
 assert (_B1["asset_class"], _B1["variant"]) == ("stock", "net")
 B2 = {k: (v["config_id"], v["label"]) for k, v in _B2.items()}   # research_t_grid config id, label
@@ -138,7 +144,7 @@ def b_source(now: datetime | None = None) -> str:
 
 def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=None, sleep=time.sleep,
           history: Path | None = fp.HISTORY_STATE, source: str | None = None, tiingo_getter=None,
-          source_log: Path | None = None, quota_log: Path | None = None) -> dict:
+          source_log: Path | None = None, quota_log: Path | None = None, pacer: fp.YahooPacer | None = None) -> dict:
     """Re-download every symbol (the forward data grow each month). Source: Tiingo (from 2026-11, ``b_source``),
     Yahoo as fallback (one request per 2 s, stop at 401/403/429). Tiingo is asked only for the symbols the account's
     monthly budget allows (``quant.data.sources.tiingo.check_budget`` over every ledger it can see, including this
@@ -146,7 +152,8 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
     Yahoo. With the committed history state the vendor is
     asked only for a recent tail; the history through the decision close is rebuilt from the state's ratios and
     the overlapping days are checked (``forward_prices.merge_history``). Bodies are stored as plain JSON (the QQQ /
-    ONEQ loaders of the research code read plain JSON)."""
+    ONEQ loaders of the research code read plain JSON). ``pacer``: one Yahoo pace and stop flag shared with the
+    other Yahoo requests of the run (``daily``); without it the gap and the stop are this call's own."""
     raw_dir.mkdir(parents=True, exist_ok=True)
     period2 = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
     state = fp.load_history_state(history) if history is not None else None
@@ -162,7 +169,7 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
                   f"({' '.join(refused)}); Yahoo for those")
     fp.log_line(log, "fetched_utc,symbol,http_status,bytes")
     fp.log_line(source_log, "fetched_utc,symbol,source,history_check")
-    out, stop_yahoo = {}, False
+    out, stop_yahoo = {}, bool(pacer is not None and pacer.stopped)
     for k, sym in enumerate(symbols):
         start = FETCH_START.get(sym, st.FETCH_START)
         if state is not None and (state["sym"] == sym).any():
@@ -183,7 +190,9 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
             if stop_yahoo:
                 out[sym] = "skipped (Yahoo stopped)"
                 continue
-            if k:
+            if pacer is not None:
+                pacer.wait()
+            elif k:
                 sleep(st.SECONDS_PER_REQUEST)
             try:
                 data = fp.yahoo_get(sym, start, period2, getter)
@@ -193,6 +202,8 @@ def fetch(symbols=SYMBOLS, raw_dir: Path = RAW, log: Path = FETCH_LOG, getter=No
                 if exc.code in st.STOP_CODES:
                     print(f"fetch: HTTP {exc.code} on {sym}; stopping Yahoo (the cached files are left as they were)")
                     stop_yahoo = True
+                    if pacer is not None:
+                        pacer.stop(f"HTTP {exc.code} at {sym}")
                 continue
             fp.log_line(log, "", f"{now},{sym},200,{len(data)}")
             payload, used = json.loads(data), "yahoo"
@@ -707,16 +718,52 @@ def compute(as_of: str, raw_dir: Path = RAW, stocks=STOCKS, smisp_dir: Path | No
     return {"as_of": as_of, "data_end": str(d.qqq.s.sessions[-1].date()), "lines": lines, "data": d}
 
 
+def compute_all(as_of: str, raw_dir: Path = RAW, stocks=STOCKS, smisp_dir: Path | None = None,
+                borrow_dir: Path | None = None, smisp_state: Path | None = None, b4: dict | None = None) -> dict:
+    """``compute`` plus, when ``b4`` is given ({} for the default locations, else ``b4_dir`` / ``state_dir`` /
+    ``smisp_dir``), the B4 lines (quant.observation.b4; checklist section B4) under ``res["b4"]``."""
+    res = compute(as_of, raw_dir, stocks, smisp_dir, borrow_dir, smisp_state)
+    if b4 is not None:
+        from quant.observation import b4 as b4m
+        res["b4"] = b4m.compute(as_of, raw_dir, **{"smisp_dir": smisp_dir, **b4})
+    return res
+
+
+B4_HEADING = "\n## B4: "            # (quant.observation.b4.B4_MARKER; checked here without importing b4)
+
+
+def render_all(res: dict, old_text: str = "") -> tuple[str, list]:
+    """``render_log`` (B1-B3, unchanged) followed by the B4 part when the result holds the B4 lines. Without the B4
+    lines (``--no-b4``), or when the B4 part cannot be rendered, the previous log's B4 part is kept unchanged (a
+    render error is reported in ``res["b4"]["render_error"]`` and the warnings), so B1-B3 are written either way."""
+    text, warnings = render_log(res["as_of"], res["data_end"], res["lines"], old_text)
+    if res.get("b4") is not None:
+        from quant.observation import b4 as b4m
+        try:
+            t4, w4 = b4m.render(res["b4"], old_text)
+        except Exception as exc:  # noqa: BLE001 - B1-B3 are written; the old B4 part stays
+            msg = f"B4 part not rendered ({type(exc).__name__}: {exc}); the previous B4 part is kept unchanged"
+            res["b4"]["render_error"] = msg
+            t4, w4 = b4m.split_log(old_text)[1], [msg]
+        if t4:
+            text = text + "\n" + t4
+        warnings = warnings + w4
+    elif B4_HEADING in (old_text or ""):
+        from quant.observation import b4 as b4m
+        text = text + "\n" + b4m.split_log(old_text)[1]
+    return text, warnings
+
+
 def run(as_of: str, raw_dir: Path = RAW, log_path: Path = LOG, dry_run: bool = False, stocks=STOCKS,
         force: bool = False, smisp_dir: Path | None = None, borrow_dir: Path | None = None,
-        smisp_state: Path | None = None) -> dict:
-    res = compute(as_of, raw_dir, stocks, smisp_dir, borrow_dir, smisp_state)
+        smisp_state: Path | None = None, b4: dict | None = None) -> dict:
+    res = compute_all(as_of, raw_dir, stocks, smisp_dir, borrow_dir, smisp_state, b4)
     old = log_path.read_text() if log_path.exists() else ""
     prev_end = last_data_end(old)
     if prev_end and pd.Timestamp(res["data_end"]) < pd.Timestamp(prev_end) and not (dry_run or force):
         raise SystemExit(f"the log already has data through {prev_end}, later than this run's {res['data_end']}; "
                          "use --dry-run (or --force) for an earlier as-of date")
-    text, warnings = render_log(as_of, res["data_end"], res["lines"], old)
+    text, warnings = render_all(res, old)
     res["text"], res["warnings"] = text, warnings
     for w in warnings:
         print("WARNING:", w)
@@ -747,6 +794,9 @@ def run_details(res: dict) -> dict:
         out["lines"][k]["w"] = v["w"]
         out["lines"][k]["trades"] = [{kk: (str(vv.date()) if isinstance(vv, pd.Timestamp) else vv)
                                       for kk, vv in t.items()} for t in v["trades"]]
+    if res.get("b4") is not None:
+        from quant.observation import b4 as b4m
+        out["b4"] = b4m.run_details(res["b4"])
     return out
 
 
@@ -805,6 +855,9 @@ def main(argv=None):
                     help="B3: compute any due S-MISP signal from fresh data (Nasdaq list, SEC, ~2,400 charts: Alpaca "
                          "first, Yahoo fallback at one request per 2 s; resumable) and refresh the held names' charts "
                          "and the EFFR")
+    ap.add_argument("--no-b4", action="store_true",
+                    help="do not run the B4 lines (M1 M2 M3 M6, LEV-B3, V3, BT4b; checklist section B4); the log's "
+                         "B4 part is kept unchanged")
     ap.add_argument("--dry-run", action="store_true", help="print the log instead of writing it")
     ap.add_argument("--force", action="store_true", help="allow writing the log for an earlier as-of date")
     ap.add_argument("--no-overlap-check", action="store_true",
@@ -816,11 +869,24 @@ def main(argv=None):
     if pd.Timestamp(as_of) > pd.Timestamp(latest):
         print(f"as-of {as_of} is after the last complete session date {latest}; using {latest}")
         as_of = latest
+    b4 = None if a.no_b4 else {}
+    if b4 is not None and a.dry_run:                 # nothing frozen in the working tree by a dry run
+        from quant.observation import b4 as b4m
+        b4 = {"state_dir": b4m.scratch_state()}
     if a.fetch:
         print("FETCH:", fetch())
+        if b4 is not None:
+            from quant.observation import b4 as b4m
+            from quant.observation import b4_data
+            print("FETCH B4 ETFs:", fetch(b4_data.ETFS))
+            print("FETCH B4 BTC / T-bill:", b4m.fetch())
     if a.fetch_smisp:
         smisp_fetch(as_of)
-    res = run(as_of, dry_run=a.dry_run, force=a.force)
+        if b4 is not None:
+            from quant.observation import b4 as b4m
+            print("B4 mega-cap signals:", b4m.megacap_fetch(load_market("QQQ", as_of).s.sessions,
+                                                            state_dir=b4.get("state_dir")))
+    res = run(as_of, dry_run=a.dry_run, force=a.force, b4=b4)
     checks = res["data"].checks
     print("DATA:", json.dumps({k: (v["first"], v["last"], v["rows"]) for k, v in checks.items()}))
     bad = {k: v for k, v in checks.items() if v["ohlc_missing_or_nonpositive"] or v["open_or_close_outside_high_low"]
@@ -842,7 +908,20 @@ def main(argv=None):
             print(f"{k}: chained strategy {pct(chained(v['ret']))}, H_match (to-date w per month) "
                   f"{pct(chained(v['hmatch'].reindex(idx)))}, H_match (one w over the whole window, research "
                   f"definition; console only) {pct(chained(v['hmatch_full_window'].reindex(idx)))}")
-    if any(v.get("started") for v in res["lines"].values()):
+    for k, v in (res.get("b4") or {}).get("lines", {}).items():
+        if v.get("started"):
+            r = v["ret"]
+            label = "1.37x" if k == "LEV-B3" else "constant e-bar"
+            extra = (f", {label} {pct(chained(v['match'].reindex(r.index)))}" if k in ("LEV-B3", "V3") else "")
+            if k == "V3":
+                extra += (f", constant e-bar over the whole window (research definition; console only) "
+                          f"{pct(chained(v['match_full_window'].reindex(r.index)))}")
+            print(f"B4 {k}: chained strategy {pct(chained(r))}, ONEQ {pct(chained(v['oneq'].reindex(r.index)))}, "
+                  f"QQQ {pct(chained(v['qqq'].reindex(r.index)))}{extra}; through {v['last_session'].date()}")
+        else:
+            print(f"B4 {k}:", v.get("error") or v.get("reason"))
+    if any(v.get("started") for v in res["lines"].values()) or any(
+            v.get("started") for v in (res.get("b4") or {}).get("lines", {}).values()):
         print("run details (local only):", save_run_details(res))
     else:
         print(f"observation starts {START_CLOSE}: no forward sessions through {res['data_end']}")

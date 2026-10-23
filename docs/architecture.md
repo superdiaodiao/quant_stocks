@@ -76,7 +76,9 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     episodes.py             每段持仓（多 / 空仓 / 空）的收益、亏钱段数（来回挨打）、各状态的时间占比
   observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp；
                             daily + health（入口 scripts/forward_observation_daily.py，每个交易日自检，
-                            独立重算触发条件，不调用冻结模拟器）、health_issue（GitHub issue 开/关）
+                            独立重算触发条件，不调用冻结模拟器）、health_issue（GitHub issue 开/关）；
+                            b4 / b4_data / b4_megacap / health_b4（2026-10-24 加入的 B4 七条线：M1 M2 M3 M6、
+                            LEV-B3、V3、BT4b，用研究代码模拟，日志里接在 B1–B3 之后）
   cli.py                    python -m quant list / study <name> / strategies / run <strategy>
   reporting.py              写结果文件、运行日志、事先登记块（PREREG-BEGIN/END）摘要（第 12 节；原 prereg.py）
 studies/                    每个事先登记的研究一个文件：读数据 → 策略 + 引擎 → 评估 → 写 output/research_only/<name>/
@@ -269,7 +271,7 @@ quant.cli ──► studies（只有它）
 
 `quant/strategies/registry.py` 是冻结参数唯一的声明处：S3-Yb（B1）、SEL-A / SEL-P（B2，t_grid 配置 29876 /
 29916）、S-MISP N10 k20 MN（B3）、S/P top-10（只作引用：`qc/sp_top10_trade/main.py`，在 QuantConnect 上运行）、
-M1–M6。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻观察的 B1/B2/B3 参数都从这里读。
+M1–M6，以及 2026-10-24 加入前瞻观察 B4 的 LEV-B3（sector_lev 的 B3）、V3、BT4b（M1、M2、M3、M6 也标为 observed）。`strategies.megacap.RULES`、`strategies.selective_t.STOCKS`、前瞻观察的 B1/B2/B3 参数都从这里读。
 `python -m quant strategies` 列出它们，`python -m quant run <名字> [参数]` 调用登记的入口（观察中的策略就是前瞻
 观察本身，例如 `run SEL-A --dry-run`）。登记表不导入任何 `quant` 模块，保证前瞻观察能在 `quant.data.version`
 加载之前把数据版本设成 v2。
@@ -649,11 +651,13 @@ Tiingo 请求。本节加了四道保护：分开的请求台账、流水线拒�
   `$FORWARD_OBS_CACHE/quota_ledger.csv`（GitHub Actions）里本月的 Tiingo 代码合起来去重计数。所有 Tiingo 调用方请求前
   都先问它：
   - `pipelines/reversal_data/tiingo.py`：预算 = 所有台账的本月代码数 + `--already-used`（账户页上有、任何台账里都没有的
-    数），停在 480（`pf.TIINGO_MONTH_STOP`）；
+    数），停在 478（`MONTH_STOP`；原来是 prefilter 的 480，2026-10-24 前瞻观察 B4 在 GitHub 上多用 QLD、IBIT 两个代码后减 2），
+    本月 Tiingo 流量停在 750 MB（原 900 MB，给 GitHub 上的前瞻观察留约 250 MB，因为本机台账看不到它的流量）；
   - megacap 的 `tiingo_daily` / `tiingo_pre`：只请求本月已经算过的代码（不新增代码）；`tiingo_pre` 现在先看缓存
     （缓存命中不花额度；以前先查本月台账，换个月份运行结果就会变——在 10 月运行结果相同）；
-  - 前瞻观察 `fetch`（B1 / B2，2026-11 起用 Tiingo）：只对预算允许的代码请求 Tiingo，其余走 Yahoo；每次 Tiingo 请求记到
-    抓取日志旁边的 `quota_ledger.csv`。GitHub Actions 上看不到本机台账，所以本机调用方停在 480，给它的 20 个代码留出余量。
+  - 前瞻观察 `fetch`（B1 / B2，以及 B4 的 QLD / IBIT，2026-11 起用 Tiingo；QLD / IBIT 只从 2026-08-01 抓）：只对预算允许的
+    代码请求 Tiingo，其余走 Yahoo；每次 Tiingo 请求记到抓取日志旁边的 `quota_ledger.csv`，密钥放在 `Authorization` 请求头里
+    （不放进网址）。GitHub Actions 上看不到本机台账，所以本机调用方停在 478，给它的 22 个代码留出余量。
 - `python -m quant data quota` 列出每个台账本月的 Tiingo 代码数和合计（2026-10：合计 500，额度已用完）。
 
 ### 13.3 谁在往冻结缓存里写（排查结果）
@@ -741,7 +745,7 @@ Tiingo 请求。本节加了四道保护：分开的请求台账、流水线拒�
 
 ### 13.8 留下的问题
 
-- GitHub Actions 上的前瞻观察只看得到自己的台账；本机调用方停在 480 是靠约定给它留余量。
+- GitHub Actions 上的前瞻观察只看得到自己的台账；本机调用方停在 478 个代码、750 MB 是靠约定给它留余量（22 个代码、约 250 MB）。
 - v2 fill（`reversal_2012_2026_v2_fill`）和 v2.1 Alpaca（`reversal_2012_2026_v2_1_alpaca`）两个目录是 v2 / v2.1 的来源，
   但不在清单和 lock 的范围里（它们没有自己的 `FROZEN_UTC`）；需要的话可以按同样办法加上。
 - 清单入库约 23 MB（哈希本身不可压缩）。

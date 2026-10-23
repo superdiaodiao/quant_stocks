@@ -1210,7 +1210,7 @@ def test_daily_main_writes_only_on_actions_or_with_write(monkeypatch, tmp_path):
 def test_daily_run_reports_a_tiingo_fallback_and_a_test_alert(b3env, tmp_path, monkeypatch):
     kw = daily_kw(b3env, tmp_path)
     monkeypatch.setattr(fo, "b_source", lambda now=None: "tiingo")
-    monkeypatch.setattr(fo, "fetch", lambda syms, raw_dir=None: {s: "ok (yahoo)" for s in syms})
+    monkeypatch.setattr(fo, "fetch", lambda syms, raw_dir=None, pacer=None: {s: "ok (yahoo)" for s in syms})
     rep = daily.run_daily(as_of="2026-12-30", fetch=True, test_alert=True, **kw)
     by = {c["name"]: c for c in rep["checks"]}
     assert by["pipeline"]["status"] == hc.WARN and "Tiingo refused or failed" in by["pipeline"]["items"][0]

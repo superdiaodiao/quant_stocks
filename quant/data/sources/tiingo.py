@@ -12,8 +12,8 @@ taken across all of them (``month_symbols``, ``check_budget``) and every Tiingo 
 - ``pipelines/reversal_data/tiingo.py`` (the reversal data fetcher; its budget is this count plus ``--already-used``);
 - ``quant/data/sources/megacap_oos2.py`` ``tiingo_daily`` and ``quant/data/megacap_lookback.py`` ``tiingo_pre`` (only
   symbols already counted this month, i.e. no new symbol);
-- ``quant/observation/runner.py`` ``fetch`` (the forward observation, B1 / B2, from 2026-11; on GitHub Actions only its
-  own ledger is visible, so the local callers stop at 480 and leave its 20 symbols free).
+- ``quant/observation/runner.py`` ``fetch`` (the forward observation, B1 / B2 and the B4 legs QLD / IBIT, from 2026-11;
+  on GitHub Actions only its own ledger is visible, so the local callers stop at 478 and leave its 22 symbols free).
 """
 from __future__ import annotations
 

@@ -75,7 +75,14 @@ def test_legacy_wrappers_alias_the_moved_modules():
 
 def test_registry_declares_the_observed_lines_once():
     r = registry
-    assert [s.name for s in r.observed()] == ["S3-Yb", "SEL-A", "SEL-P", "S-MISP N10 k20 MN", "S/P top-10"]
+    assert [s.name for s in r.observed()] == ["S3-Yb", "SEL-A", "SEL-P", "S-MISP N10 k20 MN", "S/P top-10",
+                                              "M1", "M2", "M3", "M6", "LEV-B3", "V3", "BT4b"]   # B4: 2026-10-24
+    assert r.B4_MEGACAP == ("M1", "M2", "M3", "M6") and "observed" not in r.get("M4").tags + r.get("M5").tags
+    assert (r.B4_START_CLOSE, r.B4_FIRST_SIGNAL) == ("2026-10-26", "2026-10-30")
+    lev, v3, b4b = r.get("LEV-B3").frozen, r.get("V3").frozen, r.get("BT4b").frozen
+    assert (lev["on"], lev["off"], lev["sma"], lev["band"], lev["matched_exposure"]) == (1.5, 1.0, 200, 0.02, 1.37)
+    assert (v3["cap"], v3["vol_short"], v3["vol_lr_min"]) == (1.5, 20, 252)
+    assert (b4b["sleeve"], b4b["btc_half_spread"], b4b["qqq_half_spread"]) == (0.10, 5e-4, 1e-4)
     assert r.get("SEL-A").frozen["config_id"] == 29876 and r.get("SEL-P").frozen["config_id"] == 29916
     assert r.get("S-MISP N10 k20 MN").frozen == {"signal": "S-MISP", "n": 10, "k": 0.20, "mode": "MN",
                                                   "first_signal": "2026-10-30"}

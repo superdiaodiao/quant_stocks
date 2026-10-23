@@ -1,7 +1,8 @@
 name: Forward observation (daily)
 
 # Runs the forward observation of docs/forward_observation_checklist.md section B (S3-Yb, QQQ RSI2-dip
-# SEL-A / SEL-P, S-MISP short overlay) every US trading day and checks its health (B0.8):
+# SEL-A / SEL-P, S-MISP short overlay; and since 2026-10-24 the B4 lines M1 M2 M3 M6, LEV-B3, V3, BT4b)
+# every US trading day and checks its health (B0.8, B4):
 # scripts/forward_observation_daily.py fetches the data, runs the frozen runner as of the last completed
 # NYSE session, runs quant/observation/health.py and writes state/forward_observation/health.json.
 #
@@ -29,6 +30,12 @@ name: Forward observation (daily)
 # (e.g. a healthchecks.io check, schedule "30 3 * * 2-6" UTC, grace about 8 hours); each completed run
 # pings it, so a job that stops running (disabled workflow, Actions outage, pushes that keep failing)
 # raises an alert from outside.
+#
+# B4 switch: setting the repository variable FORWARD_OBS_NO_B4 to "true" (Settings > Secrets and variables >
+# Actions > Variables) runs B1-B3 only (--no-b4): the B4 part of the log is kept unchanged and no B4 check runs.
+# Month ends: the S-MISP and mega-cap downloads (about 2,700 charts, SEC files) can take over an hour when Alpaca
+# is down and Yahoo serves them at one request per 2 s, hence the 180-minute limit (Actions minutes are free for a
+# public repository); an interrupted download resumes at the next run.
 
 on:
   schedule:
@@ -66,7 +73,7 @@ concurrency:
 jobs:
   daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       FINAL_CRON: "30 3 * * 2-6"
 
@@ -110,6 +117,7 @@ jobs:
         ACCEPT: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_replay }}
         ACCEPT_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.accept_data }}
         TEST_ALERT: ${{ github.event_name == 'workflow_dispatch' && inputs.test_alert }}
+        NO_B4: ${{ vars.FORWARD_OBS_NO_B4 }}
       run: |
         args="--fetch --fetch-smisp --report-out $RUNNER_TEMP/health_report.json"
         if [ "$EVENT" = "schedule" ] && [ "$SCHEDULE" != "$FINAL_CRON" ]; then args="$args --early"; fi
@@ -117,6 +125,7 @@ jobs:
         if [ "$TEST_ALERT" = "true" ]; then args="$args --test-alert"; fi
         if [ "$ACCEPT" = "true" ]; then args="$args --accept-replay"; fi
         if [ "$ACCEPT_DATA" = "true" ]; then args="$args --accept-data"; fi
+        if [ "$NO_B4" = "true" ]; then args="$args --no-b4"; fi
         set +e
         PYTHONPATH=. python scripts/forward_observation_daily.py $args
         code=$?
@@ -147,13 +156,16 @@ jobs:
         exit 1
 
     # a signal's raw S-MISP inputs (universe charts, SEC files) are never read again once its frozen signal file
-    # is committed; the held charts, the EFFR and the listing snapshots stay
+    # and the B4 mega-cap signal file of the same date (built from the same folder) are both committed; the held
+    # charts, the EFFR, the BTC / T-bill files and the listing snapshots stay
     - name: Prune the raw-data cache
       if: ${{ always() && steps.commit.outcome == 'success' }}
       run: |
         for f in $(git ls-files 'state/forward_observation/smisp/s_*.csv'); do
-          d=".cache/smisp/$(basename "$f" .csv)"
-          if [ -d "$d" ]; then echo "prune $d"; rm -rf "$d"; fi
+          base="$(basename "$f" .csv)"
+          d=".cache/smisp/$base"
+          m="state/forward_observation/megacap/m_${base#s_}.csv"
+          if [ -d "$d" ] && git ls-files --error-unmatch "$m" >/dev/null 2>&1; then echo "prune $d"; rm -rf "$d"; fi
         done
 
     # saved even when a check failed, so a half-done S-MISP download resumes and the Tiingo quota ledger survives

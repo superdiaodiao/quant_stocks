@@ -25,9 +25,10 @@ What it does:
   the unique symbols the account page shows this month that no ledger does); before a
   ticker new this month it checks the account's symbols in every ledger (``quant.data.sources.tiingo.month_symbols``:
   this version's ledger, the other versions', the mega-cap studies', the forward observation's) + already-used
-  against 480 (``pf.TIINGO_MONTH_STOP``,
-  the prefilter plans to the same stop; ``--month-stop`` may raise it to the free tier's 500 on purpose,
-  never more) and ``--max-mb`` of Tiingo bytes. A stop defers the
+  against 478 (``MONTH_STOP``: the prefilter's 480 less the 2 symbols the forward observation's B4 legs added on
+  GitHub Actions on 2026-10-24, whose ledger this machine cannot see; ``--month-stop`` may raise it to the free tier's
+  500 on purpose, never more) and ``--max-mb`` of Tiingo bytes (750: 250 MB of the account's 1 GB are left to the
+  forward observation on GitHub Actions, whose bytes no local ledger records). A stop defers the
   rest (``deferred_quota``) and still checks cached answers. Refusals stop cleanly: HTTP 429 or
   an error body about limits (quota: the rest deferred), 401 (auth: the run ends), 403 (that
   ticker ``refused``; two in a row end the run); an interruption writes the summary too;
@@ -99,9 +100,11 @@ START, END = "2011-06-01", "2026-08-31"
 
 HOURLY, DAILY = 45, 900  # the free tier allows 50 an hour and 1,000 a day; stay under both
 SPACING = 60.0  # seconds between requests: the hour's 45 are spread out, not sent in a burst
-MONTH_STOP = pf.TIINGO_MONTH_STOP  # unique symbols this month (the free tier allows 500); the prefilter plans to it
+FORWARD_ACTIONS_SYMBOLS = 22  # Tiingo symbols of the forward observation on GitHub Actions (B1 / B2 20, B4 QLD / IBIT)
+MONTH_STOP = pf.TIINGO_MONTHLY_SYMBOLS - FORWARD_ACTIONS_SYMBOLS  # 478 unique symbols this month (the free tier
+# allows 500; the prefilter planned month 1 to its 480, before the B4 legs existed)
 # (the default stop; ``--month-stop`` up to MONTH_LIMIT spends the last symbols of a month on purpose)
-MAX_MB = 900.0  # Tiingo bytes this month (the free tier allows 1 GB)
+MAX_MB = 750.0  # Tiingo bytes this month (the free tier allows 1 GB; about 250 MB left to GitHub Actions)
 MAX_CONSECUTIVE_ERRORS = 3
 MAX_CONSECUTIVE_REFUSALS = 2  # 403s in a row before the run stops (one 403 is that ticker's)
 

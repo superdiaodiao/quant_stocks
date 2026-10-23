@@ -277,7 +277,8 @@ def main(argv=None) -> int:
         for path in ledgers:
             print(f"{len(tiingo.ledger_symbols(path, month)):4d}  {path}")
         print(f"{len(total):4d}  unique symbols in {month} across {len(ledgers)} ledgers "
-              f"(the free tier allows {tiingo.MONTHLY_SYMBOLS}; local callers stop at 480)")
+              f"(the free tier allows {tiingo.MONTHLY_SYMBOLS}; local callers stop at 478, leaving 22 to GitHub "
+              "Actions)")
         return 0
     if a.cmd == "manifest":
         rc = 0

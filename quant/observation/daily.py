@@ -14,6 +14,16 @@ Every US trading day after the close (.github/workflows/forward_observation_dail
 5. exit 3 when any check fails (0 otherwise), so the workflow fails, GitHub emails the owner and the workflow opens
    or updates the issue "Forward observation health".
 
+With B4 (the default of ``main``; ``--no-b4``, or the workflow's repository variable FORWARD_OBS_NO_B4 = true, runs
+B1-B3 only and keeps the log's B4 part unchanged): step 1 also fetches QLD / IBIT (``runner.fetch``), BTC
+and the T-bill (``b4.fetch``) and, after the S-MISP fetch, any due mega-cap signal and the held mega-cap charts
+(``b4.megacap_fetch``); step 2 appends the B4 part of the log; step 3 adds the ``health_b4`` checks and the B4 numbers
+of the replay state. B4 never stops B1-B3: a B4 line, its rows, its log part, its checks or its numbers that fail are a
+``b4_pipeline`` failure, and the log, health.json and the replay state are still written. A dry run computes a due
+mega-cap signal into a cache copy of the state (``b4.scratch_state``), never into the working tree. One Yahoo pace and
+stop flag (``prices.YahooPacer``) serves the run's Yahoo requests (B1 / B2 fallback, QLD / IBIT, BTC-USD, both
+second-vendor loops; the S-MISP / mega-cap chart downloads keep their own).
+
 The log, health.json and the replay state are written only on GitHub Actions or with ``--write``: the scheduled job
 owns them, and a local run that rewrote them would collide with the job's next commit. A local run is a dry run.
 
@@ -39,7 +49,10 @@ from urllib.error import HTTPError  # noqa: E402
 
 import pandas as pd  # noqa: E402
 
+from quant.observation import b4 as b4m  # noqa: E402
+from quant.observation import b4_data as bdata  # noqa: E402
 from quant.observation import health as hc  # noqa: E402
+from quant.observation import health_b4 as hb  # noqa: E402
 from quant.observation import prices as fp  # noqa: E402
 from quant.observation import runner  # noqa: E402
 from quant.observation import smisp as fs  # noqa: E402
@@ -92,14 +105,16 @@ def sources_summary(src: dict, syms) -> str:
 
 
 def fetch_secondaries(items: dict, target: pd.Timestamp, getters: dict | None = None, sleep=time.sleep,
-                      since=None) -> tuple:
+                      since=None, pacer: fp.YahooPacer | None = None) -> tuple:
     """Second-vendor charts from ``since`` (the forward window) to ``target``. ``items`` {name: (exchange ticker,
     yahoo symbol, stored vendor)}. Alpaca (one call per adjustment for all names) and Yahoo (one request per 2 s,
     stop at 401/403/429) for every name not stored from that vendor. Tiingo is not asked here: from 2026-11 it is the
     stored source of B1 / B2, and its free monthly symbol budget is kept for the runner. Returns ({vendor: {name:
     frame, or None when that vendor answered but has no data for the name (Alpaca: no bars; Yahoo: HTTP 404)}},
-    notes); a name the vendor was not asked about or failed on (429, error) is absent."""
+    notes); a name the vendor was not asked about or failed on (429, error) is absent. ``pacer``: the run's shared
+    Yahoo pace and stop flag (a 429 seen earlier in the run stops this loop before it starts)."""
     getters = getters or {}
+    pacer = pacer or fp.YahooPacer(YAHOO_GAP_S, sleep)
     start = str(min(target - pd.Timedelta(days=CROSS_DAYS),
                     pd.Timestamp(since or target) - pd.Timedelta(days=7)).date())   # revised days too
     end = str((target + pd.Timedelta(days=1)).date())     # (prices.alpaca_bars caps it at now - 16 min)
@@ -119,11 +134,12 @@ def fetch_secondaries(items: dict, target: pd.Timestamp, getters: dict | None = 
     elif alp:
         notes.append("alpaca: no keys, not compared")
     yah = [n for n, (_, _, src) in items.items() if src != "yahoo"]
-    if yah and getters.get("yahoo_enabled", True):
+    if yah and getters.get("yahoo_enabled", True) and pacer.stopped:
+        notes.append(f"yahoo: not asked ({pacer.stopped} earlier in this run)")
+    elif yah and getters.get("yahoo_enabled", True):
         frames = {}
-        for k, n in enumerate(yah):
-            if k:
-                sleep(YAHOO_GAP_S)
+        for n in yah:
+            pacer.wait()                             # (the first request of a run does not wait)
             try:
                 frames[n] = hc.chart_frame(json.loads(fp.yahoo_get(items[n][1], start, end, getters.get("yahoo"))),
                                            target)
@@ -132,6 +148,7 @@ def fetch_secondaries(items: dict, target: pd.Timestamp, getters: dict | None = 
                 if exc.code == 404:
                     frames[n] = None
                 if exc.code in YAHOO_STOP:
+                    pacer.stop(f"HTTP {exc.code} at {n}")
                     break
             except Exception as exc:  # noqa: BLE001
                 notes.append(f"yahoo: {type(exc).__name__} at {n}")
@@ -203,14 +220,16 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
               raw_dir=None, log_path=None, stocks=None, smisp_dir=None, smisp_state=None, borrow_dir=None,
               health_path: Path = HEALTH, replay_path: Path = REPLAY, calendar=None, getters: dict | None = None,
               sources: dict | None = None, universe_check: bool = True, save_details: bool = True,
-              sleep=time.sleep) -> dict:
+              sleep=time.sleep, b4: bool = False, b4_dir=None, b4_state=None) -> dict:
     """One daily run; returns the health report (also written to ``health_path`` unless ``dry_run``).
 
     ``early``: a scheduled run that is not the evening's last (a bar missing only for the session just closed is a
     warning, whatever the clock; no second vendor is a warning). ``accept_data``: record the current data differences
     (second-vendor disagreements, day moves and total-return gaps, by symbol and date) as reviewed: reported, no
     longer failed. ``test_alert``: add a failing check to test the notification path. ``host``: "actions" on GitHub
-    Actions (pipeline_liveness counts only the job's own runs)."""
+    Actions (pipeline_liveness counts only the job's own runs). ``b4``: also fetch, run and check the B4 lines
+    (checklist section B4; ``b4_dir`` the raw BTC / T-bill / mega-cap chart cache, ``b4_state`` the frozen mega-cap
+    signals; default locations when None)."""
     raw_dir = Path(raw_dir or runner.RAW)
     log_path = Path(log_path or runner.LOG)
     stocks = tuple(stocks or runner.STOCKS)
@@ -223,13 +242,18 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
     target = latest if as_of is None else min(hc.session_on_or_before(as_of, cal), latest)
     t = str(target.date())
     prev_health, prev_replay = hc.load_json(health_path), hc.load_json(replay_path)
-    notes = []
+    notes, b4_notes = [], []
+    pacer = fp.YahooPacer(YAHOO_GAP_S, sleep)       # one Yahoo pace and stop flag for the whole run
+    if b4 and dry_run and fetch_smisp:               # a due mega-cap signal of a dry run goes to a scratch copy
+        b4_state = b4m.scratch_state(b4_state, b4_dir)
+    b4cfg = {"b4_dir": b4_dir, "state_dir": b4_state} if b4 else None
+    b4p = b4m.paths(b4_dir, b4_state, smisp_dir) if b4 else None
 
     # 1. fetch (a vendor problem is reported, the run goes on with the stored files)
     if fetch:
         try:
             want = runner.b_source()
-            got = runner.fetch(("QQQ", "ONEQ", *stocks), raw_dir=raw_dir)
+            got = runner.fetch(("QQQ", "ONEQ", *stocks), raw_dir=raw_dir, pacer=pacer)
             notes += [f"fetch {s}: {clean(v)}" for s, v in got.items() if not str(v).startswith("ok")]
             fell = [s for s, v in got.items() if want == "tiingo" and str(v) == "ok (yahoo)"]
             if fell:
@@ -237,22 +261,46 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
                              "(Tiingo quota used up?)")
         except Exception as exc:  # noqa: BLE001
             notes.append(f"fetch stopped: {type(exc).__name__}")
+        if b4:
+            try:
+                want = runner.b_source()
+                got = runner.fetch(bdata.ETFS, raw_dir=raw_dir, pacer=pacer)
+                b4_notes += [f"fetch {s}: {clean(v)}" for s, v in got.items() if not str(v).startswith("ok")]
+                fell = [s for s, v in got.items() if want == "tiingo" and str(v) == "ok (yahoo)"]
+                if fell:
+                    b4_notes.append(f"fetch: Tiingo refused or failed for {', '.join(fell)}; stored from Yahoo instead")
+            except Exception as exc:  # noqa: BLE001
+                b4_notes.append(f"B4 ETF fetch stopped: {type(exc).__name__}")
+            try:
+                got = b4m.fetch(b4p["b4_dir"], sleep=sleep, pacer=pacer)
+                b4_notes += [f"BTC {k}: {clean(v)}" for k, v in got["btc"].items() if not str(v).startswith("ok")]
+                if got["dtb3"] != "ok":
+                    b4_notes.append(f"T-bill (DTB3): {clean(got['dtb3'])}")
+            except Exception as exc:  # noqa: BLE001
+                b4_notes.append(f"BTC / T-bill fetch stopped: {type(exc).__name__}")
     if fetch_smisp:
         try:
             runner.smisp_fetch(t, raw_dir, smisp_dir)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"S-MISP fetch stopped: {type(exc).__name__}: {clean(exc)}")
+        if b4:
+            try:
+                ses = runner.load_market("QQQ", t, raw_dir).s.sessions
+                got = b4m.megacap_fetch(ses, b4p["b4_dir"], b4p["state_dir"], b4p["smisp_dir"], sleep=sleep)
+                b4_notes += [clean(x) for x in got.get("notes", [])]
+            except Exception as exc:  # noqa: BLE001
+                b4_notes.append(f"mega-cap fetch stopped: {type(exc).__name__}: {clean(exc)}")
 
     # 2. the frozen runner as of the last completed session
     res, run_error = None, None
     try:
         kw = {"stocks": stocks, "smisp_dir": smisp_dir, "borrow_dir": borrow_dir, "smisp_state": smisp_state}
         if dry_run:
-            res = runner.compute(t, raw_dir, **kw)
+            res = runner.compute_all(t, raw_dir, **kw, b4=b4cfg)
             old = log_path.read_text() if log_path.exists() else ""
-            res["text"], res["warnings"] = runner.render_log(t, res["data_end"], res["lines"], old)
+            res["text"], res["warnings"] = runner.render_all(res, old)
         else:
-            res = runner.run(t, raw_dir=raw_dir, log_path=log_path, **kw)
+            res = runner.run(t, raw_dir=raw_dir, log_path=log_path, **kw, b4=b4cfg)
             if save_details and any(v.get("started") for v in res["lines"].values()):
                 runner.save_run_details(res)
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - reported as a failed check, health.json still written
@@ -283,7 +331,7 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
             tk = b3_line["tick"].get(sid, sid)
             hitems[tk] = (tk, y, hsrc.get(y, "alpaca"))
             held_src[tk] = hitems[tk][2]
-        others, vnotes = fetch_secondaries({**items, **hitems}, target, getters, sleep, fp_from)
+        others, vnotes = fetch_secondaries({**items, **hitems}, target, getters, sleep, fp_from, pacer)
     # a session no stored series and no second vendor has (while later ones exist): an unscheduled closure that the
     # pinned calendar does not know; left out of the calendar of every check (named in data_integrity)
     istart = pd.Timestamp(hc.START_CLOSE) - pd.Timedelta(days=hc.INTEGRITY_FROM_DAYS)
@@ -326,23 +374,46 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
         sig_check, nxt = hc.check_signals(lines, frames, t, stocks, universe_check)
         checks.append(sig_check)
         ends = {"B3": b3_line["last_session"]} if b3_line and b3_line.get("started") else None
-        checks.append(hc.check_log_status(res["text"], data_end, ends))
+        text = res["text"]
+        if b4 and res.get("b4") is not None and not res["b4"].get("render_error"):
+            ends = {**(ends or {}), **b4m.line_ends(res["b4"])}
+        else:                                        # a B4 part kept from an earlier run is not this run's
+            text = b4m.split_log(text)[0]
+        checks.append(hc.check_log_status(text, data_end, ends))
     else:
         checks.append(hc.Check("signal_consistency", hc.FAIL, "not run: the runner did not complete"))
         checks.append(hc.Check("log_status", hc.FAIL, "not run: the runner did not complete"))
     checks.append(b3_check)
     checks.append(hc.check_b3_borrow(borrow_dir, target, b3_line))
+    b4res, b4_inputs, b4_hashes = (res or {}).get("b4"), {}, {}
+    b4_next = []
+    if b4:
+        try:
+            b4_checks, b4_inputs, b4_hashes, b4_next = b4_health(
+                b4res, b4p, raw_dir, frames, t, cal, now, grace, early, cross_check, src, known, accepted, getters,
+                sleep, fp_from, istart, data_end, b4_notes, pacer)
+        except Exception as exc:  # noqa: BLE001 - the B1-B3 checks, health.json and the replay state still follow
+            b4_checks = [hc.Check("b4_pipeline", hc.FAIL, "the B4 checks did not complete",
+                                  [f"health_b4: {type(exc).__name__}: {clean(exc)}"] + list(b4_notes))]
+        checks += b4_checks
     new_state = None
     if res:
         inputs = {"px": {s: hc.chart_fingerprints(df, fp_from, t) for s, df in frames.items() if df is not None},
                   "b3": b3_fingerprints(b3_line, base, load_signals(state_dir, hashes), t),
                   "effr": hc.effr_fingerprints(effr_p, pd.Timestamp(hc.B3_FIRST_SIGNAL) - pd.Timedelta(days=40), t)
-                  if first_trade is not None else {}}
-        rep_check, new_state = hc.check_replay(prev_replay, hc.replay_numbers(lines), inputs, data_end,
-                                               res.get("warnings", ()), accept_replay)
+                  if first_trade is not None else {}, **b4_inputs}
+        numbers = hc.replay_numbers(lines)
+        if b4res is not None:
+            try:
+                numbers["series"].update(b4m.series_of(b4res))
+            except Exception as exc:  # noqa: BLE001 - reported; the B1-B3 numbers are recorded
+                checks.append(hc.Check("b4_pipeline", hc.FAIL, "the B4 numbers were not recorded",
+                                       [f"series_of: {type(exc).__name__}: {clean(exc)}"]))
+        rep_check, new_state = hc.check_replay(prev_replay, numbers, inputs, data_end, res.get("warnings", ()),
+                                               accept_replay)
         checks.append(rep_check)
         if new_state is not None:
-            new_state["signal_hashes"] = dict(sorted({**known, **hashes}.items()))
+            new_state["signal_hashes"] = dict(sorted({**known, **hashes, **b4_hashes}.items()))
             acc = set(accepted)
             if accept_data:
                 acc |= {k for c in checks for k in c.data.get("keys", ())}
@@ -358,6 +429,8 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
     # 5. report and state
     last_run = target if res else (pd.Timestamp(prev_health["last_run_session"])
                                    if prev_health and prev_health.get("last_run_session") else None)
+    if b4:
+        nxt = nxt + list(b4_next)
     rep = hc.report(target, checks, data_end, last_run, nxt,
                     {"stored": sources_summary(src, syms), "cross_check": "on" if cross_check else "off"}, host)
     if not dry_run:
@@ -366,6 +439,54 @@ def run_daily(as_of=None, now: datetime | None = None, fetch: bool = False, fetc
         if new_state is not None:
             Path(replay_path).write_text(hc.dumps(new_state))
     return rep
+
+
+def b4_health(b4res, b4p, raw_dir, frames, t, cal, now, grace, early, cross_check, src, known, accepted, getters,
+              sleep, fp_from, istart, data_end, b4_notes, pacer=None) -> tuple[list, dict, dict, list]:
+    """The B4 checks (quant.observation.health_b4), the B4 replay inputs, the mega-cap signal hashes and the
+    next-session notes."""
+    target = pd.Timestamp(t)
+    sig_check, hashes, mframes = hb.check_signals(b4p["state_dir"], target, cal, known, grace)
+    etf = {s: hc.chart_frame(runner.raw_path(s, raw_dir), t) if runner.raw_path(s, raw_dir).exists() else None
+           for s in bdata.ETFS}
+    names = hb.held_names(b4res)
+    held = {tk: hc.chart_frame(b4p["held_dir"] / f"{y}.json.gz", t) if (b4p["held_dir"] / f"{y}.json.gz").exists()
+            else None for tk, y in names.items()}
+    hsrc = stored_sources(b4p["held_dir"] / "incoming" / "chart_sources.csv")
+    sources = {**{s: src.get(s) for s in bdata.ETFS}, **{tk: hsrc.get(y, "alpaca") for tk, y in names.items()}}
+    btc = (b4res or {}).get("btc")
+    rf_p = b4p["b4_dir"] / "DTB3.csv"
+    rf_last = None
+    if rf_p.exists():
+        d = pd.read_csv(rf_p)
+        d = d[pd.to_numeric(d.iloc[:, 1], errors="coerce").notna()]
+        rf_last = pd.to_datetime(d.iloc[:, 0]).max() if len(d) else None
+    lines = (b4res or {}).get("lines", {})
+    waiting = [k for k, v in lines.items() if v.get("pending") is not None or v.get("waiting_for")]
+    others, vnotes = {}, []
+    if cross_check:                                  # (first: the held names' freshness uses the second vendor)
+        items = {s: (s, s, sources.get(s)) for s in bdata.ETFS}
+        items.update({tk: (tk, y, sources[tk]) for tk, y in names.items()})
+        others, vnotes = fetch_secondaries(items, target, getters, sleep, fp_from, pacer)
+    out = [hb.check_pipeline(b4res, b4_notes),
+           hb.check_freshness(etf, target, cal, btc.close.index[-1] if btc is not None else None,
+                              rf_last, now, grace, b4m.line_ends(b4res) if b4res else None, data_end, waiting,
+                              held, held_second_vendor(others, {tk: sources[tk] for tk in names}),
+                              btc_note=(b4res or {}).get("btc_error")),
+           hb.check_integrity(etf, target, cal, btc, sources, istart, accepted, held, frames.get("QQQ"))]
+    if cross_check:
+        out.append(hb.check_vendors({**etf, **held}, others, target, cal, sources, vnotes, btc, strict=not early,
+                                    accepted=accepted, start=fp_from))
+    else:
+        out.append(hc.Check("b4_vendor_agreement", hc.OK, "skipped (--no-cross-check)"))
+    rules, nxt = hb.check_rules(b4res, frames.get("QQQ"), mframes)
+    out += [rules, sig_check]
+    legs = (b4res or {}).get("legs")
+    inputs = {"b4px": {s: hc.chart_fingerprints(df, fp_from, t) for s, df in etf.items() if df is not None},
+              "b4m": hb.megacap_fingerprints(b4res, b4p["held_dir"], fp_from, t),
+              "b4btc": hb.btc_fingerprints(btc, hb.BTC_FP_FROM, t),
+              "b4rf": hb.rf_fingerprints(legs.rf if legs is not None else None, fp_from, t)}
+    return out, inputs, hashes, nxt
 
 
 def week_last(session) -> bool:
@@ -389,6 +510,9 @@ def main(argv=None) -> int:
                     help="a scheduled run that is not the evening's last: a bar missing only for the session just "
                          "closed, and a missing second vendor, are warnings (the last run fails on them)")
     ap.add_argument("--no-cross-check", action="store_true", help="skip the second-vendor comparison")
+    ap.add_argument("--no-b4", action="store_true",
+                    help="do not run the B4 lines (M1 M2 M3 M6, LEV-B3, V3, BT4b) or their checks; the log's B4 part "
+                         "is kept unchanged")
     ap.add_argument("--accept-replay", action="store_true",
                     help="accept changed recorded numbers (after a reviewed code or data change): rewrite the replay "
                          "state from this run")
@@ -406,7 +530,8 @@ def main(argv=None) -> int:
         print("local run: nothing is written (the scheduled job owns the log and the state; --write to override)")
     rep = run_daily(as_of=a.as_of, fetch=a.fetch, fetch_smisp=a.fetch_smisp, dry_run=dry,
                     cross_check=not a.no_cross_check, accept_replay=a.accept_replay, accept_data=a.accept_data,
-                    early=a.early, test_alert=a.test_alert, host="actions" if on_actions else "local")
+                    early=a.early, test_alert=a.test_alert, host="actions" if on_actions else "local",
+                    b4=not a.no_b4)
     print("\n".join(hc.summary_lines(rep)))
     if a.report_out:
         out = dict(rep, run={"early": a.early, "week_last": week_last(rep["session"]), "dry_run": dry})
