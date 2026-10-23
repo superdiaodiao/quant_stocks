@@ -62,6 +62,7 @@ td .doc{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted
 .pill{display:inline-block;white-space:nowrap;font-size:12px;font-weight:500;border-radius:4px;padding:1px 8px}
 .p-fail{color:var(--fail);background:var(--fail-soft)} .p-risk{color:var(--risk);background:var(--risk-soft)}
 .p-watch{color:var(--watch);background:var(--watch-soft)} .p-ref{color:var(--ref);background:var(--ref-soft)}
+.p-near{color:var(--accent);background:var(--accent-soft)}
 .p-pass{color:var(--pass);background:var(--pass-soft)}
 .count{color:var(--muted);font-size:13px}
 .lessons{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
@@ -118,8 +119,9 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);paddin
   <h2>研究总表 <small id="tablecount"></small></h2>
   <div class="filters" id="catFilters" role="group" aria-label="按类别筛选"></div>
   <div class="filters" id="verdictFilters" role="group" aria-label="按结果筛选"></div>
+  <p class="count">"回测结果"说回测怎么样，"状态"说有没有放进前瞻观察，两者分开看。"通过但靠多冒风险"的没有放进观察：它们多赚的部分来自杠杆或更多的市场敞口，直接多拿一点 QQQ 就能得到，没有需要用新数据验证的"信号"。放进观察的是"差一点通过"、可能含有真信号的候选。</p>
   <div class="tablebox"><table>
-    <thead><tr><th>类别</th><th>方向</th><th>结果</th><th>要点</th></tr></thead>
+    <thead><tr><th>类别</th><th>方向</th><th>回测结果</th><th>状态</th><th>要点</th></tr></thead>
     <tbody id="studies"></tbody>
   </table></div>
 </section>
@@ -208,9 +210,10 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-23";
+const UPDATED = "2026-10-24";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
-const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
+// 结果（回测怎么样）和状态（有没有在前瞻观察）是两回事：每行第 6 项为 true 表示有候选在观察。
+const VERDICTS = {fail:["不通过","p-fail"], near:["差一点通过","p-near"], risk:["通过但靠多冒风险","p-risk"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
 const STUDIES = [
   ["选股","周度短线反转","fail","扣成本后不显著","research_ledger_reversal_2012_2026.md"],
   ["选股","CAN SLIM","fail","232 种组合都没跑赢 QQQ","research_ledger_canslim.md"],
@@ -222,7 +225,7 @@ const STUDIES = [
   ["选股","212 个学术信号","fail","大中盘只做多，0 个通过","research_ledger_osap.md"],
   ["选股","40 个财务指标（本地）","fail","96 次检验，0 个通过","research_ledger_fundamentals.md"],
   ["选股","20 个财务指标（QuantConnect）","fail","0 个通过","research_ledger_qc_factors.md"],
-  ["选股","市销率最低的 10 只","watch","t 3.09 刚过线，去掉错误数据后 2.84；最惨跌 70%","research_ledger_qc_factors.md"],
+  ["选股","市销率最低的 10 只","near","t 3.09 刚过线，去掉错误数据后 2.84；最惨跌 70%","research_ledger_qc_factors.md",true],
   ["选股","神奇公式、Piotroski、小盘动量","fail","没通过；去掉可疑数据后仍不通过","research_ledger_qc_smallcap.md"],
   ["选股","中小盘财报超预期、价值加动量","fail","没通过","research_ledger_qc_round2.md"],
   ["选股","大盘股财报事件","fail","两折都没通过","research_ledger_earnings_events.md"],
@@ -242,10 +245,10 @@ const STUDIES = [
   ["择时","跌破 200 日均线做空（30 个试验）","fail","做空腿从没让\"跌破就卖\"变好；84% 的做空段亏钱","research_ledger_sma200_short.md"],
   ["择时","止损调整","fail","没通过","research_ledger_stops.md"],
   ["交易方式","每天机械做T","fail","10 个配置全部不如拿着不动","research_ledger_intraday_t.md"],
-  ["交易方式","有条件 / 跨天做T","watch","\"跌深 10% 加买\"形式通过，可能是幸存者偏差","research_ledger_selective_t.md"],
-  ["交易方式","做T 全网格（184,320 个配置）","watch","无一通过；RSI2 极低时加买最稳，每年只多 0.3–0.6 点","research_ledger_t_grid.md"],
+  ["交易方式","有条件 / 跨天做T","near","\"跌深 10% 加买\"形式通过，可能是幸存者偏差","research_ledger_selective_t.md",true],
+  ["交易方式","做T 全网格（184,320 个配置）","fail","无一通过；RSI2 极低时加买最稳，每年只多 0.3–0.6 点","research_ledger_t_grid.md",true],
   ["交易方式","分钟级盘中交易（20 个配置）","fail","最好的噪声带单独年化 8.7%；成本和 PDT 限制是关键","research_ledger_intraday_minute.md"],
-  ["交易方式","拿 QQQ + 做空输家","watch","错误定价空头有信号，叠加后 t 2.34 低于门槛 3.0","research_ledger_short_overlay.md"],
+  ["交易方式","拿 QQQ + 做空输家","near","错误定价空头有信号，叠加后 t 2.34 低于门槛 3.0","research_ledger_short_overlay.md",true],
   ["交易方式","大盘股跌了买 2 倍、止盈（72 个配置）","fail","两段都过的 0 个；近十年靠多拿敞口，1999–2013 原话版本跌 97%","research_ledger_dip_2x.md"],
   ["杠杆与期权","均线上方加杠杆 B3","risk","多赚主要来自杠杆；泡沫顶起算最惨跌 87%","research_ledger_sector_lev.md"],
   ["杠杆与期权","卖期权全网格（3,584 个配置）","risk","不加杠杆 0 个跑赢；通过的是约 1.5 倍杠杆","research_ledger_qc_options_grid.md"],
@@ -293,6 +296,7 @@ const DOCS = [
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
 const LOG = [
+  ["2026-10-24","研究总表把\"回测结果\"和\"是否在观察\"分成两列，新增\"差一点通过\""],
   ["2026-10-23","新增巴菲特相关研究（8 个试验都不通过）"],
   ["2026-10-21","新增跌破 200 日均线做空研究（不通过，做空腿只在大熊市赚钱）"],
   ["2026-10-20","新增\"大盘股跌了买 2 倍、止盈\"研究：72 个配置两段都通过的 0 个；单股 2 倍 ETF 每年成本约 T-bill + 6.6%"],
@@ -308,11 +312,12 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 $("updated").textContent = UPDATED;
 const counts = v => STUDIES.filter(s => s[2] === v).length;
+const watched = STUDIES.filter(s => s[5]).length;
 $("stats").innerHTML = [
-  [STUDIES.length, "个研究方向"], ["20 万+", "个参数组合"], [counts("watch") , "个方向有候选在观察"],
+  [STUDIES.length, "个研究方向"], ["20 万+", "个参数组合"], [watched, "个方向有候选在观察"],
   [counts("risk"), "个靠多冒风险"], ["0", "个不冒风险就稳定跑赢"]
 ].map(([b, s]) => `<div class="stat"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join("");
-let cat = "全部", ver = "全部";
+let cat = "全部", ver = "全部", onlyWatch = false;
 const cats = ["全部", ...new Set(STUDIES.map(s => s[0]))];
 const vers = ["全部", ...Object.keys(VERDICTS).filter(k => counts(k))];
 function chips(el, list, cur, label, onPick) {
@@ -321,12 +326,14 @@ function chips(el, list, cur, label, onPick) {
 }
 function render() {
   chips($("catFilters"), cats, cat, x => x, v => { cat = v; render(); });
-  chips($("verdictFilters"), vers, ver, x => x === "全部" ? "全部结果" : VERDICTS[x][0], v => { ver = v; render(); });
-  const rows = STUDIES.filter(s => (cat === "全部" || s[0] === cat) && (ver === "全部" || s[2] === ver));
+  chips($("verdictFilters"), [...vers, "观察中"], onlyWatch ? "观察中" : ver, x => x === "全部" ? "全部结果" : x === "观察中" ? "只看观察中" : VERDICTS[x][0],
+    v => { if (v === "观察中") { onlyWatch = !onlyWatch; } else { ver = v; onlyWatch = false; } render(); });
+  const rows = STUDIES.filter(s => (cat === "全部" || s[0] === cat) && (ver === "全部" || s[2] === ver) && (!onlyWatch || s[5]));
   $("tablecount").textContent = `显示 ${rows.length} / ${STUDIES.length} 项`;
-  $("studies").innerHTML = rows.map(([c, n, v, note, doc]) =>
+  $("studies").innerHTML = rows.map(([c, n, v, note, doc, w]) =>
     `<tr><td class="cat">${esc(c)}</td><td class="name">${esc(n)}${doc ? `<a class="doc" href="${GH}docs/${esc(doc)}">${esc(doc)}</a>` : ""}</td>` +
-    `<td><span class="pill ${VERDICTS[v][1]}">${esc(VERDICTS[v][0])}</span></td><td>${esc(note)}</td></tr>`).join("");
+    `<td><span class="pill ${VERDICTS[v][1]}">${esc(VERDICTS[v][0])}</span></td>` +
+    `<td>${w ? '<span class="pill p-watch">观察中</span>' : '<span class="count">—</span>'}</td><td>${esc(note)}</td></tr>`).join("");
 }
 render();
 $("watch").innerHTML = WATCH.map(([a, b, c, d, e, f]) =>
