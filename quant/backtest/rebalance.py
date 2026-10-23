@@ -18,12 +18,13 @@ QQQ_HS = 1e-4
 def simulate_index_units(targets: dict, sessions: pd.DatetimeIndex, idx: pd.DataFrame, close: pd.DataFrame,
                          last_row: pd.Series, qqq_idx: pd.Series, qqq_close: pd.Series,
                          account: float = START_EQUITY, band: float = REBALANCE_BAND, end: str | None = None,
-                         qqq_hs: float = QQQ_HS) -> dict:
+                         qqq_hs: float = QQQ_HS, hs_fn=None) -> dict:
     """Daily simulation. ``targets``: signal session -> list of (sid, weight, dv50_rank, mcap, mcap_src). A target
     decided at the close of signal session s is traded at the close of the next session. Sells first, then buys
     (scaled down when cash is short); a continuing position is traded only when it is more than ``band`` x its
     target value away from the target. Ended series are turned into cash (terminal return already booked).
-    Half-spreads: by dv50 rank (``rank_half_spread``; names being sold out use rank 50), ``qqq_hs`` for QQQ."""
+    Half-spreads: by dv50 rank (``rank_half_spread``; names being sold out use rank 50), ``qqq_hs`` for QQQ; or,
+    when ``hs_fn`` is given (buffett study), ``hs_fn(sid, session, price)`` for every name traded."""
     if not targets:
         raise ValueError("no targets")
     execs = next_session(targets, sessions)
@@ -54,10 +55,13 @@ def simulate_index_units(targets: dict, sessions: pd.DatetimeIndex, idx: pd.Data
             cash += pos.pop(sid) * I[i, col[sid]]
         if d in execs:
             tgt = targets[execs[d]]
-            hs_of = {sid: (qqq_hs if sid == "QQQ" else rank_half_spread(rk, px(sid, i))) for sid, _, rk, _, _ in tgt}
-            for sid in pos:
-                if sid not in hs_of:
-                    hs_of[sid] = qqq_hs if sid == "QQQ" else rank_half_spread(50, px(sid, i))
+            if hs_fn is None:
+                hs_of = {sid: (qqq_hs if sid == "QQQ" else rank_half_spread(rk, px(sid, i))) for sid, _, rk, _, _ in tgt}
+                for sid in pos:
+                    if sid not in hs_of:
+                        hs_of[sid] = qqq_hs if sid == "QQQ" else rank_half_spread(50, px(sid, i))
+            else:
+                hs_of = {sid: hs_fn(sid, d, px(sid, i)) for sid in set(pos) | {t[0] for t in tgt}}
             total = cash + sum(u * ix(s, i) for s, u in pos.items())
             want = {sid: w * total for sid, w, _, _, _ in tgt if sid == "QQQ" or np.isfinite(ix(sid, i))}
             sells, buys = {}, {}

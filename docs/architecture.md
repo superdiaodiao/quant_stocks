@@ -39,6 +39,11 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     leveraged_etfs.py       真实单股 2 倍 ETF（NVDL、TSLL、AAPU 等）的清单、Yahoo 日线、Alpaca 日线和收盘前报价价差（dip_2x 研究）
     inverse_etfs.py         反向 ETF（PSQ −1 倍、SQQQ −3 倍）的 Yahoo 日线、每日重置的合成模型、利差校准和跟踪统计（sma200_short 研究）
     sma200_short.py         sma200_short 研究的读数：QQQ 族（总收益、拆股调整价、分红、RF、EFFR、ONEQ*、PSQ / SQQQ）、指数级长历史、按自然日计息的 T-bill
+    berkshire_13f.py        伯克希尔 13F：申报清单、完整提交文本、纯文本表 / XML 表解析、封面（修正类型、条目数 / 市值合计）、"申报日公开"的持仓状态（buffett 研究）
+    berkshire_cusips.py     伯克希尔 13F 的 CUSIP → 价格来源手工表（OpenFIGI 找不到的）、CUSIP 笔误改正、不定价清单、来源漏掉的分配（DISTRIBUTIONS）
+    buffett_prices.py       buffett 研究的价格：Yahoo、archive.org 存档的 Yahoo table.csv、WIKI 本地抽取、Alpaca（丢掉 0 成交量的占位行）；停滞段截断、分配加回、
+                            只用缓存的离线重建；13F 隐含价格核对、Yahoo / Alpaca 交叉核对、总收益矩阵
+    aqr.py                  AQR 免费月度因子文件（QMJ、BAB、MKT、SMB、HML、UMD、RF，美国列）和 FRED DGS10
     sources/                各数据商：请求地址、带缓存和请求台账的下载、解析（密钥只从环境变量/.env 读，绝不打印）
       http.py               cached_get（先缓存再解析、404 记标记、请求台账 Ledger 由调用方给）、限速器、原子写、脱敏
       sec.py                SEC 联系人（src/io/sec_contact，绝不打印）、每秒 7 次的共享限速器、请求头
@@ -51,6 +56,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
       megacap_oos2.py       1998–2013 超大盘样本外的取数和解析（SEC 封面、Wayback、Yahoo、CMC、Tiingo）
       sec_cache.py、daily_series.py   分拆 / NDX 研究的缓存请求（第 2 阶段）
       crypto.py             BTC-USD 日线（Coinbase / Kraken / Bitstamp / Yahoo）的请求与解析，UTC 日期约定（bitcoin 研究）
+      openfigi.py           OpenFIGI 公共映射接口（无密钥，CUSIP → 美国综合代码），按 CUSIP 缓存（buffett 研究）
   signals/                  信号：纯函数，只用到 t 日收盘为止的数据
     technical.py            sma_state、trailing_return、vol_state、inverse_vol_weights、rsi_wilder、momentum_frames
   strategies/               每个策略一个模块：规则 + 引擎（从研究里原样抽出）；registry.py 登记冻结的命名策略
@@ -61,6 +67,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
     target_weights.py       ETF 配置引擎：目标权重表，目标变化才交易
     rebalance.py            股票组合引擎：按总回报指数持仓，先卖后买，25% 不交易带
     long_short.py           多 / 空仓 / 空引擎：保证金卖空（Reg T 保证金、IBKR 利息、借券费、替代分红、强平）和反向 ETF 两种实现；指数级引擎 simulate_index_ls
+    margin_weights.py       固定比例 ETF 组合 + IBKR 保证金贷款（BM + 利差、维持保证金降杠杆）（buffett 研究 B3i）
   evaluation/               评估层：只吃收益/净值序列
     metrics.py              cagr_of、max_drawdown、monthly、yearly、t_and_ir、core_metrics、relative_metrics …
     criteria.py             A/B 通过标准（ab_criteria）、bonferroni_t、bh_reject、deflated_sharpe

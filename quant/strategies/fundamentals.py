@@ -104,6 +104,23 @@ def _payloads(cik: int) -> list:
     return out
 
 
+def annual_instants(cik: int, concepts) -> pd.DataFrame:
+    """10-K balance-sheet instants (USD) of the us-gaap ``concepts`` in every local companyfacts copy of ``cik``:
+    cik, concept, end, filed, val (duplicates dropped). Added for the buffett study's B2 debt sensitivity; nothing
+    else here uses it."""
+    rows = []
+    for pl in _payloads(cik):
+        gaap = pl.get("facts", {}).get("us-gaap", {})
+        for concept in concepts:
+            for f in gaap.get(concept, {}).get("units", {}).get("USD", []):
+                if "start" in f or f.get("val") is None or not f.get("filed") or not f.get("end"):
+                    continue
+                if not str(f.get("form", "")).startswith(ANNUAL_FORMS):
+                    continue
+                rows.append((int(cik), concept, f["end"], f["filed"], float(f["val"])))
+    return pd.DataFrame(rows, columns=["cik", "concept", "end", "filed", "val"]).drop_duplicates()
+
+
 def facts_from_payload(cik: int, payload: dict) -> tuple[list, list]:
     """(annual rows, quarterly-EPS rows) of one companyfacts payload.
     annual rows: (cik, group, prio, kind, end, filed, val) with kind 'F' (annual duration) or 'S' (instant), 10-K forms.

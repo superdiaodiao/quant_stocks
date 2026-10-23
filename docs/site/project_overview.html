@@ -208,7 +208,7 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-21";
+const UPDATED = "2026-10-23";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
 const VERDICTS = {fail:["不通过","p-fail"], risk:["通过但靠多冒风险","p-risk"], watch:["观察中","p-watch"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
 const STUDIES = [
@@ -230,6 +230,7 @@ const STUDIES = [
   ["选股","分拆股（233 个事件）","fail","对小中盘有效应，对纳指不显著","research_ledger_spinoffs.md"],
   ["选股","纳斯达克 100 成分调整（309 个事件）","fail","加入股涨幅在第一天就完成，买不到","research_ledger_ndx_recon.md"],
   ["选股","复制纳指 + 剔除预测输家","fail","剔除每年只差 −1.0 到 +0.4 点","research_ledger_index_exclusion.md"],
+  ["选股","巴菲特相关（13F 抄作业、质量选股、巴菲特的阿尔法）","fail","8 个都不通过；伯克希尔本身约等于标普 500，熊市抗跌、牛市落后","research_ledger_buffett.md"],
   ["选股","集中持有巨头（M1–M6）","risk","2014–2026 通过；1999–2013 全部失败，崩盘跌 73–85%","research_ledger_megacap.md"],
   ["择时","QQQ 均线择时","fail","一次性检验没通过","research_ledger_qqq_timing.md"],
   ["择时","道氏理论","fail","一次性检验没通过","research_ledger_dow_theory.md"],
@@ -292,6 +293,7 @@ const DOCS = [
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
 const LOG = [
+  ["2026-10-23","新增巴菲特相关研究（8 个试验都不通过）"],
   ["2026-10-21","新增跌破 200 日均线做空研究（不通过，做空腿只在大熊市赚钱）"],
   ["2026-10-20","新增\"大盘股跌了买 2 倍、止盈\"研究：72 个配置两段都通过的 0 个；单股 2 倍 ETF 每年成本约 T-bill + 6.6%"],
   ["2026-10-19","观察改为每个交易日自检，出错第二个交易日就会收到邮件"],
