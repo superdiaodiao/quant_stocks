@@ -6,22 +6,22 @@
    "status": "ok"
   },
   {
-   "message": "all 20 series end at the last completed session 2026-10-22",
+   "message": "all 20 series end at the last completed session 2026-10-23",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "20 series clean from 2026-08-28 to 2026-10-22 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "20 series clean from 2026-08-28 to 2026-10-23 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "20 series vs alpaca: 280 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
+   "message": "20 series vs alpaca: 300 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
    "name": "vendor_agreement",
    "status": "ok"
   },
   {
-   "message": "runner trades match the independent rules: B1 2 trade(s), SEL-A 1 trade(s), SEL-P 1 trade(s)",
+   "message": "runner trades match the independent rules: B1 3 trade(s), SEL-A 1 trade(s), SEL-P 1 trade(s)",
    "name": "signal_consistency",
    "status": "ok"
   },
@@ -41,6 +41,39 @@
    "status": "ok"
   },
   {
+   "items": [
+    "T-bill (DTB3): ok from Yahoo ^IRX (FRED failed)"
+   ],
+   "message": "B4 lines computed; 1 fetch note(s)",
+   "name": "b4_pipeline",
+   "status": "warn"
+  },
+  {
+   "message": "4 B4 series fresh for the session 2026-10-23 (BTC through 2026-10-23)",
+   "name": "b4_data_freshness",
+   "status": "ok"
+  },
+  {
+   "message": "3 B4 series clean to 2026-10-23 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
+   "name": "b4_data_integrity",
+   "status": "ok"
+  },
+  {
+   "message": "2 series vs alpaca: 30 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (19 days)",
+   "name": "b4_vendor_agreement",
+   "status": "ok"
+  },
+  {
+   "message": "before the B4 windows: nothing to compare",
+   "name": "b4_rules",
+   "status": "ok"
+  },
+  {
+   "message": "no mega-cap signal due yet (the first signal is the 2026-10-30 close)",
+   "name": "b4_signal",
+   "status": "ok"
+  },
+  {
    "message": "recorded daily numbers and closed trades unchanged",
    "name": "replay_drift",
    "status": "ok"
@@ -51,20 +84,22 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-10-22",
+ "data_end": "2026-10-23",
  "host": "actions",
- "last_run_session": "2026-10-22",
+ "last_run_session": "2026-10-23",
  "next_session": [
-  "B1 META: close <= 0.9 x SMA20 at the 10-22 close: buy at the next open",
-  "B1 INTC: open since 10-14 (holding day 7 of 20; sell limit resting)",
-  "B1 AMD: open since 10-19 (holding day 4 of 20; sell limit resting)",
-  "B2 RSI2 at the 10-22 close: 17.9 (entry level 2.3, exit level 60.7)"
+  "B1 META: open since 10-23 (holding day 1 of 20; sell limit resting)",
+  "B1 INTC: open since 10-14 (holding day 8 of 20; sell limit resting)",
+  "B1 AMD: open since 10-19 (holding day 5 of 20; sell limit resting)",
+  "B2 RSI2 at the 10-23 close: 17.8 (entry level 2.3, exit level 60.7)",
+  "LEV-B3: SMA200 state on at the 10-23 close (QQQ +4.2% vs its SMA200; on above +2%, off below -2%)",
+  "V3: min(1.5, sigma_LR / sigma_20) at the 10-23 close 1.462 (decided at the month end)"
  ],
  "schema": 2,
- "session": "2026-10-22",
+ "session": "2026-10-23",
  "sources": {
   "cross_check": "on",
   "stored": "yahoo"
  },
- "status": "ok"
+ "status": "warn"
 }
