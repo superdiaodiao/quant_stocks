@@ -7,6 +7,13 @@ exposure multiples ``MULT``) is fixed here; every frozen assumption (margin spre
 expenses, maintenance margins, half-spreads, futures basis / margin / costs / roll, liquidation slippage and cushion,
 minimum order, rebalance band) is a field of ``Params``, given by the study. The EFFR loader is quant.data.effr;
 ``drawdown_info`` / ``worst_window`` are quant.evaluation.equity.
+
+Generalisation for studies/risk_ladder.py (2026-10-26; leverage_methods' outputs unchanged, checked by the phase-2
+golden): a ``Market`` may carry extra legs (``legs`` / ``mult``, default the six ``LEGS``), and ``simulate_batch``
+accepts a per-session target-weight array (``targets``), extra rebalance sessions (``extra_flags``) and a cost function
+(``cost_fn``); with none of them given it runs exactly as before. ``kelly(..., circular=True)`` (2026-10-26, after the
+risk_ladder verification) draws circular blocks so the ends of the sample are not under-sampled; the default False
+keeps the leverage ledger's draw.
 """
 from __future__ import annotations
 
@@ -118,6 +125,8 @@ class Market:
     borrow: np.ndarray       # (T,) margin interest per unit borrowed, previous session -> t
     month_end: np.ndarray
     info: dict = field(default_factory=dict)
+    legs: tuple = LEGS                                            # leg names, columns of R / RL / P / fin / er
+    mult: np.ndarray = field(default_factory=lambda: MULT.copy())  # exposure multiple per leg (band policy)
 
     def futures(self, basis: float) -> tuple[np.ndarray, np.ndarray]:
         f = self.r_tr - (self.rf + basis / TRADING_DAYS)
@@ -217,14 +226,30 @@ def order_cost_vec(value: np.ndarray, price: np.ndarray, sell: np.ndarray, half_
 # ======================================================================== engine (vectorised over start dates)
 
 def simulate_batch(mk: Market, method: str, L: float, policy: str, starts: np.ndarray, ends: np.ndarray, p: Params,
-                   liquidation: bool = True) -> dict:
+                   liquidation: bool = True, *, targets: np.ndarray | None = None,
+                   extra_flags: np.ndarray | None = None, cost_fn=None) -> dict:
     """$10,000 cash at the close of each start; returns the value paths (T_span, B) and per-path accounting.
     Margin, liquidation, futures and cost assumptions: ``p`` (futures basis ``p.fut_basis``, roll ``p.roll_offset``
-    sessions before expiry)."""
+    sessions before expiry; ``p.maint`` / ``p.half_spread`` have one entry per leg of ``mk``).
+
+    ``targets`` (T, K): target weights (share of equity; cash = 1 - sum) in force at each session's close, replacing
+    ``method_weights(method, ...)`` (no futures then; ``method`` is only a label, ``L`` is used by the band policy).
+    ``extra_flags`` (T,): additional rebalance sessions (e.g. the session after a signal change). ``cost_fn``:
+    replaces ``order_cost_vec`` (same signature). Without them the engine is the leverage ledger's, unchanged."""
     basis, roll_offset = p.fut_basis, p.roll_offset
     starts, ends = np.asarray(starts, int), np.asarray(ends, int)
-    B, K = len(starts), len(LEGS)
-    w, n = method_weights(method, L, p.fut_init)
+    B, K = len(starts), mk.R.shape[1]
+    W = None
+    if targets is None:
+        w, n = method_weights(method, L, p.fut_init)
+        if len(w) < K:
+            w = np.r_[w, np.zeros(K - len(w))]
+    else:
+        W = np.asarray(targets, float)
+        if W.shape != mk.R.shape:
+            raise ValueError(f"targets shape {W.shape} != market {mk.R.shape}")
+        w, n = None, 0.0
+    cost_fn = order_cost_vec if cost_fn is None else cost_fn
     FR, FL = mk.futures(basis)
     roll = roll_flags(mk.sessions, roll_offset) if n else np.zeros(len(mk.sessions), bool)
     t0, t1 = int(starts.min()), int(ends.max())
@@ -252,7 +277,7 @@ def simulate_batch(mk: Market, method: str, L: float, policy: str, starts: np.nd
             r, rl = mk.R[t], mk.RL[t]
             bad = np.isnan(r) & (np.abs(h[act]) > 0).any(0)
             if bad.any():
-                raise ValueError(f"missing return for a held leg on {mk.sessions[t].date()}: {np.array(LEGS)[bad]}")
+                raise ValueError(f"missing return for a held leg on {mk.sessions[t].date()}: {np.array(mk.legs)[bad]}")
             r0, rl0 = np.nan_to_num(r), np.nan_to_num(rl)
             hl = h * (1 + rl0)
             Nl = N * (1 + FL[t])
@@ -299,21 +324,26 @@ def simulate_batch(mk: Market, method: str, L: float, policy: str, starts: np.nd
             pol = act & bool(mk.month_end[t])
         elif policy == "band":
             with np.errstate(divide="ignore", invalid="ignore"):
-                ex = ((h * MULT).sum(1) + N) / E
+                ex = ((h * mk.mult).sum(1) + N) / E
             pol = act & (np.abs(ex / L - 1) > p.band)
         elif policy == "never":
             pol = np.zeros(B, bool)
         else:
             raise KeyError(policy)
+        if extra_flags is not None and extra_flags[t]:
+            pol = pol | act
         reb = (entry | pol) & ~dead & (E > 0)
         if reb.any():
             Er = E[reb]
-            ht = Er[:, None] * w
+            wt = w if W is None else W[t]
+            if W is not None and np.isnan(wt).any():
+                raise ValueError(f"no target on {mk.sessions[t].date()}")
+            ht = Er[:, None] * wt
             Nt = Er * n
             delta = ht - h[reb]
             P = mk.P[t]
-            c = order_cost_vec(delta, np.broadcast_to(P, delta.shape), delta < 0,
-                               np.broadcast_to(p.half_spread, delta.shape), p.min_order).sum(1)
+            c = cost_fn(delta, np.broadcast_to(P, delta.shape), delta < 0,
+                        np.broadcast_to(p.half_spread, delta.shape), p.min_order).sum(1)
             c = c + p.fut_trade_cost * np.abs(Nt - N[reb])
             h[reb] = ht
             N[reb] = Nt
@@ -400,10 +430,24 @@ def single_paths(sessions: pd.DatetimeIndex, entry: str, split_end: str) -> dict
 
 # ======================================================================== Kelly
 
+def block_index(rng: np.random.Generator, n: int, block: int, circular: bool = False) -> np.ndarray:
+    """One block-bootstrap draw of ``n`` positions in 0..n-1 from ``ceil(n / block)`` blocks of ``block`` consecutive
+    sessions. ``circular=False`` (the leverage ledger's original draw) starts blocks in 0..n-block-1 without wrapping,
+    so the first and last ~block sessions are under-sampled and session n-1 never appears; ``circular=True`` starts
+    blocks anywhere and wraps from the last session to the first, so every session is equally likely."""
+    nb = int(math.ceil(n / block))
+    if circular:
+        st = rng.integers(0, n, nb)
+        return ((st[:, None] + np.arange(block)) % n).ravel()[:n]
+    st = rng.integers(0, n - block, nb)
+    return (st[:, None] + np.arange(block)).ravel()[:n]
+
+
 def kelly(mk: Market, s: int, e: int, seed: int, grid=np.arange(0.0, 4.0001, 0.05), n_boot: int = 1000,
-          block: int = 252) -> dict:
+          block: int = 252, circular: bool = False) -> dict:
     """Growth-optimal QQQ leverage over sessions s+1..e (margin cost above 1x, T-bill below), the formula value and a
-    block bootstrap (``n_boot`` draws of ``block``-session blocks, ``seed``)."""
+    block bootstrap (``n_boot`` draws of ``block``-session blocks, ``seed``; ``circular`` see ``block_index``: the
+    default False is the leverage ledger's draw, kept so its outputs do not change; risk_ladder uses True)."""
     r = np.nan_to_num(mk.R[s + 1:e + 1, LI["QQQ"]])
     rf = mk.rf[s + 1:e + 1]
     bo = mk.borrow[s + 1:e + 1]
@@ -424,20 +468,15 @@ def kelly(mk: Market, s: int, e: int, seed: int, grid=np.arange(0.0, 4.0001, 0.0
     var = r.var() * TRADING_DAYS
     rb = bo.sum() / (len(bo) / TRADING_DAYS)          # average annual borrowing cost per unit (actual/360)
     rng = np.random.default_rng(seed)
-    nb = int(math.ceil(len(r) / block))
-    boots = []
-    for _ in range(n_boot):
-        st = rng.integers(0, len(r) - block, nb)
-        idx = (st[:, None] + np.arange(block)).ravel()[:len(r)]
-        boots.append(grid[np.argmax(growth(idx))])
-    boots = np.array(boots)
+    boots = np.array([grid[np.argmax(growth(block_index(rng, len(r), block, circular)))] for _ in range(n_boot)])
     return {"start": str(mk.sessions[s].date()), "end": str(mk.sessions[e].date()), "empirical_Lstar": lstar,
             "growth_at": {f"{L:.2f}": float(g[np.argmin(np.abs(grid - L))]) for L in (1.0, 1.3, 1.5, 2.0, 3.0)},
             "mu_arith": float(mu), "vol": float(math.sqrt(var)), "borrow_rate_avg": float(rb),
             "formula_Lstar": float((mu - rb) / var),
             "se_mu": float(math.sqrt(var / (len(r) / TRADING_DAYS))),
-            "bootstrap": {"n": n_boot, "block": block, "p5": float(np.percentile(boots, 5)),
-                          "p25": float(np.percentile(boots, 25)), "median": float(np.median(boots)),
+            # the "circular" key only when True, so the leverage ledger's results.json stays byte-identical
+            "bootstrap": {"n": n_boot, "block": block, **({"circular": True} if circular else {}),
+                          "p5": float(np.percentile(boots, 5)), "p25": float(np.percentile(boots, 25)), "median": float(np.median(boots)),
                           "p75": float(np.percentile(boots, 75)), "p95": float(np.percentile(boots, 95)),
                           "share_at_or_below_1": float((boots <= 1.0).mean()),
                           "share_at_grid_max": float((boots >= grid[-1] - 1e-9).mean())}}

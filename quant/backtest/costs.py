@@ -174,3 +174,29 @@ def ibkr_crypto_cost(value: float, half_spread: float, rate: float = CRYPTO_RATE
     if value <= 0:
         return 0.0
     return min(max(rate * value, minimum), max_frac * value) + half_spread * value
+
+
+# ---------------------------------------------------------------- IBKR Pro, Hong Kong (SEHK) ETF orders (risk_ladder)
+# Pre-registered in docs/research_ledger_risk_ladder.md 0.4 (read 2026-10-26). IBKR's own pages refused automated
+# reading that day (HTTP 403); the commission figures are from IBKR pages as quoted by a web search and must be
+# checked by hand: Tiered lowest-volume tier 0.05% of trade value, minimum HKD 18 per order. Pass-through fees per side
+# (the funds' Product Key Facts, HKEX filings 2024-04-24): SEHK trading fee 0.00565%, SFC levy 0.0027%, AFRC levy
+# 0.00015%; HKSCC settlement 0.0042% (IBKR fee page as quoted); HKEX trading-system usage fee HKD 0.50 per order;
+# no stamp duty on ETFs. HKD per USD: the 7.75-7.85 peg, 7.80.
+HKD_PER_USD = 7.80
+HK_COMMISSION_RATE = 0.0005
+HK_COMMISSION_MIN_HKD = 18.0
+HK_PCT_FEES = 0.0000565 + 0.000027 + 0.0000015 + 0.000042
+HK_PER_ORDER_HKD = 0.50
+
+
+def ibkr_hk_etf_cost(value, half_spread, rate: float = HK_COMMISSION_RATE, min_hkd: float = HK_COMMISSION_MIN_HKD,
+                     pct_fees: float = HK_PCT_FEES, per_order_hkd: float = HK_PER_ORDER_HKD,
+                     hkd_per_usd: float = HKD_PER_USD):
+    """Cost in dollars of SEHK ETF orders of ``value`` dollars (scalar or array): max(rate x value, minimum) +
+    percentage pass-through fees + the per-order fee + ``half_spread`` x value; 0 where value <= 0. No share
+    rounding (board lots of 10-100 shares of a USD 1-10 unit are about USD 10-1,000; see the ledger)."""
+    v = np.abs(np.asarray(value, float))
+    c = np.maximum(rate * v, min_hkd / hkd_per_usd) + pct_fees * v + per_order_hkd / hkd_per_usd + half_spread * v
+    out = np.where(v > 0, c, 0.0)
+    return float(out) if out.ndim == 0 else out
