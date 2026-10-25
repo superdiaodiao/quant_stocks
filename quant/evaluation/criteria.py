@@ -20,7 +20,7 @@ from statistics import NormalDist
 
 import numpy as np
 
-from quant.evaluation.stats import t_sf
+from quant.evaluation.stats import stationary_bootstrap_index, t_sf
 
 NORM = NormalDist()
 A_T_MIN = 2.0
@@ -247,13 +247,6 @@ def bootstrap_max_t(x, mean_block: float, n_boot: int, seed: int, q: float = 0.9
     rng = np.random.default_rng(seed)
     out = np.empty(n_boot)
     for b in range(n_boot):
-        start = rng.integers(n, size=n)
-        new = rng.random(n) < 1.0 / mean_block
-        new[0] = True
-        seg = np.cumsum(new) - 1                          # block number of each draw
-        first = np.flatnonzero(new)                       # draw position where each block starts
-        pos = np.arange(n) - first[seg]                   # offset inside the block
-        idx = (start[first][seg] + pos) % n
-        z = y[idx]
+        z = y[stationary_bootstrap_index(n, mean_block, rng)]
         out[b] = np.max(z.mean(axis=0) / z.std(axis=0, ddof=1) * math.sqrt(n))
     return float(np.quantile(out, q))

@@ -62,7 +62,7 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
   strategies/               每个策略一个模块：规则 + 引擎（从研究里原样抽出）；registry.py 登记冻结的命名策略
   backtest/                 回测层
     costs.py                IBKR Pro Tiered 成本：etf_order_cost（ETF 简化模型）、ibkr_order_cost（股票完整模型）、
-                            rank_half_spread、tick_half_spread
+                            rank_half_spread、tick_half_spread；ibkr_hk_etf_cost（IBKR 香港 ETF：0.05% 最低 18 港元 + 交易所费，risk_ladder）
     execution.py            执行约定：分位取整、限价单“穿价成交”、信号次日执行、整股买入持有
     target_weights.py       ETF 配置引擎：目标权重表，目标变化才交易
     rebalance.py            股票组合引擎：按总回报指数持仓，先卖后买，25% 不交易带
@@ -74,6 +74,10 @@ quant/                      可复用的核心库（新）；src/ 保留给已�
                             相关试验：effective_trials（有效次数）、sidak_t、bootstrap_max_t（重抽样最大 t 门槛；dip_2x 事后检查）
     periods.py              两折切分 halves、return_period_metrics、nav_window_metrics
     episodes.py             每段持仓（多 / 空仓 / 空）的收益、亏钱段数（来回挨打）、各状态的时间占比
+    block_bootstrap.py      月收益的循环块自助法（所有组合同一组抽样）和每条抽样路径的 CAGR / 回撤 / 最差 12 个月（risk_ladder）
+    contributions.py        每月追加投入的账户路径、资金加权年化（IRR）、相对已投本金的回撤和水下月数（risk_ladder）
+    scorecard.py            多角度记分卡：十类指标（收益、风险调整、回撤、尾部、稳定性、与大盘关系、投资者效用、路径体验、
+                            可操作性、统计可信度）一张表；只描述、不是通过标准（docs/evaluation_scorecard.md）
   observation/              前瞻观察：runner（入口 scripts/forward_observation.py）、prices、smisp；
                             daily + health（入口 scripts/forward_observation_daily.py，每个交易日自检，
                             独立重算触发条件，不调用冻结模拟器）、health_issue（GitHub issue 开/关）；

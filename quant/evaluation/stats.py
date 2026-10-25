@@ -111,6 +111,25 @@ def ols_alpha(y: pd.Series, x: pd.Series) -> dict:
             "n": int(len(d))}
 
 
+# ---- resampling
+
+def stationary_bootstrap_index(n: int, mean_block: float, rng: np.random.Generator,
+                               size: int | None = None) -> np.ndarray:
+    """Row positions of one stationary-bootstrap draw (Politis-Romano 1994) from a series of length ``n``: ``size``
+    positions (default ``n``) in blocks that start at uniform random rows, a new block starting at each position
+    with probability 1 / ``mean_block`` (the first position always starts one) and wrapping around the end.
+    Draws ``rng.integers(n, size=size)`` then ``rng.random(size)`` (the order ``criteria.bootstrap_max_t`` used
+    when this was inline there, so its results are unchanged)."""
+    size = n if size is None else size
+    start = rng.integers(n, size=size)
+    new = rng.random(size) < 1.0 / mean_block
+    new[0] = True
+    seg = np.cumsum(new) - 1                          # block number of each draw
+    first = np.flatnonzero(new)                       # draw position where each block starts
+    pos = np.arange(size) - first[seg]                # offset inside the block
+    return (start[first][seg] + pos) % n
+
+
 # ---- rank correlation: plain (grid_check) and over the pairs where both values are finite (t_grid)
 
 def spearman(x: pd.Series, y: pd.Series) -> float:
