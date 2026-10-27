@@ -1,5 +1,19 @@
 {
-  "index_file_sha256": "5cf9253afe27294fe7e56f5ee63e9cba0af019f600d56b019f1634cec2fce08d",
-  "records": {},
+  "index_file_sha256": "0cc5b8cd771473cf2e86413c1c19ce2a094881e3a33c0a2a96b0b283769d5909",
+  "records": {
+    "2026-10-26": {
+      "chart_time_as_of": "Oct 26, 2026",
+      "close": 26169.38,
+      "date": "2026-10-26",
+      "last_trade_timestamp": "Oct 26, 2026",
+      "market_status": "Closed",
+      "payload_sha256": "43b7b9ec9493bd6d167e6acb2b32b75d0e79db604a5841a842db3f076ec75440",
+      "source": "nasdaq_official_closed_chart_info",
+      "source_urls": {
+        "chart": "https://api.nasdaq.com/api/quote/COMP/chart?assetclass=index",
+        "info": "https://api.nasdaq.com/api/quote/COMP/info?assetclass=index"
+      }
+    }
+  },
   "schema_version": 1
 }
