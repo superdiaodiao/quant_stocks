@@ -80,6 +80,11 @@ ul.plain{margin:0;padding-left:1.2em;display:grid;gap:4px}
 .layers li{display:grid;grid-template-columns:110px 1fr;gap:12px;border-bottom:1px dashed var(--line);padding-bottom:8px}
 .layers li b{font-weight:500}
 .layers li span{color:var(--muted);font-size:14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--surface);color:var(--ink);padding:4px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.best{font-weight:700;color:var(--pass)} td.worst{color:var(--fail)}
 .log li{color:var(--muted)} .log li b{color:var(--ink);font-family:var(--mono);font-weight:600;margin-right:6px}
 footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
 @media (max-width:520px){.layers li{grid-template-columns:1fr;gap:2px}}
@@ -98,7 +103,7 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);paddin
 <section>
   <div class="verdict">
     <h3>到目前为止的结论</h3>
-    <p>测过的方向里，没有一个能在<strong>不多冒风险</strong>的前提下稳定跑赢纳指。看起来跑赢的，都是靠加杠杆或更集中地押注巨头，换一段历史就失灵。只想跑赢纳斯达克综合指数，最简单的是持有 QQQ（长期每年多约 2 个点）。几个"差一点通过"的候选正在用以后的真实行情观察，不投钱。</p>
+    <p>测过的方向里，没有一个能在<strong>不多冒风险</strong>的前提下稳定跑赢纳指。看起来跑赢的，都是靠加杠杆或更集中地押注巨头，换一段历史就失灵。只想跑赢纳斯达克综合指数，最简单的是持有 QQQ（长期每年多约 2 个点）。愿意多冒风险时，按历史数据，加 5–10% 比特币几乎没增加最坏情况的风险，而加杠杆收益只多一点、最坏情况却明显变差（见"风险阶梯"）。几个"差一点通过"的候选正在用以后的真实行情观察，不投钱。</p>
   </div>
 </section>
 
@@ -133,6 +138,19 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);paddin
     <div class="lesson"><h3>择时能少亏，但会踏空</h3><p>均线、波动、大盘状态这些信号能躲开一部分下跌，但急跌后的反弹往往错过，扣成本后打不过一直持有。</p></div>
     <div class="lesson"><h3>跑赢的多是在冒更多风险</h3><p>加杠杆、集中持有巨头、卖期权叠加，跑赢靠的是承担更多风险。比如集中巨头在 2014–2026 年通过，换到 1999–2013 年全部失败。</p></div>
   </div>
+</section>
+
+<section>
+  <h2>风险阶梯 <small>多冒风险值不值，从多个角度看</small></h2>
+  <div class="filters"><div class="seg" role="group" aria-label="选择时间段"><button id="lad-full" aria-pressed="true">1999–2026（含两次崩盘）</button><button id="lad-2014" aria-pressed="false">2014–2026（没有大崩盘）</button></div></div>
+  <div class="tablebox"><table id="ladder"></table></div>
+  <p class="count">每行绿色加粗是这一行最好的，红色是最差的。"怕亏的人眼中值多少"是确定性等价：对有点怕亏（γ=2）或很怕亏（γ=5）的人来说，这个组合相当于每年稳拿多少无风险收益。"10 年内跌掉一半的概率"来自把历史月份打乱重组的模拟。比特币 2014 年才有数据，全历史里 2014 年以前的部分就是纯 QQQ，所以几列的最深跌幅、最差一年和 QQQ 相同；比特币自己在 2000 年那种崩盘里会怎样没有数据。杠杆为借钱买 QQQ、每月调回目标倍数。台账：<a href="https://github.com/superdiaodiao/quant_stocks/blob/master/docs/research_ledger_risk_ladder.md">research_ledger_risk_ladder.md</a>。</p>
+</section>
+
+<section>
+  <h2>多角度对比 <small>观察中的候选，2014-10 至 2026-08，对比纳斯达克综合指数</small></h2>
+  <div class="tablebox"><table id="scoretable"></table></div>
+  <p class="count">没有一个候选在所有角度都比纳指强。收益最高的不一定最好：看完收益，还要看最深跌幅、最差的情况、怕亏的人眼中值多少、以及能不能真的操作。完整的 93 个指标和定义见 <a href="https://github.com/superdiaodiao/quant_stocks/blob/master/docs/evaluation_scorecard.md">evaluation_scorecard.md</a>。</p>
 </section>
 
 <section>
@@ -210,7 +228,7 @@ archive/        早期旧研究（只移动未删除）</pre>
 
 <script>
 // ---- 更新本页时只改这里的数据 ----
-const UPDATED = "2026-10-24";
+const UPDATED = "2026-10-27";
 const GH = "https://github.com/superdiaodiao/quant_stocks/blob/master/";
 // 结果（回测怎么样）和状态（有没有在前瞻观察）是两回事：每行第 6 项为 true 表示有候选在观察。
 const VERDICTS = {fail:["不通过","p-fail"], near:["差一点通过","p-near"], risk:["通过但靠多冒风险","p-risk"], ref:["参考","p-ref"], pass:["通过","p-pass"]};
@@ -302,7 +320,52 @@ const DOCS = [
   ["docs/reversal_2012_2026_data_report_v2_1.md","数据 v2.1 报告"],
   ["docs/audit_data_v1_vs_quantconnect.md","数据和 QuantConnect 的核对"],
 ];
+// 风险阶梯：每行 [指标, 越大越好?, 单位, 各列数值...]；列顺序见 LADDER_COLS
+const LADDER_COLS = ["纳斯达克综合","QQQ","1.2 倍","1.3 倍","1.5 倍","2 倍","QQQ+5% 比特币","QQQ+10% 比特币","QQQ+20% 比特币","1.3 倍+10% 比特币"];
+const LADDER = {
+  full: [
+    ["年化收益",true,"%",[9.8,10.8,11.5,11.7,12.0,11.3,11.9,12.9,14.9,14.4]],
+    ["夏普（每份波动换来的收益）",true,"",[0.44,0.47,0.46,0.45,0.44,0.43,0.51,0.54,0.59,0.52]],
+    ["最深跌幅",true,"%",[-75,-81,-88,-90,-94,-98,-81,-81,-81,-90]],
+    ["回撤痛苦程度（溃疡指数，越低越好）",false,"",[36,41,50,53,60,74,41,41,42,53]],
+    ["最差的自然年",true,"%",[-40,-42,-49,-52,-58,-71,-42,-42,-42,-52]],
+    ["最差的 10 年（年化）",true,"%",[-6.8,-8.1,-11.5,-13.2,-16.9,-27.2,-8.1,-8.1,-8.1,-13.2]],
+    ["10 年内跌掉一半的概率",false,"%",[40,42,62,66,73,85,43,43,44,68]],
+    ["跑赢纳指的年份",true,"%",[null,61,71,71,75,71,64,64,61,71]],
+    ["有点怕亏的人眼中值多少（γ=2）",true,"%",[7.1,7.7,7.0,6.4,4.8,-2.0,8.7,9.6,11.2,8.5]],
+    ["很怕亏的人眼中值多少（γ=5）",true,"%",[-1.1,-1.7,-6.9,-10.0,-17.4,-42.6,-0.9,-0.4,0.0,-9.2]],
+  ],
+  y2014: [
+    ["年化收益",true,"%",[17.2,19.2,22.0,23.4,26.1,32.3,21.8,24.4,29.6,30.3]],
+    ["夏普（每份波动换来的收益）",true,"",[0.85,0.93,0.92,0.91,0.90,0.89,1.02,1.08,1.12,1.03]],
+    ["最深跌幅",true,"%",[-32,-33,-39,-42,-47,-60,-34,-37,-41,-48]],
+    ["回撤痛苦程度（溃疡指数，越低越好）",false,"",[9.0,8.7,10.6,11.6,13.4,18.1,9.2,9.8,11.5,13.4]],
+    ["最差的自然年",true,"%",[-32,-33,-39,-42,-47,-60,-34,-36,-39,-47]],
+    ["最差的 10 年（年化）",true,"%",[14.5,16.9,19.3,20.4,22.6,27.4,20.6,24.3,30.8,29.2]],
+    ["10 年内跌掉一半的概率",false,"%",[0.9,0.8,3.3,5.1,13.6,51.9,1.5,2.3,6.0,13.1]],
+    ["跑赢纳指的年份",true,"%",[null,62,85,85,92,85,69,69,69,77]],
+    ["有点怕亏的人眼中值多少（γ=2）",true,"%",[15.3,17.2,19.1,19.9,21.4,23.6,19.6,22.0,26.1,25.6]],
+    ["很怕亏的人眼中值多少（γ=5）",true,"%",[9.6,11.3,10.5,9.8,7.9,-0.5,13.3,14.8,16.0,12.2]],
+  ],
+};
+// 观察候选多角度：[候选, 年化多赚(点), 夏普, 最深跌幅%, 跑赢纳指年份%, 2022 比纳指(点), 怕亏的人眼中值多少 γ=5 (%), 主要问题]
+const SCORE = [
+  ["纳斯达克综合（基准）",0,0.76,-35,null,0,7.0,""],
+  ["QQQ",1.9,0.81,-35,62,-0.5,8.1,"最简单"],
+  ["QQQ + 10% 比特币",7.6,1.02,-39,69,-3.7,12.9,"比特币只有 12 年数据"],
+  ["错误定价做空",5.3,0.94,-34,92,3.3,11.2,"要保证金和做空，约 3.8 万美元起，最复杂"],
+  ["巨头 M3",13.1,0.95,-37.5,69,9.0,7.7,"最差一个月 −29%；1999–2013 年失败"],
+  ["巨头 M2",8.2,0.95,-44,77,-8.1,10.5,"1999–2013 年失败"],
+  ["巨头 M1",5.3,0.87,-43,62,-6.1,8.7,"1999–2013 年没通过"],
+  ["巨头 M6",6.3,0.90,-42,69,-5.9,9.3,"1999–2013 年失败"],
+  ["均线上方加杠杆",6.9,0.83,-40,85,-4.3,4.9,"本质是杠杆，怕亏的人眼中不如纳指"],
+  ["波动率控仓",6.0,0.85,-36,77,0.7,7.2,"和同平均倍数的固定杠杆比几乎没多赚"],
+  ["大盘股跌深加仓",4.6,1.06,-31,69,4.8,13.8,"用今天的大公司挑的（幸存者偏差），18 个账户才能做"],
+  ["200 日均线保险",-2.7,0.77,-25,31,22.0,8.2,"收益低，但 2000–02 年比纳指好 59 点"],
+  ["QQQ RSI2 抄底",-1.7,0.81,-27,23,7.7,9.0,"从 6 万多种参数里挑的，可信度低"],
+];
 const LOG = [
+  ["2026-10-27","新增\"风险阶梯\"和\"多角度对比\"两节：杠杆、比特币、观察候选从收益、回撤、最坏情况、怕亏程度等多个角度比较"],
   ["2026-10-24","前瞻观察新增 7 条线：巨头 M1、M2、M3、M6，均线上方加杠杆 LEV-B3，波动率控仓 V3，QQQ + 10% 比特币 BT4b（只观察，不交易；36 个月判定，24 个月前不下结论）"],
   ["2026-10-24","研究总表把\"回测结果\"和\"是否在观察\"分成两列，新增\"差一点通过\""],
   ["2026-10-23","新增巴菲特相关研究（8 个试验都不通过）"],
@@ -344,6 +407,30 @@ function render() {
     `<td>${w ? '<span class="pill p-watch">观察中</span>' : '<span class="count">—</span>'}</td><td>${esc(note)}</td></tr>`).join("");
 }
 render();
+const decs = vals => Math.max(0, ...vals.filter(v => v !== null && v !== undefined).map(v => (String(v).split(".")[1] || "").length));
+function fmt(v, u, d){ if (v === null || v === undefined) return "—"; return v.toFixed(d === undefined ? decs([v]) : d) + (u || ""); }
+function renderLadder(key){
+  const rows = LADDER[key];
+  let h = "<thead><tr><th>指标</th>" + LADDER_COLS.map(c => `<th class="num">${esc(c)}</th>`).join("") + "</tr></thead><tbody>";
+  for (const [name, higher, unit, vals] of rows){
+    const nums = vals.filter(v => v !== null), best = higher ? Math.max(...nums) : Math.min(...nums), worst = higher ? Math.min(...nums) : Math.max(...nums);
+    h += `<tr><td class="name">${esc(name)}</td>` + vals.map(v => `<td class="num${v === best ? " best" : v === worst ? " worst" : ""}">${esc(fmt(v, unit, decs(vals)))}</td>`).join("") + "</tr>";
+  }
+  $("ladder").innerHTML = h + "</tbody>";
+  $("lad-full").setAttribute("aria-pressed", key === "full"); $("lad-2014").setAttribute("aria-pressed", key === "y2014");
+}
+$("lad-full").onclick = () => renderLadder("full"); $("lad-2014").onclick = () => renderLadder("y2014");
+renderLadder("full");
+(function renderScore(){
+  const cols = [["年化多赚（点/年）",true,""],["夏普",true,""],["最深跌幅",true,"%"],["跑赢纳指的年份",true,"%"],["2022 年比纳指（点）",true,""],["很怕亏的人眼中值多少",true,"%"]];
+  let h = "<thead><tr><th>候选</th>" + cols.map(c => `<th class="num">${esc(c[0])}</th>`).join("") + "<th>主要问题</th></tr></thead><tbody>";
+  const body = SCORE.slice(1);
+  const ext = cols.map((c, i) => { const n = body.map(r => r[i + 1]).filter(v => v !== null); return [Math.max(...n), Math.min(...n)]; });
+  for (const r of SCORE){
+    h += `<tr><td class="name">${esc(r[0])}</td>` + cols.map((c, i) => { const v = r[i + 1]; const cls = r === SCORE[0] ? "" : v === ext[i][0] ? " best" : v === ext[i][1] ? " worst" : ""; return `<td class="num${cls}">${esc(fmt(v, c[2], decs(SCORE.map(x => x[i + 1]))))}</td>`; }).join("") + `<td>${esc(r[7])}</td></tr>`;
+  }
+  $("scoretable").innerHTML = h + "</tbody>";
+})();
 $("watch").innerHTML = WATCH.map(([a, b, c, d, e, f]) =>
   `<tr><td class="name">${esc(a)}</td><td>${esc(b)}</td><td class="mono">${esc(c)}</td><td class="mono">${esc(d)}</td><td>${esc(e)}</td><td><span class="pill p-watch">${esc(f)}</span></td></tr>`).join("");
 $("versions").innerHTML = VERSIONS.map(([a, b, c, d]) =>
