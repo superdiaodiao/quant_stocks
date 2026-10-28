@@ -335,30 +335,42 @@ class DaySim:
     def px_buy(b, a, F):
         return float(px_buy_v(b, a, F))
 
-    def close_cash(self, legs, B, A, AGE, m, F, age_max):
+    def close_cash(self, legs, B, A, AGE, m, F, age_max, K=None):
         """Close every leg at minute m: cash per share (+ longs sold, - shorts bought back), fees, improvement over
-        the touch, contracts traded, and the long legs that could not be sold here (no bid, or a stale quote):
-        they are held to the close and settled at intrinsic. None if a short leg cannot be bought back."""
+        the touch, contracts traded, and the long legs that could not be sold here (no bid, or a stale or unusable
+        quote): they are held to the close and settled at intrinsic. None if a short leg cannot be bought back.
+        With K, legs come in (short, long) pairs of one vertical each, closed as one combo order whose net cost is
+        capped at the vertical's width (a dealer does not quote a vertical above its width)."""
         cash, fees, imp, n, held = 0.0, 0.0, 0.0, 0, []
         tk = tick0()
+        part = []
         for r, k, qn in legs:
             b, a, ag = B[r, k, m], A[r, k, m], AGE[r, k, m]
             if qn < 0:
                 if not (ag <= age_max and sane(b, a)):
                     return None
                 px = self.px_buy(b, a, F)
-                cash -= px
+                part.append(-px)
                 fees += float(fee_v(px)) / 100.0
                 imp += a - px
                 n += 1
             elif ag <= age_max and b >= tk and sane(b, a):
                 px = self.px_sell(b, a, F)
-                cash += px
+                part.append(px)
                 fees += float(fee_v(px)) / 100.0
                 imp += px - b
                 n += 1
             else:
+                part.append(None)
                 held.append((r, k, qn))        # never given away: held to the close and settled at intrinsic
+        cash = sum(x for x in part if x is not None)
+        if K is not None:
+            for j in range(0, len(legs) - 1, 2):
+                cs, cl = part[j], part[j + 1]
+                if cs is not None and cl is not None:
+                    w = abs(K[legs[j][1]] - K[legs[j + 1][1]])
+                    if cs + cl < -w:
+                        cash += -w - (cs + cl)
         return cash, fees, imp, n, held
 
     @staticmethod
@@ -369,44 +381,52 @@ class DaySim:
             v += qn * intr
         return v
 
-    def flatten(self, legs, K, B, A, AGE, S, mflat, S_close):
-        """Close legs that still matter (bid >= FLAT_BID or within 0.5% of S) at F_FLAT from mflat, retrying a leg
-        until the bar before the close; the rest, and anything that never fills, settles at intrinsic at the close."""
+    def flatten(self, legs, K, B, A, AGE, S, mflat, S_close, pairs=False):
+        """Close what still matters (a leg with bid >= FLAT_BID or within 0.5% of S) at F_FLAT from mflat, retrying
+        until the bar before the close; the rest, and anything that never fills, settles at intrinsic at the close.
+        With pairs, each (short, long) vertical is closed as one combo (see close_cash)."""
         cash, fees, n = 0.0, 0.0, 0
         rest = []
         M = self.M
         Sm = float(S[mflat])
-        for leg in legs:
-            r, k, qn = leg
-            matter = (np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005
+        units = [legs[j:j + 2] for j in range(0, len(legs), 2)] if pairs else [[leg] for leg in legs]
+        for unit in units:
+            matter = any((np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005 for r, k, _ in unit)
             if not matter:
-                rest.append(leg)
+                rest.extend(unit)
                 continue
             done = False
             for m in range(mflat, M - 1):
-                res = self.close_cash([leg], B, A, AGE, m, F_FLAT, AGE_FILL)
-                if res is None or (res[4] and np.nan_to_num(B[r, k, m]) >= tick0()):
-                    continue                          # retry a leg that still shows a bid but cannot trade yet
-                if res[4]:
-                    break                             # no bid: hold to the close (falls through to rest)
-                c, fe, _, nn, _ = res
+                res = self.close_cash(unit, B, A, AGE, m, F_FLAT, AGE_FILL, K if pairs else None)
+                if res is None or any(np.nan_to_num(B[r, k, m]) >= tick0() for r, k, _ in res[4]):
+                    continue                          # retry: a short cannot be bought, or a long with a bid cannot be sold
+                c, fe, _, nn, held = res
                 cash += c
                 fees += fe
                 n += nn
+                rest.extend(held)                     # longs without a bid: held to the close
                 done = True
                 if m > mflat:
                     self.cnt["flatdefer"] += 1
                 break
             if not done:
-                rest.append(leg)
+                rest.extend(unit)
                 self.cnt["itmflat"] += 1
         cash += self.settle_value(rest, K, S_close)
         return cash, fees, n
 
-    def exit_value(self, legs, B, A, AGE, F):
+    def exit_value(self, legs, B, A, AGE, F, K=None):
         """Per minute: cash per share from closing everything now at F, net of fees; nan where a short leg cannot
-        be bought back or a long leg that still shows a bid is stale."""
+        be bought back. A long leg that cannot be sold counts 0. With K, each (short, long) vertical's close cost is
+        capped at its width as in close_cash."""
         tk = tick0()
+        if K is not None:
+            V = np.zeros(self.M)
+            for j in range(0, len(legs), 2):
+                vj = self.exit_value(legs[j:j + 2], B, A, AGE, F)
+                w = abs(K[legs[j][1]] - K[legs[j + 1][1]])
+                V += np.where(np.isnan(vj), np.nan, np.maximum(vj, -w - 2 * (0.65 + OTHER_FEE) / 100.0))
+            return V
         V = np.zeros(self.M)
         for r, k, qn in legs:
             b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]
@@ -471,7 +491,8 @@ class DaySim:
         for r, k, qn in legs:
             V += qn * np.nan_to_num(MID[r, k], nan=0.0)
             vok &= (AGE[r, k] <= AGE_MARK) | (np.nan_to_num(B[r, k]) < tk)
-        fcash, ffee, fn = self.flatten(legs, K, B, A, AGE, S, mflat, S_close)
+        pairs = kind == 0
+        fcash, ffee, fn = self.flatten(legs, K, B, A, AGE, S, mflat, S_close, pairs)
         pnl_flat = net + fcash - ffee
         pnl_hold = net + self.settle_value(legs, K, S_close)
         pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
@@ -482,7 +503,7 @@ class DaySim:
         rng &= vok
         if kind in (0, 1):
             b = max(net, tk)                                   # the credit actually kept after entry fees
-            Vx = self.exit_value(legs, B, A, AGE, F_TP)
+            Vx = self.exit_value(legs, B, A, AGE, F_TP, K if pairs else None)
             trig = [rng & (-V >= 2 * b), rng & (-V >= 3 * b), rng & (np.nan_to_num(-Vx, nan=1e9) <= 0.75 * b)]
             fills = (F_STOP, F_STOP, F_TP)
         elif kind == 2:
@@ -502,7 +523,7 @@ class DaySim:
             self.cnt["trig"] += 1
             m0 = int(np.argmax(t))
             for m in range(m0 + 1, mflat):
-                res = self.close_cash(legs, B, A, AGE, m, fills[j], AGE_FILL)
+                res = self.close_cash(legs, B, A, AGE, m, fills[j], AGE_FILL, K if pairs else None)
                 if res is None:
                     continue
                 c, fe, im, nn, held = res
