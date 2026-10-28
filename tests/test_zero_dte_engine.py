@@ -221,3 +221,16 @@ def test_in_the_money_wing_with_a_zero_bid_is_settled_not_abandoned():
     B2[0, kl, mflat:] = 0.0
     cash, fees, n = algo.flatten(legs, K, B2, A, AGE, path, mflat, 96.0)
     assert cash >= -0.5 - 0.05                 # width 0.5 plus at most one exit spread
+
+
+def test_flatten_does_not_trade_on_an_absurdly_wide_quote():
+    # at 15:50 the in-the-money short put is quoted 3.90 / 7.80 for a few minutes: the flatten waits for a sane quote
+    path = np.concatenate([np.full(60, 100.0), np.linspace(100.0, 96.0, 200), np.full(M - 260, 96.0)])
+    algo, (K, B, A, AGE) = make_algo(path)
+    ks, kl = int(np.where(K == 100.0)[0][0]), int(np.where(K == 99.5)[0][0])
+    legs = [(0, ks, -1), (0, kl, 1)]
+    mflat = M - 1 - Z.FLAT_BEFORE
+    A2 = A.copy()
+    A2[0, ks, mflat:mflat + 3] = 7.80
+    cash, fees, n = algo.flatten(legs, K, B, A2, AGE, path, mflat, 96.0)
+    assert -0.56 <= cash <= -0.44                   # about the 0.5 width, not 7.80 - 3.49

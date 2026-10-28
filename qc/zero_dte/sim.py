@@ -107,6 +107,12 @@ def tick0():
     return 0.05 if IS_INDEX else 0.01
 
 
+def sane(b, a):
+    """A quote we are willing to trade on: ask > 0, 0 <= bid <= ask, spread <= max(5 ticks, half the mid)."""
+    b, a = np.nan_to_num(np.asarray(b, float), nan=-1.0), np.nan_to_num(np.asarray(a, float), nan=0.0)
+    return (a > 0) & (b >= 0) & (b <= a) & ((a - b) <= np.maximum(5 * tick0(), 0.25 * (a + b)))
+
+
 def bs(S, K, s, put):
     d1 = np.log(S / K) / s + 0.5 * s
     d2 = d1 - s
@@ -338,14 +344,14 @@ class DaySim:
         for r, k, qn in legs:
             b, a, ag = B[r, k, m], A[r, k, m], AGE[r, k, m]
             if qn < 0:
-                if not (ag <= age_max and a > 0):
+                if not (ag <= age_max and sane(b, a)):
                     return None
                 px = self.px_buy(b, a, F)
                 cash -= px
                 fees += float(fee_v(px)) / 100.0
                 imp += a - px
                 n += 1
-            elif ag <= age_max and b >= tk:
+            elif ag <= age_max and b >= tk and sane(b, a):
                 px = self.px_sell(b, a, F)
                 cash += px
                 fees += float(fee_v(px)) / 100.0
@@ -380,7 +386,7 @@ class DaySim:
             for m in range(mflat, M - 1):
                 res = self.close_cash([leg], B, A, AGE, m, F_FLAT, AGE_FILL)
                 if res is None or (res[4] and np.nan_to_num(B[r, k, m]) >= tick0()):
-                    continue                          # retry a stale leg that still shows a bid
+                    continue                          # retry a leg that still shows a bid but cannot trade yet
                 if res[4]:
                     break                             # no bid: hold to the close (falls through to rest)
                 c, fe, _, nn, _ = res
@@ -404,14 +410,15 @@ class DaySim:
         V = np.zeros(self.M)
         for r, k, qn in legs:
             b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]
+            ok = sane(b, a)
             if qn < 0:
                 px = px_buy_v(b, a, F)
                 v = -px - fee_v(px) / 100.0
-                V += np.where((ag <= AGE_FILL) & (a > 0), v, np.nan)
+                V += np.where((ag <= AGE_FILL) & ok, v, np.nan)
             else:
                 px = px_sell_v(b, a, F)
-                v = np.where(b >= tk, px - fee_v(px) / 100.0, 0.0)
-                V += np.where((ag <= AGE_FILL) | (b < tk), v, np.nan)
+                v = np.where((b >= tk) & ok & (ag <= AGE_FILL), px - fee_v(px) / 100.0, 0.0)
+                V += v
         return V
 
     # ------------------------------------------------------------------ one position
@@ -424,7 +431,7 @@ class DaySim:
         for r, k, qn in legs:
             b, a, ag = B[r, k, mF], A[r, k, mF], AGE[r, k, mF]
             spr0 += a - b
-            if not (ag <= AGE_FILL and a > 0):
+            if not (ag <= AGE_FILL and sane(b, a)):
                 self.cnt["stale"] += 1
                 return None
             if qn < 0:
