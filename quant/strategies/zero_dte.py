@@ -145,3 +145,115 @@ def read_export(path: Path) -> Export:
     under = obj["meta"]["under"]
     days, rows = parse_stream(obj["vals"], under)
     return Export(under, obj["meta"], days, rows)
+
+
+# ---------------------------------------------------------------------------------------------------- panel
+# Per-position arrays over (shape, entry, management, day), the input of studies/zero_dte.py (ledger 0.5).
+TP_MGMT = {0: (3,), 1: (3,), 2: (2, 3), 3: (3,), 4: ()}       # management indices whose exit is a take-profit (F 0.25)
+CONS_FEE = 0.30                                                 # extra per contract in the conservative execution
+DEN_FLOOR = 0.25                                                # risk base of defined-risk structures >= 0.25 x width
+
+
+@dataclass
+class Panel:
+    under: str
+    days: pd.DataFrame          # one row per trading day (header fields), DatetimeIndex
+    opened: np.ndarray          # bool [NS, NE, ND]
+    code: np.ndarray            # int  [NS, NE, ND]: 0 opened, >0 why not, -1 no 0DTE / no row
+    pnl: np.ndarray             # [NS, NE, 4, ND] primary convention, dollars per share (0 where not opened)
+    alt: np.ndarray             # [NS, NE, 4, ND] the other settlement convention
+    cons: np.ndarray            # [NS, NE, 4, ND] conservative-execution adjustment (<= 0) to add to pnl
+    den: np.ndarray             # [NS, NE, ND] risk base after the floor (NaN where not opened)
+    width: np.ndarray           # [NS, NE, ND] wing width per share (defined-risk only, else NaN)
+    net: np.ndarray             # [NS, NE, ND] credit kept after entry fees (debit: negative)
+    s0: np.ndarray              # [NE, ND] underlying at the fill minute
+    xret: np.ndarray            # [NE, ND] underlying return from the fill minute to the close
+    xmin: np.ndarray            # [NS, NE, 3, ND] exit minute of M1..M3 (0 = none)
+    fee_entry: np.ndarray       # [NS, NE, ND]
+    fee_flat: np.ndarray        # [NS, NE, ND]
+    n_legs: np.ndarray          # [NS, NE, ND]
+
+
+def build_panel(days: pd.DataFrame, rows: pd.DataFrame, under: str, primary: str | None = None) -> Panel:
+    """``primary`` is "flat" (15:50 flatten, QQQ) or "hold" (cash settlement at the close, SPXW); default by
+    underlying as registered."""
+    primary = primary or ("hold" if under == "SPXW" else "flat")
+    days = days.sort_values("date").set_index("date")
+    if days.index.duplicated().any():
+        raise ValueError("duplicate days in the panel")
+    nd = len(days)
+    di = pd.Series(np.arange(nd), index=days.index)
+    shp = (NS, NE, nd)
+    opened = np.zeros(shp, bool)
+    code = np.full(shp, -1, int)
+    pnl = np.zeros((NS, NE, 4, nd))
+    alt = np.zeros((NS, NE, 4, nd))
+    cons = np.zeros((NS, NE, 4, nd))
+    den = np.full(shp, np.nan)
+    width = np.full(shp, np.nan)
+    net = np.full(shp, np.nan)
+    xmin = np.zeros((NS, NE, 3, nd), int)
+    fee_entry = np.zeros(shp)
+    fee_flat = np.zeros(shp)
+    n_legs = np.zeros(shp, int)
+    if len(rows):
+        d = di.reindex(pd.DatetimeIndex(rows["date"])).to_numpy()
+        s, e = rows["shape"].to_numpy(int), rows["entry"].to_numpy(int)
+        code[s, e, d] = rows["code"].to_numpy(int)
+        o = rows["code"].to_numpy(int) == 0
+        r = rows[o]
+        s, e, d = s[o], e[o], d[o]
+        opened[s, e, d] = True
+        kind = np.array([KIND[SHAPES[x][0]] for x in s])
+        nt = (r["credit"] - r["fee_entry"]).to_numpy()
+        dn = r["den"].to_numpy()
+        wd = np.where(kind == 0, dn + nt, np.nan)               # den = width - net for defined-risk structures
+        dn_eff = np.where(kind == 0, np.maximum(dn, DEN_FLOOR * wd), dn)
+        den[s, e, d], width[s, e, d], net[s, e, d] = dn_eff, wd, nt
+        fee_entry[s, e, d] = r["fee_entry"].to_numpy()
+        fee_flat[s, e, d] = r["fee_flat"].to_numpy()
+        n_legs[s, e, d] = r["n_entry"].to_numpy()
+        flat = r[["pnl_H", "pnl_M1", "pnl_M2", "pnl_M3"]].to_numpy()
+        xm = r[["x_M1", "x_M2", "x_M3"]].to_numpy()
+        live = np.column_stack([np.ones(len(r), bool), xm == 0])  # still open at the flatten
+        hold = flat + live * r["d_close"].to_numpy()[:, None]
+        prim, other = (flat, hold) if primary == "flat" else (hold, flat)
+        for m in range(4):
+            pnl[s, e, m, d] = prim[:, m]
+            alt[s, e, m, d] = other[:, m]
+        xmin[s, e, :, d] = xm
+        # conservative execution: every fill at the touch plus CONS_FEE per contract (entry and exit)
+        imp = r[["imp_M1", "imp_M2", "imp_M3"]].to_numpy()
+        nx = r[["n_M1", "n_M2", "n_M3"]].to_numpy()
+        n_exit_flat = r["n_flat"].to_numpy() if primary == "flat" else np.zeros(len(r))
+        base = -r["imp_entry"].to_numpy() - CONS_FEE / 100.0 * r["n_entry"].to_numpy()
+        for m in range(4):
+            if m == 0:
+                adj = base - CONS_FEE / 100.0 * n_exit_flat
+            else:
+                exited = xm[:, m - 1] > 0
+                tp = np.array([m in TP_MGMT[k] for k in kind])
+                adj = base - np.where(exited, CONS_FEE / 100.0 * nx[:, m - 1] + np.where(tp, imp[:, m - 1], 0.0),
+                                      CONS_FEE / 100.0 * n_exit_flat)
+            cons[s, e, m, d] = adj
+    S = days[[f"S_e{x}" for x in range(NE)]].to_numpy().T
+    Sc = days["S_close"].to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        xret = np.where(S > 0, Sc[None, :] / S - 1.0, 0.0)
+    return Panel(under, days, opened, code, pnl, alt, cons, den, width, net, S, xret, xmin, fee_entry, fee_flat, n_legs)
+
+
+def read_exports(paths) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
+    """Concatenate several export files (chunks of one underlying): days, rows and the metas."""
+    days, rows, metas = [], [], []
+    for p in paths:
+        with gzip.open(p, "rt") as fh:
+            obj = json.load(fh)
+        for run in obj.get("runs", [obj]):
+            if run.get("bad"):
+                raise ValueError(f"{Path(p).name}: {run['bad']} bad slots")
+            d, r = parse_stream(run["vals"], run["meta"]["under"])
+            days.append(d)
+            rows.append(r)
+            metas.append(run["meta"])
+    return pd.concat(days, ignore_index=True), pd.concat(rows, ignore_index=True), metas
