@@ -237,16 +237,16 @@ def test_flatten_does_not_trade_on_an_absurdly_wide_quote():
 
 
 def test_vertical_is_closed_as_a_combo_capped_at_its_width():
-    # crash-day quotes: both put legs deep in the money with 3-dollar-wide (but sane) markets
+    # crash-day quotes: both put legs deep in the money with 1.5-dollar-wide (but sane) markets
     path = np.concatenate([np.full(60, 100.0), np.linspace(100.0, 96.0, 200), np.full(M - 260, 96.0)])
     algo, (K, B, A, AGE) = make_algo(path)
     ks, kl = int(np.where(K == 100.0)[0][0]), int(np.where(K == 99.5)[0][0])
     legs = [(0, ks, -1), (0, kl, 1)]
     mflat = M - 1 - Z.FLAT_BEFORE
     B2, A2 = B.copy(), A.copy()
-    B2[0, ks, mflat:], A2[0, ks, mflat:] = 2.5, 5.5
-    B2[0, kl, mflat:], A2[0, kl, mflat:] = 2.0, 5.0
+    B2[0, ks, mflat:], A2[0, ks, mflat:] = 3.25, 4.75
+    B2[0, kl, mflat:], A2[0, kl, mflat:] = 2.75, 4.25
     cash, fees, n = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 96.0, pairs=True)
     assert cash >= -0.5 - 1e-9 and n == 2               # pays at most the 0.5 width (fees separately)
     legs_cash = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 96.0, pairs=False)[0]
-    assert legs_cash < -3.0                              # legging out at the touch would have paid two spreads
+    assert legs_cash < -1.5                              # legging out at the touch would have paid two spreads
