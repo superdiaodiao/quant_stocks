@@ -245,7 +245,7 @@ class DaySim:
                 info["dlk"][(r, ks)] = float(dl[list(cand).index(ks)])
             if okq[r, k0] and np.nan_to_num(B[r, k0, mS]) >= tk:
                 sel[(r, 0.50)] = k0
-                info["dlk"][(r, k0)] = 0.5
+                info["dlk"].setdefault((r, k0), 0.5)
         return sel, info
 
     def wing(self, r, ks, w, K, A, AGE, mS, s_impl, inb):
@@ -331,8 +331,8 @@ class DaySim:
 
     def close_cash(self, legs, B, A, AGE, m, F, age_max):
         """Close every leg at minute m: cash per share (+ longs sold, - shorts bought back), fees, improvement over
-        the touch, contracts traded, and the long legs that could not be sold (a stale quote that still showed a
-        bid: they are held to the close and settled at intrinsic). None if a short leg cannot be bought back."""
+        the touch, contracts traded, and the long legs that could not be sold here (no bid, or a stale quote):
+        they are held to the close and settled at intrinsic. None if a short leg cannot be bought back."""
         cash, fees, imp, n, held = 0.0, 0.0, 0.0, 0, []
         tk = tick0()
         for r, k, qn in legs:
@@ -351,9 +351,8 @@ class DaySim:
                 fees += float(fee_v(px)) / 100.0
                 imp += px - b
                 n += 1
-            elif not (ag <= age_max) and np.nan_to_num(b) >= tk:
-                held.append((r, k, qn))
-            # a fresh quote with no bid: the leg is worth nothing and is abandoned
+            else:
+                held.append((r, k, qn))        # never given away: held to the close and settled at intrinsic
         return cash, fees, imp, n, held
 
     @staticmethod
@@ -380,8 +379,10 @@ class DaySim:
             done = False
             for m in range(mflat, M - 1):
                 res = self.close_cash([leg], B, A, AGE, m, F_FLAT, AGE_FILL)
-                if res is None or res[4]:
-                    continue
+                if res is None or (res[4] and np.nan_to_num(B[r, k, m]) >= tick0()):
+                    continue                          # retry a stale leg that still shows a bid
+                if res[4]:
+                    break                             # no bid: hold to the close (falls through to rest)
                 c, fe, _, nn, _ = res
                 cash += c
                 fees += fe

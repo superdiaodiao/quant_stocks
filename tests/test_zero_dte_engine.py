@@ -208,3 +208,16 @@ def test_take_profit_is_measured_on_the_credit_actually_kept():
             # a take-profit exit keeps at least ~25% of the net credit after all costs, minus one tick of slippage
             net = u["cash0"] - u["fee0"]
             assert u["pnl"][3] >= 0.25 * net - 0.011, (si, u)
+
+
+def test_in_the_money_wing_with_a_zero_bid_is_settled_not_abandoned():
+    # 15:50 data glitch: the deep in-the-money long put shows bid 0; the spread must still lose at most its width
+    path = np.concatenate([np.full(60, 100.0), np.linspace(100.0, 96.0, 200), np.full(M - 260, 96.0)])
+    algo, (K, B, A, AGE) = make_algo(path)
+    ks, kl = int(np.where(K == 98.0)[0][0]), int(np.where(K == 97.5)[0][0])
+    legs = [(0, ks, -1), (0, kl, 1)]
+    mflat = M - 1 - Z.FLAT_BEFORE
+    B2 = B.copy()
+    B2[0, kl, mflat:] = 0.0
+    cash, fees, n = algo.flatten(legs, K, B2, A, AGE, path, mflat, 96.0)
+    assert cash >= -0.5 - 0.05                 # width 0.5 plus at most one exit spread
