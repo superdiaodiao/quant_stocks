@@ -46,3 +46,6 @@ output/research_only/reversal_2012_2026/inputs_v2_1/special_distributions.csv
 
 # forward observation: raw vendor bodies when no research_cache exists (GitHub Actions); never committed
 .cache/
+
+# 0DTE grid: decoded QuantConnect chart exports (derived from QC option quotes; never committed)
+output/research_only/zero_dte/raw/

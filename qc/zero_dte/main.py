@@ -16,6 +16,7 @@ UNDER = "QQQ"                                  # "QQQ" (main, selectable) | "SPX
 BOOK = (date(2024, 7, 29), date(2024, 8, 9))   # book days [first, last]; the algorithm runs a few days longer to drain
 MECH = True                                    # True only for the registered mechanism checks (adds traces)
 DATA_END = date(2026, 7, 30)
+NY = "America/New_York"
 Z.configure(UNDER, MECH)
 U = Z.U
 NE = Z.NE
@@ -23,9 +24,12 @@ NE = Z.NE
 
 class ZeroDte(QCAlgorithm):
     """Paper books (no orders) for the 0DTE grid in sim.py. Each 0DTE day is simulated at that day's close from one
-    minute-QuoteBar history pull; per-position rows are queued and drained into chart points over the next minutes."""
+    minute-QuoteBar history pull; per-position rows are queued and drained into chart points over the following
+    minutes (QQQ's extended-hours bars and SPX's 16:01-16:15 bars drain the same evening)."""
 
     def initialize(self):
+        if BOOK[1] >= DATA_END:
+            raise ValueError("BOOK must end before the last data day so the queue can drain")
         first = BOOK[0] - timedelta(days=3)
         last = min(DATA_END, BOOK[1] + timedelta(days=7))
         self.set_start_date(first.year, first.month, first.day)
@@ -35,23 +39,25 @@ class ZeroDte(QCAlgorithm):
             self.u = self.add_index("SPX", Resolution.MINUTE).symbol
             self.canon = Symbol.create_canonical_option(self.u, "SPXW", Market.USA, "?SPXW")
         else:
-            self.u = self.add_equity(UNDER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW).symbol
+            self.u = self.add_equity(UNDER, Resolution.MINUTE, data_normalization_mode=DataNormalizationMode.RAW,
+                                     extended_market_hours=True).symbol
             self.canon = self.u                  # option_chain(underlying) lists the equity options
         self.vix = self.add_index("VIX", Resolution.DAILY).symbol
-        self.hours = self.securities[self.u].exchange.hours
+        # session calendar in New York time for both runs (the SPX index hours are kept in Chicago time)
+        self.hours = self.market_hours_database.get_exchange_hours(
+            Market.USA, Symbol.create("SPY", SecurityType.EQUITY, Market.USA), SecurityType.EQUITY)
+        self.opt_tz = None
         self.openc = {}
         self.errs = []
-        self.cnt = {k: 0 for k in ("days", "zdays", "half", "nochain", "rows")}
+        self.cnt = {k: 0 for k in ("days", "zdays", "half", "nochain", "rows", "thin")}
         self.t0 = _time.time()
         self.thist = 0.0
-
         self.queue = []
         self.qpos = 0
         self.seq = 0
         self.emitted = 0
         self.sim = Z.DaySim(self.load_quotes)
         self.day = None
-        self.done_day = None
         self.final = False
 
     def err(self, tag, e):
@@ -85,14 +91,15 @@ class ZeroDte(QCAlgorithm):
         self.day = D
         self.cnt["days"] += 1
         nxt = self.hours.get_next_market_close(datetime.combine(D, time(9, 31)), False)
-        self.close_t = nxt.time() if nxt.date() == D else time(16, 0)
+        self.close_t = min(nxt.time(), time(16, 0)) if nxt.date() == D else time(16, 0)
         self.half = self.close_t < time(15, 59)
         self.M = (self.close_t.hour * 60 + self.close_t.minute) - (9 * 60 + 30)     # bars ending 09:31 .. close
         self.S = np.full(self.M, np.nan)
         self.S_open = None
         self.processed = False
 
-    def minute_index(self, t):
+    @staticmethod
+    def minute_index(t):
         return (t.hour * 60 + t.minute) - (9 * 60 + 30) - 1
 
     # ------------------------------------------------------------------ data
@@ -105,11 +112,11 @@ class ZeroDte(QCAlgorithm):
         if D != self.day:
             self.new_day(D)
         bar = data.bars.get(self.u)
-        if bar is not None:
+        if bar is not None and not bar.is_fill_forward:
             m = self.minute_index(t.time())
             if 0 <= m < self.M:
                 self.S[m] = float(bar.close)
-                if self.S_open is None:
+                if self.S_open is None and m == 0:
                     self.S_open = float(bar.open)
         if not self.processed and t.time() >= self.close_t:
             self.processed = True
@@ -118,9 +125,10 @@ class ZeroDte(QCAlgorithm):
                     self.process_day(D)
                 except Exception as e:
                     self.err(f"day{D:%y%m%d}", e)
-            elif D > BOOK[1] and not self.final:
-                self.final = True
-                self.queue.append(920_000_000_000_000.0)
+                nxt = [D + timedelta(days=i) for i in range(1, 6)]
+                if not any(self.is_open(x) and x <= BOOK[1] for x in nxt) and not self.final:
+                    self.final = True
+                    self.queue.append(920_000_000_000_000.0)
         self.emit()
 
     # ------------------------------------------------------------------ one day
@@ -130,7 +138,7 @@ class ZeroDte(QCAlgorithm):
             best = None
             for idx, row in h.iterrows():
                 tt = idx[-1] if isinstance(idx, tuple) else idx
-                dd = (tt - timedelta(hours=1)).date()          # daily bars end at 16:00 or midnight of the next day
+                dd = (tt - timedelta(hours=1)).date()          # daily bars end at 16:15 or midnight of the next day
                 if dd < D:
                     best = float(row["close"])
             return best
@@ -142,58 +150,63 @@ class ZeroDte(QCAlgorithm):
         self.cnt["rows"] += 1
         S = self.S.copy()
         ok = ~np.isnan(S)
-        if ok.any():
-            first = np.argmax(ok)
+        nreal = int(ok.sum())
+        status = 0
+        if self.half:
+            self.cnt["half"] += 1
+        if nreal == 0:
+            status = 2
+        else:
+            last_real = int(np.where(ok)[0].max())
+            if last_real < self.M - 6 or nreal < 0.95 * self.M:
+                status = 3                                     # too few real underlying bars to simulate
+                self.cnt["thin"] += 1
+            first = int(np.argmax(ok))
             S[:first] = S[first]
-            for i in range(first + 1, self.M):          # forward fill the rare missing minute
+            for i in range(first + 1, self.M):
                 if np.isnan(S[i]):
                     S[i] = S[i - 1]
         vix = self.vix_prev(D)
         hdr_s_entry = [0.0] * NE
         hdr_strad = [0.0] * NE
-        z, nchain, nload, status = 0, 0, 0, 0
+        z, nchain, nload = 0, 0, 0
         rows = []
-        if self.half:
-            self.cnt["half"] += 1
-            status = 1
-        if not ok.any():
-            status = 2
         contracts = []
-        if status == 0:
-            try:
-                for c in self.option_chain(self.canon):
-                    e = c.expiry.date()
-                    if e < D or e > D + timedelta(days=4):
-                        continue
-                    if self.last_trading_day(e) != D:
-                        continue
-                    contracts.append((float(c.strike), 0 if c.right == OptionRight.PUT else 1, c.symbol))
-            except Exception as e:
-                self.err("chain", e)
-            nchain = len(contracts)
-            if nchain:
-                z = 1
-                self.cnt["zdays"] += 1
-            else:
-                self.cnt["nochain"] += 1
-        for ei, (hh, mm) in enumerate(Z.ENTRY):
-            mS = (hh * 60 + mm) - (9 * 60 + 30) - 1
-            if 0 <= mS + 1 < self.M:
-                hdr_s_entry[ei] = float(S[mS + 1])
+        try:
+            for c in self.option_chain(self.canon):
+                e = c.expiry.date()
+                if e < D or e > D + timedelta(days=4):
+                    continue
+                if self.last_trading_day(e) != D:
+                    continue
+                contracts.append((float(c.strike), 0 if c.right == OptionRight.PUT else 1, c.symbol))
+        except Exception as e:
+            self.err("chain", e)
+        nchain = len(contracts)
+        if nchain:
+            z = 1
+            self.cnt["zdays"] += 1
+        else:
+            self.cnt["nochain"] += 1
+        if nreal:
+            for ei, (hh, mm) in enumerate(Z.ENTRY):
+                mF = Z.mindex(hh, mm) + 1
+                if 0 <= mF < self.M:
+                    hdr_s_entry[ei] = float(S[mF])
         if z and status == 0:
             self.sim.M, self.sim.day = self.M, D
             res = self.sim.simulate_day(D, S, contracts, vix)
             if res is not None:
                 rows, hdr_strad, nload = res
-        # header: marker, flags, prices, then positions (each position: 1 value if not opened, else 7)
         sig = 1 if (vix or 0) > 0 else 0
         out = [900_000_000_000_000.0 + D.year * 10_000 + D.month * 100 + D.day,
                float(z * 10**13 + (1 if self.half else 0) * 10**12 + status * 10**11 + min(9999, nchain) * 10**6
                      + min(9999, nload) * 10**2 + sig),
-               float(round((self.S_open or 0.0) * U)), float(round(float(S[self.M - 1]) * U)) if ok.any() else 0.0,
+               float(round((self.S_open or 0.0) * U)), float(round(float(S[self.M - 1]) * U)) if nreal else 0.0,
                float(round((vix or 0.0) * 100))]
         out += [float(round(x * U)) for x in hdr_s_entry]
         out += [float(round(x * U)) for x in hdr_strad]
+        out.append(float(nreal))
         out.append(float(len(rows)))
         for r in rows:
             out.extend(r)
@@ -201,10 +214,13 @@ class ZeroDte(QCAlgorithm):
 
     # ------------------------------------------------------------------ quotes
     def load_quotes(self, D, contracts, S, vix):
-        lo_s, hi_s = float(np.nanmin(S)), float(np.nanmax(S))
-        sd = (vix if vix else 30.0) / 100.0 / math.sqrt(252.0)
-        b = max(0.04, 4.0 * sd) + 0.012
-        keep = [c for c in contracts if lo_s * (1 - b) <= c[0] <= hi_s * (1 + b)]
+        """Minute quotes of the day's contracts whose strikes any entry could use (decided from S at the entry
+        selection minutes only), as forward-filled [right, strike, minute] arrays with their age. A row with an ask
+        but no bid is a zero bid (LEAN drops all-zero bid bars)."""
+        band = Z.DaySim.band(vix) + max(Z.WINGS) + 0.01
+        sel_px = [S[Z.mindex(hh, mm)] for hh, mm in Z.ENTRY if Z.mindex(hh, mm) < self.M]
+        lo_s, hi_s = float(np.nanmin(sel_px)), float(np.nanmax(sel_px))
+        keep = [c for c in contracts if lo_s * (1 - band) <= c[0] <= hi_s * (1 + band)]
         if not keep:
             return None
         strikes = sorted({c[0] for c in keep})
@@ -218,12 +234,16 @@ class ZeroDte(QCAlgorithm):
         self.thist += _time.time() - t1
         if qh is None or qh.empty:
             return None
+        if self.opt_tz is None:
+            try:
+                self.opt_tz = str(self.market_hours_database.get_exchange_hours(
+                    Market.USA, syms[0], syms[0].security_type).time_zone.id)
+            except Exception as e:
+                self.err("tz", e)
+                self.opt_tz = NY
         names = list(qh.index.names)
         tl = qh.index.get_level_values(names.index("time") if "time" in names else len(names) - 1)
-        if "symbol" in names:
-            sl = qh.index.get_level_values(names.index("symbol"))
-        else:
-            sl = qh.index.get_level_values(0)
+        sl = qh.index.get_level_values(names.index("symbol") if "symbol" in names else 0)
         smap = {}
         for k, r, s in keep:
             for key in (s, str(s), s.value):
@@ -242,32 +262,29 @@ class ZeroDte(QCAlgorithm):
                 miss += 1
         if miss:
             self.err("symmap", f"{miss} rows unmapped")
-        tt = pd.to_datetime(tl)
+        tt = pd.DatetimeIndex(pd.to_datetime(tl))
+        if self.opt_tz != NY:
+            tt = tt.tz_localize(self.opt_tz).tz_convert(NY).tz_localize(None)
         mins = ((tt.hour * 60 + tt.minute) - (9 * 60 + 30) - 1).to_numpy()
         good = (rr >= 0) & (mins >= 0) & (mins < self.M)
         bid = np.full((2, nk, self.M), np.nan)
         ask = np.full((2, nk, self.M), np.nan)
-        bc = qh["bidclose"].to_numpy(float)
-        ac = qh["askclose"].to_numpy(float)
+        bc = qh["bidclose"].to_numpy(float) if "bidclose" in qh.columns else np.full(len(qh), np.nan)
+        ac = qh["askclose"].to_numpy(float) if "askclose" in qh.columns else np.full(len(qh), np.nan)
         bid[rr[good], kk[good], mins[good]] = bc[good]
         ask[rr[good], kk[good], mins[good]] = ac[good]
-        valid = (~np.isnan(ask)) & (ask > 0) & (np.nan_to_num(bid, nan=-1.0) >= 0) & (np.nan_to_num(bid, nan=-1.0) <= ask)
-        bid = np.where(np.isnan(bid), 0.0, bid)
-        # forward fill valid quotes, tracking their age in minutes
+        bid = np.where(np.isnan(bid) & ~np.isnan(ask), 0.0, bid)
+        valid = (~np.isnan(ask)) & (ask > 0) & (bid >= 0) & (bid <= ask)
         ar = np.arange(self.M)
-        last = np.where(valid, ar, -1)
-        last = np.maximum.accumulate(last, axis=2)
+        last = np.maximum.accumulate(np.where(valid, ar, -1), axis=2)
         seen = last >= 0
         li = np.where(seen, last, 0)
-        B = np.take_along_axis(bid, li, axis=2)
-        A = np.take_along_axis(ask, li, axis=2)
+        B = np.where(seen, np.take_along_axis(bid, li, axis=2), np.nan)
+        A = np.where(seen, np.take_along_axis(ask, li, axis=2), np.nan)
         age = np.where(seen, ar - last, 10_000)
-        B = np.where(seen, B, np.nan)
-        A = np.where(seen, A, np.nan)
         return np.array(strikes), B, A, age, len(keep)
 
-    # ------------------------------------------------------------------ simulation
-
+    # ------------------------------------------------------------------ export
     def emit(self):
         k = min(399, len(self.queue) - self.qpos)
         if k <= 0:
@@ -285,7 +302,7 @@ class ZeroDte(QCAlgorithm):
 
     def on_end_of_algorithm(self):
         left = len(self.queue) - self.qpos
-        self.set_runtime_statistic("RUN", f"{UNDER} book {BOOK[0]}..{BOOK[1]} mech{int(MECH)} shapes {Z.NS} seq {self.seq} emitted {self.emitted} left {left} final {int(self.final)}")
+        self.set_runtime_statistic("RUN", f"{UNDER} book {BOOK[0]}..{BOOK[1]} mech{int(MECH)} shapes {Z.NS} seq {self.seq} emitted {self.emitted} left {left} final {int(self.final)} tz {self.opt_tz}")
         self.set_runtime_statistic("TIME", f"total {_time.time() - self.t0:.0f}s hist {self.thist:.0f}s sim {self.sim.tsim:.0f}s")
         self.set_runtime_statistic("CNT", " ".join(f"{k}:{v}" for k, v in self.cnt.items())[:200])
         self.set_runtime_statistic("SIM", " ".join(f"{k}:{v}" for k, v in self.sim.cnt.items())[:200])

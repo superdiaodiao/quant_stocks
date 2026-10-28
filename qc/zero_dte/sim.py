@@ -1,6 +1,10 @@
 """Pure-numpy day simulator for the 0DTE grid (docs/research_ledger_zero_dte.md, section 0.3).
 QuantConnect project file next to main.py; it has no LEAN dependency, so tests/test_zero_dte_engine.py runs it
-locally. main.py calls configure(UNDER) once, then DaySim.simulate_day(...) at each 0DTE day's close."""
+locally. main.py calls configure(UNDER) once, then DaySim.simulate_day(...) at each 0DTE day's close.
+
+Minute index m: the bar ending 09:31 is m = 0, so the bar ending hh:mm is (hh*60 + mm) - 571. Quotes arrive as
+arrays [right (0 put, 1 call), strike, minute], forward-filled with their age in minutes; a zero bid is a quote.
+"""
 import math
 import time as _time
 
@@ -8,12 +12,11 @@ import numpy as np
 from scipy.special import ndtr
 
 ENTRY = ((9, 45), (10, 30), (12, 0), (13, 30), (15, 0))
-FLAT = (15, 50)
+FLAT_BEFORE = 10                               # flatten this many minutes before the option close (15:50, 12:50)
 DELTAS = (0.05, 0.10, 0.16, 0.25, 0.50)
 WINGS = (0.0, 0.005, 0.01)                     # 0.0 = the adjacent listed strike
 F_ENTRY, F_TP, F_STOP, F_FLAT = 0.25, 0.25, 0.5, 0.5
 AGE_FILL, AGE_MARK = 5, 15                     # max quote age (minutes) to fill / to mark
-
 
 # families: kind 0 defined-risk credit, 1 naked credit, 2 debit, 3 risk reversal, 4 delta-hedged straddle
 FAM = ("PCS", "CCS", "IC", "IF", "SP", "SC", "SG", "SD", "LD", "RR", "RRB", "SDH")
@@ -34,6 +37,7 @@ def configure(under, mech=False):
     OTHER_FEE = 0.65 if IS_INDEX else 0.05
     FLAT_BID = 0.50 if IS_INDEX else 0.05
     MECH = mech
+
 
 def build_shapes():
     out = []
@@ -63,24 +67,44 @@ SHAPES = build_shapes()                        # 61
 NS, NE = len(SHAPES), len(ENTRY)
 
 
-def tick_of(px):
+def mindex(hh, mm):
+    return hh * 60 + mm - 571
+
+
+def tick_v(x):
+    x = np.asarray(x, float)
     if not IS_INDEX:
-        return 0.01
-    return 0.05 if px < 3.0 else 0.10
+        return np.full(x.shape, 0.01)
+    return np.where(x < 3.0, 0.05, 0.10)
 
 
-def floor_tick(x):
-    t = tick_of(x)
-    return math.floor(x / t + 1e-9) * t
+def px_sell_v(b, a, F):
+    """Sell at mid - F x spread, rounded to the nearest tick (ties toward the bid), inside [bid, ask];
+    0 where the bid is below one tick (nothing to sell)."""
+    b, a = np.asarray(b, float), np.asarray(a, float)
+    x = 0.5 * (a + b) - F * (a - b)
+    t = tick_v(x)
+    px = np.floor(x / t + 0.5 - 1e-9) * t
+    px = np.minimum(np.maximum(px, b), a)
+    return np.where(b >= tick_v(0.0), px, 0.0)
 
 
-def ceil_tick(x):
-    t = tick_of(x)
-    return math.ceil(x / t - 1e-9) * t
+def px_buy_v(b, a, F):
+    """Buy at mid + F x spread, rounded to the nearest tick (ties toward the ask), inside [bid, ask]."""
+    b, a = np.asarray(b, float), np.asarray(a, float)
+    x = 0.5 * (a + b) + F * (a - b)
+    t = tick_v(x)
+    px = np.ceil(x / t - 0.5 + 1e-9) * t
+    return np.minimum(np.maximum(px, b), a)
 
 
-def fee(px):
-    return (0.65 if px >= 0.10 else (0.50 if px >= 0.05 else 0.25)) + OTHER_FEE
+def fee_v(px):
+    px = np.asarray(px, float)
+    return np.where(px >= 0.10, 0.65, np.where(px >= 0.05, 0.50, 0.25)) + OTHER_FEE
+
+
+def tick0():
+    return 0.05 if IS_INDEX else 0.01
 
 
 def bs(S, K, s, put):
@@ -112,18 +136,16 @@ def abs_delta(S, K, s, put):
     return np.abs(ndtr(d1) - 1.0) if put else ndtr(d1)
 
 
-
-
 class DaySim:
     """One instance per backtest. simulate_day() turns one day's minute quotes into export rows."""
 
     def __init__(self, loader):
         self.loader = loader                   # (D, contracts, S, vix) -> (K, B, A, AGE, n_loaded) or None
         self.cnt = {k: 0 for k in ("open", "nosel", "wingmiss", "covmiss", "stale", "nocredit", "trig", "defer",
-                                   "flatdefer", "itmflat", "noquote")}
+                                   "flatdefer", "itmflat", "held", "noquote")}
         self.trace = []
         self.tsim = 0.0
-        self.M = 390
+        self.M = 390                           # minutes from 09:31 to the option close (inclusive)
         self.day = None
 
     def simulate_day(self, D, S, contracts, vix):
@@ -133,21 +155,17 @@ class DaySim:
             self.cnt["noquote"] += 1
             return None
         K, B, A, AGE, nload = q
-        nk = len(K)
         MID = 0.5 * (B + A)
         SPR = A - B
         M = self.M
-        mflat = (FLAT[0] * 60 + FLAT[1]) - (9 * 60 + 30) - 1
-        if mflat >= M - 1:
-            mflat = M - 2
+        mflat = M - 1 - FLAT_BEFORE            # 15:50 (12:50 on a 13:00 close)
         S_close = float(S[M - 1])
         rows, strad = [], [0.0] * NE
         for ei, (hh, mm) in enumerate(ENTRY):
-            mS = (hh * 60 + mm) - (9 * 60 + 30) - 1
+            mS = mindex(hh, mm)
             mF = mS + 1
             if mF >= mflat - 2:
-                for si in range(NS):
-                    rows.append([-9.0])
+                rows.extend([[-9.0]] * NS)
                 continue
             sel, info = self.select(S, K, B, A, MID, SPR, AGE, mS, vix)
             strad[ei] = info.get("strad", 0.0)
@@ -157,7 +175,7 @@ class DaySim:
                     self.cnt[{2: "wingmiss", 3: "covmiss", 4: "stale"}.get(code, "nosel")] += 1
                     rows.append([-float(code)])
                     continue
-                r = self.run_position(si, shape, legs, K, B, A, MID, SPR, AGE, S, mF, mflat, S_close, info)
+                r = self.run_position(si, shape, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, info)
                 if r is None:
                     rows.append([-5.0])
                     continue
@@ -166,11 +184,15 @@ class DaySim:
         self.tsim += _time.time() - t1
         return rows, strad, nload
 
+    # ------------------------------------------------------------------ selection (data at or before mS only)
+    @staticmethod
+    def band(vix):
+        sd = (vix if vix else 30.0) / 100.0 / math.sqrt(252.0)
+        return max(0.04, 4.0 * sd) + 0.012
+
     def select(self, S, K, B, A, MID, SPR, AGE, mS, vix):
-        """Short-leg candidates at minute mS: {(right, delta): strike index or "cov"}, plus the parity ATM strike.
-        Only quotes at or before mS are used."""
+        """Short-leg candidates at minute mS: {(right, delta): strike index or "cov"}, plus the parity ATM strike."""
         Sm = float(S[mS])
-        nk = len(K)
         info = {"S": Sm, "K": K, "dlk": {}}
         okq = (AGE[:, :, mS] <= AGE_FILL) & ~np.isnan(MID[:, :, mS])
         mid = MID[:, :, mS]
@@ -186,9 +208,11 @@ class DaySim:
         info["s_impl"] = s_impl
         if okq[0, k0] and okq[1, k0]:
             info["strad"] = float(mid[0, k0] + mid[1, k0])
-        sd = (vix if vix else 30.0) / 100.0 / math.sqrt(252.0)
-        band = max(0.04, 4.0 * sd) + 0.012
-        tk = tick_of(0.0)
+        band = self.band(vix)
+        # the strikes this entry may use: decided from s_impl at mS, never from later prices
+        inb = np.abs(K / s_impl - 1) <= band + max(WINGS) + 0.005
+        info["inb"] = inb
+        tk = tick0()
         sel = {}
         for r in (0, 1):
             put = r == 0
@@ -202,9 +226,8 @@ class DaySim:
                 good = ~np.isnan(sv)
                 dl[good] = abs_delta(s_impl, K[cand][good], sv[good], put)
             has = len(cand) > 0 and np.any(~np.isnan(dl))
-            # the outermost loaded strike on this side: if the furthest candidate is it and is still too rich, the
-            # band (not the market) limited the choice
-            edge = 0 if put else nk - 1
+            side = np.where(inb & otm)[0]
+            edge = int(side.min() if put else side.max()) if len(side) else -1
             for d in DELTAS[:-1]:
                 if not has:
                     continue
@@ -212,30 +235,29 @@ class DaySim:
                 dev = np.abs(dl - d)
                 m = np.nanmin(dev)
                 if m > tol:
-                    far = int(cand[np.nanargmin(dl)])
-                    if np.nanmin(dl) > d + tol and far == edge:
+                    # coverage miss: the furthest candidate is the outermost usable strike and is still too rich
+                    if np.nanmin(dl) > d + tol and int(cand[np.nanargmin(dl)]) == edge:
                         sel[(r, d)] = "cov"
                     continue
                 tie = cand[dev <= m + 1e-12]
                 ks = int(tie.min() if put else tie.max())          # ties go to the further OTM strike
                 sel[(r, d)] = ks
                 info["dlk"][(r, ks)] = float(dl[list(cand).index(ks)])
-            # ATM (0.50): the parity strike, if it can be sold on this side
             if okq[r, k0] and np.nan_to_num(B[r, k0, mS]) >= tk:
                 sel[(r, 0.50)] = k0
                 info["dlk"][(r, k0)] = 0.5
         return sel, info
 
-    def wing(self, r, ks, w, K, A, AGE, mS, s_impl):
+    def wing(self, r, ks, w, K, A, AGE, mS, s_impl, inb):
         nk = len(K)
         if w == 0.0:
             j = ks - 1 if r == 0 else ks + 1
-            if j < 0 or j >= nk:
+            if j < 0 or j >= nk or not inb[j]:
                 return None, 3
         else:
             tgt = K[ks] - w * s_impl if r == 0 else K[ks] + w * s_impl
             idx = np.arange(nk)
-            beyond = idx[(K < K[ks])] if r == 0 else idx[(K > K[ks])]
+            beyond = idx[((K < K[ks]) if r == 0 else (K > K[ks])) & inb]
             if len(beyond) == 0:
                 return None, 3
             j = int(beyond[np.argmin(np.abs(K[beyond] - tgt))])
@@ -247,7 +269,7 @@ class DaySim:
 
     def legs_for(self, shape, sel, K, A, AGE, mS, info):
         f, d, w = shape
-        s_impl = info["s_impl"]
+        s_impl, inb = info["s_impl"], info["inb"]
 
         def short(r, dd):
             v = sel.get((r, dd))
@@ -262,15 +284,15 @@ class DaySim:
             ks, c = short(r, d)
             if ks is None:
                 return None, c
-            kl, c = self.wing(r, ks, w, K, A, AGE, mS, s_impl)
+            kl, c = self.wing(r, ks, w, K, A, AGE, mS, s_impl, inb)
             return (None, c) if kl is None else ([(r, ks, -1), (r, kl, 1)], 0)
         if f in (2, 3):
             kp, c1 = short(0, d)
             kc, c2 = short(1, d)
             if kp is None or kc is None:
                 return None, (c1 or c2)
-            lp, c1 = self.wing(0, kp, w, K, A, AGE, mS, s_impl)
-            lc, c2 = self.wing(1, kc, w, K, A, AGE, mS, s_impl)
+            lp, c1 = self.wing(0, kp, w, K, A, AGE, mS, s_impl, inb)
+            lc, c2 = self.wing(1, kc, w, K, A, AGE, mS, s_impl, inb)
             if lp is None or lc is None:
                 return None, (c1 or c2)
             return [(0, kp, -1), (0, lp, 1), (1, kc, -1), (1, lc, 1)], 0
@@ -301,20 +323,18 @@ class DaySim:
     # ------------------------------------------------------------------ fills
     @staticmethod
     def px_sell(b, a, F):
-        if not (b >= tick_of(0.0)):
-            return 0.0
-        m, s = 0.5 * (a + b), a - b
-        return max(b, floor_tick(m - F * s))
+        return float(px_sell_v(b, a, F))
 
     @staticmethod
     def px_buy(b, a, F):
-        m, s = 0.5 * (a + b), a - b
-        return min(a, ceil_tick(m + F * s))
+        return float(px_buy_v(b, a, F))
 
     def close_cash(self, legs, B, A, AGE, m, F, age_max):
-        """Cash per share from closing every leg at minute m (+ sells longs, - buys back shorts), fees, spread paid,
-        contracts traded; None if a short leg cannot be bought back here."""
-        cash, fees, spr, n = 0.0, 0.0, 0.0, 0
+        """Close every leg at minute m: cash per share (+ longs sold, - shorts bought back), fees, improvement over
+        the touch, contracts traded, and the long legs that could not be sold (a stale quote that still showed a
+        bid: they are held to the close and settled at intrinsic). None if a short leg cannot be bought back."""
+        cash, fees, imp, n, held = 0.0, 0.0, 0.0, 0, []
+        tk = tick0()
         for r, k, qn in legs:
             b, a, ag = B[r, k, m], A[r, k, m], AGE[r, k, m]
             if qn < 0:
@@ -322,19 +342,22 @@ class DaySim:
                     return None
                 px = self.px_buy(b, a, F)
                 cash -= px
-                fees += fee(px) / 100.0
-                spr += a - b
+                fees += float(fee_v(px)) / 100.0
+                imp += a - px
                 n += 1
-            else:
-                if ag <= age_max and b >= tick_of(0.0):
-                    px = self.px_sell(b, a, F)
-                    cash += px
-                    fees += fee(px) / 100.0
-                    spr += a - b
-                    n += 1
-        return cash, fees, spr, n
+            elif ag <= age_max and b >= tk:
+                px = self.px_sell(b, a, F)
+                cash += px
+                fees += float(fee_v(px)) / 100.0
+                imp += px - b
+                n += 1
+            elif not (ag <= age_max) and np.nan_to_num(b) >= tk:
+                held.append((r, k, qn))
+            # a fresh quote with no bid: the leg is worth nothing and is abandoned
+        return cash, fees, imp, n, held
 
-    def settle_value(self, legs, K, Sx):
+    @staticmethod
+    def settle_value(legs, K, Sx):
         v = 0.0
         for r, k, qn in legs:
             intr = max(K[k] - Sx, 0.0) if r == 0 else max(Sx - K[k], 0.0)
@@ -342,153 +365,162 @@ class DaySim:
         return v
 
     def flatten(self, legs, K, B, A, AGE, S, mflat, S_close):
-        """15:50 convention: close legs that still matter (bid >= FLAT_BID or within 0.5% of S) at F_FLAT, retrying
-        a short leg until the bar before the close; everything else is settled at intrinsic at the close."""
-        cash, fees, spr, n = 0.0, 0.0, 0.0, 0
+        """Close legs that still matter (bid >= FLAT_BID or within 0.5% of S) at F_FLAT from mflat, retrying a leg
+        until the bar before the close; the rest, and anything that never fills, settles at intrinsic at the close."""
+        cash, fees, n = 0.0, 0.0, 0
         rest = []
         M = self.M
-        for r, k, qn in legs:
-            Sm = float(S[mflat])
-            matter = (B[r, k, mflat] >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005
-            if not matter or np.isnan(B[r, k, mflat]):
-                rest.append((r, k, qn))
+        Sm = float(S[mflat])
+        for leg in legs:
+            r, k, qn = leg
+            matter = (np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005
+            if not matter:
+                rest.append(leg)
                 continue
             done = False
             for m in range(mflat, M - 1):
-                res = self.close_cash([(r, k, qn)], B, A, AGE, m, F_FLAT, AGE_FILL)
-                if res is not None:
-                    c, fe, sp, nn = res
-                    cash += c
-                    fees += fe
-                    spr += sp
-                    n += nn
-                    done = True
-                    if m > mflat:
-                        self.cnt["flatdefer"] += 1
-                    break
+                res = self.close_cash([leg], B, A, AGE, m, F_FLAT, AGE_FILL)
+                if res is None or res[4]:
+                    continue
+                c, fe, _, nn, _ = res
+                cash += c
+                fees += fe
+                n += nn
+                done = True
+                if m > mflat:
+                    self.cnt["flatdefer"] += 1
+                break
             if not done:
-                rest.append((r, k, qn))
+                rest.append(leg)
                 self.cnt["itmflat"] += 1
         cash += self.settle_value(rest, K, S_close)
-        return cash, fees, spr, n
+        return cash, fees, n
 
-    def run_position(self, si, shape, legs, K, B, A, MID, SPR, AGE, S, mF, mflat, S_close, info):
+    def exit_value(self, legs, B, A, AGE, F):
+        """Per minute: cash per share from closing everything now at F, net of fees; nan where a short leg cannot
+        be bought back or a long leg that still shows a bid is stale."""
+        tk = tick0()
+        V = np.zeros(self.M)
+        for r, k, qn in legs:
+            b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]
+            if qn < 0:
+                px = px_buy_v(b, a, F)
+                v = -px - fee_v(px) / 100.0
+                V += np.where((ag <= AGE_FILL) & (a > 0), v, np.nan)
+            else:
+                px = px_sell_v(b, a, F)
+                v = np.where(b >= tk, px - fee_v(px) / 100.0, 0.0)
+                V += np.where((ag <= AGE_FILL) | (b < tk), v, np.nan)
+        return V
+
+    # ------------------------------------------------------------------ one position
+    def run_position(self, si, shape, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, info):
         f = shape[0]
         kind = KIND[f]
+        tk = tick0()
         # entry fill at mF (one minute after selection)
-        cash0, fee0, spr0 = 0.0, 0.0, 0.0
+        cash0, fee0, imp0, spr0 = 0.0, 0.0, 0.0, 0.0
         for r, k, qn in legs:
             b, a, ag = B[r, k, mF], A[r, k, mF], AGE[r, k, mF]
+            spr0 += a - b
             if not (ag <= AGE_FILL and a > 0):
                 self.cnt["stale"] += 1
                 return None
             if qn < 0:
-                if not (b >= tick_of(0.0)):
+                if not (b >= tk):
                     self.cnt["stale"] += 1
                     return None
                 px = self.px_sell(b, a, F_ENTRY)
                 cash0 += px
+                imp0 += px - b
             else:
                 px = self.px_buy(b, a, F_ENTRY)
                 cash0 -= px
-            fee0 += fee(px) / 100.0
-            spr0 += a - b
+                imp0 += a - px
+            fee0 += float(fee_v(px)) / 100.0
         S0 = float(S[mF])
-        tk = tick_of(0.0)
+        net = cash0 - fee0
         if kind == 0:
             width = max(abs(K[legs[j][1]] - K[legs[j + 1][1]]) for j in range(0, len(legs), 2))
-            den = width - (cash0 - fee0)
-            if cash0 - fee0 < tk or den <= 0:
+            den = width - net
+            if net < tk or den <= 0:
                 self.cnt["nocredit"] += 1
                 return None
         elif kind == 1:
-            if cash0 - fee0 < tk:
+            if net < tk:
                 self.cnt["nocredit"] += 1
                 return None
             den = S0
         elif kind == 2:
-            den = -cash0 + fee0
+            den = -net
         else:
             den = S0
-        # marks: value to us of the open legs (long +mid, short -mid), valid where every leg has a recent quote
-        n = len(legs)
+        if kind == 4:
+            return self.run_sdh(legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, imp0, spr0, den, info, shape)
+        # marks: value to us of the legs at mid; a leg that still shows a bid must have a recent quote
         V = np.zeros(self.M)
         vok = np.ones(self.M, bool)
-        xok = np.ones(self.M, bool)
         for r, k, qn in legs:
             V += qn * np.nan_to_num(MID[r, k], nan=0.0)
-            vok &= AGE[r, k] <= AGE_MARK
-            if qn < 0:
-                xok &= (AGE[r, k] <= AGE_FILL) & (A[r, k] > 0)
-        base_mid = -V[mF]                    # credit at mid at the entry minute (debit structures: negative)
-        # flatten (primary for QQQ) and hold-to-close (cash) for the whole position
-        fl = self.flatten(legs, K, B, A, AGE, S, mflat, S_close) if kind != 4 else None
-        hold_val = self.settle_value(legs, K, S_close)
-        pnl = [0.0, 0.0, 0.0, 0.0]
-        xmin = [0, 0, 0]
-        sx = [0.0, 0.0, 0.0]
-        nx = [0, 0, 0]
-        if kind == 4:
-            return self.run_sdh(legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, spr0, den, info)
-        fcash, ffee, fspr, fn = fl
-        pnl_flat = cash0 - fee0 + fcash - ffee
-        pnl_hold = cash0 - fee0 + hold_val
-        pnl[0] = pnl_flat
-        lo, hi = mF + 1, mflat - 2
+            vok &= (AGE[r, k] <= AGE_MARK) | (np.nan_to_num(B[r, k]) < tk)
+        fcash, ffee, fn = self.flatten(legs, K, B, A, AGE, S, mflat, S_close)
+        pnl_flat = net + fcash - ffee
+        pnl_hold = net + self.settle_value(legs, K, S_close)
+        pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
+        xmin, ximp, nx = [0, 0, 0], [0.0, 0.0, 0.0], [0, 0, 0]
         rng = np.zeros(self.M, bool)
-        if hi >= lo:
-            rng[lo:hi + 1] = True
+        if mflat - 2 >= mF + 1:
+            rng[mF + 1:mflat - 1] = True
         rng &= vok
         if kind in (0, 1):
-            b = max(base_mid, tk)
-            trig = [rng & (-V >= max(2 * b, b + 2 * tk)), rng & (-V >= max(3 * b, b + 3 * tk)), rng & (-V <= 0.75 * b)]
+            b = max(net, tk)                                   # the credit actually kept after entry fees
+            Vx = self.exit_value(legs, B, A, AGE, F_TP)
+            trig = [rng & (-V >= 2 * b), rng & (-V >= 3 * b), rng & (np.nan_to_num(-Vx, nan=1e9) <= 0.75 * b)]
             fills = (F_STOP, F_STOP, F_TP)
         elif kind == 2:
-            b = max(-base_mid, tk)
-            trig = [rng & (V <= 0.5 * b), rng & (V >= 2 * b), rng & (V >= 3 * b)]
+            b = max(-net, tk)                                  # the debit actually paid including entry fees
+            Vx = self.exit_value(legs, B, A, AGE, F_TP)
+            trig = [rng & (V <= 0.5 * b), rng & (np.nan_to_num(Vx, nan=-1e9) >= 2 * b),
+                    rng & (np.nan_to_num(Vx, nan=-1e9) >= 3 * b)]
             fills = (F_STOP, F_TP, F_TP)
         else:
-            pm = cash0 + V
+            pm = net + V
             trig = [rng & (pm <= -0.005 * S0), rng & (pm <= -0.010 * S0), rng & (pm >= 0.010 * S0)]
             fills = (F_STOP, F_STOP, F_TP)
         for j in range(3):
             t = trig[j]
             if not t.any():
-                pnl[j + 1] = pnl_flat
                 continue
             self.cnt["trig"] += 1
             m0 = int(np.argmax(t))
-            done = False
             for m in range(m0 + 1, mflat):
-                if not xok[m]:
-                    continue
                 res = self.close_cash(legs, B, A, AGE, m, fills[j], AGE_FILL)
                 if res is None:
                     continue
-                c, fe, sp, nn = res
-                pnl[j + 1] = cash0 - fee0 + c - fe
+                c, fe, im, nn, held = res
+                if held:
+                    self.cnt["held"] += 1
+                pnl[j + 1] = net + c - fe + self.settle_value(held, K, S_close)
                 xmin[j] = m + 1
-                sx[j] = sp
+                ximp[j] = im
                 nx[j] = nn
-                done = True
                 if m > m0 + 1:
                     self.cnt["defer"] += 1
                 break
-            if not done:
-                pnl[j + 1] = pnl_flat
-        d_close = pnl_hold - pnl_flat
         if MECH and len(self.trace) < 40 and si in (6, 21, 33, 46, 50, 54, 56) and mF in (15, 150):
             self.trace.append(f"{self.day:%m%d} s{si} m{mF} " + "/".join(f"{'PC'[r]}{K[k]:g}{'+' if q > 0 else '-'}" for r, k, q in legs)
                               + f" S{S0:.2f} c{cash0:.3f} f{fee0:.3f} den{den:.3f} p" + "/".join(f"{x:.3f}" for x in pnl)
                               + f" h{pnl_hold:.3f} x{xmin} Sc{S_close:.2f}")
-        return self.pack(cash0, den, pnl, spr0, d_close, xmin, fspr, sx, legs, fn, nx, info, shape)
+        return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee, spr0)
 
-    def run_sdh(self, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, spr0, den, info):
+    def run_sdh(self, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, imp0, spr0, den, info, shape):
         """Short ATM straddle hedged with the underlying every 15 minutes to the Black-Scholes delta (report only)."""
         k0 = legs[0][1]
         cost = 0.00002                       # per unit of underlying traded, as a fraction of S
-        h, hp, hcash = 0.0, None, 0.0
+        h, hcash = 0.0, 0.0
         for m in range(mF, mflat, 15):
+            if AGE[1, k0, m] > AGE_MARK:
+                continue
             Sm = float(S[m])
             cm = MID[1, k0, m]
             if not np.isnan(cm) and cm > 0:
@@ -499,31 +531,28 @@ class DaySim:
                     hcash -= (tgt - h) * Sm + abs(tgt - h) * cost * Sm
                     h = tgt
         Sf = float(S[mflat])
-        res = self.close_cash(legs, B, A, AGE, mflat, F_FLAT, AGE_FILL)
-        if res is None:
-            fcash, ffee, fspr, fn = self.settle_value(legs, K, Sf), 0.0, 0.0, 0
-        else:
-            fcash, ffee, fspr, fn = res
-        pnl_flat = cash0 - fee0 + fcash - ffee + hcash + h * Sf - abs(h) * cost * Sf
-        pnl_hold = cash0 - fee0 + self.settle_value(legs, K, S_close) + hcash + h * S_close - abs(h) * cost * S_close
+        fcash, ffee, fn = self.flatten(legs, K, B, A, AGE, S, mflat, S_close)
+        net = cash0 - fee0
+        pnl_flat = net + fcash - ffee + hcash + h * Sf - abs(h) * cost * Sf
+        pnl_hold = net + self.settle_value(legs, K, S_close) + hcash + h * S_close - abs(h) * cost * S_close
         pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
-        return self.pack(cash0, den, pnl, spr0, pnl_hold - pnl_flat, [0, 0, 0], fspr, [0.0, 0.0, 0.0], legs, fn, [0, 0, 0],
-                         info, SHAPES[-1])
+        return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, [0, 0, 0], [0.0, 0.0, 0.0], legs, fn, [0, 0, 0],
+                         info, shape, fee0, ffee, spr0)
 
-    # ------------------------------------------------------------------ export
-    def pack(self, cash0, den, pnl, spr0, d_close, xmin, fspr, sx, legs, fn, nx, info, shape):
+    # ------------------------------------------------------------------ export (8 exact integers per position)
+    def pack(self, cash0, den, pnl, imp0, d_close, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee, spr0):
         def p7(x):
             return min(9_999_999, max(0, int(round(x * U)) + OFF))
+
+        def c4(x):                                             # cents, 0..9999
+            return min(9999, max(0, int(round(x * 100))))
 
         x1 = float(p7(cash0) * 10**7 + min(9_999_999, max(0, int(round(den * U)))))
         x2 = float(p7(pnl[0]) * 10**7 + p7(pnl[1]))
         x3 = float(p7(pnl[2]) * 10**7 + p7(pnl[3]))
-        x4 = float(min(9_999_999, int(round(spr0 * U))) * 10**7 + p7(d_close))
-        x5 = float(min(999, xmin[0]) * 10**10 + min(999, xmin[1]) * 10**7 + min(999, xmin[2]) * 10**4
-                   + min(9999, int(round(fspr * U / 100))))
-        x6 = float(min(9999, int(round(sx[0] * U / 100))) * 10**8 + min(9999, int(round(sx[1] * U / 100))) * 10**4
-                   + min(9999, int(round(sx[2] * U / 100))))
-        # diagnostics: realised |delta| of the first short leg (x1000), realised width / S (bp), legs counts
+        x4 = float(min(9_999_999, int(round(imp0 * U))) * 10**7 + p7(d_close))
+        x5 = float(min(999, xmin[0]) * 10**10 + min(999, xmin[1]) * 10**7 + min(999, xmin[2]) * 10**4 + c4(spr0))
+        x6 = float(c4(ximp[0]) * 10**8 + c4(ximp[1]) * 10**4 + c4(ximp[2]))
         f = shape[0]
         sh = [(r, k) for r, k, qn in legs if qn < 0]
         dd = info["dlk"].get(sh[0]) if sh else None
@@ -533,5 +562,5 @@ class DaySim:
             wbp = min(9999, int(round(1e4 * abs(info["K"][legs[0][1]] - info["K"][legs[1][1]]) / info["s_impl"])))
         ne = len(legs)
         x7 = float(dl * 10**9 + wbp * 10**5 + ne * 10**4 + min(9, fn) * 10**3 + min(9, nx[0]) * 100 + min(9, nx[1]) * 10 + min(9, nx[2]))
-        return [x1, x2, x3, x4, x5, x6, x7]
-
+        x8 = float(min(9_999_999, int(round(fee0 * U))) * 10**7 + min(9_999_999, int(round(ffee * U))))
+        return [x1, x2, x3, x4, x5, x6, x7, x8]
