@@ -365,12 +365,16 @@ class DaySim:
                 held.append((r, k, qn))        # never given away: held to the close and settled at intrinsic
         cash = sum(x for x in part if x is not None)
         if K is not None:
+            ws = []
             for j in range(0, len(legs) - 1, 2):
                 cs, cl = part[j], part[j + 1]
-                if cs is not None and cl is not None:
-                    w = abs(K[legs[j][1]] - K[legs[j + 1][1]])
-                    if cs + cl < -w:
-                        cash += -w - (cs + cl)
+                w = abs(K[legs[j][1]] - K[legs[j + 1][1]])
+                ws.append(w)
+                if cs is not None and cl is not None and cs + cl < -w:
+                    cash += -w - (cs + cl)
+            # an iron condor / fly closed in one order: its two verticals cannot both finish in the money
+            if len(ws) == 2 and not held and cash < -max(ws):
+                cash = -max(ws)
         return cash, fees, imp, n, held
 
     @staticmethod
@@ -389,10 +393,14 @@ class DaySim:
         rest = []
         M = self.M
         Sm = float(S[mflat])
+        def matters(unit):
+            return any((np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005 for r, k, _ in unit)
+
         units = [legs[j:j + 2] for j in range(0, len(legs), 2)] if pairs else [[leg] for leg in legs]
+        if pairs and len(units) == 2 and matters(units[0]) and matters(units[1]):
+            units = [legs]                            # both verticals of a condor / fly: one order, capped together
         for unit in units:
-            matter = any((np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= 0.005 for r, k, _ in unit)
-            if not matter:
+            if not matters(unit):
                 rest.extend(unit)
                 continue
             done = False
@@ -422,11 +430,14 @@ class DaySim:
         tk = tick0()
         if K is not None:
             V = np.zeros(self.M)
+            fmax = len(legs) * (0.65 + OTHER_FEE) / 100.0
+            ws = []
             for j in range(0, len(legs), 2):
                 vj = self.exit_value(legs[j:j + 2], B, A, AGE, F)
                 w = abs(K[legs[j][1]] - K[legs[j + 1][1]])
+                ws.append(w)
                 V += np.where(np.isnan(vj), np.nan, np.maximum(vj, -w - 2 * (0.65 + OTHER_FEE) / 100.0))
-            return V
+            return np.where(np.isnan(V), np.nan, np.maximum(V, -max(ws) - fmax))
         V = np.zeros(self.M)
         for r, k, qn in legs:
             b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]

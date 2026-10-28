@@ -250,3 +250,19 @@ def test_vertical_is_closed_as_a_combo_capped_at_its_width():
     assert cash >= -0.5 - 1e-9 and n == 2               # pays at most the 0.5 width (fees separately)
     legs_cash = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 96.0, pairs=False)[0]
     assert legs_cash < -1.5                              # legging out at the touch would have paid two spreads
+
+
+def test_iron_fly_close_costs_at_most_one_wing():
+    # S at the body at 15:50 with wide quotes on all four legs: the fly is closed as one order for at most one width
+    path = np.full(M, 100.0)
+    algo, (K, B, A, AGE) = make_algo(path)
+    k0, kp, kc = (int(np.where(K == x)[0][0]) for x in (100.0, 99.5, 100.5))
+    legs = [(0, k0, -1), (0, kp, 1), (1, k0, -1), (1, kc, 1)]
+    mflat = M - 1 - Z.FLAT_BEFORE
+    B2, A2 = B.copy(), A.copy()
+    for r, k in ((0, k0), (1, k0)):
+        B2[r, k, mflat:], A2[r, k, mflat:] = 0.45, 0.70
+    for r, k in ((0, kp), (1, kc)):
+        B2[r, k, mflat:], A2[r, k, mflat:] = 0.05, 0.10
+    cash, fees, n = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 100.0, pairs=True)
+    assert n == 4 and cash >= -0.5 - 1e-9          # one wing width (0.5), not 2 x (0.70 - 0.05)
