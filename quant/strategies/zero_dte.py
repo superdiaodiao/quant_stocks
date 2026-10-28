@@ -243,13 +243,16 @@ def build_panel(days: pd.DataFrame, rows: pd.DataFrame, under: str, primary: str
     return Panel(under, days, opened, code, pnl, alt, cons, den, width, net, S, xret, xmin, fee_entry, fee_flat, n_legs)
 
 
-def read_exports(paths) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
-    """Concatenate several export files (chunks of one underlying): days, rows and the metas."""
+def read_exports(paths, under: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame, list[dict]]:
+    """Concatenate several export files (chunks of one underlying): days, rows and the metas. With ``under``, runs
+    of another underlying are skipped (and reported through the metas the caller checks)."""
     days, rows, metas = [], [], []
     for p in paths:
         with gzip.open(p, "rt") as fh:
             obj = json.load(fh)
         for run in obj.get("runs", [obj]):
+            if under is not None and run["meta"].get("under") != under:
+                continue
             if run.get("bad"):
                 raise ValueError(f"{Path(p).name}: {run['bad']} bad slots")
             d, r = parse_stream(run["vals"], run["meta"]["under"])
