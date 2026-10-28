@@ -171,14 +171,15 @@ def benchmarks(index: pd.DatetimeIndex, under: str) -> pd.DataFrame:
 
 
 def trailing(x: np.ndarray, n: int, how: str, min_n: int) -> np.ndarray:
-    """Per row (entry), the mean / median of the previous n valid observations (NaN = not valid), excluding today."""
+    """Per row (entry), the mean / median of the last n valid observations before each day (NaN = not valid);
+    on a valid day that excludes today, on an invalid day it still includes the latest valid day."""
     out = np.full(x.shape, np.nan)
     for e in range(x.shape[0]):
         s = pd.Series(x[e])
         v = s.dropna()
         r = v.rolling(n, min_periods=min_n)
-        st = (r.mean() if how == "mean" else r.median()).shift(1)
-        out[e] = st.reindex(s.index).ffill().to_numpy() if len(v) else np.nan
+        st = r.mean() if how == "mean" else r.median()
+        out[e] = st.reindex(s.index).ffill().shift(1).to_numpy() if len(v) else np.nan
     return out
 
 
@@ -216,8 +217,9 @@ def filter_masks(P: Z.Panel, bench: pd.DataFrame, under: str) -> dict:
         strad = d[[f"strad_e{e}" for e in range(Z.NE)]].to_numpy().T
         rich_px = np.where(strad > 0, strad / S, np.nan)
         r = S / prev[None, :] - 1
-    past = trailing(move, 20, "mean", 20)
-    med = trailing(np.abs(r), 250, "median", 60)
+    bad = d["half"].to_numpy().astype(bool) | (d["status"].to_numpy() != 0)   # half / data-deficient days (ledger 0.12)
+    past = trailing(np.where(bad, np.nan, move), 20, "mean", 20)
+    med = trailing(np.where(bad, np.nan, np.abs(r)), 250, "median", 60)
     ok = ~np.isnan(past) & ~np.isnan(rich_px)
     m["RICH_sell"] = ok & (np.nan_to_num(rich_px) >= np.nan_to_num(past))
     m["RICH_buy"] = ok & (np.nan_to_num(rich_px) < np.nan_to_num(past))
