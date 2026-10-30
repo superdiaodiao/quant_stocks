@@ -74,6 +74,9 @@ class StockZeroDte(QCAlgorithm):
         self.pending_open = None
         self.on_book = {}                              # symbol -> overnight positions expiring today (from yesterday)
         self.penny = 1
+        self.penny_by = {}                             # symbol -> the tick grid of its last simulated day
+        self.cur_sym = None
+        self.maxstep = 0.0
         self.final = False
 
     def err(self, tag, e):
@@ -146,10 +149,12 @@ class StockZeroDte(QCAlgorithm):
         N = self.next_session(D)
         if self.members and (BOOK[0] <= D <= BOOK[1] or BOOK[0] <= N <= BOOK[1]):
             low = D.weekday() == 4 or (D.weekday() == 3 and not self.is_open(D + timedelta(days=1)))
+            t0 = _time.time()
             try:
                 self.process_day(D, N, low, BOOK[0] <= D <= BOOK[1], BOOK[0] <= N <= BOOK[1])
             except Exception as e:
                 self.err(f"day{D:%y%m%d}", e)
+            self.maxstep = max(self.maxstep, _time.time() - t0)
 
     # ------------------------------------------------------------------ calendar
     def is_open(self, d):
@@ -268,12 +273,14 @@ class StockZeroDte(QCAlgorithm):
         return out
 
     def stock_path(self, sym, D, M, start_min=0):
-        """Raw closes of the minute bars from start_min to the close (forward-filled), and the first bar's open."""
+        """Raw closes of the real minute bars from start_min to the close, forward-filled after the first real bar
+        (NaN before it), the 09:31 bar's open (0 if that bar has no trade) and the mask of real bars."""
         S = np.full(M, np.nan)
         S_open = 0.0
         start = datetime.combine(D, time(9, 30)) + timedelta(minutes=start_min)
         end = datetime.combine(D, self.close_t)
-        h = self.history(TradeBar, sym, start, end, Resolution.MINUTE)
+        h = self.history(TradeBar, sym, start, end, Resolution.MINUTE, fill_forward=False,
+                         data_normalization_mode=DataNormalizationMode.RAW)
         if h is not None and not h.empty:
             for idx, row in h.iterrows():
                 tt = idx[-1] if isinstance(idx, tuple) else idx
@@ -286,7 +293,6 @@ class StockZeroDte(QCAlgorithm):
         nreal = int(ok[start_min:].sum())
         if ok.any():
             first = int(np.argmax(ok))
-            S[:first] = S[first]
             for i in range(first + 1, M):
                 if np.isnan(S[i]):
                     S[i] = S[i - 1]
@@ -350,6 +356,7 @@ class StockZeroDte(QCAlgorithm):
         ks = sorted(set(oi_p) | set(oi_c))
         kmp = Z.max_pain(ks, [oi_p.get(k, 0.0) for k in ks], [oi_c.get(k, 0.0) for k in ks])
         self.sim.M, self.sim.day = M, D
+        self.cur_sym = sym
         states, strad = self.sim.on_enter(D, S, contracts, sig, kmp)
         if states is None:
             return
@@ -366,7 +373,7 @@ class StockZeroDte(QCAlgorithm):
         ymd = (prev_day.year % 100) * 10_000 + prev_day.month * 100 + prev_day.day
         start = datetime.combine(D, time(9, 30))
         for sym in syms:
-            o, flag = 0.0, 0
+            o, flag, rp = 0.0, 0, []
             try:
                 op = {}
                 for mode in (DataNormalizationMode.RAW, DataNormalizationMode.SPLIT_ADJUSTED):
@@ -383,7 +390,7 @@ class StockZeroDte(QCAlgorithm):
             except Exception as e:
                 self.err("open" + sym.value, e)
             self.queue.extend([970_000_000_000_000.0 + ymd * 1000 + self.tid(sym.value), float(round(o * U)),
-                               float(flag)])
+                               float(flag), float(round((rp[0][2] if rp else 0.0) * U))])
 
     def process_name(self, D, M, half, rank, sym, contracts, oi_p, oi_c, vix, on):
         S, S_open, nreal, ok = self.stock_path(sym, D, M)
@@ -403,23 +410,32 @@ class StockZeroDte(QCAlgorithm):
         ks = sorted(set(oi_p) | set(oi_c))
         kmp = Z.max_pain(ks, [oi_p.get(k, 0.0) for k in ks], [oi_c.get(k, 0.0) for k in ks])
         rows, strad, pins, nload = [], [0.0] * NE, [0.0] * NE, 0
-        self.penny = 1
-        if status in (0, 3) and sig:                             # thin days are simulated too (status kept)
+        self.penny = self.penny_by.get(sym, 1)
+        self.cur_sym = sym
+        if status in (0, 3) and sig and np.isfinite(S[M - 1]):   # thin days are simulated too (status kept)
             self.sim.M, self.sim.day = M, D
-            res = self.sim.simulate_day(D, S, contracts, sig, kmp, S_open, on["states"] if on else None)
+            res = self.sim.simulate_day(D, S, contracts, sig, kmp, S_open, on["states"] if on else None, ok)
             if res is not None:
                 rows, strad, pins, nload = res
         if not rows:
-            rows = [[-7.0]] * (Z.NS * Z.NB)                      # not simulated: every position, overnight ones too
-            if on:
-                self.cnt["on_lost"] += sum(1 for x in on["states"] if isinstance(x, dict))
+            rows = [[-7.0]] * (Z.NS * Z.NE)                      # not simulated: the same-day blocks
+            if on:                                               # overnight positions settle at intrinsic, never lost
+                cl = float(S[M - 1]) if nreal else next((x[2] for x in self.bars(sym, 3, DataNormalizationMode.RAW, D)
+                                                          if x[0] == D), 0.0)
+                rows += [self.sim.settle_overnight(si, st, cl) if isinstance(st, dict) and cl > 0 else
+                         [-float(st) if not isinstance(st, dict) else -7.0] for si, st in enumerate(on["states"])]
+                self.cnt["on_lost"] += sum(1 for x in on["states"] if isinstance(x, dict)) if cl <= 0 else 0
+            else:
+                rows += [[-8.0]] * Z.NS
         self.cnt["z"] += 1
         self.cnt["rows"] += len(rows)
-        s_entry = [float(S[Z.mindex(hh, mm) + 1]) if nreal and Z.mindex(hh, mm) + 1 < M else 0.0 for hh, mm in Z.ENTRY]
+        s_entry = [float(np.nan_to_num(S[Z.mindex(hh, mm)])) if nreal and Z.mindex(hh, mm) < M else 0.0
+                   for hh, mm in Z.ENTRY]                        # the stock at each selection minute
         out = [900_000_000_000_000.0 + ((D.year % 100) * 10_000 + D.month * 100 + D.day) * 1000 + self.tid(sym.value),
                float((1 if half else 0) * 10**12 + status * 10**11 + min(9999, len(contracts)) * 10**6
                      + min(9999, nload) * 10**2 + self.penny * 10 + (1 if sig else 0)),
-               float(round(S_open * U)), float(round(float(S[M - 1]) * U)) if nreal else 0.0, float(round(prev * U)),
+               float(round(S_open * U)), float(round(float(np.nan_to_num(S[M - 1])) * U)) if nreal else 0.0,
+               float(round(prev * U)),
                float(round((sig or 0.0) * 1e6)), float(round((kmp or 0.0) * U)), float(rank * 10**6 + nreal),
                float(round((vix or 0.0) * 100))]
         out += [float(round(x * U)) for x in s_entry]
@@ -511,10 +527,11 @@ class StockZeroDte(QCAlgorithm):
         px = np.concatenate([bc[early], ac[early]])
         px = px[(px > 0) & (px < 3.0) & ~np.isnan(px)]
         if len(px) < 20:
-            px = np.concatenate([bc[good], ac[good]])
-            px = px[(px > 0) & (px < 3.0) & ~np.isnan(px)]
-        off = int((np.abs(np.round(px * 100) % 5) > 0).sum())
-        self.penny = 1 if off >= max(3, 0.01 * len(px)) else 0
+            self.penny = self.penny_by.get(self.cur_sym, 1)      # too few early quotes: the name's last known grid
+        else:
+            off = int((np.abs(np.round(px * 100) % 5) > 0).sum())
+            self.penny = 1 if off >= max(3, 0.01 * len(px)) else 0
+        self.penny_by[self.cur_sym] = self.penny
         if not self.penny:
             self.cnt["penny0"] += 1
         Z.configure_day(self.penny)
@@ -548,7 +565,7 @@ class StockZeroDte(QCAlgorithm):
     def on_end_of_algorithm(self):
         left = len(self.queue) - self.qpos
         self.set_runtime_statistic("RUN", f"book {BOOK[0]}..{BOOK[1]} mech{int(MECH)} top{TOPN} nch{NCH} shapes {Z.NS} seq {self.seq} emitted {self.emitted} left {left} final {int(self.final)} tz {self.opt_tz}")
-        self.set_runtime_statistic("TIME", f"total {_time.time() - self.t0:.0f}s hist {self.thist:.0f}s sim {self.sim.tsim:.0f}s")
+        self.set_runtime_statistic("TIME", f"total {_time.time() - self.t0:.0f}s hist {self.thist:.0f}s sim {self.sim.tsim:.0f}s maxstep {self.maxstep:.0f}s")
         self.set_runtime_statistic("CNT", " ".join(f"{k}:{v}" for k, v in self.cnt.items())[:200])
         self.set_runtime_statistic("SIM", " ".join(f"{k}:{v}" for k, v in self.sim.cnt.items())[:200])
         self.set_runtime_statistic("ERR", (" | ".join(self.errs) or "none")[:200])

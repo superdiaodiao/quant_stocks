@@ -94,12 +94,14 @@ def unpack(row):
     x7 = int(round(row[6]))
     return {"cash0": (c - off) / Z.U, "den": den / Z.U, "pnl": [(v - off) / Z.U for v in (h, s1, s2, tp)],
             "imp0": imp0 / Z.U, "d_close": (dc - off) / Z.U, "fee0": fe0 / Z.U, "fee_flat": fef / Z.U,
-            "xmin": [int(row[4]) // 10**10, (int(row[4]) // 10**7) % 1000, (int(row[4]) // 10**4) % 1000],
-            "spr0": (int(row[4]) % 10**4) / 100, "nsh_hold": x7 // 10**13 - 2, "nsh_flat": (x7 // 10**12) % 10 - 2,
+            "xmin": [(int(row[4]) // 10**10) % 1000, (int(row[4]) // 10**7) % 1000, (int(row[4]) // 10**4) % 1000],
+            "stuck": int(row[4]) // 10**13, "dir": int(round(row[6])) // 10**14,
+            "spr0": (int(row[4]) % 10**4) / 100, "nsh_hold": (x7 // 10**13) % 10 - 2, "nsh_flat": (x7 // 10**12) % 10 - 2,
             "dl": (x7 // 10**9) % 1000, "wbp": (x7 // 10**5) % 10**4, "ne": (x7 // 10**4) % 10,
             "d15": ((int(round(row[8])) % 10**7) - off) / Z.U, "s_fill": (int(round(row[8])) // 10**7) / 100,
-            "xfee": [(int(round(row[9])) // 10**8) / 100, ((int(round(row[9])) // 10**4) % 10**4) / 100,
-                     (int(round(row[9])) % 10**4) / 100]}
+            "xfee": [((int(round(row[9])) // 10**6) % 1000) / 100, ((int(round(row[9])) // 10**3) % 1000) / 100,
+                     (int(round(row[9])) % 1000) / 100],
+            "nord": int(round(row[9])) // 10**12, "sur": ((int(round(row[9])) // 10**9) % 1000) / 100}
 
 
 def row_of(rows, shape, entry=0):
@@ -289,7 +291,7 @@ def test_pack_roundtrip_is_exact():
     legs = [(0, 3, -1), (0, 2, 1)]
     row = algo.pack(0.432, 0.568, [0.123, -0.234, -0.345, 0.012], 0.007, -0.004, [17, 200, 0],
                     [0.01, 0.0, 0.0], legs, 2, [2, 2, 0], info, (0, 0.16, 0.0), 0.014, 0.007, 0.03, 1, -1, -0.021,
-                    612.37, [0.014, 0.0, 0.0065])
+                    612.37, [0.014, 0.0, 0.0065], 2, 0.35, 1)
     u = unpack(row)
     assert u["cash0"] == 0.432 and u["den"] == 0.568
     assert u["pnl"] == [0.123, -0.234, -0.345, 0.012]
@@ -297,10 +299,11 @@ def test_pack_roundtrip_is_exact():
     assert u["fee0"] == 0.014 and u["fee_flat"] == 0.007 and u["spr0"] == 0.03 and u["d15"] == -0.021
     assert u["nsh_hold"] == 1 and u["nsh_flat"] == -1 and u["dl"] == 161 and u["wbp"] == 100 and u["ne"] == 2
     assert u["s_fill"] == 612.37 and u["xfee"] == [1.40, 0.0, 0.65]
+    assert u["nord"] == 2 and u["sur"] == 0.35 and u["stuck"] == 1 and u["dir"] == 0
     assert all(float(x).is_integer() and x < 2**53 for x in row)
     row = algo.pack(1.0, 5000.0, [0.0] * 4, 0.0, 0.0, [0, 0, 0], [0.0] * 3, [(1, 2, -1)], 0, [0, 0, 0],
                     {"dlk": {}, "K": np.array([1.0, 2.0, 3.0]), "s_impl": 5000.0}, (5, 0.10, 0.0), 0.0, 0.0, 0.0, 0, 0, 0.0,
-                    5000.0, [0.0] * 3)
+                    5000.0, [0.0] * 3, 0, 0.0, 0)
     assert unpack(row)["den"] == 5000.0
 
 
@@ -321,8 +324,9 @@ def test_worthless_far_wing_with_a_wide_quote_does_not_block_the_flatten():
     B2, A2 = B.copy(), A.copy()
     for r, k in ((0, kp), (1, kc)):
         B2[r, k, mflat:], A2[r, k, mflat:] = 0.01, 0.30            # worth nothing, and a wide quote
-    cash, fees, n, rest = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 100.0, pairs=True)
-    assert n == 2 and sorted(rest) == sorted([(0, kp, 1), (1, kc, 1)])
+    cash, fees, n, rest, nord, sur, stuck = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 100.0, pairs=True)
+    assert n == 2 and sorted(rest) == sorted([(0, kp, 1), (1, kc, 1)]) and stuck == 0
+    assert nord == 2 and abs(sur - 2 * (1.0 - 0.65)) < 1e-9          # two one-leg orders, each below the $1 minimum
     assert Z.shares_at(rest, K, 100.0) == 0
 
 
@@ -368,9 +372,10 @@ def test_next_open_records_attach_to_their_name_day():
     ymd = 240809
     head = [900_000_000_000_000 + ymd * 1000 + 3, 0, 100_000, 99_000, 100_500, 20_000, 0, 10**6 + 390, 1850]
     head += [0] * 19 + [0]
-    vals = [950_000_000_000_000 + ymd * 100 + 1] + head + [970_000_000_000_000 + ymd * 1000 + 3, 98_500, 0]
+    vals = [950_000_000_000_000 + ymd * 100 + 1] + head + [970_000_000_000_000 + ymd * 1000 + 3, 98_500, 0, 99_010]
     names, recs, days = Q.parse_stream(vals, {3: "AMD"})
     assert names.loc[0, "next_open"] == 98.5 and names.loc[0, "split_next"] == 0 and len(recs) == 0
+    assert names.loc[0, "close_official"] == 99.01
 
 
 def test_overnight_exit_at_0945_and_no_trigger_before_the_first_quote():
@@ -384,15 +389,57 @@ def test_overnight_exit_at_0945_and_no_trigger_before_the_first_quote():
     B[:, :, :5], A[:, :, :5] = np.nan, np.nan
     rows, *_ = run(algo, path, on=states)
     u = unpack(rows[Z.NE * Z.NS + pcs])
-    assert u["xmin"][0] == 0                                           # no stop from a leg that had no quote yet
-    assert u["xmin"][1] == Z.mindex(9, 45) + 1                         # the overnight-only slot exits at 09:45
-    assert u["pnl"][1] > 0                                             # a quiet open keeps most of the credit
+    assert u["xmin"][1] == 0                                           # no stop from a leg that had no quote yet
+    assert u["xmin"][0] == Z.mindex(9, 45) + 1                         # the overnight-only slot (M1) exits at 09:45
+    assert -u["den"] < u["pnl"][1] < u["cash0"]                        # bought back at 09:45: bounded by the credit
 
 
 def test_ratio_fly_risk_base_with_unequal_steps():
     K = np.array([97.5, 100.0, 105.0])
     legs = [(1, 0, 1), (1, 1, -3), (1, 2, 2)]
     # above 105 the fly pays 2.5 - 2 x 5 = -7.5: the risk base is 7.5 minus the credit, not one step
-    assert abs(Z.DaySim.risk_base(21, legs, K, 0.10, 100.0) - 7.40) < 1e-9
+    assert abs(X.DaySimX.risk_base(21, legs, K, 0.10, 100.0) - 7.40) < 1e-9
     K2 = np.array([99.0, 100.0, 101.0])
-    assert abs(Z.DaySim.risk_base(21, legs, K2, -0.05, 100.0) - 1.05) < 1e-9
+    assert abs(X.DaySimX.risk_base(21, legs, K2, -0.05, 100.0) - 1.05) < 1e-9
+
+
+def test_overnight_position_without_quotes_settles_at_intrinsic_and_counts_as_stuck():
+    prev = np.full(M, 100.0)
+    algo_prev, _ = make_algo(prev, extra_days=1.0)
+    states, _ = algo_prev.on_enter(DAY, prev, [], SIG, None)
+    pcs = Z.SHAPES.index((0, 0.16, 0.02))
+    st = dict(states[pcs])
+    st["legs"] = [(r, k + 1000.0, q) for r, k, q in st["legs"]]          # strikes the expiry day does not quote
+    on = list(states)
+    on[pcs] = st
+    algo, _ = make_algo(CRASH)
+    rows, *_ = run(algo, CRASH, on=on)
+    u = unpack(rows[Z.NE * Z.NS + pcs])
+    assert u["stuck"] == 2 and u["pnl"] == [u["pnl"][0]] * 4
+    net = st["cash0"] - st["fee0"]
+    width = abs(st["legs"][0][1] - st["legs"][1][1])
+    assert abs(u["pnl"][0] - (net - width)) < 2e-3                      # both puts deep in the money: the full width lost
+
+
+def test_direction_digit_for_max_pain_and_pin_trades():
+    path = np.full(M, 100.4)
+    oi = lambda K: np.vstack([np.where(K == 99.0, 8000.0, 50.0), np.where(K == 101.0, 3000.0, 50.0)])
+    algo, _ = make_algo(path, oi=oi)
+    rows, *_ = run(algo, path, kmp=103.0)
+    assert unpack(row_of(rows, (19, 0.50, 0.0), 2))["dir"] == 1          # max pain above: a call vertical, a rise
+    assert unpack(row_of(rows, (17, 0.50, 0.0), 2))["dir"] == 2          # pin at 99, below the stock: a fall
+    assert unpack(row_of(rows, (0, 0.16, 0.02), 2))["dir"] == 0
+
+
+def test_floor_only_quote_fills_at_the_touch():
+    algo, _ = make_algo(np.full(M, 100.0))
+    K = np.array([100.0])
+    B = np.zeros((2, 1, M))
+    A = np.zeros((2, 1, M))
+    AGE = np.zeros((2, 1, M), int)
+    B[1, 0, :], A[1, 0, :] = 0.05, 0.25                                  # passes only the $0.25 exit floor
+    res = algo.close_cash([(1, 0, 1)], B, A, AGE, 100, Z.F_TP, Z.AGE_FILL)
+    assert res is not None and abs(res[0] - 0.05) < 1e-12               # sold at the bid, not mid - 0.25 x spread
+    B[1, 0, :], A[1, 0, :] = 0.10, 0.14                                  # a normal quote keeps F = 0.25
+    res = algo.close_cash([(1, 0, 1)], B, A, AGE, 100, Z.F_TP, Z.AGE_FILL)
+    assert abs(res[0] - 0.11) < 1e-12

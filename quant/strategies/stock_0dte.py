@@ -104,8 +104,8 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
             if left:
                 raise ValueError(f"next-open record at {i} while {left} name blocks of {day} are missing")
             x = int(v - OPEN_MARK)
-            opens[(_date(x // 1000), x % 1000)] = (vals[i + 1] / U, vals[i + 2])
-            i += 3
+            opens[(_date(x // 1000), x % 1000)] = (vals[i + 1] / U, vals[i + 2], vals[i + 3] / U)
+            i += 4
             continue
         if DAY_MARK <= v < DAY_MARK + 10**10:
             if left:
@@ -158,24 +158,27 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
             x7 = x[6]
             recs.append((k, e, si, 0, (c - OFF) / U, den / U, (ph - OFF) / U, (p1 - OFF) / U, (p2 - OFF) / U,
                          (p3 - OFF) / U, im0 / U, (dc - OFF) / U,
-                         x[4] // 10**10, (x[4] // 10**7) % 1000, (x[4] // 10**4) % 1000, (x[4] % 10**4) / 100,
+                         (x[4] // 10**10) % 1000, (x[4] // 10**7) % 1000, (x[4] // 10**4) % 1000, (x[4] % 10**4) / 100,
                          (x[5] // 10**8) / 100, ((x[5] // 10**4) % 10**4) / 100, (x[5] % 10**4) / 100,
                          ((x7 // 10**9) % 1000) / 1000, ((x7 // 10**5) % 10**4) / 1e4, (x7 // 10**4) % 10,
                          (x7 // 10**3) % 10, (x7 // 100) % 10, (x7 // 10) % 10, x7 % 10, fe0 / U, fef / U,
-                         x7 // 10**13 - 2, (x7 // 10**12) % 10 - 2, ((x[8] % 10**7) - OFF) / U, (x[8] // 10**7) / 100,
-                         (x[9] // 10**8) / 100, ((x[9] // 10**4) % 10**4) / 100, (x[9] % 10**4) / 100))
+                         (x7 // 10**13) % 10 - 2, (x7 // 10**12) % 10 - 2, ((x[8] % 10**7) - OFF) / U,
+                         (x[8] // 10**7) / 100, ((x[9] // 10**6) % 1000) / 100, ((x[9] // 10**3) % 1000) / 100,
+                         (x[9] % 1000) / 100, x[9] // 10**12, ((x[9] // 10**9) % 1000) / 100, x[4] // 10**13,
+                         x7 // 10**14))
     if left:
         raise ValueError(f"stream ended with {left} name blocks of {day} missing")
     cols = ["k", "entry", "shape", "code", "credit", "den", "pnl_H", "pnl_M1", "pnl_M2", "pnl_M3", "imp_entry",
             "d_close", "x_M1", "x_M2", "x_M3", "spr_entry", "imp_M1", "imp_M2", "imp_M3", "delta", "width_frac",
             "n_entry", "n_flat", "n_M1", "n_M2", "n_M3", "fee_entry", "fee_flat", "nsh_hold", "nsh_flat", "d15",
-            "s_fill", "xfee_M1", "xfee_M2", "xfee_M3"]
+            "s_fill", "xfee_M1", "xfee_M2", "xfee_M3", "flat_orders", "flat_surcharge", "stuck", "direction"]
     rows = pd.DataFrame([r + (np.nan,) * (len(cols) - len(r)) for r in recs], columns=cols)
     nm = pd.DataFrame(names)
     if len(nm):
         got = [opens.get((d, k)) for d, k in zip(nm["date"], nm["nid"])]
         nm["next_open"] = [g[0] if g and g[0] > 0 else np.nan for g in got]
         nm["split_next"] = [int(g[1]) if g else -1 for g in got]   # 1 = a split took effect at the next open
+        nm["close_official"] = [g[2] if g and g[2] > 0 else np.nan for g in got]
     return nm, rows, pd.DataFrame(days, columns=["date", "n_names"])
 
 
@@ -254,6 +257,10 @@ class Panel:
     xpos: np.ndarray            # [NS, NB, NK] stock return from each position's own fill to the close
     orb_dir: np.ndarray         # [NK] breakout direction (1 call, 2 put, 0 none) and its fill minute
     orb_min: np.ndarray
+    flat_orders: np.ndarray     # [NS, NB, NK] orders the 15:50 flatten sent
+    flat_sur: np.ndarray        # [NS, NB, NK] their IBKR $1-per-order surcharge at one lot, dollars per contract-share
+    stuck: np.ndarray           # [NS, NB, NK] legs that mattered but settled at intrinsic without a trade
+    direction: np.ndarray       # [NS, NB, NK] 1 rise, 2 fall (MPD, IFP, IFM), 0 otherwise
 
 
 def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
@@ -278,6 +285,10 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     xpos = np.zeros(shp)
     orb_dir = np.zeros(nk, int)
     orb_min = np.zeros(nk, int)
+    flat_orders = np.zeros(shp, int)
+    flat_sur = np.zeros(shp)
+    stuck = np.zeros(shp, int)
+    direction = np.zeros(shp, int)
     S = np.vstack([names[[f"S_e{x}" for x in range(NE)]].to_numpy().T, names["S_on"].to_numpy()[None, :]])
     if len(rows):
         k = rows["k"].to_numpy(int)
@@ -311,6 +322,10 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
             orb_dir[k[orb]] = xm[orb, 2]
             xm[orb, 1:] = xm[orb, :1]
         xfee[s, e, :, k] = r[["xfee_M1", "xfee_M2", "xfee_M3"]].to_numpy() / 100.0
+        flat_orders[s, e, k] = r["flat_orders"].to_numpy(int)
+        flat_sur[s, e, k] = r["flat_surcharge"].to_numpy() / 100.0
+        stuck[s, e, k] = r["stuck"].to_numpy(int)
+        direction[s, e, k] = r["direction"].to_numpy(int)
         sc = names["S_close"].to_numpy()[k]
         sf = r["s_fill"].to_numpy()
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -339,4 +354,47 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     with np.errstate(divide="ignore", invalid="ignore"):
         xret = np.where(S > 0, Sc[None, :] / S - 1.0, 0.0)
     return Panel(names, opened, code, pnl, hold, cons, d15, nsh_hold, nsh_flat, den, width, net, S, np.nan_to_num(xret),
-                 xmin, fee_entry, fee_flat, n_legs, xfee, xpos, orb_dir, orb_min)
+                 xmin, fee_entry, fee_flat, n_legs, xfee, xpos, orb_dir, orb_min, flat_orders, flat_sur, stuck, direction)
+
+
+# ---------------------------------------------------------------------------------------------------- earnings days
+def earnings_releases(ciks: dict[str, str]) -> pd.DataFrame:
+    """Earnings releases of the run's names from SEC EDGAR (ledger 0.2): every 8-K with Item 2.02, its acceptance
+    time (the submissions JSON is UTC; checked against EDGAR headers on AAPL) converted to New York time, and its
+    reaction day D0 = the acceptance date if accepted before 16:00 ET on a session day, else the next session (a big
+    company's 8-K usually follows a pre-open press release by hours, so an intraday 8-K counts for the whole day).
+    Names without a CIK (QC has none, e.g. some ADRs) are absent: their earnings days are unknown."""
+    from quant.data.sources.sec_cache import submissions
+
+    rows = []
+    for t, cik in sorted(ciks.items()):
+        if not cik:
+            continue
+        rec = submissions(int(cik))
+        if rec is None:
+            continue
+        f = rec["all_filings"]
+        for form, acc, items in zip(f["form"], f["acceptanceDateTime"], f["items"]):
+            if form in ("8-K", "8-K/A") and "2.02" in (items or "").split(","):
+                rows.append((t, str(int(cik)), form, acc))
+    df = pd.DataFrame(rows, columns=["ticker", "cik", "form", "acceptance"])
+    if df.empty:
+        return df.assign(t_et=pd.Series(dtype="datetime64[ns]"), d0=pd.Series(dtype="datetime64[ns]"))
+    ts = pd.to_datetime(df["acceptance"], utc=True).dt.tz_convert("America/New_York").dt.tz_localize(None)
+    df["t_et"] = ts
+    return df
+
+
+def reaction_days(rel: pd.DataFrame, sessions: pd.DatetimeIndex) -> pd.DataFrame:
+    """(cik, d0) of each release on the session calendar: before 16:00 ET on a session -> that session, else the
+    next session."""
+    if rel.empty:
+        return pd.DataFrame(columns=["cik", "d0", "t_et"])
+    s = pd.DatetimeIndex(sessions).sort_values()
+    day = rel["t_et"].dt.normalize()
+    late = rel["t_et"].dt.hour >= 16
+    pos = s.searchsorted(day, side="left")
+    pos = np.where(late | ~day.isin(s), s.searchsorted(day, side="right"), pos)
+    ok = (pos < len(s)) & (day >= s[0]).to_numpy()
+    out = pd.DataFrame({"cik": rel["cik"].to_numpy()[ok], "d0": s[pos[ok]], "t_et": rel["t_et"].to_numpy()[ok]})
+    return out.drop_duplicates(["cik", "d0"]).reset_index(drop=True)

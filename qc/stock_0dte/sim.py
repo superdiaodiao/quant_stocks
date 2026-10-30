@@ -127,8 +127,14 @@ def sane(b, a, entry=False):
     return (a > 0) & (b >= 0) & (b < a) & ((a - b) <= np.maximum(floor, 0.25 * (a + b)))
 
 
+def strict(b, a):
+    """The entry test (5-tick floor): exits on a quote that passes only the SANE_ABS floor fill at the touch."""
+    return sane(b, a, entry=True)
+
+
 class DaySim:
-    """Selection, fills, management and settlement of one position; simx.DaySimX adds the day loop and export."""
+    """Selection, legs, fills, the flatten and settlement; simx.DaySimX adds position management, the day loop, the
+    overnight arm, the breakout and the export."""
 
     def __init__(self, loader):
         self.loader = loader
@@ -378,24 +384,26 @@ class DaySim:
 
     def close_cash(self, legs, B, A, AGE, m, F, age_max, K=None):
         """Close every leg at minute m: cash per share, fees, improvement over the touch, contracts traded, and the
-        longs that could not be sold (held to the close at intrinsic). None if a short cannot be bought back. With K,
-        (short, long) pairs close as one combo whose net cost is capped at the vertical's width."""
+        longs that could not be sold (left to the caller). None if a short cannot be bought back. With K, (short,
+        long) pairs close as one combo whose net cost is capped at the vertical's width. A quote that passes only the
+        SANE_ABS floor fills at the touch whatever F is."""
         fees, imp, n, held = 0.0, 0.0, 0, []
         tk = tick0()
         part = []
         for r, k, qn in legs:
             b, a, ag = B[r, k, m], A[r, k, m], AGE[r, k, m]
             q = abs(qn)
+            FF = F if strict(b, a) else 0.5
             if qn < 0:
                 if not (ag <= age_max and sane(b, a)):
                     return None
-                px = self.px_buy(b, a, F)
+                px = self.px_buy(b, a, FF)
                 part.append(-px * q)
                 fees += float(fee_v(px)) * q / 100.0
                 imp += (a - px) * q
                 n += q
             elif ag <= age_max and b >= tk and sane(b, a):
-                px = self.px_sell(b, a, F)
+                px = self.px_sell(b, a, FF)
                 part.append(px * q)
                 fees += float(fee_v(px)) * q / 100.0
                 imp += (px - b) * q
@@ -429,8 +437,10 @@ class DaySim:
         """Close the legs that still matter (bid >= max(FLAT_BID, 2 ticks) or a strike within FLAT_NEAR of S at
         mflat) at F_FLAT from mflat, retrying until the bar before the close; the others are left to expire. What is
         left or never fills settles at intrinsic at the close (and is returned, for the assignment convention). With
-        pairs, a unit whose legs all matter closes as one combo; a far wing that does not matter never blocks it."""
-        cash, fees, n = 0.0, 0.0, 0
+        pairs, a unit whose legs all matter closes as one combo; a far wing that does not matter never blocks it.
+        Returns cash, fees, contracts, the legs left, the orders sent, the IBKR $1-per-order surcharge of those
+        orders at one lot, and the legs that mattered but settled without a trade."""
+        cash, fees, n, nord, sur, stuck = 0.0, 0.0, 0, 0, 0.0, 0
         rest = []
         M = self.M
         Sm = float(S[mflat])
@@ -458,20 +468,25 @@ class DaySim:
                 cash += c
                 fees += fe
                 n += nn
+                nord += 1
+                sur += max(0.0, 1.0 - (fe * 100.0 - OTHER_FEE * nn))
                 rest.extend(held)                     # longs that cannot be sold: held to the close
+                stuck += len(held)
                 done = True
                 if m > mflat:
                     self.cnt["flatdefer"] += 1
                 break
             if not done:
                 rest.extend(live)
+                stuck += len(live)
                 self.cnt["itmflat"] += 1
         cash += self.settle_value(rest, K, S_close)
-        return cash, fees, n, rest
+        return cash, fees, n, rest, nord, sur, stuck
 
     def exit_value(self, legs, B, A, AGE, F, K=None):
-        """Per minute: cash per share from closing everything at F, net of fees; nan where a short cannot be bought
-        back, 0 for a long that cannot be sold. With K, each vertical's cost is capped at its width."""
+        """Per minute: cash per share from closing everything at F (the touch on floor-only quotes), net of fees; nan
+        where a short cannot be bought back, 0 for a long that cannot be sold. With K, each vertical's cost is capped
+        at its width."""
         tk = tick0()
         if K is not None:
             V = np.zeros(self.M)
@@ -487,146 +502,12 @@ class DaySim:
         for r, k, qn in legs:
             b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]
             ok = sane(b, a)
+            FF = np.where(strict(b, a), F, 0.5)
             q = abs(qn)
             if qn < 0:
-                px = px_buy_v(b, a, F)
+                px = px_buy_v(b, a, FF)
                 V += np.where((ag <= AGE_FILL) & ok, (-px - fee_v(px) / 100.0) * q, np.nan)
             else:
-                px = px_sell_v(b, a, F)
+                px = px_sell_v(b, a, FF)
                 V += np.where((b >= tk) & ok & (ag <= AGE_FILL), (px - fee_v(px) / 100.0) * q, 0.0)
         return V
-
-    # ------------------------------------------------------------------ one position
-    def entry_fill(self, legs, B, A, AGE, mF):
-        """(cash per share, fees, improvement over the touch, summed spread) of opening the legs at mF, or None."""
-        cash0, fee0, imp0, spr0 = 0.0, 0.0, 0.0, 0.0
-        tk = tick0()
-        for r, k, qn in legs:
-            b, a, ag = B[r, k, mF], A[r, k, mF], AGE[r, k, mF]
-            q = abs(qn)
-            spr0 += a - b
-            if not (ag <= AGE_FILL and sane(b, a, entry=True)):
-                return None
-            if qn < 0:
-                if not (b >= tk):
-                    return None
-                px = self.px_sell(b, a, F_ENTRY)
-                cash0 += px * q
-                imp0 += (px - b) * q
-            else:
-                px = self.px_buy(b, a, F_ENTRY)
-                cash0 -= px * q
-                imp0 += (a - px) * q
-            fee0 += float(fee_v(px)) * q / 100.0
-        return cash0, fee0, imp0, spr0
-
-    @staticmethod
-    def risk_base(f, legs, K, net, S0):
-        """Unit denominator (ledger 0.5) or None when the position is not worth opening (net credit < 1 tick)."""
-        kind = KIND[f]
-        tk = tick0()
-        if kind == 0:
-            width = max(abs(K[legs[j][1]] - K[legs[j + 1][1]]) for j in range(0, len(legs), 2))
-            den = width - net
-            return den if (net >= tk and den > 0) else None
-        if kind == 6:
-            # 1:3:2 call fly: worth h_down at the body, h_down - 2 h_up above the top strike, 0 below the bottom one
-            hd = float(K[legs[1][1]] - K[legs[0][1]])
-            hu = float(K[legs[2][1]] - K[legs[1][1]])
-            if hd <= 0 or hu <= 0:
-                return None
-            return max(max(2 * hu - hd, 0.0) - net, 0.25 * hd)
-        if kind == 1:
-            return S0 if net >= tk else None
-        if kind == 2:
-            return -net if net < 0 else None
-        return S0
-
-    def manage(self, si, shape, legs, K, B, A, MID, AGE, S, m0, mflat, S_close, info, cash0, fee0, imp0, spr0, S0,
-               den):
-        """Marks, stops / take-profits from m0 + 1, the 15:50 flatten, the hold-to-close value, the share delivery
-        and the FLAT15 sensitivity of one opened position; returns its export row (simx.pack)."""
-        f = shape[0]
-        kind = KIND[f]
-        tk = tick0()
-        net = cash0 - fee0
-        V = np.zeros(self.M)
-        vok = np.ones(self.M, bool)
-        for r, k, qn in legs:
-            V += qn * np.nan_to_num(MID[r, k], nan=0.0)
-            vok &= ((AGE[r, k] <= AGE_MARK) | (np.nan_to_num(B[r, k]) < tk)) & (AGE[r, k] < 10_000)
-        pairs = kind == 0 or f in VERT_DEBIT
-        fcash, ffee, fn, rest = self.flatten(legs, K, B, A, AGE, S, mflat, S_close, pairs)
-        pnl_flat = net + fcash - ffee
-        pnl_hold = net + self.settle_value(legs, K, S_close)
-        nsh_hold = shares_at(legs, K, S_close)
-        nsh_flat = shares_at(rest, K, S_close)
-        if nsh_flat:
-            self.cnt["leftitm"] += 1
-        # FLAT15: a position that would deliver shares at the 15:00 price is closed then (IBKR may liquidate an
-        # account that cannot take delivery)
-        d15 = 0.0
-        m15 = mindex(15, 0)
-        if m0 < m15 < mflat and shares_at(legs, K, float(S[m15])) != 0:
-            c15, f15, _, _ = self.flatten(legs, K, B, A, AGE, S, m15, S_close, pairs)
-            d15 = (net + c15 - f15) - pnl_flat
-            self.cnt["f15"] += 1
-        pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
-        xmin, ximp, nx, xfee = [0, 0, 0], [0.0, 0.0, 0.0], [0, 0, 0], [0.0, 0.0, 0.0]
-        rng = np.zeros(self.M, bool)
-        if mflat - 2 >= m0 + 1:
-            rng[m0 + 1:mflat - 1] = True
-        rng &= vok
-        if kind in (0, 1):
-            b = max(net, tk)                                   # the credit actually kept after entry fees
-            Vx = self.exit_value(legs, B, A, AGE, F_TP, K if pairs else None)
-            trig = [rng & (-V >= 2 * b), rng & (-V >= 3 * b), rng & (np.nan_to_num(-Vx, nan=1e9) <= 0.75 * b)]
-            fills = (F_STOP, F_STOP, F_TP)
-        elif kind == 2:
-            b = max(-net, tk)                                  # the debit actually paid including entry fees
-            Vx = self.exit_value(legs, B, A, AGE, F_TP, K if pairs else None)
-            trig = [rng & (V <= 0.5 * b), rng & (np.nan_to_num(Vx, nan=-1e9) >= 2 * b),
-                    rng & (np.nan_to_num(Vx, nan=-1e9) >= 3 * b)]
-            fills = (F_STOP, F_TP, F_TP)
-        elif kind == 6:
-            Vx = self.exit_value(legs, B, A, AGE, F_TP)
-            gain = net + np.nan_to_num(Vx, nan=-1e9)
-            trig = [rng & (net + V <= -0.5 * den), rng & (gain >= 0.5 * den), rng & (gain >= 0.3 * den)]
-            fills = (F_STOP, F_TP, F_TP)
-        else:
-            pm = net + V
-            trig = [rng & (pm <= -0.005 * S0), rng & (pm <= -0.010 * S0), rng & (pm >= 0.010 * S0)]
-            fills = (F_STOP, F_STOP, F_TP)
-        if m0 < 0:
-            # overnight arm: the second slot exits at 09:45 on the expiry day (only the overnight is held)
-            t = np.zeros(self.M, bool)
-            t[mindex(9, 45) - 1] = True
-            trig[1] = t
-            fills = (fills[0], F_FLAT, fills[2])
-        for j in range(3):
-            t = trig[j]
-            if not t.any():
-                continue
-            self.cnt["trig"] += 1
-            mt = int(np.argmax(t))
-            for m in range(mt + 1, mflat):
-                res = self.close_cash(legs, B, A, AGE, m, fills[j], AGE_FILL, K if pairs else None)
-                if res is None:
-                    continue
-                c, fe, im, nn, held = res
-                if held:
-                    self.cnt["held"] += 1
-                pnl[j + 1] = net + c - fe + self.settle_value(held, K, S_close)
-                xmin[j] = m + 1
-                ximp[j] = im
-                nx[j] = nn
-                xfee[j] = fe
-                if m > mt + 1:
-                    self.cnt["defer"] += 1
-                break
-        if MECH and nsh_flat and len(self.ftrace) < 15:
-            q = lambda r, k, m: f"{B[r, k, m]:.2f}/{A[r, k, m]:.2f}a{min(99, int(AGE[r, k, m]))}"
-            self.ftrace.append(f"{self.day:%m%d} s{si} S{S[mflat]:.2f}>{S_close:.2f} " + " ".join(
-                f"{'PC'[r]}{K[k]:g}{qn:+d}:{q(r, k, mflat)}>{q(r, k, self.M - 2)}" for r, k, qn in legs))
-        return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee,
-                         spr0, nsh_hold, nsh_flat, d15, S0, xfee)
