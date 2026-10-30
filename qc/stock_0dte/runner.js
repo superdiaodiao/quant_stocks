@@ -5,8 +5,11 @@
 //   optmath / main against the frozen hashes (main before its BOOK and MECH lines are replaced), uploads them, and for
 //   each chunk [first, last] in turn replaces the two lines, uploads main.py, checks the project's files byte for byte,
 //   compiles, runs the backtest "stock_0dte <first>..<last>" and waits for it. While the next chunk runs it reads the
-//   finished one's 100 charts (SX.fetch / SX.stream) and saves stock_0dte_<first>_<last>.json.gz (SX.save) with meta =
-//   {name, bt, pid, book_line, mech_line, hashes, rs}. A chunk that fails is recorded and skipped.
+//   finished one's 100 charts (SX.fetch / SX.stream) over the chunk's own time range and, when the stream is complete
+//   (no bad slot, the run's last sequence number, as many values as the run emitted), saves
+//   stock_0dte_<first>_<last>.json.gz (SX.save) with meta = {name, bt, pid, book_line, mech_line, hashes, rs}. A chunk
+//   that fails is recorded and skipped; an incomplete read is recorded and can be repeated with FR.read(label).
+//   (The chart API returns one point per (end - start) / count seconds: a 1970-2033 range merged the one-minute emits.)
 // FR.st[label]: status, backtest id, progress, read / save result; FR.log: errors; FR.stop = true ends after the current
 //   chunk.
 window.FR = {
@@ -85,13 +88,27 @@ window.FR = {
     st.t1 = Date.now();
     return st;
   },
+  range(label) {
+    const [a, b] = label.split('..');
+    const t0 = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1 - 4, 1) / 1000;                  // before the warm-up
+    const t1 = Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) / 1000 + 40 * 86400;   // after the drain
+    return [t0, t1];
+  },
   async read(label, nch = 100) {
     const st = this.st[label];
     st.read = 'reading';
-    let store = await SX.fetch(__api, st.meta.pid, st.meta.bt, 0, 2000000000, nch);
+    const [t0, t1] = this.range(label);
+    let store = await SX.fetch(__api, st.meta.pid, st.meta.bt, t0, t1, nch);
     const s = SX.stream(store, nch);
     store = null;
-    st.read = `bad ${s.bad} vals ${s.vals.length} lastseq ${s.lastseq} maxPts ${s.maxPts}`;
+    const run = (st.meta.rs || {}).RUN || '';
+    const seq = +((run.match(/ seq (\d+)/) || [])[1]), emitted = +((run.match(/ emitted (\d+)/) || [])[1]);
+    st.read = `bad ${s.bad} vals ${s.vals.length} lastseq ${s.lastseq} maxPts ${s.maxPts} want seq ${seq} emitted ${emitted}`;
+    if (s.bad !== 0 || s.lastseq !== seq || s.vals.length !== emitted) {
+      st.read = 'INCOMPLETE ' + st.read;
+      this.log.push(label + ' read incomplete');
+      return st;
+    }
     const name = `stock_0dte_${label.replace('..', '_')}.json.gz`;
     st.saved = await SX.save({ runs: [{ vals: s.vals, bad: s.bad, nts: s.nts, lastseq: s.lastseq, meta: st.meta }] }, name);
     st.file = name;
