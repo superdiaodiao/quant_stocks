@@ -402,11 +402,9 @@ class DaySim:
         return float(px_buy_v(b, a, F))
 
     def close_cash(self, legs, B, A, AGE, m, F, age_max, K=None):
-        """Close every leg at minute m: cash per share (+ longs sold, - shorts bought back), fees, improvement over
-        the touch, contracts traded, and the long legs that could not be sold here (no bid, or a stale or unusable
-        quote): they are held to the close and settled at intrinsic. None if a short leg cannot be bought back.
-        With K, legs come in (short, long) pairs of one vertical each, closed as one combo order whose net cost is
-        capped at the vertical's width (a dealer does not quote a vertical above its width)."""
+        """Close every leg at minute m: cash per share, fees, improvement over the touch, contracts traded, and the
+        longs that could not be sold (held to the close at intrinsic). None if a short cannot be bought back. With K,
+        (short, long) pairs close as one combo whose net cost is capped at the vertical's width."""
         cash, fees, imp, n, held = 0.0, 0.0, 0.0, 0, []
         tk = tick0()
         part = []
@@ -500,9 +498,8 @@ class DaySim:
         return cash, fees, n, rest
 
     def exit_value(self, legs, B, A, AGE, F, K=None):
-        """Per minute: cash per share from closing everything now at F, net of fees; nan where a short leg cannot
-        be bought back. A long leg that cannot be sold counts 0. With K, each (short, long) vertical's close cost is
-        capped at its width as in close_cash."""
+        """Per minute: cash per share from closing everything at F, net of fees; nan where a short cannot be bought
+        back, 0 for a long that cannot be sold. With K, each vertical's cost is capped at its width."""
         tk = tick0()
         if K is not None:
             V = np.zeros(self.M)
