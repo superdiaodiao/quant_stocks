@@ -35,7 +35,8 @@ class StockZeroDte(QCAlgorithm):
     def initialize(self):
         if BOOK[1] >= DATA_END:
             raise ValueError("BOOK must end before the last data day so the queue can drain")
-        first = BOOK[0] - timedelta(days=45)          # one full month of dollar volume before the first book day
+        prev_month = (BOOK[0].replace(day=1) - timedelta(days=1)).replace(day=1)
+        first = prev_month - timedelta(days=3)        # the whole previous month's dollar volume ranks BOOK[0]'s month
         last = min(DATA_END, BOOK[1] + timedelta(days=10))
         self.set_start_date(first.year, first.month, first.day)
         self.set_end_date(last.year, last.month, last.day)
