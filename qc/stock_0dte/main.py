@@ -458,5 +458,7 @@ class StockZeroDte(QCAlgorithm):
         d = " ".join(f"{v}:{k}" for k, v in sorted(self.ids.items(), key=lambda kv: kv[1]))
         for i in range(0, min(len(d), 200 * 12), 200):
             self.set_runtime_statistic(f"D{i // 200:02d}", d[i:i + 200])
-        for i, x in enumerate(self.sim.trace[:30]):
+        for i, x in enumerate(self.sim.trace[:20]):
             self.set_runtime_statistic(f"TR{i:02d}", x[:200])
+        for i, x in enumerate(self.sim.ftrace[:20]):
+            self.set_runtime_statistic(f"FT{i:02d}", x[:200])
