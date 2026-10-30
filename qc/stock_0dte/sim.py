@@ -1,34 +1,31 @@
-"""Pure-numpy day simulator for the single-stock 0DTE grid (docs/research_ledger_stock_0dte.md, section 0.3).
-QuantConnect project file next to main.py, tested locally by tests/test_stock_0dte_engine.py. Derived from
-qc/zero_dte/sim.py (the frozen QQQ / SPXW engine, untouched); the single-stock changes are listed in ledger 0.3:
-per-class tick grid, a band from the stock's own volatility, 2% / 4% wings, buyer and open-interest structures,
-a 1% flatten window, and the shares a position would deliver if held (next-open assignment convention).
+"""Pure-numpy position engine of the single-stock 0DTE grid (docs/research_ledger_stock_0dte.md, section 0.3).
+QuantConnect project file next to main.py and simx.py (the day loop, overnight arm, breakout, export); tested
+locally by tests/test_stock_0dte_engine.py. Derived from qc/zero_dte/sim.py (the frozen QQQ / SPXW engine, left
+untouched); the single-stock changes are listed in ledger 0.3.
 Minute m: the bar ending 09:31 is m = 0. Quotes: arrays [right (0 put, 1 call), strike, minute], forward-filled
-with their age in minutes; a zero bid is a quote.
+with their age in minutes; a zero bid is a quote. A leg is (right, strike index, signed contracts).
 """
-import math
-import time as _time
-
 import numpy as np
-from scipy.special import ndtr
 
 from optmath import abs_delta, bs, implied_s, max_pain, shares_at  # noqa: F401
 
 ENTRY = ((9, 45), (10, 30), (12, 0), (13, 30), (15, 0))
+ON_BEFORE = 15                                 # overnight arm: enter this many minutes before the previous close
 FLAT_BEFORE = 10                               # flatten this many minutes before the option close (15:50, 12:50)
 DELTAS = (0.05, 0.10, 0.16, 0.25, 0.50)
 WINGS = (0.0, 0.02, 0.04)                      # 0.0 = the adjacent listed strike (~1% of S), else a share of S
 F_ENTRY, F_TP, F_STOP, F_FLAT = 0.25, 0.25, 0.5, 0.5
 AGE_FILL, AGE_MARK = 5, 15                     # max quote age (minutes) to fill / to mark
 
-# kind 0 defined-risk credit, 1 naked credit, 2 debit, 3 risk reversal, 4 delta-hedged straddle
+# kind 0 defined-risk credit, 1 naked credit, 2 debit, 3 risk reversal, 4 delta-hedged straddle, 6 ratio fly
 FAM = ("PCS", "CCS", "IC", "IF", "SP", "SC", "SG", "SD", "LD", "RR", "RRB", "SDH",
-       "LC", "LP", "LG", "DVC", "DVP", "IFP", "IFM", "MPD")
-KIND = (0, 0, 0, 0, 1, 1, 1, 1, 2, 3, 3, 4, 2, 2, 2, 2, 2, 0, 0, 2)
+       "LC", "LP", "LG", "DVC", "DVP", "IFP", "IFM", "MPD", "ORB", "PRF")
+KIND = (0, 0, 0, 0, 1, 1, 1, 1, 2, 3, 3, 4, 2, 2, 2, 2, 2, 0, 0, 2, 2, 6)
 VERT_DEBIT = (15, 16, 19)                      # debit verticals, closed as one combo like the credit verticals
+NO_ON = (10, 11, 20)                           # RRB, SDH and the breakout have no overnight version
 U = 1e3                                        # export scale (dollars per share x U); stocks reach $5,000
 OTHER_FEE = 0.05                               # per contract on top of the IBKR tier (exchange / regulatory)
-FLAT_BID = 0.05                                # at the flatten, legs with at least this bid ...
+FLAT_BID = 0.05                                # at the flatten, legs with at least max(this, 2 ticks) bid ...
 FLAT_NEAR = 0.01                               # ... or a strike within this share of the stock are closed
 NEAR_PIN = 0.02                                # the open-interest pin is looked for within max(2%, 1 daily sd)
 MPD_MIN = 0.005                                # the max-pain vertical needs max pain at least 0.5% away
@@ -65,26 +62,21 @@ def build_shapes():
             out.append((f, d, 0.0))
     for d in (0.10, 0.16, 0.25):
         out.append((6, d, 0.0))
-    out.append((7, 0.50, 0.0))
-    out.append((8, 0.50, 0.0))
-    out.append((9, 0.25, 0.0))
-    out.append((10, 0.50, 0.0))
-    out.append((11, 0.50, 0.0))
+    out += [(7, 0.50, 0.0), (8, 0.50, 0.0), (9, 0.25, 0.0), (10, 0.50, 0.0), (11, 0.50, 0.0)]
     for f in (12, 13):
         for d in (0.05, 0.10, 0.25, 0.50):
             out.append((f, d, 0.0))
-    out.append((14, 0.25, 0.0))
-    out.append((15, 0.50, 0.0))
-    out.append((16, 0.50, 0.0))
+    out += [(14, 0.25, 0.0), (15, 0.50, 0.0), (16, 0.50, 0.0)]
     for f in (17, 18):
         for w in WINGS:
             out.append((f, 0.50, w))
-    out.append((19, 0.50, 0.0))
+    out += [(19, 0.50, 0.0), (20, 0.50, 0.0), (21, 0.50, 0.0)]
     return out
 
 
-SHAPES = build_shapes()                        # 79
+SHAPES = build_shapes()                        # 81
 NS, NE = len(SHAPES), len(ENTRY)
+NB = NE + 1                                    # row blocks per name-day: the five entries, then the overnight arm
 
 
 def mindex(hh, mm):
@@ -134,56 +126,17 @@ def sane(b, a):
 
 
 class DaySim:
-    """One instance per backtest. simulate_day() turns one name-day's minute quotes into export rows."""
+    """Selection, fills, management and settlement of one position; simx.DaySimX adds the day loop and export."""
 
     def __init__(self, loader):
-        self.loader = loader                   # (D, contracts, S, sig) -> (K, B, A, AGE, OI, n_loaded) or None
+        self.loader = loader
         self.cnt = {k: 0 for k in ("open", "nosel", "wingmiss", "covmiss", "stale", "nocredit", "trig", "defer",
-                                   "flatdefer", "itmflat", "held", "noquote", "leftitm")}
+                                   "flatdefer", "itmflat", "held", "noquote", "leftitm", "f15")}
         self.trace = []
         self.ftrace = []
         self.tsim = 0.0
         self.M = 390                           # minutes from 09:31 to the option close (inclusive)
         self.day = None
-
-    def simulate_day(self, D, S, contracts, sig, kmp):
-        """Rows for every (entry, shape), the at-the-money straddle mid and the open-interest pin strike at each
-        entry, and the number of contracts loaded. sig = trailing daily sd of the stock; kmp = max-pain strike."""
-        t1 = _time.time()
-        q = self.loader(D, contracts, S, sig)
-        if q is None:
-            self.cnt["noquote"] += 1
-            return None
-        K, B, A, AGE, OI, nload = q
-        MID = 0.5 * (B + A)
-        SPR = A - B
-        M = self.M
-        mflat = M - 1 - FLAT_BEFORE            # 15:50 (12:50 on a 13:00 close)
-        S_close = float(S[M - 1])
-        rows, strad, pins = [], [0.0] * NE, [0.0] * NE
-        for ei, (hh, mm) in enumerate(ENTRY):
-            mS = mindex(hh, mm)
-            mF = mS + 1
-            if mF >= mflat - 2:
-                rows.extend([[-9.0]] * NS)
-                continue
-            sel, info = self.select(S, K, B, A, MID, SPR, AGE, OI, mS, sig, kmp)
-            strad[ei] = info.get("strad", 0.0)
-            pins[ei] = float(K[info["kpin"]]) if info["kpin"] >= 0 else 0.0
-            for si, shape in enumerate(SHAPES):
-                legs, code = self.legs_for(shape, sel, K, B, A, AGE, mS, info)
-                if legs is None:
-                    self.cnt[{2: "wingmiss", 3: "covmiss", 4: "stale"}.get(code, "nosel")] += 1
-                    rows.append([-float(code)])
-                    continue
-                r = self.run_position(si, shape, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, info)
-                if r is None:
-                    rows.append([-5.0])
-                    continue
-                rows.append(r)
-                self.cnt["open"] += 1
-        self.tsim += _time.time() - t1
-        return rows, strad, pins, nload
 
     # ------------------------------------------------------------------ selection (data at or before mS only)
     @staticmethod
@@ -384,16 +337,30 @@ class DaySim:
             if lp is None or lc is None:
                 return None, (c1 or c2)
             return [(0, kb, -1), (0, lp, 1), (1, kb, -1), (1, lc, 1)], 0
-        # 19: debit vertical from the at-the-money strike towards max pain (calls if max pain is above the stock)
-        kb, k0 = info["kmpi"], info["k0"]
-        if kb < 0 or kb == k0 or abs(K[kb] / s_impl - 1) < MPD_MIN:
-            return None, 1
-        r = 1 if K[kb] > s_impl else 0
-        if (r == 1 and K[kb] <= K[k0]) or (r == 0 and K[kb] >= K[k0]):
-            return None, 1
-        if not (self.buyable(r, k0, A, AGE, mS) and self.sellable(r, kb, B, AGE, mS)):
-            return None, 4
-        return [(r, kb, -1), (r, k0, 1)], 0
+        if f == 19:
+            # debit vertical from the at-the-money strike towards max pain (calls if max pain is above the stock)
+            kb, k0 = info["kmpi"], info["k0"]
+            if kb < 0 or kb == k0 or abs(K[kb] / s_impl - 1) < MPD_MIN:
+                return None, 1
+            r = 1 if K[kb] > s_impl else 0
+            if (r == 1 and K[kb] <= K[k0]) or (r == 0 and K[kb] >= K[k0]):
+                return None, 1
+            if not (self.buyable(r, k0, A, AGE, mS) and self.sellable(r, kb, B, AGE, mS)):
+                return None, 4
+            return [(r, kb, -1), (r, k0, 1)], 0
+        if f == 21:
+            # pin ratio fly (Augen): +1 call one strike below the nearest strike, -3 at it, +2 one strike above;
+            # skipped when the stock sits within the middle half between two strikes
+            kn = int(np.argmin(np.abs(K - s_impl)))
+            if kn < 1 or kn + 1 >= len(K) or not (inb[kn - 1] and inb[kn + 1]):
+                return None, 3
+            if abs(s_impl - K[kn]) > 0.25 * min(K[kn + 1] - K[kn], K[kn] - K[kn - 1]):
+                return None, 1
+            if not (self.buyable(1, kn - 1, A, AGE, mS) and self.buyable(1, kn + 1, A, AGE, mS)
+                    and self.sellable(1, kn, B, AGE, mS)):
+                return None, 4
+            return [(1, kn - 1, 1), (1, kn, -3), (1, kn + 1, 2)], 0
+        return None, 9                                         # the breakout (20) has its own entry rule (simx)
 
     # ------------------------------------------------------------------ fills
     @staticmethod
@@ -408,25 +375,26 @@ class DaySim:
         """Close every leg at minute m: cash per share, fees, improvement over the touch, contracts traded, and the
         longs that could not be sold (held to the close at intrinsic). None if a short cannot be bought back. With K,
         (short, long) pairs close as one combo whose net cost is capped at the vertical's width."""
-        cash, fees, imp, n, held = 0.0, 0.0, 0.0, 0, []
+        fees, imp, n, held = 0.0, 0.0, 0, []
         tk = tick0()
         part = []
         for r, k, qn in legs:
             b, a, ag = B[r, k, m], A[r, k, m], AGE[r, k, m]
+            q = abs(qn)
             if qn < 0:
                 if not (ag <= age_max and sane(b, a)):
                     return None
                 px = self.px_buy(b, a, F)
-                part.append(-px)
-                fees += float(fee_v(px)) / 100.0
-                imp += a - px
-                n += 1
+                part.append(-px * q)
+                fees += float(fee_v(px)) * q / 100.0
+                imp += (a - px) * q
+                n += q
             elif ag <= age_max and b >= tk and sane(b, a):
                 px = self.px_sell(b, a, F)
-                part.append(px)
-                fees += float(fee_v(px)) / 100.0
-                imp += px - b
-                n += 1
+                part.append(px * q)
+                fees += float(fee_v(px)) * q / 100.0
+                imp += (px - b) * q
+                n += q
             else:
                 part.append(None)
                 held.append((r, k, qn))        # never given away: held to the close and settled at intrinsic
@@ -453,19 +421,19 @@ class DaySim:
         return v
 
     def flatten(self, legs, K, B, A, AGE, S, mflat, S_close, pairs=False):
-        """Close the legs that still matter (bid >= FLAT_BID or a strike within FLAT_NEAR of S at mflat) at F_FLAT
-        from mflat, retrying until the bar before the close; the others are left to expire. Whatever is left or never
-        fills settles at intrinsic at the close (and is returned, for the assignment convention). With pairs, a unit
-        whose legs all matter is closed as one combo (see close_cash); a far wing that does not matter never blocks
-        the close of the legs that do."""
+        """Close the legs that still matter (bid >= max(FLAT_BID, 2 ticks) or a strike within FLAT_NEAR of S at
+        mflat) at F_FLAT from mflat, retrying until the bar before the close; the others are left to expire. What is
+        left or never fills settles at intrinsic at the close (and is returned, for the assignment convention). With
+        pairs, a unit whose legs all matter closes as one combo; a far wing that does not matter never blocks it."""
         cash, fees, n = 0.0, 0.0, 0
         rest = []
         M = self.M
         Sm = float(S[mflat])
+        bmin = max(FLAT_BID, 2 * tick0())
 
         def matters(leg):
             r, k, _ = leg
-            return (np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= FLAT_NEAR
+            return (np.nan_to_num(B[r, k, mflat]) >= bmin) or abs(K[k] / Sm - 1) <= FLAT_NEAR
 
         units = [legs[j:j + 2] for j in range(0, len(legs), 2)] if pairs else [[leg] for leg in legs]
         if pairs and len(units) == 2 and all(matters(x) for x in legs):
@@ -493,10 +461,6 @@ class DaySim:
             if not done:
                 rest.extend(live)
                 self.cnt["itmflat"] += 1
-                if MECH and len(self.ftrace) < 20:
-                    q = lambda r, k, m: f"{B[r, k, m]:.2f}/{A[r, k, m]:.2f}a{min(99, int(AGE[r, k, m]))}"
-                    self.ftrace.append(f"{self.day:%m%d} S{Sm:.2f} " + " ".join(
-                        f"{'PC'[r]}{K[k]:g}{'+' if qn > 0 else '-'}:{q(r, k, mflat)}>{q(r, k, M - 2)}" for r, k, qn in live))
         cash += self.settle_value(rest, K, S_close)
         return cash, fees, n, rest
 
@@ -518,64 +482,65 @@ class DaySim:
         for r, k, qn in legs:
             b, a, ag = np.nan_to_num(B[r, k]), np.nan_to_num(A[r, k]), AGE[r, k]
             ok = sane(b, a)
+            q = abs(qn)
             if qn < 0:
                 px = px_buy_v(b, a, F)
-                v = -px - fee_v(px) / 100.0
-                V += np.where((ag <= AGE_FILL) & ok, v, np.nan)
+                V += np.where((ag <= AGE_FILL) & ok, (-px - fee_v(px) / 100.0) * q, np.nan)
             else:
                 px = px_sell_v(b, a, F)
-                v = np.where((b >= tk) & ok & (ag <= AGE_FILL), px - fee_v(px) / 100.0, 0.0)
-                V += v
+                V += np.where((b >= tk) & ok & (ag <= AGE_FILL), (px - fee_v(px) / 100.0) * q, 0.0)
         return V
 
     # ------------------------------------------------------------------ one position
-    def run_position(self, si, shape, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, info):
-        f = shape[0]
-        kind = KIND[f]
-        tk = tick0()
-        # entry fill at mF (one minute after selection)
+    def entry_fill(self, legs, B, A, AGE, mF):
+        """(cash per share, fees, improvement over the touch, summed spread) of opening the legs at mF, or None."""
         cash0, fee0, imp0, spr0 = 0.0, 0.0, 0.0, 0.0
+        tk = tick0()
         for r, k, qn in legs:
             b, a, ag = B[r, k, mF], A[r, k, mF], AGE[r, k, mF]
+            q = abs(qn)
             spr0 += a - b
             if not (ag <= AGE_FILL and sane(b, a)):
-                self.cnt["stale"] += 1
                 return None
             if qn < 0:
                 if not (b >= tk):
-                    self.cnt["stale"] += 1
                     return None
                 px = self.px_sell(b, a, F_ENTRY)
-                cash0 += px
-                imp0 += px - b
+                cash0 += px * q
+                imp0 += (px - b) * q
             else:
                 px = self.px_buy(b, a, F_ENTRY)
-                cash0 -= px
-                imp0 += a - px
-            fee0 += float(fee_v(px)) / 100.0
-        S0 = float(S[mF])
-        net = cash0 - fee0
+                cash0 -= px * q
+                imp0 += (a - px) * q
+            fee0 += float(fee_v(px)) * q / 100.0
+        return cash0, fee0, imp0, spr0
+
+    @staticmethod
+    def risk_base(f, legs, K, net, S0):
+        """Unit denominator (ledger 0.5) or None when the position is not worth opening (net credit < 1 tick)."""
+        kind = KIND[f]
+        tk = tick0()
         if kind == 0:
             width = max(abs(K[legs[j][1]] - K[legs[j + 1][1]]) for j in range(0, len(legs), 2))
             den = width - net
-            if net < tk or den <= 0:
-                self.cnt["nocredit"] += 1
-                return None
-        elif kind == 1:
-            if net < tk:
-                self.cnt["nocredit"] += 1
-                return None
-            den = S0
-        elif kind == 2:
-            den = -net
-            if den <= 0:
-                self.cnt["nocredit"] += 1
-                return None
-        else:
-            den = S0
-        if kind == 4:
-            return self.run_sdh(legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, imp0, spr0, den, info, shape)
-        # marks: value to us of the legs at mid; a leg that still shows a bid must have a recent quote
+            return den if (net >= tk and den > 0) else None
+        if kind == 6:
+            step = float(K[legs[2][1]] - K[legs[1][1]])           # 1:3:2 call fly: worst case loses one strike step
+            return max(step - net, 0.25 * step) if step > 0 else None
+        if kind == 1:
+            return S0 if net >= tk else None
+        if kind == 2:
+            return -net if net < 0 else None
+        return S0
+
+    def manage(self, si, shape, legs, K, B, A, MID, AGE, S, m0, mflat, S_close, info, cash0, fee0, imp0, spr0, S0,
+               den):
+        """Marks, stops / take-profits from m0 + 1, the 15:50 flatten, the hold-to-close value, the share delivery
+        and the FLAT15 sensitivity of one opened position; returns its export row (simx.pack)."""
+        f = shape[0]
+        kind = KIND[f]
+        tk = tick0()
+        net = cash0 - fee0
         V = np.zeros(self.M)
         vok = np.ones(self.M, bool)
         for r, k, qn in legs:
@@ -589,11 +554,19 @@ class DaySim:
         nsh_flat = shares_at(rest, K, S_close)
         if nsh_flat:
             self.cnt["leftitm"] += 1
+        # FLAT15: a position that would deliver shares at the 15:00 price is closed then (IBKR may liquidate an
+        # account that cannot take delivery)
+        d15 = 0.0
+        m15 = mindex(15, 0)
+        if m0 < m15 < mflat and shares_at(legs, K, float(S[m15])) != 0:
+            c15, f15, _, _ = self.flatten(legs, K, B, A, AGE, S, m15, S_close, pairs)
+            d15 = (net + c15 - f15) - pnl_flat
+            self.cnt["f15"] += 1
         pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
         xmin, ximp, nx = [0, 0, 0], [0.0, 0.0, 0.0], [0, 0, 0]
         rng = np.zeros(self.M, bool)
-        if mflat - 2 >= mF + 1:
-            rng[mF + 1:mflat - 1] = True
+        if mflat - 2 >= m0 + 1:
+            rng[m0 + 1:mflat - 1] = True
         rng &= vok
         if kind in (0, 1):
             b = max(net, tk)                                   # the credit actually kept after entry fees
@@ -606,6 +579,11 @@ class DaySim:
             trig = [rng & (V <= 0.5 * b), rng & (np.nan_to_num(Vx, nan=-1e9) >= 2 * b),
                     rng & (np.nan_to_num(Vx, nan=-1e9) >= 3 * b)]
             fills = (F_STOP, F_TP, F_TP)
+        elif kind == 6:
+            Vx = self.exit_value(legs, B, A, AGE, F_TP)
+            gain = net + np.nan_to_num(Vx, nan=-1e9)
+            trig = [rng & (net + V <= -0.5 * den), rng & (gain >= 0.5 * den), rng & (gain >= 0.3 * den)]
+            fills = (F_STOP, F_TP, F_TP)
         else:
             pm = net + V
             trig = [rng & (pm <= -0.005 * S0), rng & (pm <= -0.010 * S0), rng & (pm >= 0.010 * S0)]
@@ -615,8 +593,8 @@ class DaySim:
             if not t.any():
                 continue
             self.cnt["trig"] += 1
-            m0 = int(np.argmax(t))
-            for m in range(m0 + 1, mflat):
+            mt = int(np.argmax(t))
+            for m in range(mt + 1, mflat):
                 res = self.close_cash(legs, B, A, AGE, m, fills[j], AGE_FILL, K if pairs else None)
                 if res is None:
                     continue
@@ -627,67 +605,12 @@ class DaySim:
                 xmin[j] = m + 1
                 ximp[j] = im
                 nx[j] = nn
-                if m > m0 + 1:
+                if m > mt + 1:
                     self.cnt["defer"] += 1
                 break
-        if MECH and len(self.trace) < 40 and si in (6, 21, 33, 46, 50, 63, 70, 73, 78) and mF in (15, 150):
-            self.trace.append(f"{self.day:%m%d} s{si} m{mF} " + "/".join(f"{'PC'[r]}{K[k]:g}{'+' if q > 0 else '-'}" for r, k, q in legs)
-                              + f" S{S0:.2f} c{cash0:.3f} f{fee0:.3f} den{den:.3f} p" + "/".join(f"{x:.3f}" for x in pnl)
-                              + f" h{pnl_hold:.3f} n{nsh_hold}/{nsh_flat} x{xmin} Sc{S_close:.2f}")
+        if MECH and nsh_flat and len(self.ftrace) < 15:
+            q = lambda r, k, m: f"{B[r, k, m]:.2f}/{A[r, k, m]:.2f}a{min(99, int(AGE[r, k, m]))}"
+            self.ftrace.append(f"{self.day:%m%d} s{si} S{S[mflat]:.2f}>{S_close:.2f} " + " ".join(
+                f"{'PC'[r]}{K[k]:g}{qn:+d}:{q(r, k, mflat)}>{q(r, k, self.M - 2)}" for r, k, qn in legs))
         return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee,
-                         spr0, nsh_hold, nsh_flat)
-
-    def run_sdh(self, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, imp0, spr0, den, info, shape):
-        """Short ATM straddle hedged with the underlying every 15 minutes to the Black-Scholes delta (report only)."""
-        k0 = legs[0][1]
-        cost = 0.0001                        # per unit of underlying traded, as a fraction of S (1 bp for stocks)
-        h, hcash = 0.0, 0.0
-        for m in range(mF, mflat, 15):
-            if AGE[1, k0, m] > AGE_MARK:
-                continue
-            Sm = float(S[m])
-            cm = MID[1, k0, m]
-            if not np.isnan(cm) and cm > 0:
-                sv = implied_s(Sm, np.array([K[k0]]), np.array([cm]), False)[0]
-                if not np.isnan(sv):
-                    d1 = math.log(Sm / K[k0]) / sv + 0.5 * sv
-                    tgt = 2.0 * float(ndtr(d1)) - 1.0
-                    hcash -= (tgt - h) * Sm + abs(tgt - h) * cost * Sm
-                    h = tgt
-        Sf = float(S[mflat])
-        fcash, ffee, fn, rest = self.flatten(legs, K, B, A, AGE, S, mflat, S_close)
-        net = cash0 - fee0
-        pnl_flat = net + fcash - ffee + hcash + h * Sf - abs(h) * cost * Sf
-        pnl_hold = net + self.settle_value(legs, K, S_close) + hcash + h * S_close - abs(h) * cost * S_close
-        pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
-        return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, [0, 0, 0], [0.0, 0.0, 0.0], legs, fn, [0, 0, 0],
-                         info, shape, fee0, ffee, spr0, shares_at(legs, K, S_close), shares_at(rest, K, S_close))
-
-    # ------------------------------------------------------------------ export (8 exact integers per position)
-    def pack(self, cash0, den, pnl, imp0, d_close, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee, spr0,
-             nsh_hold, nsh_flat):
-        def p7(x):
-            return min(9_999_999, max(0, int(round(x * U)) + OFF))
-
-        def c4(x):                                             # cents, 0..9999
-            return min(9999, max(0, int(round(x * 100))))
-
-        x1 = float(p7(cash0) * 10**7 + min(9_999_999, max(0, int(round(den * U)))))
-        x2 = float(p7(pnl[0]) * 10**7 + p7(pnl[1]))
-        x3 = float(p7(pnl[2]) * 10**7 + p7(pnl[3]))
-        x4 = float(min(9_999_999, int(round(imp0 * U))) * 10**7 + p7(d_close))
-        x5 = float(min(999, xmin[0]) * 10**10 + min(999, xmin[1]) * 10**7 + min(999, xmin[2]) * 10**4 + c4(spr0))
-        x6 = float(c4(ximp[0]) * 10**8 + c4(ximp[1]) * 10**4 + c4(ximp[2]))
-        f = shape[0]
-        sh = [(r, k) for r, k, qn in legs if qn < 0] or [(r, k) for r, k, qn in legs]
-        dd = info["dlk"].get(sh[0]) if sh else None
-        dl = min(999, int(round(dd * 1000))) if dd else 0
-        wbp = 0
-        if KIND[f] == 0 or f in VERT_DEBIT:
-            wbp = min(9999, int(round(1e4 * abs(info["K"][legs[0][1]] - info["K"][legs[1][1]]) / info["s_impl"])))
-        ne = len(legs)
-        nsh = (max(-2, min(2, nsh_hold)) + 2) * 10 + (max(-2, min(2, nsh_flat)) + 2)
-        x7 = float(nsh * 10**12 + dl * 10**9 + wbp * 10**5 + ne * 10**4 + min(9, fn) * 10**3 + min(9, nx[0]) * 100
-                   + min(9, nx[1]) * 10 + min(9, nx[2]))
-        x8 = float(min(9_999_999, int(round(fee0 * U))) * 10**7 + min(9_999_999, int(round(ffee * U))))
-        return [x1, x2, x3, x4, x5, x6, x7, x8]
+                         spr0, nsh_hold, nsh_flat, d15)

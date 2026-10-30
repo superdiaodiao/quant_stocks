@@ -27,7 +27,7 @@ import pandas as pd
 from quant.paths import ROOT
 
 QC_DIR = ROOT / "qc" / "stock_0dte"
-HEADER = 25
+HEADER = 28
 OFF = 5_000_000
 CODES = {1: "nosel", 2: "wingmiss", 3: "covmiss", 4: "stale", 5: "nocredit", 9: "too_late"}
 MGMT = ("H", "M1", "M2", "M3")
@@ -38,7 +38,8 @@ OPEN_MARK = 970_000_000_000_000
 
 
 def load_sim():
-    """qc/stock_0dte/sim.py as a module (scipy.special stubbed when the local venv lacks scipy)."""
+    """qc/stock_0dte/sim.py as a module (scipy.special stubbed when the local venv lacks scipy). The engine files
+    import each other by name (sim, simx, optmath), as on QuantConnect, so the directory goes on sys.path."""
     try:
         import scipy.special  # noqa: F401
     except ImportError:
@@ -50,9 +51,9 @@ def load_sim():
         sys.modules["scipy.special"] = sps
     if str(QC_DIR) not in sys.path:
         sys.path.insert(0, str(QC_DIR))
-    spec = importlib.util.spec_from_file_location("stock_0dte_sim", QC_DIR / "sim.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = importlib.import_module("sim")
+    if Path(mod.__file__).resolve() != (QC_DIR / "sim.py").resolve():
+        raise ImportError(f"'sim' resolves to {mod.__file__}, not {QC_DIR / 'sim.py'}")
     return mod
 
 
@@ -62,7 +63,7 @@ FAM = SIM.FAM
 KIND = SIM.KIND
 ENTRY = SIM.ENTRY
 U = SIM.U
-NS, NE = len(SHAPES), len(ENTRY)
+NS, NE, NB = len(SHAPES), len(ENTRY), SIM.NB                # NB row blocks: the five entries, then the overnight arm
 
 
 def shape_name(si: int) -> str:
@@ -73,7 +74,7 @@ def shape_name(si: int) -> str:
         return f"{fam}{d:.2f}-{wl}"
     if fam in ("IF", "IFP", "IFM"):
         return f"{fam}-{wl}"
-    if fam in ("SD", "LD", "SDH", "RRB", "DVC", "DVP", "MPD"):
+    if fam in ("SD", "LD", "SDH", "RRB", "DVC", "DVP", "MPD", "ORB", "PRF"):
         return fam
     return f"{fam}{d:.2f}"
 
@@ -126,17 +127,18 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
         half, status = (flags // 10**12) % 10, (flags // 10**11) % 10
         nchain, nload = (flags // 10**6) % 10**4, (flags // 10**2) % 10**4
         penny, sig_ok = (flags // 10) % 10, flags % 10
-        nrows = h[24]
+        nrows = h[27]
         names.append({"date": d, "nid": nid, "name": ids.get(nid, f"#{nid}"), "half": half, "status": status,
                       "nchain": nchain, "nload": nload, "penny": penny, "sig_ok": sig_ok,
                       "S_open": h[2] / U, "S_close": h[3] / U, "prev_close": h[4] / U, "sig": h[5] / 1e6 if sig_ok else np.nan,
                       "kmp": h[6] / U if h[6] else np.nan, "rank": h[7] // 10**6, "nreal": h[7] % 10**6,
                       "vix_prev": h[8] / 100 if h[8] else np.nan,
                       **{f"S_e{e}": h[9 + e] / U for e in range(NE)}, **{f"strad_e{e}": h[14 + e] / U for e in range(NE)},
-                      **{f"pin_e{e}": (h[19 + e] / U if h[19 + e] else np.nan) for e in range(NE)}})
+                      **{f"pin_e{e}": (h[19 + e] / U if h[19 + e] else np.nan) for e in range(NE)},
+                      "rank_on": h[24], "S_on": h[25] / U if h[25] else np.nan, "strad_on": h[26] / U if h[26] else np.nan})
         i += HEADER
-        if nrows and nrows != NS * NE:
-            raise ValueError(f"{d.date()} {nid}: {nrows} rows, expected {NS * NE}")
+        if nrows and nrows != NS * NB:
+            raise ValueError(f"{d.date()} {nid}: {nrows} rows, expected {NS * NB}")
         k = len(names) - 1
         for r in range(nrows):
             e, si = divmod(r, NS)
@@ -145,8 +147,8 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
                 recs.append((k, e, si, int(-x1)))
                 i += 1
                 continue
-            x = [int(t) for t in vals[i:i + 8]]
-            i += 8
+            x = [int(t) for t in vals[i:i + 9]]
+            i += 9
             c, den = _two(x[0])
             ph, p1 = _two(x[1])
             p2, p3 = _two(x[2])
@@ -159,12 +161,12 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
                          (x[5] // 10**8) / 100, ((x[5] // 10**4) % 10**4) / 100, (x[5] % 10**4) / 100,
                          ((x7 // 10**9) % 1000) / 1000, ((x7 // 10**5) % 10**4) / 1e4, (x7 // 10**4) % 10,
                          (x7 // 10**3) % 10, (x7 // 100) % 10, (x7 // 10) % 10, x7 % 10, fe0 / U, fef / U,
-                         x7 // 10**13 - 2, (x7 // 10**12) % 10 - 2))
+                         x7 // 10**13 - 2, (x7 // 10**12) % 10 - 2, (x[8] - OFF) / U))
     if left:
         raise ValueError(f"stream ended with {left} name blocks of {day} missing")
     cols = ["k", "entry", "shape", "code", "credit", "den", "pnl_H", "pnl_M1", "pnl_M2", "pnl_M3", "imp_entry",
             "d_close", "x_M1", "x_M2", "x_M3", "spr_entry", "imp_M1", "imp_M2", "imp_M3", "delta", "width_frac",
-            "n_entry", "n_flat", "n_M1", "n_M2", "n_M3", "fee_entry", "fee_flat", "nsh_hold", "nsh_flat"]
+            "n_entry", "n_flat", "n_M1", "n_M2", "n_M3", "fee_entry", "fee_flat", "nsh_hold", "nsh_flat", "d15"]
     rows = pd.DataFrame([r + (np.nan,) * (len(cols) - len(r)) for r in recs], columns=cols)
     nm = pd.DataFrame(names)
     if len(nm):
@@ -207,8 +209,9 @@ def read_exports(paths) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[
 
 
 # ---------------------------------------------------------------------------------------------------- panel
-# Per-position arrays over (shape, entry, management, name-day), the input of studies/stock_0dte.py (ledger 0.5).
-TP_MGMT = {0: (3,), 1: (3,), 2: (2, 3), 3: (3,), 4: ()}       # management indices whose exit is a take-profit (F 0.25)
+# Per-position arrays over (shape, block, management, name-day), the input of studies/stock_0dte.py (ledger 0.5).
+# Block e < NE is the same-day entry ENTRY[e]; block NE is the overnight arm (entered at the previous close).
+TP_MGMT = {0: (3,), 1: (3,), 2: (2, 3), 3: (3,), 4: (), 6: (2, 3)}   # management slots that exit as take-profits
 CONS_FEE = 0.30                                                 # extra per contract in the conservative execution
 DEN_FLOOR = 0.25                                                # risk base of defined-risk structures >= 0.25 x width
 
@@ -216,41 +219,44 @@ DEN_FLOOR = 0.25                                                # risk base of d
 @dataclass
 class Panel:
     names: pd.DataFrame         # one row per name-day (header fields)
-    opened: np.ndarray          # bool [NS, NE, NK]
-    code: np.ndarray            # int  [NS, NE, NK]: 0 opened, >0 why not, -1 no row
-    pnl: np.ndarray             # [NS, NE, 4, NK] 15:50-flatten convention, dollars per share (0 where not opened)
-    hold: np.ndarray            # [NS, NE, 4, NK] held to the close at intrinsic
-    cons: np.ndarray            # [NS, NE, 4, NK] conservative-execution adjustment (<= 0) to add to pnl
-    nsh_hold: np.ndarray        # [NS, NE, NK] shares delivered per contract-share if held to the close
-    nsh_flat: np.ndarray        # [NS, NE, NK] shares delivered by legs left to expire after the flatten
-    den: np.ndarray             # [NS, NE, NK] risk base after the floor (NaN where not opened)
-    width: np.ndarray           # [NS, NE, NK] wing width per share (verticals / condors / flies, else NaN)
-    net: np.ndarray             # [NS, NE, NK] credit kept after entry fees (debit: negative)
-    s0: np.ndarray              # [NE, NK] stock at the fill minute
-    xret: np.ndarray            # [NE, NK] stock return from the fill minute to the close
-    xmin: np.ndarray            # [NS, NE, 3, NK] exit minute of M1..M3 (0 = none)
-    fee_entry: np.ndarray       # [NS, NE, NK]
-    fee_flat: np.ndarray        # [NS, NE, NK]
-    n_legs: np.ndarray          # [NS, NE, NK]
+    opened: np.ndarray          # bool [NS, NB, NK]
+    code: np.ndarray            # int  [NS, NB, NK]: 0 opened, >0 why not, -1 no row
+    pnl: np.ndarray             # [NS, NB, 4, NK] 15:50-flatten convention, dollars per share (0 where not opened)
+    hold: np.ndarray            # [NS, NB, 4, NK] held to the close at intrinsic
+    cons: np.ndarray            # [NS, NB, 4, NK] conservative-execution adjustment (<= 0) to add to pnl
+    d15: np.ndarray             # [NS, NB, NK] FLAT15 minus FLAT for the hold-to-15:50 slot
+    nsh_hold: np.ndarray        # [NS, NB, NK] shares delivered per contract-share if held to the close
+    nsh_flat: np.ndarray        # [NS, NB, NK] shares delivered by legs left to expire after the flatten
+    den: np.ndarray             # [NS, NB, NK] risk base after the floor (NaN where not opened)
+    width: np.ndarray           # [NS, NB, NK] wing width per share (verticals / condors / flies, else NaN)
+    net: np.ndarray             # [NS, NB, NK] credit kept after entry fees (debit: negative)
+    s0: np.ndarray              # [NB, NK] stock at the fill minute (overnight: the previous session's fill)
+    xret: np.ndarray            # [NB, NK] stock return from the fill to the expiry-day close
+    xmin: np.ndarray            # [NS, NB, 3, NK] exit minute of M1..M3 (0 = none)
+    fee_entry: np.ndarray       # [NS, NB, NK]
+    fee_flat: np.ndarray        # [NS, NB, NK]
+    n_legs: np.ndarray          # [NS, NB, NK] contracts traded at entry
 
 
 def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     nk = len(names)
-    shp = (NS, NE, nk)
+    shp = (NS, NB, nk)
     opened = np.zeros(shp, bool)
     code = np.full(shp, -1, int)
-    pnl = np.zeros((NS, NE, 4, nk))
-    hold = np.zeros((NS, NE, 4, nk))
-    cons = np.zeros((NS, NE, 4, nk))
+    pnl = np.zeros((NS, NB, 4, nk))
+    hold = np.zeros((NS, NB, 4, nk))
+    cons = np.zeros((NS, NB, 4, nk))
+    d15 = np.zeros(shp)
     nsh_hold = np.zeros(shp, int)
     nsh_flat = np.zeros(shp, int)
     den = np.full(shp, np.nan)
     width = np.full(shp, np.nan)
     net = np.full(shp, np.nan)
-    xmin = np.zeros((NS, NE, 3, nk), int)
+    xmin = np.zeros((NS, NB, 3, nk), int)
     fee_entry = np.zeros(shp)
     fee_flat = np.zeros(shp)
     n_legs = np.zeros(shp, int)
+    S = np.vstack([names[[f"S_e{x}" for x in range(NE)]].to_numpy().T, names["S_on"].to_numpy()[None, :]])
     if len(rows):
         k = rows["k"].to_numpy(int)
         s, e = rows["shape"].to_numpy(int), rows["entry"].to_numpy(int)
@@ -266,14 +272,15 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
         wd = np.where(kind == 0, dn + nt, np.nan)               # den = width - net for defined-risk structures
         dn_eff = np.where(kind == 0, np.maximum(dn, DEN_FLOOR * wd), dn)
         den[s, e, k], net[s, e, k] = dn_eff, nt
-        # debit verticals export their width as a share of the parity price; the fill-minute price stands in for it
-        s_fill = names[[f"S_e{x}" for x in range(NE)]].to_numpy()[k, e]
-        width[s, e, k] = np.where(kind == 0, wd, np.where(vert, r["width_frac"].to_numpy() * s_fill, np.nan))
+        # debit verticals and the ratio fly export their width as a share of the parity price; the fill price stands in
+        wf = r["width_frac"].to_numpy() * S[e, k]
+        width[s, e, k] = np.where(kind == 0, wd, np.where(vert | (kind == 6), wf, np.nan))
         fee_entry[s, e, k] = r["fee_entry"].to_numpy()
         fee_flat[s, e, k] = r["fee_flat"].to_numpy()
         n_legs[s, e, k] = r["n_entry"].to_numpy()
         nsh_hold[s, e, k] = r["nsh_hold"].to_numpy(int)
         nsh_flat[s, e, k] = r["nsh_flat"].to_numpy(int)
+        d15[s, e, k] = r["d15"].to_numpy()
         flat = r[["pnl_H", "pnl_M1", "pnl_M2", "pnl_M3"]].to_numpy()
         xm = r[["x_M1", "x_M2", "x_M3"]].to_numpy()
         live = np.column_stack([np.ones(len(r), bool), xm == 0])  # still open at the flatten
@@ -292,13 +299,12 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
                 adj = base - CONS_FEE / 100.0 * n_exit_flat
             else:
                 exited = xm[:, m - 1] > 0
-                tp = np.array([m in TP_MGMT[q] for q in kind])
+                tp = np.array([m in TP_MGMT.get(q, ()) for q in kind])
                 adj = base - np.where(exited, CONS_FEE / 100.0 * nx[:, m - 1] + np.where(tp, imp[:, m - 1], 0.0),
                                       CONS_FEE / 100.0 * n_exit_flat)
             cons[s, e, m, k] = adj
-    S = names[[f"S_e{x}" for x in range(NE)]].to_numpy().T
     Sc = names["S_close"].to_numpy()
     with np.errstate(divide="ignore", invalid="ignore"):
         xret = np.where(S > 0, Sc[None, :] / S - 1.0, 0.0)
-    return Panel(names, opened, code, pnl, hold, cons, nsh_hold, nsh_flat, den, width, net, S, xret, xmin, fee_entry,
-                 fee_flat, n_legs)
+    return Panel(names, opened, code, pnl, hold, cons, d15, nsh_hold, nsh_flat, den, width, net, S, np.nan_to_num(xret),
+                 xmin, fee_entry, fee_flat, n_legs)

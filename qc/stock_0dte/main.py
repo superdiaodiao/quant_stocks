@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 import sim as Z
+from simx import DaySimX
 
 # Registered in docs/research_ledger_stock_0dte.md (section 0) before any grid result.
 # Only BOOK and MECH differ between the registered runs (one run per chunk of book days).
@@ -17,7 +18,7 @@ MECH = True                                    # True only for the registered me
 TOPN = 20                                      # names simulated each 0DTE day: the month's top 20 by dollar volume
 NCH = 100                                      # export charts x 10 series, one point per series per emit (chartcap.py)
 MAX_EMITS = 3990                               # a series keeps 4,000 points; later ones would be thinned away
-HEADER = 25                                    # values per name-day header (the last one is the row count)
+HEADER = 28                                    # values per name-day header (the last one is the row count)
 MAX_PRICE = 10_000.0                           # BRK.A (no listed options) would otherwise take a slot
 DATA_END = date(2026, 7, 30)
 NY = "America/New_York"
@@ -27,11 +28,11 @@ NE = Z.NE
 
 
 class StockZeroDte(QCAlgorithm):
-    """Paper books (no orders) for the single-stock 0DTE grid in sim.py. At each session's close, every member of
-    the month's dollar-volume list with same-day-expiry contracts (Fridays and holiday Thursdays; from 2026 also
-    Mondays and Wednesdays for the largest names) is simulated from one minute-QuoteBar history pull; header and
-    position rows are queued and drained into chart points over the following minutes (SPY minute bars are the
-    clock)."""
+    """Paper books (no orders) for the single-stock 0DTE grid in sim.py / simx.py. At each session's close every
+    member of the month's dollar-volume list with same-day-expiry contracts (Fridays and holiday Thursdays; from 2026
+    also Mondays and Wednesdays for the largest names) is simulated from one minute-QuoteBar history pull, and every
+    member whose next session is an expiry opens the overnight arm on those contracts. Header and position rows are
+    queued and drained into chart points over the following minutes (SPY minute bars are the clock)."""
 
     def initialize(self):
         if BOOK[1] >= DATA_END:
@@ -55,18 +56,21 @@ class StockZeroDte(QCAlgorithm):
         self.openc = {}
         self.opt_tz = None
         self.errs = []
-        self.cnt = {k: 0 for k in ("days", "names", "z", "half", "split", "nosplitchk", "thin", "rows", "penny0")}
+        self.cnt = {k: 0 for k in ("days", "names", "z", "half", "split", "nosplitchk", "thin", "rows", "penny0",
+                                   "on_open", "on_lost")}
         self.t0 = _time.time()
         self.thist = 0.0
         self.queue = []
         self.qpos = 0
         self.seq = 0
         self.emitted = 0
-        self.sim = Z.DaySim(self.load_quotes)
+        self.sim = DaySimX(self.load_quotes)
         self.cur_day = None
         self.close_t = time(16, 0)
         self.done_day = None
         self.pending_open = None
+        self.on_book = {}                              # symbol -> overnight positions expiring today (from yesterday)
+        self.penny = 1
         self.final = False
 
     def err(self, tag, e):
@@ -113,7 +117,7 @@ class StockZeroDte(QCAlgorithm):
                 else:
                     v[0] += float(f.dollar_volume)
                     v[1] += 1
-        return self.members if self.members else [self.spy]
+        return list({s: 1 for s in self.members + list(self.on_book)}.keys()) or [self.spy]
 
     # ------------------------------------------------------------------ clock
     def on_data(self, data):
@@ -129,11 +133,11 @@ class StockZeroDte(QCAlgorithm):
         self.done_day = D
         if self.pending_open:
             self.next_opens(D)
-        if BOOK[0] <= D <= BOOK[1] and self.members:
-            nxt = D + timedelta(days=1)
-            low = D.weekday() == 4 or (D.weekday() == 3 and not self.is_open(nxt))
+        N = self.next_session(D)
+        if self.members and (BOOK[0] <= D <= BOOK[1] or BOOK[0] <= N <= BOOK[1]):
+            low = D.weekday() == 4 or (D.weekday() == 3 and not self.is_open(D + timedelta(days=1)))
             try:
-                self.process_day(D, low)
+                self.process_day(D, N, low, BOOK[0] <= D <= BOOK[1], BOOK[0] <= N <= BOOK[1])
             except Exception as e:
                 self.err(f"day{D:%y%m%d}", e)
         if D > BOOK[1] and not self.final and not self.pending_open:
@@ -152,6 +156,14 @@ class StockZeroDte(QCAlgorithm):
             self.openc[d] = v
         return v
 
+    def next_session(self, D):
+        d = D + timedelta(days=1)
+        for _ in range(10):
+            if self.is_open(d):
+                return d
+            d += timedelta(days=1)
+        return d
+
     def last_trading_day(self, e):
         """Last trading day of a contract that expires on calendar date e (Saturday-dated monthlies and
         holiday-shifted expiries trade for the last time on the previous open day)."""
@@ -162,7 +174,7 @@ class StockZeroDte(QCAlgorithm):
             d -= timedelta(days=1)
         return e
 
-    # ------------------------------------------------------------------ one 0DTE day
+    # ------------------------------------------------------------------ one session
     def vix_prev(self, D):
         try:
             h = self.history(self.vix, 10, Resolution.DAILY)
@@ -190,7 +202,7 @@ class StockZeroDte(QCAlgorithm):
                     out.append((d, float(row["open"]), float(row["close"])))
         return out
 
-    def daily_ctx(self, sym, D, s_open):
+    def daily_ctx(self, sym, D, s_open, check_split=True):
         """Raw previous close, the trailing 20-day sd of daily log returns (split-adjusted closes) and whether a split
         took effect today: the raw open / previous close and the adjusted ones differ by more than 5%."""
         try:
@@ -208,6 +220,8 @@ class StockZeroDte(QCAlgorithm):
         r = np.diff(np.log(c))
         sig = float(np.std(r, ddof=1)) if len(r) >= 10 else None
         split = False
+        if not check_split:
+            return prev, sig, split
         at = [x for x in adj if x[0] == D]
         if not at:
             try:
@@ -224,44 +238,114 @@ class StockZeroDte(QCAlgorithm):
             self.cnt["nosplitchk"] += 1
         return prev, sig, split
 
-    def process_day(self, D, low):
-        """Every session is checked (single stocks gained Monday / Wednesday expiries in 2026); a day record is
-        written on the last session of each week and on any other session with a same-day expiry."""
+    def chain(self, sym, days):
+        """Contracts (strike, right, symbol, open interest) per last trading day in `days`, and the open interest by
+        strike for max pain."""
+        out = {d: ([], {}, {}) for d in days}
+        try:
+            for c in self.option_chain(sym):
+                e = c.expiry.date()
+                if e < min(days) or e > max(days) + timedelta(days=4):
+                    continue
+                ltd = self.last_trading_day(e)
+                if ltd not in out:
+                    continue
+                k = float(c.strike)
+                oi = float(c.open_interest or 0)
+                r = 0 if c.right == OptionRight.PUT else 1
+                lst, oi_p, oi_c = out[ltd]
+                lst.append((k, r, c.symbol, oi))
+                (oi_p if r == 0 else oi_c)[k] = oi
+        except Exception as e:
+            self.err("chain" + sym.value, e)
+        return out
+
+    def stock_path(self, sym, D, M, start_min=0):
+        """Raw closes of the minute bars from start_min to the close (forward-filled), and the first bar's open."""
+        S = np.full(M, np.nan)
+        S_open = 0.0
+        start = datetime.combine(D, time(9, 30)) + timedelta(minutes=start_min)
+        end = datetime.combine(D, self.close_t)
+        h = self.history(TradeBar, sym, start, end, Resolution.MINUTE)
+        if h is not None and not h.empty:
+            for idx, row in h.iterrows():
+                tt = idx[-1] if isinstance(idx, tuple) else idx
+                m = (tt.hour * 60 + tt.minute) - (9 * 60 + 30) - 1
+                if 0 <= m < M:
+                    S[m] = float(row["close"])
+                    if m == 0:
+                        S_open = float(row["open"])
+        ok = ~np.isnan(S)
+        nreal = int(ok[start_min:].sum())
+        if ok.any():
+            first = int(np.argmax(ok))
+            S[:first] = S[first]
+            for i in range(first + 1, M):
+                if np.isnan(S[i]):
+                    S[i] = S[i - 1]
+        return S, S_open, nreal, ok
+
+    def process_day(self, D, N, low, book_today, book_next):
+        """Same-day names (members with contracts expiring today, plus names with overnight positions expiring today)
+        are simulated and exported; then members whose next session is an expiry open the overnight arm."""
         M = (self.close_t.hour * 60 + self.close_t.minute) - (9 * 60 + 30)
         half = self.close_t < time(15, 59)
-        names = []
+        today = {}
+        nxt = {}
         for rank, sym in enumerate(self.members[:TOPN]):
-            contracts, oi_p, oi_c = [], {}, {}
+            ch = self.chain(sym, [D, N])
+            if ch[D][0]:
+                today[sym] = (rank + 1, ch[D])
+            if book_next and ch[N][0]:
+                nxt[sym] = (rank + 1, ch[N])
+        carried = self.on_book
+        self.on_book = {}
+        for sym in carried:
+            if sym not in today:
+                ch = self.chain(sym, [D])
+                if ch[D][0]:
+                    today[sym] = (0, ch[D])                    # no longer a member: only its overnight block counts
+                else:
+                    self.cnt["on_lost"] += 1
+        vix = None
+        if book_today and (today or low):
+            self.cnt["days"] += 1
+            if half:
+                self.cnt["half"] += 1
+            vix = self.vix_prev(D)
+            self.queue.append(950_000_000_000_000.0 + ((D.year % 100) * 10_000 + D.month * 100 + D.day) * 100 + len(today))
+            self.pending_open = (D, list(today))
+            for sym, (rank, (contracts, oi_p, oi_c)) in today.items():
+                self.cnt["names"] += 1
+                try:
+                    self.process_name(D, M, half, rank, sym, contracts, oi_p, oi_c, vix, carried.get(sym))
+                except Exception as e:
+                    self.err(f"{sym.value}{D:%y%m%d}", e)
+                    self.queue.extend([900_000_000_000_000.0 + ((D.year % 100) * 10_000 + D.month * 100 + D.day) * 1000
+                                       + self.tid(sym.value), 9.0 * 10**11] + [0.0] * (HEADER - 3) + [0.0])
+        for sym, (rank, (contracts, oi_p, oi_c)) in nxt.items():
             try:
-                for c in self.option_chain(sym):
-                    e = c.expiry.date()
-                    if e < D or e > D + timedelta(days=4) or self.last_trading_day(e) != D:
-                        continue
-                    k = float(c.strike)
-                    oi = float(c.open_interest or 0)
-                    r = 0 if c.right == OptionRight.PUT else 1
-                    contracts.append((k, r, c.symbol, oi))
-                    (oi_p if r == 0 else oi_c)[k] = oi
+                self.open_overnight(D, M, rank, sym, contracts, oi_p, oi_c)
             except Exception as e:
-                self.err("chain" + sym.value, e)
-            if contracts:
-                names.append((rank, sym, contracts, oi_p, oi_c))
-        if not names and not low:
+                self.err(f"on{sym.value}{D:%y%m%d}", e)
+
+    def open_overnight(self, D, M, rank, sym, contracts, oi_p, oi_c):
+        ctx = self.daily_ctx(sym, D, 0.0, check_split=False)        # the same 20 days as a same-day entry on D
+        sig = ctx[1] if ctx else None
+        if not sig:
             return
-        self.cnt["days"] += 1
-        if half:
-            self.cnt["half"] += 1
-        vix = self.vix_prev(D)
-        self.queue.append(950_000_000_000_000.0 + ((D.year % 100) * 10_000 + D.month * 100 + D.day) * 100 + len(names))
-        self.pending_open = (D, [x[1] for x in names])
-        for rank, sym, contracts, oi_p, oi_c in names:
-            self.cnt["names"] += 1
-            try:
-                self.process_name(D, M, half, rank, sym, contracts, oi_p, oi_c, vix)
-            except Exception as e:
-                self.err(f"{sym.value}{D:%y%m%d}", e)
-                self.queue.extend([900_000_000_000_000.0 + ((D.year % 100) * 10_000 + D.month * 100 + D.day) * 1000
-                                   + self.tid(sym.value), 9.0 * 10**11] + [0.0] * (HEADER - 3) + [0.0])
+        mS = M - 1 - Z.ON_BEFORE
+        S, _, nreal, ok = self.stock_path(sym, D, M, max(0, mS - 15))
+        if not ok[mS - 5:mS + 2].any():
+            return
+        ks = sorted(set(oi_p) | set(oi_c))
+        kmp = Z.max_pain(ks, [oi_p.get(k, 0.0) for k in ks], [oi_c.get(k, 0.0) for k in ks])
+        self.sim.M, self.sim.day = M, D
+        states, strad = self.sim.on_enter(D, S, contracts, sig, kmp)
+        if states is None:
+            return
+        self.cnt["on_open"] += sum(1 for s in states if isinstance(s, dict))
+        self.on_book[sym] = {"states": states, "rank": rank, "S": float(S[mS + 1]), "strad": strad}
 
     def next_opens(self, D):
         """For the assignment convention (ledger 0.3): each name simulated on the previous 0DTE day gets a record
@@ -285,22 +369,8 @@ class StockZeroDte(QCAlgorithm):
             self.queue.extend([970_000_000_000_000.0 + ymd * 1000 + self.tid(sym.value), float(round(o * U)),
                                float(flag)])
 
-    def process_name(self, D, M, half, rank, sym, contracts, oi_p, oi_c, vix):
-        S = np.full(M, np.nan)
-        S_open = 0.0
-        start = datetime.combine(D, time(9, 30))
-        end = datetime.combine(D, self.close_t)
-        h = self.history(TradeBar, sym, start, end, Resolution.MINUTE)
-        if h is not None and not h.empty:
-            for idx, row in h.iterrows():
-                tt = idx[-1] if isinstance(idx, tuple) else idx
-                m = (tt.hour * 60 + tt.minute) - (9 * 60 + 30) - 1
-                if 0 <= m < M:
-                    S[m] = float(row["close"])
-                    if m == 0:
-                        S_open = float(row["open"])
-        ok = ~np.isnan(S)
-        nreal = int(ok.sum())
+    def process_name(self, D, M, half, rank, sym, contracts, oi_p, oi_c, vix, on):
+        S, S_open, nreal, ok = self.stock_path(sym, D, M)
         status = 0
         if nreal == 0:
             status = 2
@@ -309,11 +379,6 @@ class StockZeroDte(QCAlgorithm):
             if last_real < M - 6 or nreal < 0.90 * M:
                 status = 3                                     # too few real stock bars to simulate
                 self.cnt["thin"] += 1
-            first = int(np.argmax(ok))
-            S[:first] = S[first]
-            for i in range(first + 1, M):
-                if np.isnan(S[i]):
-                    S[i] = S[i - 1]
         ctx = self.daily_ctx(sym, D, S_open)
         prev, sig, split = (ctx if ctx else (0.0, None, False))
         if split:
@@ -325,7 +390,7 @@ class StockZeroDte(QCAlgorithm):
         self.penny = 1
         if status == 0 and sig:
             self.sim.M, self.sim.day = M, D
-            res = self.sim.simulate_day(D, S, contracts, sig, kmp)
+            res = self.sim.simulate_day(D, S, contracts, sig, kmp, S_open, on["states"] if on else None)
             if res is not None:
                 rows, strad, pins, nload = res
         self.cnt["z"] += 1
@@ -335,11 +400,13 @@ class StockZeroDte(QCAlgorithm):
                float((1 if half else 0) * 10**12 + status * 10**11 + min(9999, len(contracts)) * 10**6
                      + min(9999, nload) * 10**2 + self.penny * 10 + (1 if sig else 0)),
                float(round(S_open * U)), float(round(float(S[M - 1]) * U)) if nreal else 0.0, float(round(prev * U)),
-               float(round((sig or 0.0) * 1e6)), float(round((kmp or 0.0) * U)), float((rank + 1) * 10**6 + nreal),
+               float(round((sig or 0.0) * 1e6)), float(round((kmp or 0.0) * U)), float(rank * 10**6 + nreal),
                float(round((vix or 0.0) * 100))]
         out += [float(round(x * U)) for x in s_entry]
         out += [float(round(x * U)) for x in strad]
         out += [float(round(x * U)) for x in pins]
+        out += [float(on["rank"] if on else 0), float(round((on["S"] if on else 0.0) * U)),
+                float(round((on["strad"] if on else 0.0) * U))]
         out.append(float(len(rows)))
         if len(out) != HEADER:
             raise ValueError(f"header {len(out)}")
@@ -348,16 +415,21 @@ class StockZeroDte(QCAlgorithm):
         self.queue.extend(out)
 
     # ------------------------------------------------------------------ quotes
-    def load_quotes(self, D, contracts, S, sig):
-        """Minute quotes of the day's contracts whose strikes any entry could use (decided from S at the entry
-        selection minutes only), as forward-filled [right, strike, minute] arrays with their age, plus the open
-        interest per [right, strike]. A row with an ask but no bid is a zero bid (LEAN drops all-zero bid bars).
-        Sets the class's tick grid: penny unless (almost) every sub-3-dollar quote sits on the 0.05 grid."""
+    def load_quotes(self, D, contracts, S, sig, extra, sel_from):
+        """Minute quotes of the day's contracts whose strikes an entry could use (decided from S at the entry
+        selection minutes only; for the overnight arm from sel_from on) plus the strikes in `extra` (overnight legs
+        to manage), as forward-filled [right, strike, minute] arrays with their age, and the open interest per
+        [right, strike]. A row with an ask but no bid is a zero bid (LEAN drops all-zero bid bars). Sets the class's
+        tick grid: penny unless (almost) every sub-3-dollar quote sits on the 0.05 grid."""
         M = self.sim.M
         band = Z.DaySim.band(sig) + max(Z.WINGS) + 0.01
-        sel_px = [S[Z.mindex(hh, mm)] for hh, mm in Z.ENTRY if Z.mindex(hh, mm) < M]
+        if sel_from is None:
+            sel_px = [S[Z.mindex(hh, mm)] for hh, mm in Z.ENTRY if Z.mindex(hh, mm) < M]
+        else:
+            sel_px = [S[m] for m in range(sel_from, M)]
         lo_s, hi_s = float(np.nanmin(sel_px)), float(np.nanmax(sel_px))
-        keep = [c for c in contracts if lo_s * (1 - band) <= c[0] <= hi_s * (1 + band)]
+        ext = set(extra or [])
+        keep = [c for c in contracts if lo_s * (1 - band) <= c[0] <= hi_s * (1 + band) or c[0] in ext]
         if not keep:
             return None
         strikes = sorted({c[0] for c in keep})
@@ -367,7 +439,7 @@ class StockZeroDte(QCAlgorithm):
         for k, r, s, oi in keep:
             OI[r, kidx[k]] = oi
         syms = [c[2] for c in keep]
-        start = datetime.combine(D, time(9, 30))
+        start = datetime.combine(D, time(9, 30)) + timedelta(minutes=max(0, sel_from or 0))
         end = datetime.combine(D, self.close_t)
         t1 = _time.time()
         qh = self.history(QuoteBar, syms, start, end, Resolution.MINUTE, fill_forward=False)
@@ -458,7 +530,7 @@ class StockZeroDte(QCAlgorithm):
         d = " ".join(f"{v}:{k}" for k, v in sorted(self.ids.items(), key=lambda kv: kv[1]))
         for i in range(0, min(len(d), 200 * 12), 200):
             self.set_runtime_statistic(f"D{i // 200:02d}", d[i:i + 200])
-        for i, x in enumerate(self.sim.trace[:20]):
+        for i, x in enumerate(self.sim.trace[:8]):
             self.set_runtime_statistic(f"TR{i:02d}", x[:200])
-        for i, x in enumerate(self.sim.ftrace[:20]):
+        for i, x in enumerate(self.sim.ftrace[:12]):
             self.set_runtime_statistic(f"FT{i:02d}", x[:200])
