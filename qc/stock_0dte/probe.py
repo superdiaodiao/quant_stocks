@@ -9,7 +9,8 @@ from AlgorithmImports import *
 #  - minute-quote quality of 0DTE contracts on sampled Fridays: bid / ask at fixed times for the at-the-money put and
 #    call and puts / calls 1%, 2% and 4% out of the money, quote presence, strike step, open interest.
 # v1 wrote its tables to the log, which the free tier cuts at 10 KB; v2 sends them through the chart channel of
-# qc/zero_dte (400 series, one point per series per minute, read back with qc/zero_dte/fetch.js).
+# qc/zero_dte (400 series, one point per series per minute, read back with qc/zero_dte/fetch.js); v3 maps the quote
+# rows to contracts the way main.py does (v2's .loc lookup found none, so its quote cells were empty).
 from datetime import date, datetime, time, timedelta
 
 TOPN = 30                      # monthly list length (the study registers its pools from this list)
@@ -195,36 +196,45 @@ class StockZeroDteProbe(QCAlgorithm):
                     except Exception as e:
                         self.err("oi", e)
             qb = self.history(QuoteBar, list(pick.values()), start, end, Resolution.MINUTE, fill_forward=False) if pick else None
+            per = {}                 # (right, strike) -> [(time, bid, ask)], mapped by symbol as main.py does
+            if qb is not None and not qb.empty:
+                names = list(qb.index.names)
+                tl = qb.index.get_level_values(names.index("time") if "time" in names else len(names) - 1)
+                sl = qb.index.get_level_values(names.index("symbol") if "symbol" in names else 0)
+                smap = {}
+                for rk, sym in pick.items():
+                    for key in (sym, str(sym), sym.value):
+                        smap[key] = rk
+                bc = qb["bidclose"].values if "bidclose" in qb.columns else [float("nan")] * len(qb)
+                ac = qb["askclose"].values if "askclose" in qb.columns else [float("nan")] * len(qb)
+                for i in range(len(qb)):
+                    rk = smap.get(sl[i]) or smap.get(str(sl[i]))
+                    if rk is not None:
+                        per.setdefault(rk, []).append((tl[i], bc[i], ac[i]))
+                if not per:
+                    self.err("qmap", f"{len(qb)} rows unmapped")
             self.nsamp += 1
             rec = [600_000_000_000_000.0 + ((d.year % 100) * 10_000 + d.month * 100 + d.day) * 1000 + self.tid(s.value),
                    float(round(s0 * 100)), float(round(step * 100)) * 1000 + min(999, len(near)), float(len(want))]
             for (r, k) in want:
-                sym = pick.get((r, k))
-                q = None
-                if sym is not None and qb is not None and not qb.empty:
-                    try:
-                        q = qb.loc[sym]
-                    except Exception:
-                        q = None
+                q = per.get((r, k), [])
                 head = round(k * 100) * 100_000 + (1 if r == "C" else 0) * 10_000
                 cells = [0.0] * len(CHECK)
                 pres = 0
-                if q is not None and "askclose" in q.columns:
-                    tt = [ix[-1] if isinstance(ix, tuple) else ix for ix in q.index]
-                    bb = q["bidclose"].values if "bidclose" in q.columns else [float("nan")] * len(tt)
-                    aa = q["askclose"].values
-                    for i in range(len(tt)):
-                        if aa[i] == aa[i] and aa[i] > 0 and (bb[i] != bb[i] or bb[i] <= aa[i]):
-                            pres += 1
-                    for j, ct in enumerate(CHECK):
-                        idx = [i for i, x in enumerate(tt) if x.time() <= ct]
-                        if not idx:
-                            continue
-                        i = idx[-1]
-                        b = 0.0 if bb[i] != bb[i] else float(bb[i])
-                        a = float(aa[i]) if aa[i] == aa[i] else 0.0
-                        age = min(99, int((datetime.combine(d, ct) - tt[i]).total_seconds() // 60))
-                        cells[j] = float(min(999_999, round(b * 100)) * 10**8 + min(999_999, round(a * 100)) * 100 + age)
+                for (tt, bb, aa) in q:
+                    if aa == aa and aa > 0 and (bb != bb or bb <= aa):
+                        pres += 1
+                for j, ct in enumerate(CHECK):
+                    last = None
+                    for (tt, bb, aa) in q:
+                        if tt.time() <= ct and aa == aa and aa > 0:
+                            last = (tt, bb, aa)
+                    if last is None:
+                        continue
+                    tt, bb, aa = last
+                    b = 0.0 if bb != bb else float(bb)
+                    age = min(99, int((datetime.combine(d, ct) - tt).total_seconds() // 60))
+                    cells[j] = float(min(999_999, round(b * 100)) * 10**8 + min(999_999, round(float(aa) * 100)) * 100 + age)
                 rec.append(float(head + min(9999, pres)))
                 rec.append(float(max(-1, min(10**9, oi.get((r, k), -1)))))
                 rec.extend(cells)
