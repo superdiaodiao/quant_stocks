@@ -55,7 +55,7 @@ class StockZeroDte(QCAlgorithm):
         self.openc = {}
         self.opt_tz = None
         self.errs = []
-        self.cnt = {k: 0 for k in ("days", "names", "z", "half", "split", "thin", "rows", "penny0")}
+        self.cnt = {k: 0 for k in ("days", "names", "z", "half", "split", "nosplitchk", "thin", "rows", "penny0")}
         self.t0 = _time.time()
         self.thist = 0.0
         self.queue = []
@@ -176,36 +176,52 @@ class StockZeroDte(QCAlgorithm):
             self.err("vix", e)
             return None
 
-    def daily_ctx(self, sym, D):
-        """Previous close and trailing 20-day sd of daily log returns, both split-adjusted to today's shares, and
-        whether a split took effect today (raw and adjusted previous closes differ)."""
-        out = {}
-        for mode in ("adj", "raw"):
-            try:
-                if mode == "adj":
-                    h = self.history(sym, 30, Resolution.DAILY, data_normalization_mode=DataNormalizationMode.SPLIT_ADJUSTED)
-                else:
-                    h = self.history(sym, 5, Resolution.DAILY, data_normalization_mode=DataNormalizationMode.RAW)
-            except Exception as e:
-                self.err("hist" + mode, e)
-                return None
-            if h is None or h.empty:
-                return None
-            days, closes = [], []
+    def bars(self, sym, n, mode, D):
+        """(dates, opens, closes) of the daily bars before and on D in the given normalisation. QuantConnect's
+        split-adjusted history is scaled by every split up to the end of its data (also splits after D), so it is
+        used only for ratios, never compared with raw levels."""
+        h = self.history(sym, n, Resolution.DAILY, data_normalization_mode=mode)
+        out = []
+        if h is not None and not h.empty:
             for idx, row in h.iterrows():
                 tt = idx[-1] if isinstance(idx, tuple) else idx
                 d = (tt - timedelta(hours=1)).date()
-                if d < D:
-                    days.append(d)
-                    closes.append(float(row["close"]))
-            if not closes:
-                return None
-            out[mode] = closes
-        adj = np.array(out["adj"][-21:])
-        r = np.diff(np.log(adj))
+                if d <= D:
+                    out.append((d, float(row["open"]), float(row["close"])))
+        return out
+
+    def daily_ctx(self, sym, D, s_open):
+        """Raw previous close, the trailing 20-day sd of daily log returns (split-adjusted closes) and whether a split
+        took effect today: the raw open / previous close and the adjusted ones differ by more than 5%."""
+        try:
+            raw = self.bars(sym, 5, DataNormalizationMode.RAW, D)
+            adj = self.bars(sym, 30, DataNormalizationMode.SPLIT_ADJUSTED, D)
+        except Exception as e:
+            self.err("hist", e)
+            return None
+        rp = [x for x in raw if x[0] < D]
+        ap = [x for x in adj if x[0] < D]
+        if not rp or not ap:
+            return None
+        prev = rp[-1][2]
+        c = np.array([x[2] for x in ap][-21:])
+        r = np.diff(np.log(c))
         sig = float(np.std(r, ddof=1)) if len(r) >= 10 else None
-        prev = float(adj[-1])
-        split = abs(out["raw"][-1] / prev - 1) > 0.02
+        split = False
+        at = [x for x in adj if x[0] == D]
+        if not at:
+            try:
+                start = datetime.combine(D, time(9, 30))
+                hm = self.history(TradeBar, sym, start, start + timedelta(minutes=5), Resolution.MINUTE,
+                                  data_normalization_mode=DataNormalizationMode.SPLIT_ADJUSTED)
+                if hm is not None and not hm.empty:
+                    at = [(D, float(hm["open"].values[0]), 0.0)]
+            except Exception as e:
+                self.err("adjopen", e)
+        if at and s_open > 0 and prev > 0 and ap[-1][2] > 0 and at[0][1] > 0:
+            split = abs(math.log((s_open / prev) / (at[0][1] / ap[-1][2]))) > 0.05
+        else:
+            self.cnt["nosplitchk"] += 1
         return prev, sig, split
 
     def process_day(self, D, low):
@@ -249,31 +265,25 @@ class StockZeroDte(QCAlgorithm):
 
     def next_opens(self, D):
         """For the assignment convention (ledger 0.3): each name simulated on the previous 0DTE day gets a record
-        with this session's opening price (raw, like the strikes) and yesterday's raw / split-adjusted close ratio
-        (a split over the gap shows up as a ratio far from 1)."""
+        with this session's raw opening price and a split flag (the raw and adjusted overnight gaps differ by > 5%)."""
         prev_day, syms = self.pending_open
         self.pending_open = None
         ymd = (prev_day.year % 100) * 10_000 + prev_day.month * 100 + prev_day.day
         for sym in syms:
-            o, raw_prev, adj_prev = 0.0, 0.0, 0.0
+            o, flag = 0.0, 0
             try:
-                for mode in (DataNormalizationMode.RAW, DataNormalizationMode.SPLIT_ADJUSTED):
-                    h = self.history(sym, 3, Resolution.DAILY, data_normalization_mode=mode)
-                    for idx, row in h.iterrows():
-                        tt = idx[-1] if isinstance(idx, tuple) else idx
-                        d = (tt - timedelta(hours=1)).date()
-                        if d == D and mode == DataNormalizationMode.RAW:
-                            o = float(row["open"])
-                        elif d < D:
-                            if mode == DataNormalizationMode.RAW:
-                                raw_prev = float(row["close"])
-                            else:
-                                adj_prev = float(row["close"])
+                raw = self.bars(sym, 3, DataNormalizationMode.RAW, D)
+                adj = self.bars(sym, 3, DataNormalizationMode.SPLIT_ADJUSTED, D)
+                rt, rp = [x for x in raw if x[0] == D], [x for x in raw if x[0] < D]
+                at, ap = [x for x in adj if x[0] == D], [x for x in adj if x[0] < D]
+                if rt and rp:
+                    o = rt[0][1]
+                    if at and ap and min(o, rp[-1][2], at[0][1], ap[-1][2]) > 0:
+                        flag = int(abs(math.log((o / rp[-1][2]) / (at[0][1] / ap[-1][2]))) > 0.05)
             except Exception as e:
                 self.err("open" + sym.value, e)
-            ratio = raw_prev / adj_prev if adj_prev > 0 else 0.0
             self.queue.extend([970_000_000_000_000.0 + ymd * 1000 + self.tid(sym.value), float(round(o * U)),
-                               float(round(ratio * 1e6))])
+                               float(flag)])
 
     def process_name(self, D, M, half, rank, sym, contracts, oi_p, oi_c, vix):
         S = np.full(M, np.nan)
@@ -304,7 +314,7 @@ class StockZeroDte(QCAlgorithm):
             for i in range(first + 1, M):
                 if np.isnan(S[i]):
                     S[i] = S[i - 1]
-        ctx = self.daily_ctx(sym, D)
+        ctx = self.daily_ctx(sym, D, S_open)
         prev, sig, split = (ctx if ctx else (0.0, None, False))
         if split:
             status = 4                                         # split effective today: skipped

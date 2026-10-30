@@ -278,6 +278,20 @@ def test_next_open_records_attach_to_their_name_day():
     ymd = 240809
     head = [900_000_000_000_000 + ymd * 1000 + 3, 0, 100_000, 99_000, 100_500, 20_000, 0, 10**6 + 390, 1850]
     head += [0] * 15 + [0]
-    vals = [950_000_000_000_000 + ymd * 100 + 1] + head + [970_000_000_000_000 + ymd * 1000 + 3, 98_500, 1_000_000]
+    vals = [950_000_000_000_000 + ymd * 100 + 1] + head + [970_000_000_000_000 + ymd * 1000 + 3, 98_500, 0]
     names, recs, days = Q.parse_stream(vals, {3: "AMD"})
-    assert names.loc[0, "next_open"] == 98.5 and names.loc[0, "split_ratio"] == 1.0 and len(recs) == 0
+    assert names.loc[0, "next_open"] == 98.5 and names.loc[0, "split_next"] == 0 and len(recs) == 0
+
+
+def test_worthless_far_wing_with_a_wide_quote_does_not_block_the_flatten():
+    path = np.full(M, 100.0)
+    algo, (K, B, A, AGE, OI) = make_algo(path)
+    k0, kp, kc = (int(np.where(K == x)[0][0]) for x in (100.0, 98.0, 102.0))
+    legs = [(0, k0, -1), (0, kp, 1), (1, k0, -1), (1, kc, 1)]
+    mflat = M - 1 - Z.FLAT_BEFORE
+    B2, A2 = B.copy(), A.copy()
+    for r, k in ((0, kp), (1, kc)):
+        B2[r, k, mflat:], A2[r, k, mflat:] = 0.01, 0.09            # not a sane quote, and worth nothing
+    cash, fees, n, rest = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 100.0, pairs=True)
+    assert n == 2 and sorted(rest) == sorted([(0, kp, 1), (1, kc, 1)])
+    assert Z.shares_at(rest, K, 100.0) == 0

@@ -452,41 +452,45 @@ class DaySim:
         return v
 
     def flatten(self, legs, K, B, A, AGE, S, mflat, S_close, pairs=False):
-        """Close what still matters (a leg with bid >= FLAT_BID or a strike within FLAT_NEAR of S) at F_FLAT from
-        mflat, retrying until the bar before the close; the rest, and anything that never fills, settles at intrinsic
-        at the close (and is returned, for the assignment convention). With pairs, each (short, long) vertical is
-        closed as one combo (see close_cash)."""
+        """Close the legs that still matter (bid >= FLAT_BID or a strike within FLAT_NEAR of S at mflat) at F_FLAT
+        from mflat, retrying until the bar before the close; the others are left to expire. Whatever is left or never
+        fills settles at intrinsic at the close (and is returned, for the assignment convention). With pairs, a unit
+        whose legs all matter is closed as one combo (see close_cash); a far wing that does not matter never blocks
+        the close of the legs that do."""
         cash, fees, n = 0.0, 0.0, 0
         rest = []
         M = self.M
         Sm = float(S[mflat])
 
-        def matters(unit):
-            return any((np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= FLAT_NEAR for r, k, _ in unit)
+        def matters(leg):
+            r, k, _ = leg
+            return (np.nan_to_num(B[r, k, mflat]) >= FLAT_BID) or abs(K[k] / Sm - 1) <= FLAT_NEAR
 
         units = [legs[j:j + 2] for j in range(0, len(legs), 2)] if pairs else [[leg] for leg in legs]
-        if pairs and len(units) == 2 and matters(units[0]) and matters(units[1]):
-            units = [legs]                            # both verticals of a condor / fly: one order, capped together
+        if pairs and len(units) == 2 and all(matters(x) for x in legs):
+            units = [legs]                            # a condor / fly that matters everywhere: one order, capped together
         for unit in units:
-            if not matters(unit):
-                rest.extend(unit)
+            live = [x for x in unit if matters(x)]
+            rest.extend(x for x in unit if not matters(x))
+            if not live:
                 continue
+            combo = pairs and len(live) == len(unit)
             done = False
             for m in range(mflat, M - 1):
-                res = self.close_cash(unit, B, A, AGE, m, F_FLAT, AGE_FILL, K if pairs else None)
-                if res is None or any(np.nan_to_num(B[r, k, m]) >= tick0() for r, k, _ in res[4]):
-                    continue                          # retry: a short cannot be bought, or a long with a bid cannot be sold
+                res = self.close_cash(live, B, A, AGE, m, F_FLAT, AGE_FILL, K if combo else None)
+                if res is None or any(np.nan_to_num(B[r, k, m]) >= tick0() and matters((r, k, q)) for r, k, q in res[4]):
+                    continue                          # retry: a short cannot be bought, or a long that matters cannot be sold
                 c, fe, _, nn, held = res
                 cash += c
                 fees += fe
                 n += nn
-                rest.extend(held)                     # longs without a bid: held to the close
+                rest.extend(held)                     # longs that cannot be sold: held to the close
                 done = True
                 if m > mflat:
                     self.cnt["flatdefer"] += 1
                 break
             if not done:
-                rest.extend(unit)
+                rest.extend(live)
                 self.cnt["itmflat"] += 1
         cash += self.settle_value(rest, K, S_close)
         return cash, fees, n, rest

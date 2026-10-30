@@ -123,7 +123,7 @@ def base_units(P: Q.Panel, conv: str = "flat"):
     elif conv == "asn":
         nm = P.names
         gap = (nm["next_open"] - nm["S_close"]).to_numpy()
-        ok = np.isfinite(gap) & (np.abs(nm["split_ratio"].fillna(0).to_numpy() - 1) < 0.02)
+        ok = np.isfinite(gap) & (nm["split_next"].to_numpy() == 0)
         live = np.concatenate([np.ones(P.xmin.shape[:2] + (1, P.xmin.shape[-1]), bool), P.xmin == 0], axis=2)
         pnl = P.hold + live * (P.nsh_hold[:, :, None, :] * np.where(ok, gap, 0.0)[None, None, None, :])
     else:

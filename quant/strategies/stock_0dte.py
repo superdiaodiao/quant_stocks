@@ -2,7 +2,7 @@
 
 qc/stock_0dte/main.py queues, per 0DTE day (a Friday, or the Thursday before a Friday holiday), a day record and then
 one block per member name with same-day-expiry contracts: a HEADER-value header followed by one row per (entry time,
-structure); at the next session's close each of those names gets a next-open record (open, raw / adjusted close). qc/zero_dte/fetch.js rebuilds the queue from the chart points and saves it as gzipped JSON under
+structure); at the next session's close each of those names gets a next-open record (raw open, split flag). qc/zero_dte/fetch.js rebuilds the queue from the chart points and saves it as gzipped JSON under
 output/research_only/stock_0dte/raw/ together with the run's name dictionary (runtime statistics D00..). ``parse_stream``
 turns one queue into ``(names, rows)``: ``names`` has one row per name-day, ``rows`` one row per (name-day, entry,
 shape) with the unpacked position fields (NaN where the position was not opened; ``code`` says why).
@@ -103,7 +103,7 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
             if left:
                 raise ValueError(f"next-open record at {i} while {left} name blocks of {day} are missing")
             x = int(v - OPEN_MARK)
-            opens[(_date(x // 1000), x % 1000)] = (vals[i + 1] / U, vals[i + 2] / 1e6)
+            opens[(_date(x // 1000), x % 1000)] = (vals[i + 1] / U, vals[i + 2])
             i += 3
             continue
         if DAY_MARK <= v < DAY_MARK + 10**10:
@@ -170,7 +170,7 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
     if len(nm):
         got = [opens.get((d, k)) for d, k in zip(nm["date"], nm["nid"])]
         nm["next_open"] = [g[0] if g and g[0] > 0 else np.nan for g in got]
-        nm["split_ratio"] = [g[1] if g else np.nan for g in got]
+        nm["split_next"] = [int(g[1]) if g else -1 for g in got]   # 1 = a split took effect at the next open
     return nm, rows, pd.DataFrame(days, columns=["date", "n_names"])
 
 
