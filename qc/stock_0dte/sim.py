@@ -21,17 +21,18 @@ WINGS = (0.0, 0.02, 0.04)                      # 0.0 = the adjacent listed strik
 F_ENTRY, F_TP, F_STOP, F_FLAT = 0.25, 0.25, 0.5, 0.5
 AGE_FILL, AGE_MARK = 5, 15                     # max quote age (minutes) to fill / to mark
 
-# families: kind 0 defined-risk credit, 1 naked credit, 2 debit, 3 risk reversal, 4 delta-hedged straddle
+# kind 0 defined-risk credit, 1 naked credit, 2 debit, 3 risk reversal, 4 delta-hedged straddle
 FAM = ("PCS", "CCS", "IC", "IF", "SP", "SC", "SG", "SD", "LD", "RR", "RRB", "SDH",
        "LC", "LP", "LG", "DVC", "DVP", "IFP", "IFM", "MPD")
 KIND = (0, 0, 0, 0, 1, 1, 1, 1, 2, 3, 3, 4, 2, 2, 2, 2, 2, 0, 0, 2)
 VERT_DEBIT = (15, 16, 19)                      # debit verticals, closed as one combo like the credit verticals
-U = 1e3                                        # export scale (dollars per share x U); stocks reach 5,000 dollars
+U = 1e3                                        # export scale (dollars per share x U); stocks reach $5,000
 OTHER_FEE = 0.05                               # per contract on top of the IBKR tier (exchange / regulatory)
 FLAT_BID = 0.05                                # at the flatten, legs with at least this bid ...
 FLAT_NEAR = 0.01                               # ... or a strike within this share of the stock are closed
 NEAR_PIN = 0.02                                # the open-interest pin is looked for within max(2%, 1 daily sd)
 MPD_MIN = 0.005                                # the max-pain vertical needs max pain at least 0.5% away
+SANE_ABS = 0.25                                # a tradable spread may always be this wide (dollars per share)
 OFF = 5_000_000
 MECH = False
 PENNY = True                                   # tick grid of the class being simulated (configure_day)
@@ -126,9 +127,10 @@ def fee_v(px):
 
 
 def sane(b, a):
-    """A quote we are willing to trade on: ask > 0, 0 <= bid <= ask, spread <= max(5 ticks, half the mid)."""
+    """Tradable quote: ask > 0, 0 <= bid <= ask, spread <= max(SANE_ABS, mid / 2). QQQ's 5-tick floor blocked real
+    late-day single-stock quotes such as 0.27 / 0.50 (mechanism round 4)."""
     b, a = np.nan_to_num(np.asarray(b, float), nan=-1.0), np.nan_to_num(np.asarray(a, float), nan=0.0)
-    return (a > 0) & (b >= 0) & (b <= a) & ((a - b) <= np.maximum(5 * tick0(), 0.25 * (a + b)))
+    return (a > 0) & (b >= 0) & (b <= a) & ((a - b) <= np.maximum(SANE_ABS, 0.25 * (a + b)))
 
 
 class DaySim:
