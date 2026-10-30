@@ -340,3 +340,18 @@ def test_no_free_exit_does_not_lift_a_loss_already_below_the_floor():
                                  pnl_M1=pnl, pnl_M2=pnl, pnl_M3=pnl, n_flat=6, fee_flat=0.042, width_frac=0.01)])
     b = A.Bases(Q.build_panel(names, rows)).get(PRF)
     assert abs(b["conv"]["free"][0, 0, 0] - b["conv"]["cons"][0, 0, 0]) < 1e-12
+
+
+def test_yahoo_daily_reads_dividends_and_returns(monkeypatch):
+    import quant.data.sources.sec_cache as sc
+    ts = [int(pd.Timestamp(d + " 09:30", tz="America/New_York").timestamp()) for d in ("2014-06-05", "2014-06-06",
+                                                                                       "2014-06-09", "2014-06-10")]
+    chart = {"timestamp": ts, "indicators": {"adjclose": [{"adjclose": [10.0, 10.5, 10.5, 10.29]}]},
+             "events": {"dividends": {"a": {"date": ts[1], "amount": 0.47}},
+                        "splits": {"b": {"date": ts[2], "numerator": 7, "denominator": 1}}}}
+    monkeypatch.setattr(sc, "yahoo_chart", lambda sym, **kw: chart if sym == "AAPL" else None)
+    divs, rets = A.yahoo_daily(["AAPL", "GONE"])
+    assert divs.attrs["missing"] == ["GONE"]
+    assert divs.loc[0, "ex_date"] == pd.Timestamp("2014-06-06") and abs(divs.loc[0, "cash"] - 3.29) < 1e-9
+    assert list(rets.index.strftime("%Y-%m-%d")) == ["2014-06-05", "2014-06-06", "2014-06-09", "2014-06-10"]
+    assert abs(rets.loc["2014-06-06", "AAPL"] - 0.05) < 1e-12 and abs(rets.loc["2014-06-10", "AAPL"] + 0.02) < 1e-12

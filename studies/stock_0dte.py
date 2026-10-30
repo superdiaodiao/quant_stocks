@@ -427,7 +427,10 @@ def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame]:
     stock price), and the daily total returns of the adjusted close through END (one column per ticker).
     ``attrs['missing']`` lists the tickers Yahoo has no chart for (their dividends and returns are unknown)."""
     from quant.data.sources.sec_cache import yahoo_chart
-    ny = lambda ts: pd.to_datetime(ts, unit="s", utc=True).tz_convert("America/New_York").tz_localize(None).normalize()
+    def ny(ts):                                       # unix seconds (one or many) -> New York dates
+        d = pd.DatetimeIndex(pd.to_datetime(np.atleast_1d(np.asarray(ts, dtype="int64")), unit="s", utc=True))
+        d = d.tz_convert("America/New_York").tz_localize(None).normalize()
+        return d if np.ndim(ts) else d[0]
     rows, rets, missing = [], {}, []
     for t in sorted(tickers):
         ch = yahoo_chart(t.replace(".", "-"))
@@ -436,7 +439,7 @@ def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame]:
             continue
         adj = ((ch.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or []
         if len(adj) == len(ch["timestamp"]):
-            px = pd.Series(adj, index=ny(pd.Series(ch["timestamp"])), dtype=float).groupby(level=0).last().dropna()
+            px = pd.Series(adj, index=ny(ch["timestamp"]), dtype=float).groupby(level=0).last().dropna()
             rets[t] = px[px.index <= END].pct_change()
         ev = ch.get("events") or {}
         spl = [(ny(v["date"]), float(v["numerator"]) / float(v["denominator"])) for v in (ev.get("splits") or {}).values()]
