@@ -443,3 +443,16 @@ def test_floor_only_quote_fills_at_the_touch():
     B[1, 0, :], A[1, 0, :] = 0.10, 0.14                                  # a normal quote keeps F = 0.25
     res = algo.close_cash([(1, 0, 1)], B, A, AGE, 100, Z.F_TP, Z.AGE_FILL)
     assert abs(res[0] - 0.11) < 1e-12
+
+
+def test_a_one_tick_long_does_not_hold_up_the_short_it_protects():
+    # 15:50: the short put is in the money with a sane quote; its wing is quoted 0.01 / 0.01 (locked, not tradable)
+    path = np.full(M, 100.0)
+    algo, (K, B, A, AGE, OI) = make_algo(path)
+    ks, kl = int(np.where(K == 101.0)[0][0]), int(np.where(K == 100.0)[0][0])
+    legs = [(0, ks, -1), (0, kl, 1)]
+    mflat = M - 1 - Z.FLAT_BEFORE
+    B2, A2 = B.copy(), A.copy()
+    B2[0, kl, mflat:], A2[0, kl, mflat:] = 0.01, 0.01
+    cash, fees, n, rest, nord, sur, stuck = algo.flatten(legs, K, B2, A2, AGE, path, mflat, 100.0, pairs=True)
+    assert nord == 1 and n == 1 and rest == [(0, kl, 1)] and stuck == 0   # the short is bought back; the wing expires

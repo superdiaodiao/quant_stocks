@@ -462,8 +462,8 @@ class DaySim:
             done = False
             for m in range(mflat, M - 1):
                 res = self.close_cash(live, B, A, AGE, m, F_FLAT, AGE_FILL, K if combo else None)
-                if res is None or any(np.nan_to_num(B[r, k, m]) >= tick0() and matters((r, k, q)) for r, k, q in res[4]):
-                    continue                          # retry: a short cannot be bought, or a long that matters cannot be sold
+                if res is None or any(np.nan_to_num(B[r, k, m]) >= bmin and matters((r, k, q)) for r, k, q in res[4]):
+                    continue                          # retry: a short cannot be bought, or a long worth >= bmin cannot be sold
                 c, fe, _, nn, held = res
                 cash += c
                 fees += fe
@@ -471,7 +471,7 @@ class DaySim:
                 nord += 1
                 sur += max(0.0, 1.0 - (fe * 100.0 - OTHER_FEE * nn))
                 rest.extend(held)                     # longs that cannot be sold: held to the close
-                stuck += len(held)
+                stuck += sum(1 for r, k, _ in held if np.nan_to_num(B[r, k, m]) >= bmin)   # only those worth selling
                 done = True
                 if m > mflat:
                     self.cnt["flatdefer"] += 1
