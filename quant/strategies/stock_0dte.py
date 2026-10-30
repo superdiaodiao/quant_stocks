@@ -2,10 +2,12 @@
 
 qc/stock_0dte/main.py queues, per 0DTE day (a Friday, or the Thursday before a Friday holiday), a day record and then
 one block per member name with same-day-expiry contracts: a HEADER-value header followed by one row per (entry time,
-structure); at the next session's close each of those names gets a next-open record (raw open, split flag). qc/zero_dte/fetch.js rebuilds the queue from the chart points and saves it as gzipped JSON under
-output/research_only/stock_0dte/raw/ together with the run's name dictionary (runtime statistics D00..). ``parse_stream``
-turns one queue into ``(names, rows)``: ``names`` has one row per name-day, ``rows`` one row per (name-day, entry,
-shape) with the unpacked position fields (NaN where the position was not opened; ``code`` says why).
+structure); at the next session's first bar each of those names gets a next-open record (raw open, split flag, the
+book day's official close). qc/stock_0dte/fetch.js rebuilds the queue from the chart points and saves it as gzipped
+JSON under output/research_only/stock_0dte/raw/ together with the run's name dictionary (runtime statistics D00..).
+``parse_stream`` turns one queue into ``(names, rows)``: ``names`` has one row per name-day, ``rows`` one row per
+(name-day, entry, shape) with the unpacked position fields (NaN where the position was not opened; ``code`` says
+why).
 
 The structure catalogue (``SHAPES``) is imported from qc/stock_0dte/sim.py so the decoder cannot drift from the
 engine.
@@ -89,7 +91,7 @@ def _date(ymd: int) -> pd.Timestamp:
 
 def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """(name-days, position rows, day records). ``ids`` maps the run's name ids to tickers (runtime statistics
-    D00.., "id:ticker" tokens). Every last session of a week has a day record, also with no name."""
+    D00.., "id:ticker:cik" tokens). Every last session of a week has a day record, also with no name."""
     names, recs, opens, days = [], [], {}, []
     i, n = 0, len(vals)
     day, left = None, 0
@@ -179,6 +181,9 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
         nm["next_open"] = [g[0] if g and g[0] > 0 else np.nan for g in got]
         nm["split_next"] = [int(g[1]) if g else -1 for g in got]   # 1 = a split took effect at the next open
         nm["close_official"] = [g[2] if g and g[2] > 0 else np.nan for g in got]
+        # status 2 (no real minute bar): the header close is 0 and the engine settled the overnight block at the
+        # daily close, which the next-open record carries as close_official (NaN when neither is known)
+        nm["S_close"] = nm["S_close"].where(nm["S_close"] > 0, nm["close_official"])
     return nm, rows, pd.DataFrame(days, columns=["date", "n_names"])
 
 
@@ -240,15 +245,20 @@ class Panel:
     code: np.ndarray            # int  [NS, NB, NK]: 0 opened, >0 why not, -1 no row
     pnl: np.ndarray             # [NS, NB, 4, NK] 15:50-flatten convention, dollars per share (0 where not opened)
     hold: np.ndarray            # [NS, NB, 4, NK] held to the close at intrinsic
-    cons: np.ndarray            # [NS, NB, 4, NK] conservative-execution adjustment (<= 0) to add to pnl
+    touch: np.ndarray           # [NS, NB, 4, NK] touch-fill adjustment (<= 0) to add to pnl: entry and take-profits at
+                                #   the bid / ask (stops and the flatten already fill at the touch)
+    cons: np.ndarray            # [NS, NB, 4, NK] conservative adjustment (<= 0): touch plus CONS_FEE per contract traded
+    n_exit: np.ndarray          # [NS, NB, 4, NK] contracts in the order closing each slot (the slot's exit, else the
+                                #   15:50 flatten)
+    fee_exit: np.ndarray        # [NS, NB, 4, NK] fees of that closing, dollars per contract-share
     d15: np.ndarray             # [NS, NB, NK] FLAT15 minus FLAT for the hold-to-15:50 slot
     nsh_hold: np.ndarray        # [NS, NB, NK] shares delivered per contract-share if held to the close
     nsh_flat: np.ndarray        # [NS, NB, NK] shares delivered by legs left to expire after the flatten
     den: np.ndarray             # [NS, NB, NK] risk base after the floor (NaN where not opened)
     width: np.ndarray           # [NS, NB, NK] wing width per share (verticals / condors / flies, else NaN)
     net: np.ndarray             # [NS, NB, NK] credit kept after entry fees (debit: negative)
-    s0: np.ndarray              # [NB, NK] stock at the fill minute (overnight: the previous session's fill)
-    xret: np.ndarray            # [NB, NK] stock return from the fill to the expiry-day close
+    s0: np.ndarray              # [NB, NK] stock at the selection minute (overnight: the previous session's fill)
+    xret: np.ndarray            # [NB, NK] stock return from the selection minute (overnight: the fill) to the close
     xmin: np.ndarray            # [NS, NB, 3, NK] exit minute of M1..M3 (0 = none)
     fee_entry: np.ndarray       # [NS, NB, NK]
     fee_flat: np.ndarray        # [NS, NB, NK]
@@ -271,6 +281,9 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     pnl = np.zeros((NS, NB, 4, nk))
     hold = np.zeros((NS, NB, 4, nk))
     cons = np.zeros((NS, NB, 4, nk))
+    touch = np.zeros((NS, NB, 4, nk))
+    n_exit = np.zeros((NS, NB, 4, nk), int)
+    fee_exit = np.zeros((NS, NB, 4, nk))
     d15 = np.zeros(shp)
     nsh_hold = np.zeros(shp, int)
     nsh_flat = np.zeros(shp, int)
@@ -305,7 +318,8 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
         wd = np.where(kind == 0, dn + nt, np.nan)               # den = width - net for defined-risk structures
         dn_eff = np.where(kind == 0, np.maximum(dn, DEN_FLOOR * wd), dn)
         den[s, e, k], net[s, e, k] = dn_eff, nt
-        # debit verticals and the ratio fly export their width as a share of the parity price; the fill price stands in
+        # debit verticals and the ratio fly export their width as a share of the parity price; the selection-minute
+        # stock price stands in
         wf = r["width_frac"].to_numpy() * S[e, k]
         width[s, e, k] = np.where(kind == 0, wd, np.where(vert | (kind == 6), wf, np.nan))
         fee_entry[s, e, k] = r["fee_entry"].to_numpy()
@@ -329,72 +343,96 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
         sc = names["S_close"].to_numpy()[k]
         sf = r["s_fill"].to_numpy()
         with np.errstate(divide="ignore", invalid="ignore"):
-            xpos[s, e, k] = np.where(sf > 0, sc / sf - 1.0, 0.0)
+            xpos[s, e, k] = np.where((sf > 0) & (sc > 0), sc / sf - 1.0, 0.0)
         live = np.column_stack([np.ones(len(r), bool), xm == 0])  # still open at the flatten
         hd = flat + live * r["d_close"].to_numpy()[:, None]
         for m in range(4):
             pnl[s, e, m, k] = flat[:, m]
             hold[s, e, m, k] = hd[:, m]
         xmin[s, e, :, k] = xm
-        # conservative execution: every fill at the touch plus CONS_FEE per contract (entry and exit)
+        # touch fills: the entry and take-profit exits at the bid / ask; conservative: also CONS_FEE per contract
+        # traded (entry and the slot's closing order)
         imp = r[["imp_M1", "imp_M2", "imp_M3"]].to_numpy()
-        nx = r[["n_M1", "n_M2", "n_M3"]].to_numpy()
-        n_exit_flat = r["n_flat"].to_numpy()
-        base = -r["imp_entry"].to_numpy() - CONS_FEE / 100.0 * r["n_entry"].to_numpy()
+        nx = r[["n_M1", "n_M2", "n_M3"]].to_numpy().astype(int)
+        xf = r[["xfee_M1", "xfee_M2", "xfee_M3"]].to_numpy() / 100.0
+        n_fl = r["n_flat"].to_numpy().astype(int)
+        f_fl = r["fee_flat"].to_numpy()
+        n_en = r["n_entry"].to_numpy()
         for m in range(4):
             if m == 0:
-                adj = base - CONS_FEE / 100.0 * n_exit_flat
+                t_adj, nn, fx = -r["imp_entry"].to_numpy(), n_fl, f_fl
             else:
                 exited = xm[:, m - 1] > 0
                 tp = np.array([m in TP_MGMT.get(q, ()) for q in kind])
-                adj = base - np.where(exited, CONS_FEE / 100.0 * nx[:, m - 1] + np.where(tp, imp[:, m - 1], 0.0),
-                                      CONS_FEE / 100.0 * n_exit_flat)
-            cons[s, e, m, k] = adj
+                t_adj = -r["imp_entry"].to_numpy() - np.where(exited & tp, imp[:, m - 1], 0.0)
+                nn = np.where(exited, nx[:, m - 1], n_fl)
+                fx = np.where(exited, xf[:, m - 1], f_fl)
+            # the breakout fills every slot with one closing order (take-profit, stop, the 15:30 stop or the
+            # flatten), exported in slot M1: its fee, contracts and improvement (0 unless a take-profit)
+            t_adj = np.where(orb, -r["imp_entry"].to_numpy() - imp[:, 0], t_adj)
+            nn, fx = np.where(orb, nx[:, 0], nn), np.where(orb, xf[:, 0], fx)
+            touch[s, e, m, k] = t_adj
+            cons[s, e, m, k] = t_adj - CONS_FEE / 100.0 * (n_en + nn)
+            n_exit[s, e, m, k] = nn
+            fee_exit[s, e, m, k] = fx
     Sc = names["S_close"].to_numpy()
     with np.errstate(divide="ignore", invalid="ignore"):
-        xret = np.where(S > 0, Sc[None, :] / S - 1.0, 0.0)
-    return Panel(names, opened, code, pnl, hold, cons, d15, nsh_hold, nsh_flat, den, width, net, S, np.nan_to_num(xret),
-                 xmin, fee_entry, fee_flat, n_legs, xfee, xpos, orb_dir, orb_min, flat_orders, flat_sur, stuck, direction)
+        xret = np.where((S > 0) & (Sc[None, :] > 0), Sc[None, :] / S - 1.0, 0.0)
+    return Panel(names, opened, code, pnl, hold, touch, cons, n_exit, fee_exit, d15, nsh_hold, nsh_flat, den, width,
+                 net, S, np.nan_to_num(xret), xmin, fee_entry, fee_flat, n_legs, xfee, xpos, orb_dir, orb_min,
+                 flat_orders, flat_sur, stuck, direction)
 
 
 # ---------------------------------------------------------------------------------------------------- earnings days
-def earnings_releases(ciks: dict[str, str]) -> pd.DataFrame:
-    """Earnings releases of the run's names from SEC EDGAR (ledger 0.2): every 8-K with Item 2.02, its acceptance
-    time (the submissions JSON is UTC; checked against EDGAR headers on AAPL) converted to New York time, and its
-    reaction day D0 = the acceptance date if accepted before 16:00 ET on a session day, else the next session (a big
-    company's 8-K usually follows a pre-open press release by hours, so an intraday 8-K counts for the whole day).
-    Names without a CIK (QC has none, e.g. some ADRs) are absent: their earnings days are unknown."""
+EARN_FROM = "2011-06-01"        # releases needed: the book starts 2012-02-03 and 'known' looks 200 days back
+
+
+def acceptance_et(cik: int, accession: str, filing_date: str) -> str:
+    """A filing's acceptance time in New York wall-clock time from its EDGAR header ('' when EDGAR has none). The
+    submissions JSON labels its times UTC, but about 16% of them are New York time (the earnings pipeline compared
+    90,962 Item 2.02 filings with their headers: 15,047 'et_labelled_z'), so the header decides. The pipeline's
+    header cache is read first (read-only); a missing header is fetched through quant.data.sources.sec_cache (the
+    index headers from 2014-06, the .hdr.sgml before)."""
+    from pipelines.reversal_data import earnings as E
+    from quant.data.sources.sec_cache import sec_get
+
+    kind = E.cached_header_kind(cik, accession)
+    text = None
+    if kind:
+        text = gzip.decompress(E.header_path(cik, accession, kind).read_bytes()).decode("utf-8", "replace")
+    else:
+        for kind in E.header_kinds(filing_date):
+            data = sec_get(E.header_url(cik, accession, kind), "sec_headers", name=f"{cik}_{accession}_{kind}")
+            if data:
+                text = data.decode("utf-8", "replace")
+                break
+    return E.parse_header(text, cik)["acceptance_header_et"] if text else ""
+
+
+def earnings_releases(ciks) -> pd.DataFrame:
+    """Earnings releases of the given SEC CIKs from EDGAR (ledger 0.2): every 8-K / 8-K/A with Item 2.02 filed from
+    EARN_FROM, with its acceptance time in New York time (``t_et``: the header's, else the JSON's read as UTC;
+    ``t_source`` says which). Companies that file no 8-K (foreign issuers, e.g. BABA) have none: their earnings
+    days are unknown."""
     from quant.data.sources.sec_cache import submissions
 
     rows = []
-    for t, cik in sorted(ciks.items()):
-        if not cik:
-            continue
-        rec = submissions(int(cik))
+    for cik in sorted({int(c) for c in ciks if c}):
+        rec = submissions(cik)
         if rec is None:
             continue
         f = rec["all_filings"]
-        for form, acc, items in zip(f["form"], f["acceptanceDateTime"], f["items"]):
-            if form in ("8-K", "8-K/A") and "2.02" in (items or "").split(","):
-                rows.append((t, str(int(cik)), form, acc))
-    df = pd.DataFrame(rows, columns=["ticker", "cik", "form", "acceptance"])
+        for form, acc, items, accession, fdate in zip(f["form"], f["acceptanceDateTime"], f["items"],
+                                                      f["accessionNumber"], f["filingDate"]):
+            if form in ("8-K", "8-K/A") and "2.02" in (items or "").split(",") and (fdate or "") >= EARN_FROM:
+                rows.append((str(cik), form, acc, accession, fdate))
+    df = pd.DataFrame(rows, columns=["cik", "form", "acceptance", "accession", "filing_date"])
     if df.empty:
-        return df.assign(t_et=pd.Series(dtype="datetime64[ns]"), d0=pd.Series(dtype="datetime64[ns]"))
-    ts = pd.to_datetime(df["acceptance"], utc=True).dt.tz_convert("America/New_York").dt.tz_localize(None)
-    df["t_et"] = ts
-    return df
-
-
-def reaction_days(rel: pd.DataFrame, sessions: pd.DatetimeIndex) -> pd.DataFrame:
-    """(cik, d0) of each release on the session calendar: before 16:00 ET on a session -> that session, else the
-    next session."""
-    if rel.empty:
-        return pd.DataFrame(columns=["cik", "d0", "t_et"])
-    s = pd.DatetimeIndex(sessions).sort_values()
-    day = rel["t_et"].dt.normalize()
-    late = rel["t_et"].dt.hour >= 16
-    pos = s.searchsorted(day, side="left")
-    pos = np.where(late | ~day.isin(s), s.searchsorted(day, side="right"), pos)
-    ok = (pos < len(s)) & (day >= s[0]).to_numpy()
-    out = pd.DataFrame({"cik": rel["cik"].to_numpy()[ok], "d0": s[pos[ok]], "t_et": rel["t_et"].to_numpy()[ok]})
-    return out.drop_duplicates(["cik", "d0"]).reset_index(drop=True)
+        return df.assign(t_et=pd.Series(dtype="datetime64[ns]"), t_source=pd.Series(dtype=str))
+    df = df.drop_duplicates(["cik", "accession"]).reset_index(drop=True)
+    head = [acceptance_et(int(c), a, fd) for c, a, fd in zip(df["cik"], df["accession"], df["filing_date"])]
+    head = pd.to_datetime(pd.Series(head).replace("", None), errors="coerce")
+    js = pd.to_datetime(df["acceptance"], utc=True, errors="coerce").dt.tz_convert("America/New_York").dt.tz_localize(None)
+    df["t_et"] = head.fillna(js)
+    df["t_source"] = np.where(head.notna(), "header", "json_utc")
+    return df[df["t_et"].notna()].reset_index(drop=True)
