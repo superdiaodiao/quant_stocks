@@ -492,6 +492,10 @@ class DaySim:
             if not done:
                 rest.extend(live)
                 self.cnt["itmflat"] += 1
+                if MECH and len(self.trace) < 40:
+                    q = lambda r, k, m: f"{B[r, k, m]:.2f}/{A[r, k, m]:.2f}a{min(99, int(AGE[r, k, m]))}"
+                    self.trace.append(f"F{self.day:%m%d} S{Sm:.2f} " + " ".join(
+                        f"{'PC'[r]}{K[k]:g}{'+' if qn > 0 else '-'}:{q(r, k, mflat)}>{q(r, k, M - 2)}" for r, k, qn in live))
         cash += self.settle_value(rest, K, S_close)
         return cash, fees, n, rest
 
