@@ -6,17 +6,17 @@
    "status": "ok"
   },
   {
-   "message": "all 20 series end at the last completed session 2026-10-28",
+   "message": "all 20 series end at the last completed session 2026-10-29",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "20 series clean from 2026-08-28 to 2026-10-28 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "20 series clean from 2026-08-28 to 2026-10-29 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "20 series vs alpaca: 360 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
+   "message": "20 series vs alpaca: 380 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
    "name": "vendor_agreement",
    "status": "ok"
   },
@@ -49,22 +49,22 @@
    "status": "warn"
   },
   {
-   "message": "4 B4 series fresh for the session 2026-10-28 (BTC through 2026-10-28)",
+   "message": "4 B4 series fresh for the session 2026-10-29 (BTC through 2026-10-29)",
    "name": "b4_data_freshness",
    "status": "ok"
   },
   {
-   "message": "3 B4 series clean to 2026-10-28 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
+   "message": "3 B4 series clean to 2026-10-29 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
    "name": "b4_data_integrity",
    "status": "ok"
   },
   {
-   "message": "2 series vs alpaca: 36 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (24 days)",
+   "message": "2 series vs alpaca: 38 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (25 days)",
    "name": "b4_vendor_agreement",
    "status": "ok"
   },
   {
-   "message": "B4 rules recomputed: LEV-B3 4 decision(s), state on, V3 1 month-end decision(s)",
+   "message": "B4 rules recomputed: LEV-B3 5 decision(s), state on, V3 1 month-end decision(s)",
    "name": "b4_rules",
    "status": "ok"
   },
@@ -84,19 +84,20 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-10-28",
+ "data_end": "2026-10-29",
  "host": "actions",
- "last_run_session": "2026-10-28",
+ "last_run_session": "2026-10-29",
  "next_session": [
-  "B1 META: open since 10-23 (holding day 4 of 20; sell limit resting)",
-  "B1 INTC: open since 10-14 (holding day 11 of 20; sell limit resting)",
-  "B1 AMD: open since 10-19 (holding day 8 of 20; sell limit resting)",
-  "B2 RSI2 at the 10-28 close: 88.8 (entry level 2.3, exit level 60.7)",
-  "LEV-B3: SMA200 state on at the 10-28 close (QQQ +7.1% vs its SMA200; on above +2%, off below -2%)",
-  "V3: min(1.5, sigma_LR / sigma_20) at the 10-28 close 1.376 (decided at the month end)"
+  "B1 GOOGL: close <= 0.9 x SMA20 at the 10-29 close: buy at the next open",
+  "B1 META: open since 10-23 (holding day 5 of 20; sell limit resting)",
+  "B1 INTC: open since 10-14 (holding day 12 of 20; sell limit resting)",
+  "B1 AMD: open since 10-19 (holding day 9 of 20; sell limit resting)",
+  "B2 RSI2 at the 10-29 close: 33.7 (entry level 2.3, exit level 60.7)",
+  "LEV-B3: SMA200 state on at the 10-29 close (QQQ +5.5% vs its SMA200; on above +2%, off below -2%)",
+  "V3: min(1.5, sigma_LR / sigma_20) at the 10-29 close 1.343 (decided at the month end)"
  ],
  "schema": 2,
- "session": "2026-10-28",
+ "session": "2026-10-29",
  "sources": {
   "cross_check": "on",
   "stored": "yahoo"
