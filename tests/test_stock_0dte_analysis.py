@@ -346,12 +346,34 @@ def test_yahoo_daily_reads_dividends_and_returns(monkeypatch):
     import quant.data.sources.sec_cache as sc
     ts = [int(pd.Timestamp(d + " 09:30", tz="America/New_York").timestamp()) for d in ("2014-06-05", "2014-06-06",
                                                                                        "2014-06-09", "2014-06-10")]
-    chart = {"timestamp": ts, "indicators": {"adjclose": [{"adjclose": [10.0, 10.5, 10.5, 10.29]}]},
+    chart = {"timestamp": ts, "indicators": {"adjclose": [{"adjclose": [10.0, 10.5, 10.5, 10.29]}],
+                                             "quote": [{"open": [9.9, 10.2, 10.6, 10.4], "close": [10.0, 10.5, 10.5, 10.29]}]},
              "events": {"dividends": {"a": {"date": ts[1], "amount": 0.47}},
                         "splits": {"b": {"date": ts[2], "numerator": 7, "denominator": 1}}}}
     monkeypatch.setattr(sc, "yahoo_chart", lambda sym, **kw: chart if sym == "AAPL" else None)
-    divs, rets = A.yahoo_daily(["AAPL", "GONE"])
+    divs, rets, gaps = A.yahoo_daily(["AAPL", "GONE"])
     assert divs.attrs["missing"] == ["GONE"]
     assert divs.loc[0, "ex_date"] == pd.Timestamp("2014-06-06") and abs(divs.loc[0, "cash"] - 3.29) < 1e-9
     assert list(rets.index.strftime("%Y-%m-%d")) == ["2014-06-05", "2014-06-06", "2014-06-09", "2014-06-10"]
     assert abs(rets.loc["2014-06-06", "AAPL"] - 0.05) < 1e-12 and abs(rets.loc["2014-06-10", "AAPL"] + 0.02) < 1e-12
+    assert abs(gaps["gap"].loc["2014-06-05", "AAPL"] - 1.02) < 1e-12 and abs(gaps["gap2"].loc["2014-06-05", "AAPL"] - 1.06) < 1e-12
+
+
+def test_next_opens_rebuilt_from_the_overnight_gap():
+    days = pd.to_datetime(["2024-03-08", "2024-03-15"])
+    rows = []
+    for d in days:
+        for j, t in enumerate(("AAA", "BBB", "CCC", "DDD")):
+            rows.append(name_row(d, j + 1, t, j + 1, j + 1, S=100.0, close_official=100.0, next_open=101.0,
+                                 split_next=0))
+    nm = pd.DataFrame(rows)
+    nm.loc[(nm["date"] == days[1]), "next_open"] = 103.0           # the engine's record is the later session's open
+    nm.loc[(nm["date"] == days[1]) & (nm["name"] == "DDD"), "next_open"] = np.nan
+    gap = pd.DataFrame({t: pd.Series([1.01, 1.02], index=days) for t in ("AAA", "BBB", "CCC")})
+    gap2 = pd.DataFrame({t: pd.Series([1.05, 1.03], index=days) for t in ("AAA", "BBB", "CCC")})
+    out, rep = A.fix_next_opens(nm, gap, gap2)
+    assert np.allclose(out.loc[out["name"] != "DDD", "next_open"], [101.0, 101.0, 101.0, 102.0, 102.0, 102.0])
+    ddd = out[out["name"] == "DDD"]["next_open"].to_numpy()        # no Yahoo data: kept on the confirmed day only
+    assert ddd[0] == 101.0 and np.isnan(ddd[1])
+    assert rep["rebuilt"] == 6 and rep["engine_kept"] == 1 and rep["unknown"] == 1
+    assert rep["days_confirmed"] == 1 and rep["days_late_by_one_session"] == 1

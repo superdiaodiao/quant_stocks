@@ -421,17 +421,19 @@ def earnings_flags(P: Q.Panel, rel: pd.DataFrame, ciks: dict, days: pd.DatetimeI
     return {"earn": earn, "react": react, "known": known, "earn_orb": earn_orb}
 
 
-def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame]:
+def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """From Yahoo's daily chart of every exported ticker (cached by quant.data.sources.sec_cache.yahoo_chart): the
     cash dividends by ex-date, scaled back by later splits to the day's own share count (to compare with the raw
     stock price), and the daily total returns of the adjusted close through END (one column per ticker).
-    ``attrs['missing']`` lists the tickers Yahoo has no chart for (their dividends and returns are unknown)."""
+    ``attrs['missing']`` lists the tickers Yahoo has no chart for (their dividends and returns are unknown). The
+    third value holds, per ticker and day, the next session's open over this close (``gap``; split-adjusted, the
+    same shares) and the open of the session after that over this close (``gap2``)."""
     from quant.data.sources.sec_cache import yahoo_chart
     def ny(ts):                                       # unix seconds (one or many) -> New York dates
         d = pd.DatetimeIndex(pd.to_datetime(np.atleast_1d(np.asarray(ts, dtype="int64")), unit="s", utc=True))
         d = d.tz_convert("America/New_York").tz_localize(None).normalize()
         return d if np.ndim(ts) else d[0]
-    rows, rets, missing = [], {}, []
+    rows, rets, gaps, gaps2, missing = [], {}, {}, {}, []
     for t in sorted(tickers):
         ch = yahoo_chart(t.replace(".", "-"))
         if not ch or not ch.get("timestamp"):
@@ -441,6 +443,12 @@ def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame]:
         if len(adj) == len(ch["timestamp"]):
             px = pd.Series(adj, index=ny(ch["timestamp"]), dtype=float).groupby(level=0).last().dropna()
             rets[t] = px[px.index <= END].pct_change()
+            q = ((ch.get("indicators") or {}).get("quote") or [{}])[0]
+            if len(q.get("open") or []) == len(ch["timestamp"]):
+                oc = pd.DataFrame({"o": q["open"], "c": q["close"]}, index=ny(ch["timestamp"]), dtype=float)
+                oc = oc.groupby(level=0).last().dropna()
+                gaps[t] = oc["o"].shift(-1) / oc["c"]
+                gaps2[t] = oc["o"].shift(-2) / oc["c"]
         ev = ch.get("events") or {}
         spl = [(ny(v["date"]), float(v["numerator"]) / float(v["denominator"])) for v in (ev.get("splits") or {}).values()]
         for v in (ev.get("dividends") or {}).values():
@@ -448,7 +456,41 @@ def yahoo_daily(tickers) -> tuple[pd.DataFrame, pd.DataFrame]:
             rows.append((t, d, float(v["amount"]) * math.prod(r for sd, r in spl if sd > d)))
     divs = pd.DataFrame(rows, columns=["ticker", "ex_date", "cash"])
     divs.attrs["missing"] = missing
-    return divs, pd.DataFrame(rets)
+    return divs, pd.DataFrame(rets), {"gap": pd.DataFrame(gaps), "gap2": pd.DataFrame(gaps2)}
+
+
+def fix_next_opens(names: pd.DataFrame, gap: pd.DataFrame | None, gap2: pd.DataFrame | None) -> tuple[pd.DataFrame, dict]:
+    """The engine's next-open record is written at the first minute bar of the next day whose first data event
+    comes at or after 09:31; on some days an earlier event (a daily bar) made it the open of the session after the
+    next, and in 2026 such a Friday's record was lost when Monday's own expiry replaced it (ledger 0.7 run record).
+    The next session's open is rebuilt as the day's close (official, else the last bar) times Yahoo's overnight gap
+    for every name Yahoo covers; a name without Yahoo data keeps the engine's value on days where the names with
+    data confirm it (at least 60% within 0.3% of the next session) and is unknown otherwise. A rebuilt record has no
+    split flag (the gap is split-adjusted)."""
+    nm = names.copy()
+    if gap is None or gap.empty:
+        return nm, {"rebuilt": 0}
+    d = pd.DatetimeIndex(nm["date"])
+    look = lambda tab: np.array([tab[t].get(x, np.nan) if t in tab else np.nan for t, x in zip(nm["name"], d)], float)
+    sane = lambda g: np.where(np.isfinite(g) & (g > 0.3) & (g < 3.0), g, np.nan)      # a bad Yahoo open is no gap
+    g1, g2 = sane(look(gap)), sane(look(gap2) if gap2 is not None else np.full(len(nm), np.nan))
+    base = nm["close_official"].to_numpy(float)
+    base = np.where(np.isfinite(base) & (base > 0), base, nm["S_close"].to_numpy(float))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = nm["next_open"].to_numpy(float) / base
+        e1, e2 = np.abs(ratio / g1 - 1), np.abs(ratio / g2 - 1)
+    chk = pd.DataFrame({"d": d, "ok": e1 < 0.003, "late": e2 < 0.003, "has": np.isfinite(e1)})[lambda v: v["has"]]
+    day_ok = chk.groupby("d")["ok"].mean() >= 0.6
+    keep = pd.Series(d).map(day_ok).fillna(False).to_numpy(bool)
+    rebuilt = np.isfinite(g1) & (base > 0)
+    new = np.where(rebuilt, base * g1, np.where(keep, nm["next_open"].to_numpy(float), np.nan))
+    nm["next_open"] = new
+    nm["split_next"] = np.where(rebuilt, 0, np.where(keep, nm["split_next"].to_numpy(), -1))
+    late_days = chk.groupby("d")["late"].mean() > 0.6
+    return nm, {"rebuilt": int(rebuilt.sum()), "engine_kept": int((~rebuilt & keep).sum()),
+                "unknown": int((~rebuilt & ~keep).sum()), "days_confirmed": int(day_ok.sum()),
+                "days_late_by_one_session": int((late_days & ~day_ok.reindex(late_days.index).fillna(False)).sum()),
+                "days_checked": int(len(day_ok))}
 
 
 def dividend_on(names: pd.DataFrame, divs: pd.DataFrame | None, when: pd.DatetimeIndex) -> np.ndarray:
@@ -1531,9 +1573,11 @@ def files() -> list[Path]:
 # ---------------------------------------------------------------------------------------------------- main
 def analyse_frames(names: pd.DataFrame, rows: pd.DataFrame, days_rec: pd.DataFrame, metas: list[dict], *,
                    cal_days: pd.DatetimeIndex, bench: pd.DataFrame, rel: pd.DataFrame, ciks: dict[str, str],
-                   divs: pd.DataFrame | None, stock_ret: pd.DataFrame | None = None, quick: bool = False,
+                   divs: pd.DataFrame | None, stock_ret: pd.DataFrame | None = None, gaps: dict | None = None,
+                   quick: bool = False,
                    allow_partial: bool = False, inputs_note: dict | None = None, write: bool = True) -> tuple[dict, dict]:
     """The whole registered analysis on decoded frames; returns (results, series)."""
+    names, opens_report = fix_next_opens(names, (gaps or {}).get("gap"), (gaps or {}).get("gap2"))
     keep = ((names["date"] >= START) & (names["date"] <= END)).to_numpy()
     kmap = np.full(len(names), -1)
     kmap[keep] = np.arange(int(keep.sum()))
@@ -1565,7 +1609,8 @@ def analyse_frames(names: pd.DataFrame, rows: pd.DataFrame, days_rec: pd.DataFra
     cal = cal_days[(cal_days >= START) & (cal_days <= END)]
     share = {int(y): float(np.isin(cal[cal.year == y], we).mean()) for y in sorted(set(cal.year))}
     bsess = bench["oneq"].reindex(sess).to_numpy()
-    res = {"inputs": {**inputs, **(inputs_note or {})}, "sessions": int(len(sess)), "mon_wed_2026_days": int(len(mw)),
+    res = {"inputs": {**inputs, **(inputs_note or {}), "next_opens": opens_report},
+           "sessions": int(len(sess)), "mon_wed_2026_days": int(len(mw)),
            "name_days": int(len(names)), "configs": int(len(cf)), "t_grid": T_GRID, "t_cumulative": T_CUM,
            "sessions_by_era": {k: int(((sess >= a) & (sess <= b)).sum()) for k, (a, b) in ERAS.items()},
            "earnings": {"releases": int(len(rel)), "names_with_cik": int(sum(1 for v in ciks.values() if v)),
@@ -1684,14 +1729,14 @@ def analyse(paths: list[Path], quick: bool = False, allow_partial: bool = False)
     bench = benchmarks(cal_days)
     ciks = ticker_ciks(metas)
     rel = earnings_table({c for cs in ciks.values() for c in cs}, cal_days)
-    divs, stock_ret = yahoo_daily(set(names["name"]))
+    divs, stock_ret, gaps = yahoo_daily(set(names["name"]))
     note = {"files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
             "dividends": {"rows": int(len(divs)), "missing_tickers": divs.attrs.get("missing", []),
                           "sha256": hashlib.sha256(divs.to_csv(index=False).encode()).hexdigest()},
             "analysis_code": {"studies/stock_0dte.py": code_hash(Path(__file__)),
                               "quant/strategies/stock_0dte.py": code_hash(Path(Q.__file__))}}
     res, series = analyse_frames(names, rows, days_rec, metas, cal_days=cal_days, bench=bench, rel=rel, ciks=ciks,
-                                 divs=divs, stock_ret=stock_ret, quick=quick, allow_partial=allow_partial,
+                                 divs=divs, stock_ret=stock_ret, gaps=gaps, quick=quick, allow_partial=allow_partial,
                                  inputs_note=note)
     OUT.mkdir(parents=True, exist_ok=True)
     series["table"].drop(columns=["b"]).to_csv(OUT / "configs.csv.gz", index=False, float_format="%.5g")
