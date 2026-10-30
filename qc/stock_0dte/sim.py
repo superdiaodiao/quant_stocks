@@ -118,11 +118,13 @@ def fee_v(px):
     return np.where(px >= 0.10, 0.65, np.where(px >= 0.05, 0.50, 0.25)) + OTHER_FEE
 
 
-def sane(b, a):
-    """Tradable quote: ask > 0, 0 <= bid <= ask, spread <= max(SANE_ABS, mid / 2). QQQ's 5-tick floor blocked real
-    late-day single-stock quotes such as 0.27 / 0.50 (mechanism round 4)."""
+def sane(b, a, entry=False):
+    """Tradable quote: ask > 0, 0 <= bid < ask (a locked minute snapshot is not a market), spread <= max(floor,
+    mid / 2). Entries keep QQQ's 5-tick floor; exits allow SANE_ABS, since QQQ's floor blocked real late-day
+    single-stock quotes such as 0.27 / 0.50 (mechanism round 4)."""
     b, a = np.nan_to_num(np.asarray(b, float), nan=-1.0), np.nan_to_num(np.asarray(a, float), nan=0.0)
-    return (a > 0) & (b >= 0) & (b <= a) & ((a - b) <= np.maximum(SANE_ABS, 0.25 * (a + b)))
+    floor = 5 * tick0() if entry else SANE_ABS
+    return (a > 0) & (b >= 0) & (b < a) & ((a - b) <= np.maximum(floor, 0.25 * (a + b)))
 
 
 class DaySim:
@@ -160,6 +162,7 @@ class DaySim:
             s_impl = Sm
         info["k0"] = k0
         info["s_impl"] = s_impl
+        info["atm"] = bool(abs(K[k0] / Sm - 1) <= 0.02)            # no "at the money" leg on a far strike
         if okq[0, k0] and okq[1, k0]:
             info["strad"] = float(mid[0, k0] + mid[1, k0])
         band = self.band(sig)
@@ -211,7 +214,7 @@ class DaySim:
                 ks = int(tie.min() if put else tie.max())          # ties go to the further OTM strike
                 sel[(r, d)] = ks
                 info["dlk"][(r, ks)] = float(dl[list(cand).index(ks)])
-            if okq[r, k0] and np.nan_to_num(B[r, k0, mS]) >= tk:
+            if info["atm"] and okq[r, k0] and np.nan_to_num(B[r, k0, mS]) >= tk:
                 sel[(r, 0.50)] = k0
                 info["dlk"].setdefault((r, k0), 0.5)
         return sel, info
@@ -284,6 +287,8 @@ class DaySim:
             return [(0, kp, -1), (1, kc, -1)], 0
         if f == 8:
             k0 = info["k0"]
+            if not info["atm"]:
+                return None, 1
             if not (self.buyable(0, k0, A, AGE, mS) and self.buyable(1, k0, A, AGE, mS)):
                 return None, 4
             return [(0, k0, 1), (1, k0, 1)], 0
@@ -340,7 +345,7 @@ class DaySim:
         if f == 19:
             # debit vertical from the at-the-money strike towards max pain (calls if max pain is above the stock)
             kb, k0 = info["kmpi"], info["k0"]
-            if kb < 0 or kb == k0 or abs(K[kb] / s_impl - 1) < MPD_MIN:
+            if kb < 0 or kb == k0 or not info["atm"] or abs(K[kb] / s_impl - 1) < MPD_MIN:
                 return None, 1
             r = 1 if K[kb] > s_impl else 0
             if (r == 1 and K[kb] <= K[k0]) or (r == 0 and K[kb] >= K[k0]):
@@ -500,7 +505,7 @@ class DaySim:
             b, a, ag = B[r, k, mF], A[r, k, mF], AGE[r, k, mF]
             q = abs(qn)
             spr0 += a - b
-            if not (ag <= AGE_FILL and sane(b, a)):
+            if not (ag <= AGE_FILL and sane(b, a, entry=True)):
                 return None
             if qn < 0:
                 if not (b >= tk):
@@ -525,8 +530,12 @@ class DaySim:
             den = width - net
             return den if (net >= tk and den > 0) else None
         if kind == 6:
-            step = float(K[legs[2][1]] - K[legs[1][1]])           # 1:3:2 call fly: worst case loses one strike step
-            return max(step - net, 0.25 * step) if step > 0 else None
+            # 1:3:2 call fly: worth h_down at the body, h_down - 2 h_up above the top strike, 0 below the bottom one
+            hd = float(K[legs[1][1]] - K[legs[0][1]])
+            hu = float(K[legs[2][1]] - K[legs[1][1]])
+            if hd <= 0 or hu <= 0:
+                return None
+            return max(max(2 * hu - hd, 0.0) - net, 0.25 * hd)
         if kind == 1:
             return S0 if net >= tk else None
         if kind == 2:
@@ -545,7 +554,7 @@ class DaySim:
         vok = np.ones(self.M, bool)
         for r, k, qn in legs:
             V += qn * np.nan_to_num(MID[r, k], nan=0.0)
-            vok &= (AGE[r, k] <= AGE_MARK) | (np.nan_to_num(B[r, k]) < tk)
+            vok &= ((AGE[r, k] <= AGE_MARK) | (np.nan_to_num(B[r, k]) < tk)) & (AGE[r, k] < 10_000)
         pairs = kind == 0 or f in VERT_DEBIT
         fcash, ffee, fn, rest = self.flatten(legs, K, B, A, AGE, S, mflat, S_close, pairs)
         pnl_flat = net + fcash - ffee
@@ -563,7 +572,7 @@ class DaySim:
             d15 = (net + c15 - f15) - pnl_flat
             self.cnt["f15"] += 1
         pnl = [pnl_flat, pnl_flat, pnl_flat, pnl_flat]
-        xmin, ximp, nx = [0, 0, 0], [0.0, 0.0, 0.0], [0, 0, 0]
+        xmin, ximp, nx, xfee = [0, 0, 0], [0.0, 0.0, 0.0], [0, 0, 0], [0.0, 0.0, 0.0]
         rng = np.zeros(self.M, bool)
         if mflat - 2 >= m0 + 1:
             rng[m0 + 1:mflat - 1] = True
@@ -588,6 +597,12 @@ class DaySim:
             pm = net + V
             trig = [rng & (pm <= -0.005 * S0), rng & (pm <= -0.010 * S0), rng & (pm >= 0.010 * S0)]
             fills = (F_STOP, F_STOP, F_TP)
+        if m0 < 0:
+            # overnight arm: the second slot exits at 09:45 on the expiry day (only the overnight is held)
+            t = np.zeros(self.M, bool)
+            t[mindex(9, 45) - 1] = True
+            trig[1] = t
+            fills = (fills[0], F_FLAT, fills[2])
         for j in range(3):
             t = trig[j]
             if not t.any():
@@ -605,6 +620,7 @@ class DaySim:
                 xmin[j] = m + 1
                 ximp[j] = im
                 nx[j] = nn
+                xfee[j] = fe
                 if m > mt + 1:
                     self.cnt["defer"] += 1
                 break
@@ -613,4 +629,4 @@ class DaySim:
             self.ftrace.append(f"{self.day:%m%d} s{si} S{S[mflat]:.2f}>{S_close:.2f} " + " ".join(
                 f"{'PC'[r]}{K[k]:g}{qn:+d}:{q(r, k, mflat)}>{q(r, k, self.M - 2)}" for r, k, qn in legs))
         return self.pack(cash0, den, pnl, imp0, pnl_hold - pnl_flat, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee,
-                         spr0, nsh_hold, nsh_flat, d15)
+                         spr0, nsh_hold, nsh_flat, d15, S0, xfee)

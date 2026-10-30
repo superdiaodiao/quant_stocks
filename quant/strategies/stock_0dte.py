@@ -27,7 +27,7 @@ import pandas as pd
 from quant.paths import ROOT
 
 QC_DIR = ROOT / "qc" / "stock_0dte"
-HEADER = 28
+HEADER = 29
 OFF = 5_000_000
 CODES = {1: "nosel", 2: "wingmiss", 3: "covmiss", 4: "stale", 5: "nocredit", 9: "too_late"}
 MGMT = ("H", "M1", "M2", "M3")
@@ -127,7 +127,7 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
         half, status = (flags // 10**12) % 10, (flags // 10**11) % 10
         nchain, nload = (flags // 10**6) % 10**4, (flags // 10**2) % 10**4
         penny, sig_ok = (flags // 10) % 10, flags % 10
-        nrows = h[27]
+        nrows = h[28]
         names.append({"date": d, "nid": nid, "name": ids.get(nid, f"#{nid}"), "half": half, "status": status,
                       "nchain": nchain, "nload": nload, "penny": penny, "sig_ok": sig_ok,
                       "S_open": h[2] / U, "S_close": h[3] / U, "prev_close": h[4] / U, "sig": h[5] / 1e6 if sig_ok else np.nan,
@@ -135,7 +135,8 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
                       "vix_prev": h[8] / 100 if h[8] else np.nan,
                       **{f"S_e{e}": h[9 + e] / U for e in range(NE)}, **{f"strad_e{e}": h[14 + e] / U for e in range(NE)},
                       **{f"pin_e{e}": (h[19 + e] / U if h[19 + e] else np.nan) for e in range(NE)},
-                      "rank_on": h[24], "S_on": h[25] / U if h[25] else np.nan, "strad_on": h[26] / U if h[26] else np.nan})
+                      "rank_on": h[24], "S_on": h[25] / U if h[25] else np.nan, "strad_on": h[26] / U if h[26] else np.nan,
+                      "vix_on": h[27] / 100 if h[27] else np.nan})
         i += HEADER
         if nrows and nrows != NS * NB:
             raise ValueError(f"{d.date()} {nid}: {nrows} rows, expected {NS * NB}")
@@ -147,8 +148,8 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
                 recs.append((k, e, si, int(-x1)))
                 i += 1
                 continue
-            x = [int(t) for t in vals[i:i + 9]]
-            i += 9
+            x = [int(t) for t in vals[i:i + 10]]
+            i += 10
             c, den = _two(x[0])
             ph, p1 = _two(x[1])
             p2, p3 = _two(x[2])
@@ -161,12 +162,14 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
                          (x[5] // 10**8) / 100, ((x[5] // 10**4) % 10**4) / 100, (x[5] % 10**4) / 100,
                          ((x7 // 10**9) % 1000) / 1000, ((x7 // 10**5) % 10**4) / 1e4, (x7 // 10**4) % 10,
                          (x7 // 10**3) % 10, (x7 // 100) % 10, (x7 // 10) % 10, x7 % 10, fe0 / U, fef / U,
-                         x7 // 10**13 - 2, (x7 // 10**12) % 10 - 2, (x[8] - OFF) / U))
+                         x7 // 10**13 - 2, (x7 // 10**12) % 10 - 2, ((x[8] % 10**7) - OFF) / U, (x[8] // 10**7) / 100,
+                         (x[9] // 10**8) / 100, ((x[9] // 10**4) % 10**4) / 100, (x[9] % 10**4) / 100))
     if left:
         raise ValueError(f"stream ended with {left} name blocks of {day} missing")
     cols = ["k", "entry", "shape", "code", "credit", "den", "pnl_H", "pnl_M1", "pnl_M2", "pnl_M3", "imp_entry",
             "d_close", "x_M1", "x_M2", "x_M3", "spr_entry", "imp_M1", "imp_M2", "imp_M3", "delta", "width_frac",
-            "n_entry", "n_flat", "n_M1", "n_M2", "n_M3", "fee_entry", "fee_flat", "nsh_hold", "nsh_flat", "d15"]
+            "n_entry", "n_flat", "n_M1", "n_M2", "n_M3", "fee_entry", "fee_flat", "nsh_hold", "nsh_flat", "d15",
+            "s_fill", "xfee_M1", "xfee_M2", "xfee_M3"]
     rows = pd.DataFrame([r + (np.nan,) * (len(cols) - len(r)) for r in recs], columns=cols)
     nm = pd.DataFrame(names)
     if len(nm):
@@ -177,12 +180,23 @@ def parse_stream(vals: list, ids: dict[int, str]) -> tuple[pd.DataFrame, pd.Data
 
 
 def name_ids(meta: dict) -> dict[int, str]:
-    """The run's id -> ticker dictionary from its runtime statistics (D00, D01, ... joined)."""
+    """The run's id -> ticker dictionary from its runtime statistics (D00, D01, ... joined; "id:ticker:cik")."""
     text = "".join(meta["rs"][k] for k in sorted(meta["rs"]) if k.startswith("D") and k[1:].isdigit())
     out = {}
     for tok in text.split():
         a, b = tok.split(":", 1)
-        out[int(a)] = b
+        out[int(a)] = b.split(":")[0]
+    return out
+
+
+def name_ciks(meta: dict) -> dict[str, str]:
+    """ticker -> SEC CIK (QC's Morningstar company reference) of the run's names; "" where QC has none."""
+    text = "".join(meta["rs"][k] for k in sorted(meta["rs"]) if k.startswith("D") and k[1:].isdigit())
+    out = {}
+    for tok in text.split():
+        parts = tok.split(":")
+        if len(parts) == 3:
+            out[parts[1]] = parts[2]
     return out
 
 
@@ -236,6 +250,10 @@ class Panel:
     fee_entry: np.ndarray       # [NS, NB, NK]
     fee_flat: np.ndarray        # [NS, NB, NK]
     n_legs: np.ndarray          # [NS, NB, NK] contracts traded at entry
+    xfee: np.ndarray            # [NS, NB, 3, NK] fees of the M1..M3 exit orders, dollars per contract-share
+    xpos: np.ndarray            # [NS, NB, NK] stock return from each position's own fill to the close
+    orb_dir: np.ndarray         # [NK] breakout direction (1 call, 2 put, 0 none) and its fill minute
+    orb_min: np.ndarray
 
 
 def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
@@ -256,6 +274,10 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     fee_entry = np.zeros(shp)
     fee_flat = np.zeros(shp)
     n_legs = np.zeros(shp, int)
+    xfee = np.zeros((NS, NB, 3, nk))
+    xpos = np.zeros(shp)
+    orb_dir = np.zeros(nk, int)
+    orb_min = np.zeros(nk, int)
     S = np.vstack([names[[f"S_e{x}" for x in range(NE)]].to_numpy().T, names["S_on"].to_numpy()[None, :]])
     if len(rows):
         k = rows["k"].to_numpy(int)
@@ -282,7 +304,17 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
         nsh_flat[s, e, k] = r["nsh_flat"].to_numpy(int)
         d15[s, e, k] = r["d15"].to_numpy()
         flat = r[["pnl_H", "pnl_M1", "pnl_M2", "pnl_M3"]].to_numpy()
-        xm = r[["x_M1", "x_M2", "x_M3"]].to_numpy()
+        xm = r[["x_M1", "x_M2", "x_M3"]].to_numpy().copy()
+        orb = np.array([SHAPES[x][0] == 20 for x in s])
+        if orb.any():                                           # the breakout's slots: exit, fill minute, direction
+            orb_min[k[orb]] = xm[orb, 1]
+            orb_dir[k[orb]] = xm[orb, 2]
+            xm[orb, 1:] = xm[orb, :1]
+        xfee[s, e, :, k] = r[["xfee_M1", "xfee_M2", "xfee_M3"]].to_numpy() / 100.0
+        sc = names["S_close"].to_numpy()[k]
+        sf = r["s_fill"].to_numpy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xpos[s, e, k] = np.where(sf > 0, sc / sf - 1.0, 0.0)
         live = np.column_stack([np.ones(len(r), bool), xm == 0])  # still open at the flatten
         hd = flat + live * r["d_close"].to_numpy()[:, None]
         for m in range(4):
@@ -307,4 +339,4 @@ def build_panel(names: pd.DataFrame, rows: pd.DataFrame) -> Panel:
     with np.errstate(divide="ignore", invalid="ignore"):
         xret = np.where(S > 0, Sc[None, :] / S - 1.0, 0.0)
     return Panel(names, opened, code, pnl, hold, cons, d15, nsh_hold, nsh_flat, den, width, net, S, np.nan_to_num(xret),
-                 xmin, fee_entry, fee_flat, n_legs)
+                 xmin, fee_entry, fee_flat, n_legs, xfee, xpos, orb_dir, orb_min)

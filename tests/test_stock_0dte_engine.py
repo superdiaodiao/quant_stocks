@@ -97,7 +97,9 @@ def unpack(row):
             "xmin": [int(row[4]) // 10**10, (int(row[4]) // 10**7) % 1000, (int(row[4]) // 10**4) % 1000],
             "spr0": (int(row[4]) % 10**4) / 100, "nsh_hold": x7 // 10**13 - 2, "nsh_flat": (x7 // 10**12) % 10 - 2,
             "dl": (x7 // 10**9) % 1000, "wbp": (x7 // 10**5) % 10**4, "ne": (x7 // 10**4) % 10,
-            "d15": (int(round(row[8])) - off) / Z.U}
+            "d15": ((int(round(row[8])) % 10**7) - off) / Z.U, "s_fill": (int(round(row[8])) // 10**7) / 100,
+            "xfee": [(int(round(row[9])) // 10**8) / 100, ((int(round(row[9])) // 10**4) % 10**4) / 100,
+                     (int(round(row[9])) % 10**4) / 100]}
 
 
 def row_of(rows, shape, entry=0):
@@ -118,9 +120,9 @@ def test_rows_cover_every_shape_and_block():
     algo, _ = make_algo(path, oi=lambda K: np.vstack([np.where(K == 99.0, 5000.0, 10.0), np.where(K == 103.0, 9000.0, 10.0)]))
     rows, strad, pins, nload = run(algo, path, 101.0)
     assert len(rows) == Z.NS * Z.NB
-    assert all(len(r) in (1, 9) for r in rows)
+    assert all(len(r) in (1, 10) for r in rows)
     assert all(r[0] < 0 for r in rows if len(r) == 1)
-    assert sum(len(r) == 9 for r in rows[:Z.NS * Z.NE]) > 0.6 * Z.NS * Z.NE
+    assert sum(len(r) == 10 for r in rows[:Z.NS * Z.NE]) > 0.6 * Z.NS * Z.NE
     assert all(r == [-8.0] for r in rows[Z.NS * Z.NE:])                # no overnight positions were opened
     assert all(x > 0 for x in strad)
     assert all(p == 99.0 for p in pins)                  # 99 has the most open interest within max(2%, 1 sd)
@@ -242,7 +244,7 @@ def test_pin_ratio_fly_legs_fees_and_payoff():
     assert abs(fee0 - 6 * (0.65 + Z.OTHER_FEE) / 100) < 1e-9 or fee0 > 5 * 0.30 / 100   # six contracts are charged
     rows, *_ = run(algo, path)
     u = unpack(row_of(rows, shape, 2))
-    assert u["ne"] == 3 and u["pnl"][0] > 0                            # the pin pays the fly
+    assert u["ne"] == 6 and u["pnl"][0] > 0                            # six contracts; the pin pays the fly
     mid = np.full(M, 100.45)                                           # half-way between strikes: no trade
     algo2, _ = make_algo(mid)
     rows2, *_ = run(algo2, mid)
@@ -286,16 +288,19 @@ def test_pack_roundtrip_is_exact():
     info = {"dlk": {(0, 3): 0.161}, "K": np.array([95.0, 96.0, 97.0, 98.0]), "s_impl": 100.0}
     legs = [(0, 3, -1), (0, 2, 1)]
     row = algo.pack(0.432, 0.568, [0.123, -0.234, -0.345, 0.012], 0.007, -0.004, [17, 200, 0],
-                    [0.01, 0.0, 0.0], legs, 2, [2, 2, 0], info, (0, 0.16, 0.0), 0.014, 0.007, 0.03, 1, -1, -0.021)
+                    [0.01, 0.0, 0.0], legs, 2, [2, 2, 0], info, (0, 0.16, 0.0), 0.014, 0.007, 0.03, 1, -1, -0.021,
+                    612.37, [0.014, 0.0, 0.0065])
     u = unpack(row)
     assert u["cash0"] == 0.432 and u["den"] == 0.568
     assert u["pnl"] == [0.123, -0.234, -0.345, 0.012]
     assert u["imp0"] == 0.007 and u["d_close"] == -0.004 and u["xmin"] == [17, 200, 0]
     assert u["fee0"] == 0.014 and u["fee_flat"] == 0.007 and u["spr0"] == 0.03 and u["d15"] == -0.021
     assert u["nsh_hold"] == 1 and u["nsh_flat"] == -1 and u["dl"] == 161 and u["wbp"] == 100 and u["ne"] == 2
+    assert u["s_fill"] == 612.37 and u["xfee"] == [1.40, 0.0, 0.65]
     assert all(float(x).is_integer() and x < 2**53 for x in row)
     row = algo.pack(1.0, 5000.0, [0.0] * 4, 0.0, 0.0, [0, 0, 0], [0.0] * 3, [(1, 2, -1)], 0, [0, 0, 0],
-                    {"dlk": {}, "K": np.array([1.0, 2.0, 3.0]), "s_impl": 5000.0}, (5, 0.10, 0.0), 0.0, 0.0, 0.0, 0, 0, 0.0)
+                    {"dlk": {}, "K": np.array([1.0, 2.0, 3.0]), "s_impl": 5000.0}, (5, 0.10, 0.0), 0.0, 0.0, 0.0, 0, 0, 0.0,
+                    5000.0, [0.0] * 3)
     assert unpack(row)["den"] == 5000.0
 
 
@@ -336,7 +341,7 @@ def test_export_stream_roundtrip_through_the_decoder():
     head = [900_000_000_000_000.0 + ymd * 1000 + 7, float(0 * 10**12 + 0 * 10**11 + 84 * 10**6 + nload * 10**2 + 1 * 10 + 1),
             round(100.02 * U), round(95.0 * U), round(100.5 * U), round(0.02 * 1e6), round(101.0 * U), 3 * 10**6 + 390, 1850.0]
     head += [float(round(x * U)) for x in s_entry] + [float(round(x * U)) for x in strad] + [float(round(x * U)) for x in pins]
-    head += [4.0, float(round(100.0 * U)), float(round(strad_on * U)), float(len(rows))]
+    head += [4.0, float(round(100.0 * U)), float(round(strad_on * U)), 1720.0, float(len(rows))]
     assert len(head) == Q.HEADER
     vals = [950_000_000_000_000.0 + ymd * 100 + 1] + head + [v for r in rows for v in r] + [920_000_000_000_000.0]
     names, recs, days = Q.parse_stream([int(v) for v in vals], {7: "TSLA"})
@@ -344,6 +349,7 @@ def test_export_stream_roundtrip_through_the_decoder():
     assert len(names) == 1 and names.loc[0, "name"] == "TSLA" and names.loc[0, "rank"] == 3 and names.loc[0, "rank_on"] == 4
     assert names.loc[0, "S_close"] == 95.0 and abs(names.loc[0, "sig"] - 0.02) < 1e-9 and names.loc[0, "kmp"] == 101.0
     assert names.loc[0, "vix_prev"] == 18.5 and names.loc[0, "pin_e0"] == pins[0] and names.loc[0, "S_on"] == 100.0
+    assert names.loc[0, "vix_on"] == 17.2
     assert len(recs) == Z.NS * Z.NB
     si = Z.SHAPES.index((4, 0.16, 0.0))
     got = recs[(recs["entry"] == 0) & (recs["shape"] == si)].iloc[0]
@@ -361,7 +367,32 @@ def test_next_open_records_attach_to_their_name_day():
     from quant.strategies import stock_0dte as Q
     ymd = 240809
     head = [900_000_000_000_000 + ymd * 1000 + 3, 0, 100_000, 99_000, 100_500, 20_000, 0, 10**6 + 390, 1850]
-    head += [0] * 18 + [0]
+    head += [0] * 19 + [0]
     vals = [950_000_000_000_000 + ymd * 100 + 1] + head + [970_000_000_000_000 + ymd * 1000 + 3, 98_500, 0]
     names, recs, days = Q.parse_stream(vals, {3: "AMD"})
     assert names.loc[0, "next_open"] == 98.5 and names.loc[0, "split_next"] == 0 and len(recs) == 0
+
+
+def test_overnight_exit_at_0945_and_no_trigger_before_the_first_quote():
+    prev = np.full(M, 100.0)
+    algo_prev, _ = make_algo(prev, extra_days=1.0)
+    states, _ = algo_prev.on_enter(DAY, prev, [], SIG, None)
+    pcs = Z.SHAPES.index((0, 0.16, 0.02))
+    path = np.full(M, 100.0)
+    algo, (K, B, A, AGE, OI) = make_algo(path)
+    AGE[:, :, :5] = 10_000                                             # no quotes before 09:36
+    B[:, :, :5], A[:, :, :5] = np.nan, np.nan
+    rows, *_ = run(algo, path, on=states)
+    u = unpack(rows[Z.NE * Z.NS + pcs])
+    assert u["xmin"][0] == 0                                           # no stop from a leg that had no quote yet
+    assert u["xmin"][1] == Z.mindex(9, 45) + 1                         # the overnight-only slot exits at 09:45
+    assert u["pnl"][1] > 0                                             # a quiet open keeps most of the credit
+
+
+def test_ratio_fly_risk_base_with_unequal_steps():
+    K = np.array([97.5, 100.0, 105.0])
+    legs = [(1, 0, 1), (1, 1, -3), (1, 2, 2)]
+    # above 105 the fly pays 2.5 - 2 x 5 = -7.5: the risk base is 7.5 minus the credit, not one step
+    assert abs(Z.DaySim.risk_base(21, legs, K, 0.10, 100.0) - 7.40) < 1e-9
+    K2 = np.array([99.0, 100.0, 101.0])
+    assert abs(Z.DaySim.risk_base(21, legs, K2, -0.05, 100.0) - 1.05) < 1e-9

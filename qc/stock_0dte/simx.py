@@ -180,20 +180,22 @@ class DaySimX(Z.DaySim):
         live[mF + 1:ORB_STOP] = True
         hit = live & ok & ((np.nan_to_num(Vx, nan=-1e9) >= 2 * debit) | (V <= 0.5 * debit))
         m_exit, F = (int(np.argmax(hit)) + 1, None) if hit.any() else (ORB_STOP, Z.F_FLAT)
-        pnl, xm, ximp, nx, rest = None, 0, 0.0, 0, legs
+        pnl, xm, ximp, nx, rest, xfee = None, 0, 0.0, 0, legs, 0.0
         for m in range(m_exit, mflat):
             FF = F if F is not None else (Z.F_TP if Vx[m - 1] >= 2 * debit else Z.F_STOP)
             res = self.close_cash(legs, B, A, AGE, m, FF, Z.AGE_FILL)
             if res is None or res[4]:
                 continue
             c, fe, im, nn, held = res
-            pnl, xm, ximp, nx, rest = cash0 - fee0 + c - fe, m + 1, im, nn, []
+            pnl, xm, ximp, nx, rest, xfee = cash0 - fee0 + c - fe, m + 1, im, nn, [], fe
             break
         if pnl is None:                                        # never sold: the 15:50 flatten / intrinsic
             fcash, ffee, fn, rest = self.flatten(legs, K, B, A, AGE, S, mflat, S_close)
-            pnl, nx = cash0 - fee0 + fcash - ffee, fn
-        return self.pack(cash0, debit, [pnl] * 4, imp0, 0.0, [xm] * 3, [ximp] * 3, legs, nx, [nx] * 3, info, shape,
-                         fee0, 0.0, spr0, 0, shares_at(rest, K, S_close), 0.0)
+            pnl, nx, xfee = cash0 - fee0 + fcash - ffee, fn, ffee
+        # slots: exit minute, entry (fill) minute, direction (1 call, 2 put); the exit order's fee in the first slot
+        return self.pack(cash0, debit, [pnl] * 4, imp0, 0.0, [xm, mF + 1, 1 if r == 1 else 2], [ximp] * 3, legs, nx,
+                         [nx] * 3, info, shape, fee0, 0.0, spr0, 0, shares_at(rest, K, S_close), 0.0, float(S[mF]),
+                         [xfee, 0.0, 0.0])
 
     # ------------------------------------------------------------------ delta-hedged straddle (report only)
     def run_sdh(self, legs, K, B, A, MID, AGE, S, mF, mflat, S_close, cash0, fee0, imp0, spr0, den, info, shape):
@@ -220,11 +222,11 @@ class DaySimX(Z.DaySim):
         pnl_hold = net + self.settle_value(legs, K, S_close) + hcash + h * S_close - abs(h) * cost * S_close
         return self.pack(cash0, den, [pnl_flat] * 4, imp0, pnl_hold - pnl_flat, [0, 0, 0], [0.0, 0.0, 0.0], legs, fn,
                          [0, 0, 0], info, shape, fee0, ffee, spr0, shares_at(legs, K, S_close),
-                         shares_at(rest, K, S_close), 0.0)
+                         shares_at(rest, K, S_close), 0.0, float(S[mF]), [0.0, 0.0, 0.0])
 
-    # ------------------------------------------------------------------ export (9 exact integers per position)
+    # ------------------------------------------------------------------ export (10 exact integers per position)
     def pack(self, cash0, den, pnl, imp0, d_close, xmin, ximp, legs, fn, nx, info, shape, fee0, ffee, spr0,
-             nsh_hold, nsh_flat, d15):
+             nsh_hold, nsh_flat, d15, s_fill, xfee):
         U, OFF = Z.U, Z.OFF
 
         def p7(x):
@@ -246,10 +248,11 @@ class DaySimX(Z.DaySim):
         wbp = 0
         if Z.KIND[f] in (0, 6) or f in Z.VERT_DEBIT:
             wbp = min(9999, int(round(1e4 * abs(info["K"][legs[0][1]] - info["K"][legs[1][1]]) / info["s_impl"])))
-        ne = len(legs)
+        nc = sum(abs(q) for _, _, q in legs)                   # contracts at entry (the ratio fly trades 6)
         nsh = (max(-2, min(2, nsh_hold)) + 2) * 10 + (max(-2, min(2, nsh_flat)) + 2)
-        x7 = float(nsh * 10**12 + dl * 10**9 + wbp * 10**5 + ne * 10**4 + min(9, fn) * 10**3 + min(9, nx[0]) * 100
-                   + min(9, nx[1]) * 10 + min(9, nx[2]))
+        x7 = float(nsh * 10**12 + dl * 10**9 + wbp * 10**5 + min(9, nc) * 10**4 + min(9, fn) * 10**3
+                   + min(9, nx[0]) * 100 + min(9, nx[1]) * 10 + min(9, nx[2]))
         x8 = float(min(9_999_999, int(round(fee0 * U))) * 10**7 + min(9_999_999, int(round(ffee * U))))
-        x9 = float(p7(d15))
-        return [x1, x2, x3, x4, x5, x6, x7, x8, x9]
+        x9 = float(min(99_999_999, max(0, int(round(s_fill * 100)))) * 10**7 + p7(d15))
+        x10 = float(c4(xfee[0] * 100) * 10**8 + c4(xfee[1] * 100) * 10**4 + c4(xfee[2] * 100))   # exit fees, $ per order
+        return [x1, x2, x3, x4, x5, x6, x7, x8, x9, x10]
