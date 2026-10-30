@@ -8,7 +8,9 @@
 //   finished one's 100 charts (SX.fetch / SX.stream) over the chunk's own time range and, when the stream is complete
 //   (no bad slot, the run's last sequence number, as many values as the run emitted), saves
 //   stock_0dte_<first>_<last>.json.gz (SX.save) with meta = {name, bt, pid, book_line, mech_line, hashes, rs}. A chunk
-//   that fails is recorded and skipped; an incomplete read is recorded and can be repeated with FR.read(label).
+//   that fails is recorded and skipped. QC marks a backtest completed before its custom runtime statistics and last
+//   chart points are stored, so the read first waits for the run's own RUN line ('final 1') and retries an
+//   incomplete stream; one still incomplete is recorded and can be repeated with FR.read(label).
 //   (The chart API returns one point per (end - start) / count seconds: a 1970-2033 range merged the one-minute emits.)
 // FR.st[label]: status, backtest id, progress, read / save result; FR.log: errors; FR.stop = true ends after the current
 //   chunk.
@@ -96,22 +98,32 @@ window.FR = {
   },
   async read(label, nch = 100) {
     const st = this.st[label];
-    st.read = 'reading';
-    const [t0, t1] = this.range(label);
-    let store = await SX.fetch(__api, st.meta.pid, st.meta.bt, t0, t1, nch);
-    const s = SX.stream(store, nch);
-    store = null;
+    st.read = 'waiting for the final statistics';
+    for (let i = 0; i < 40; i++) {                       // the custom runtime statistics arrive after `completed`
+      const q = await __api('backtests/read', { projectId: st.meta.pid, backtestId: st.meta.bt });
+      const rs = (q.backtest || {}).runtimeStatistics || {};
+      if (rs.RUN && / final 1/.test(rs.RUN)) { st.meta.rs = rs; st.rs = rs; break; }
+      await this.sleep(30000);
+    }
     const run = (st.meta.rs || {}).RUN || '';
     const seq = +((run.match(/ seq (\d+)/) || [])[1]), emitted = +((run.match(/ emitted (\d+)/) || [])[1]);
-    st.read = `bad ${s.bad} vals ${s.vals.length} lastseq ${s.lastseq} maxPts ${s.maxPts} want seq ${seq} emitted ${emitted}`;
-    if (s.bad !== 0 || s.lastseq !== seq || s.vals.length !== emitted) {
-      st.read = 'INCOMPLETE ' + st.read;
-      this.log.push(label + ' read incomplete');
-      return st;
+    const [t0, t1] = this.range(label);
+    for (let attempt = 1; attempt <= 4; attempt++) {    // the last chart points can also arrive late
+      st.read = 'reading ' + attempt;
+      let store = await SX.fetch(__api, st.meta.pid, st.meta.bt, t0, t1, nch);
+      const s = SX.stream(store, nch);
+      store = null;
+      st.read = `bad ${s.bad} vals ${s.vals.length} lastseq ${s.lastseq} maxPts ${s.maxPts} want seq ${seq} emitted ${emitted} attempt ${attempt}`;
+      if (s.bad === 0 && s.lastseq === seq && s.vals.length === emitted) {
+        const name = `stock_0dte_${label.replace('..', '_')}.json.gz`;
+        st.saved = await SX.save({ runs: [{ vals: s.vals, bad: s.bad, nts: s.nts, lastseq: s.lastseq, meta: st.meta }] }, name);
+        st.file = name;
+        return st;
+      }
+      await this.sleep(120000);
     }
-    const name = `stock_0dte_${label.replace('..', '_')}.json.gz`;
-    st.saved = await SX.save({ runs: [{ vals: s.vals, bad: s.bad, nts: s.nts, lastseq: s.lastseq, meta: st.meta }] }, name);
-    st.file = name;
+    st.read = 'INCOMPLETE ' + st.read;
+    this.log.push(label + ' read incomplete after retries');
     return st;
   },
   async go(sha, chunks, frozen, pid) {
