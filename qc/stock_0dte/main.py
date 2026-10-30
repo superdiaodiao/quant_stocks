@@ -15,7 +15,8 @@ import sim as Z
 BOOK = (date(2024, 7, 29), date(2024, 8, 9))   # book days [first, last]; the algorithm runs longer to rank and drain
 MECH = True                                    # True only for the registered mechanism checks (adds traces)
 TOPN = 20                                      # names simulated each 0DTE day: the month's top 20 by dollar volume
-NCH = 40                                       # export charts (x 10 series, one point per series per minute)
+NCH = 100                                      # export charts x 10 series, one point per series per emit (chartcap.py)
+MAX_EMITS = 3990                               # a series keeps 4,000 points; later ones would be thinned away
 HEADER = 25                                    # values per name-day header (the last one is the row count)
 MAX_PRICE = 10_000.0                           # BRK.A (no listed options) would otherwise take a slot
 DATA_END = date(2026, 7, 30)
@@ -424,7 +425,7 @@ class StockZeroDte(QCAlgorithm):
     def emit(self):
         cap = NCH * 10 - 1
         k = min(cap, len(self.queue) - self.qpos)
-        if k <= 0:
+        if k <= 0 or self.seq >= MAX_EMITS:
             return
         self.seq += 1
         self.plot("P00", "s0", float(800_000_000_000_000 + self.seq * 1000 + k))

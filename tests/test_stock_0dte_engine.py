@@ -148,7 +148,7 @@ def test_flat_day_short_put_spread_keeps_credit_and_matches_hand_calculation():
     path = np.full(M, 100.0)
     algo, (K, B, A, AGE, OI) = make_algo(path)
     rows, *_ = algo.simulate_day(DAY, path, [], SIG, None)
-    shape = (0, 0.16, 0.01)
+    shape = (0, 0.16, 0.02)
     u = unpack(row_of(rows, shape))
     mF = 15
     sel, info = algo.select(path, K, B, A, 0.5 * (B + A), A - B, AGE, OI, mF - 1, SIG, None)
@@ -165,7 +165,7 @@ def test_flat_day_short_put_spread_keeps_credit_and_matches_hand_calculation():
 def test_crash_day_stops_and_caps_spread_loss_and_naked_put_is_assigned():
     algo, _ = make_algo(CRASH)
     rows, *_ = algo.simulate_day(DAY, CRASH, [], SIG, None)
-    u = unpack(row_of(rows, (0, 0.16, 0.01)))
+    u = unpack(row_of(rows, (0, 0.16, 0.02)))
     assert u["xmin"][0] > 15 and u["xmin"][1] >= u["xmin"][0]
     assert u["pnl"][1] > u["pnl"][0]
     assert -u["den"] - 0.06 <= u["pnl"][0] < -0.8 * u["den"]
@@ -203,8 +203,8 @@ def test_pin_and_max_pain_flies_centre_on_their_strikes():
     assert K[info["kpin"]] == 99.0 and K[info["kmpi"]] == 103.0
     legs, code = algo.legs_for((17, 0.50, 0.0), sel, K, B, A, AGE, 14, info)
     assert code == 0 and K[legs[0][1]] == 99.0 and K[legs[2][1]] == 99.0 and K[legs[1][1]] == 98.0 and K[legs[3][1]] == 100.0
-    legs, code = algo.legs_for((18, 0.50, 0.01), sel, K, B, A, AGE, 14, info)
-    assert code == 0 and K[legs[0][1]] == 103.0 and K[legs[1][1]] == 102.0 and K[legs[3][1]] == 104.0
+    legs, code = algo.legs_for((18, 0.50, 0.02), sel, K, B, A, AGE, 14, info)
+    assert code == 0 and K[legs[0][1]] == 103.0 and K[legs[1][1]] == 101.0 and K[legs[3][1]] == 105.0
     legs, code = algo.legs_for((19, 0.50, 0.0), sel, K, B, A, AGE, 14, info)
     assert code == 0 and legs[0][0] == 1 and K[legs[0][1]] == 103.0 and legs[0][2] == -1 and legs[1][2] == 1
     # max pain within half a percent of the stock: no directional trade

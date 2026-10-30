@@ -1,7 +1,7 @@
 """Pure-numpy day simulator for the single-stock 0DTE grid (docs/research_ledger_stock_0dte.md, section 0.3).
 QuantConnect project file next to main.py, tested locally by tests/test_stock_0dte_engine.py. Derived from
 qc/zero_dte/sim.py (the frozen QQQ / SPXW engine, untouched); the single-stock changes are listed in ledger 0.3:
-per-class tick grid, a band from the stock's own volatility, 1% / 2% wings, buyer and open-interest structures,
+per-class tick grid, a band from the stock's own volatility, 2% / 4% wings, buyer and open-interest structures,
 a 1% flatten window, and the shares a position would deliver if held (next-open assignment convention).
 Minute m: the bar ending 09:31 is m = 0. Quotes: arrays [right (0 put, 1 call), strike, minute], forward-filled
 with their age in minutes; a zero bid is a quote.
@@ -17,7 +17,7 @@ from optmath import abs_delta, bs, implied_s, max_pain, shares_at  # noqa: F401
 ENTRY = ((9, 45), (10, 30), (12, 0), (13, 30), (15, 0))
 FLAT_BEFORE = 10                               # flatten this many minutes before the option close (15:50, 12:50)
 DELTAS = (0.05, 0.10, 0.16, 0.25, 0.50)
-WINGS = (0.0, 0.01, 0.02)                      # 0.0 = the adjacent listed strike, else a share of the stock price
+WINGS = (0.0, 0.02, 0.04)                      # 0.0 = the adjacent listed strike (~1% of S), else a share of S
 F_ENTRY, F_TP, F_STOP, F_FLAT = 0.25, 0.25, 0.5, 0.5
 AGE_FILL, AGE_MARK = 5, 15                     # max quote age (minutes) to fill / to mark
 
