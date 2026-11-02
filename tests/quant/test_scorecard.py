@@ -347,10 +347,11 @@ def test_stationary_bootstrap_index_and_unchanged_max_t():
     assert idx.shape == (200,) and idx.min() >= 0 and idx.max() < 50
     steps = np.diff(idx)
     assert ((steps == 1) | (steps == -49)).mean() > 0.6                   # mostly consecutive (wrapping) rows
-    # bootstrap_max_t gives the numbers it gave before the index helper was factored out of it
+    # bootstrap_max_t gives the numbers it gave before the index helper was factored out of it (to the last few bits:
+    # CI's numpy 1.26 gave 1.0374425101053026 for the second)
     x = np.random.default_rng(7).normal(0.001, 0.02, size=(150, 4))
-    assert criteria.bootstrap_max_t(x, 6.0, 300, 11) == 2.1365637945472704
-    assert criteria.bootstrap_max_t(x[:, :1], 2.5, 200, 3, q=0.9) == 1.0374425101053022
+    assert criteria.bootstrap_max_t(x, 6.0, 300, 11) == approx(2.1365637945472704)
+    assert criteria.bootstrap_max_t(x[:, :1], 2.5, 200, 3, q=0.9) == approx(1.0374425101053022)
 
 
 # ======================================================================== 9. practicality
