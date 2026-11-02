@@ -308,6 +308,12 @@ M1–M6，以及 2026-10-24 加入前瞻观察 B4 的 LEV-B3（sector_lev 的 B3
   `io.security_universe`（S-MISP 观察）。
 - 研究里仍有不少“研究专属但写法相近”的函数（各自的 period_metrics、perf_metrics、criteria 标签等），它们的
   口径或输出键不同，合并会改变输出，保持原样。（瘦身轮已把它们挪进 `quant/evaluation`，各起一个名字，见第 12 节。）
+- `quant.strategies.stock_0dte` 的 `acceptance_et` 导入 `pipelines.reversal_data.earnings`（取 EDGAR 头文件、解析
+  接收时间）：它是已结束研究的冻结分析代码（台账哈希 a315a748dc745c7d），不能改，`tests/test_pipeline_layout.py`
+  只放过这一处。
+- 同样冻结的 0DTE 代码在 `tests/quant/test_study_library_surface.py` 里另有两处例外：`studies/stock_0dte.py`
+  （8e120605372b1062）导入 `studies.zero_dte` 的统计；`quant/strategies/zero_dte.py`（41d783045d864672）和
+  `quant/strategies/stock_0dte.py` 的模块说明里写了导出目录。测试只放过这几处，代码里写输出路径仍会报错。
 
 ## 10. 第 4 阶段做了什么
 

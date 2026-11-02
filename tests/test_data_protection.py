@@ -238,6 +238,7 @@ def test_megacap_lookback_reads_a_cached_tiingo_answer_whatever_the_month(monkey
 
 def test_the_forward_fetch_asks_tiingo_only_within_the_budget(monkeypatch, tmp_path):
     from scripts import forward_observation as fo
+    monkeypatch.setattr(fo.fp, "tiingo_key", lambda: "k")   # without a key (as on CI) Tiingo is never asked
     full = ledger(tmp_path / "other" / "quota_ledger.csv", [("tiingo", f"S{k}") for k in range(500)])
     monkeypatch.setattr(tq, "account_ledgers", lambda: [full])
     asked = []

@@ -40,6 +40,9 @@ def test_megacap_engine_binding_passes_the_half_spread(monkeypatch):
 def test_no_study_imports_another_study_or_a_research_script():
     """docs/architecture.md section 3: studies import quant (and data-build scripts), never another study."""
     names = {p.stem for p in (ROOT / "studies").glob("*.py")}
+    # one frozen exception: studies/stock_0dte.py, analysis code of a closed study frozen at SHA-256 8e120605372b1062
+    # (docs/research_ledger_stock_0dte.md), reuses the zero_dte study's statistics
+    frozen = {"stock_0dte.py": "zero_dte"}
     for path in list((ROOT / "studies").glob("*.py")) + list((ROOT / "quant").rglob("*.py")):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
@@ -53,7 +56,8 @@ def test_no_study_imports_another_study_or_a_research_script():
                 assert not (m == "scripts" and isinstance(node, ast.ImportFrom)
                             and any(a.name.startswith("research_") for a in node.names)), (path, m)
                 if path.parent.name == "studies":
-                    assert not (m.startswith("studies.") and m.split(".")[1] in names), (path, m)
+                    assert not (m.startswith("studies.")
+                                and m.split(".")[1] in names - {frozen.get(path.name)}), (path, m)
                 elif path.name != "cli.py":
                     assert not m.startswith("studies"), (path, m)
 
@@ -136,6 +140,11 @@ def test_quant_imports_src_only_through_the_two_bridges():
 
 def test_strategy_modules_hold_no_study_output_paths():
     """Study output folders are declared by the studies and passed in, never read by a strategy module."""
+    # the frozen 0DTE decoders (zero_dte.py 41d783045d864672, docs/research_ledger_zero_dte.md; stock_0dte.py
+    # a315a748dc745c7d, docs/research_ledger_stock_0dte.md) name their export folder in the module docstring only
+    frozen = {"zero_dte.py", "stock_0dte.py"}
     for path in (ROOT / "quant/strategies").glob("*.py"):
         text = path.read_text()
+        if path.name in frozen:
+            text = text.replace(ast.get_docstring(ast.parse(text), clean=False), "", 1)
         assert "output/research_only" not in text and "output_dir(" not in text, path

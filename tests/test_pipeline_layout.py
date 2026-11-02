@@ -100,8 +100,11 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_quant_and_studies_import_no_pipeline_and_no_data_script():
+    # one frozen exception: quant/strategies/stock_0dte.py, analysis code of a closed study frozen at SHA-256
+    # a315a748dc745c7d (docs/research_ledger_stock_0dte.md), imports the earnings pipeline in acceptance_et()
+    frozen = {"quant/strategies/stock_0dte.py": {"pipelines.reversal_data", "pipelines.reversal_data.earnings"}}
     for path in sorted((ROOT / "quant").rglob("*.py")) + sorted((ROOT / "studies").rglob("*.py")):
-        for name in _imports(path):
+        for name in _imports(path) - frozen.get(path.relative_to(ROOT).as_posix(), set()):
             assert not name.startswith("pipelines"), (path, name)
             assert not any(s in name for s in ("reversal_data_", "megacap_oos2_data", "data_source_probe",
                                                "study_data_version")), (path, name)
