@@ -156,7 +156,7 @@ quant.cli ──► studies（只有它）
 | 冻结对象 | 范围 | 怎么验证 |
 |---|---|---|
 | v50 / v50r2 / v50r3 实盘协议 | `scripts/research_v50*_corrected_v47.py`、`v50r3_*.py`、`research_v50r3_*` 及其导入闭包 | `python scripts/research_v50*_corrected_v47.py status`；`src/research/code_closure.py` 计算闭包摘要，`.github/workflows/tests.yml` 每次推送都检查 |
-| sue_lt_v1 | `scripts/sue_lt_v1*.py` 及其闭包（docs/sue_lt_v1_protocol.md，约 2026-10-30 冻结） | `python scripts/sue_lt_v1.py status` |
+| sue_lt_v1 | `scripts/sue_lt_v1*.py` 及其闭包（docs/sue_lt_v1_protocol.md，2026-11-02 冻结于 live/sue-lt-v1） | `python scripts/sue_lt_v1.py status` |
 | 工作流引用的文件 | `.github/workflows/*.yml` 里出现的所有文件（含 `tests/data_dependent_test_files.txt`） | 迁移前后对照工作流里的路径 |
 | QuantConnect 主程序 | 台账里记了哈希的 `qc/*/main.py` | 哈希比对 |
 | 前瞻观察的行为 | `tests/golden/forward_observation_synthetic.json` 锁定 | `tests/test_forward_observation.py` |

@@ -112,8 +112,8 @@ jobs:
         if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
         action=$(python -c "import json; print(json.load(open('decision.json'))['action'])")
         as_of=$(python -c "import json; print(json.load(open('decision.json')).get('as_of') or '')")
-        # After the end date the final MARK is as of 2028-10-31, but whether
-        # Nasdaq has published is judged on the latest completed session.
+        # After the end date the final MARK is as of END_DATE (2027-10-29), but
+        # whether Nasdaq has published is judged on the latest completed session.
         gate_session=$(python -c "import json; d=json.load(open('decision.json')); print(d.get('gate_session') or d.get('as_of') or '')")
         gate=unchecked
         if [ "$action" = "RUN_SIGNAL" ] || [ "$action" = "RUN_MARK" ]; then
@@ -163,6 +163,8 @@ jobs:
         GATE: ${{ steps.due.outputs.gate }}
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
+        # The contact SEC's fair-access policy asks for (src/io/sec_contact.py).
+        SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
