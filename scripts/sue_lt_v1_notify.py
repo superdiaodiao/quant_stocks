@@ -22,7 +22,7 @@ scheduler does not download everything again for nothing.
     python sue_lt_v1_notify.py --result done --action RUN_MARK --check decision.json \\
         --run run.json --log run.log
     python sue_lt_v1_notify.py --watchdog --check decision.json
-    python sue_lt_v1_notify.py --still-held --as-of 2026-10-30
+    python sue_lt_v1_notify.py --still-held --as-of 2026-11-30
 """
 from __future__ import annotations
 

@@ -56,18 +56,18 @@ def test_a_failure_is_keyed_by_action_session_and_error():
 def test_waker_waits_for_today_s_month_end_window(tmp_path, monkeypatch):
     monkeypatch.setattr(waker.runner, "LEDGER", _frozen(tmp_path))
     events = live.read_ledger(waker.runner.LEDGER)
-    session, opens = waker.due_signal_session(_utc("2026-10-30T15:00:00"), events)
-    assert session == pd.Timestamp("2026-10-30") and opens == _utc("2026-10-30T20:30:00")
-    assert waker.due_signal_session(_utc("2026-10-31T02:00:00"), events)[0] == pd.Timestamp("2026-10-30")
-    assert waker.due_signal_session(_utc("2026-10-29T15:00:00"), events) is None
+    session, opens = waker.due_signal_session(_utc("2026-11-30T15:00:00"), events)
+    assert session == pd.Timestamp("2026-11-30") and opens == _utc("2026-11-30T21:30:00")
+    assert waker.due_signal_session(_utc("2026-12-01T02:00:00"), events)[0] == pd.Timestamp("2026-11-30")
+    assert waker.due_signal_session(_utc("2026-11-27T15:00:00"), events) is None
 
 
 def test_watchdog_counts_sessions_behind_the_latest_valuation(tmp_path):
     path = _frozen(tmp_path)
-    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
+    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
     events = live.read_ledger(path)
-    # The execution session 11-02 and the next two have closed with no valuation.
-    assert watchdog.sessions_behind(events, _utc("2026-11-05T03:00:00")) == (3, None)
+    # The execution session 12-01 and the next two have closed with no valuation.
+    assert watchdog.sessions_behind(events, _utc("2026-12-04T03:00:00")) == (3, None)
 
 
 def test_a_held_signal_is_reported_once_with_its_names():

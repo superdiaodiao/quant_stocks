@@ -22,29 +22,29 @@ def ledger(tmp_path, monkeypatch):
 def test_decide_signal_window_mark_and_missed(ledger):
     events = live.read_ledger(ledger)
     # Before the first month end closes: nothing.
-    assert runner.decide(_utc("2026-10-30T18:00:00"), events)["action"] == "NOTHING_DUE"
-    # Inside the 2026-10-30 window (closes 2026-11-02 pre-market, 09:00 UTC).
-    assert runner.decide(_utc("2026-10-31T02:00:00"), events) == {
-        "action": "RUN_SIGNAL", "as_of": "2026-10-30", "missed": []}
+    assert runner.decide(_utc("2026-11-30T18:00:00"), events)["action"] == "NOTHING_DUE"
+    # Inside the 2026-11-30 window (closes 2026-12-01 pre-market, 09:00 UTC).
+    assert runner.decide(_utc("2026-12-01T02:00:00"), events) == {
+        "action": "RUN_SIGNAL", "as_of": "2026-11-30", "missed": []}
     # Window closed without a signal: missed, nothing to mark.
-    late = runner.decide(_utc("2026-11-03T02:00:00"), events)
-    assert late["action"] == "NOTHING_DUE" and late["missed"] == ["2026-10-30"]
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
+    late = runner.decide(_utc("2026-12-02T02:00:00"), events)
+    assert late["action"] == "NOTHING_DUE" and late["missed"] == ["2026-11-30"]
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
     events = live.read_ledger(ledger)
-    # After the execution session (2026-11-02) closes: mark, which executes.
-    assert runner.decide(_utc("2026-11-03T02:00:00"), events)["action"] == "RUN_MARK"
-    assert runner.decide(_utc("2026-11-02T18:00:00"), events)["action"] == "NOTHING_DUE"
+    # After the execution session (2026-12-01) closes: mark, which executes.
+    assert runner.decide(_utc("2026-12-02T02:00:00"), events)["action"] == "RUN_MARK"
+    assert runner.decide(_utc("2026-12-01T18:00:00"), events)["action"] == "NOTHING_DUE"
 
 
 def test_mark_executes_then_values_with_fresh_returns(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
-    days = pd.to_datetime(["2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04"])
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "B"]})
+    days = pd.to_datetime(["2026-11-27", "2026-11-30", "2026-12-01", "2026-12-02", "2026-12-03"])
     series = {"A": pd.Series([9, 10, 10, 11, 11], index=days, dtype=float),
               "B": pd.Series([19, 20, 20, 20, 18], index=days, dtype=float)}
     monkeypatch.setattr(runner, "_closes", lambda tickers, start, end: {t: series[t] for t in tickers})
     monkeypatch.setattr(runner, "_qqq_total_returns", lambda end: pd.Series(0.01, index=days))
-    result = runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
-    assert result["sessions"] == ["2026-11-02", "2026-11-03", "2026-11-04"]
+    result = runner.run_mark(pd.Timestamp("2026-12-03"), "p", live.read_ledger(ledger))
+    assert result["sessions"] == ["2026-12-01", "2026-12-02", "2026-12-03"]
     events = live.read_ledger(ledger)
     kinds = [e["event_type"] for e in events]
     assert kinds == ["PROTOCOL_FROZEN", "SIGNAL_FROZEN", "TRADES_EXECUTED",
@@ -58,7 +58,7 @@ def test_mark_executes_then_values_with_fresh_returns(ledger, monkeypatch):
     expected = invested["A"] * 1.1 + invested["B"] * 0.9
     assert marks[-1]["nav"] == pytest.approx(expected)
     # A second mark with nothing new is a no-op.
-    assert runner.run_mark(pd.Timestamp("2026-11-04"), "p", events) == {"action": "NOTHING_DUE"}
+    assert runner.run_mark(pd.Timestamp("2026-12-03"), "p", events) == {"action": "NOTHING_DUE"}
 
 
 def test_writes_refuse_other_branches(monkeypatch):
@@ -86,92 +86,92 @@ def _patch_market(monkeypatch, series, qqq_days, qqq_return=0.0):
 
 
 def test_mark_before_publication_records_nothing(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    days = _sessions("2026-10-20", "2026-10-30")  # nothing published for 11-02 yet
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    days = _sessions("2026-11-18", "2026-11-30")  # nothing published for 12-01 yet
     _patch_market(monkeypatch, {"A": _flat(days)}, days)
     before = ledger.read_text()
     with pytest.raises(RuntimeError, match="retry later"):
-        runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+        runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
     assert ledger.read_text() == before
 
 
 def test_mark_waits_for_a_late_holding_then_spans_its_gap(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
-    days = _sessions("2026-10-20", "2026-11-05")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "B"]})
+    days = _sessions("2026-11-18", "2026-12-04")
     a = _flat(days, 10.0, 0.01)
     b = _flat(days, 20.0)
     _patch_market(monkeypatch, {"A": a, "B": b}, days)
-    runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))  # executes both
-    # 11-03: QQQ is published but A's row is not yet.
-    late = a.drop(pd.Timestamp("2026-11-03"))
-    _patch_market(monkeypatch, {"A": late.loc[:"2026-11-03"], "B": b}, days)
-    with pytest.raises(RuntimeError, match="no 2026-11-03 close yet for A"):
-        runner.run_mark(pd.Timestamp("2026-11-03"), "p", live.read_ledger(ledger))
-    # A day later A still has no 11-03 row (a halt): 11-03 counts as missing,
-    # and the 11-04 valuation carries A's whole move since 11-02.
+    runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))  # executes both
+    # 12-02: QQQ is published but A's row is not yet.
+    late = a.drop(pd.Timestamp("2026-12-02"))
+    _patch_market(monkeypatch, {"A": late.loc[:"2026-12-02"], "B": b}, days)
+    with pytest.raises(RuntimeError, match="no 2026-12-02 close yet for A"):
+        runner.run_mark(pd.Timestamp("2026-12-02"), "p", live.read_ledger(ledger))
+    # A day later A still has no 12-02 row (a halt): 12-02 counts as missing,
+    # and the 12-03 valuation carries A's whole move since 12-01.
     _patch_market(monkeypatch, {"A": late, "B": b}, days)
-    result = runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
-    assert result["sessions"] == ["2026-11-03", "2026-11-04"]
+    result = runner.run_mark(pd.Timestamp("2026-12-03"), "p", live.read_ledger(ledger))
+    assert result["sessions"] == ["2026-12-02", "2026-12-03"]
     events = live.read_ledger(ledger)
     bought = events[2]["payload"]["book"]["positions"]["A"]
     marks = [e["payload"] for e in events if e["event_type"] == "VALUATION_APPENDED"]
     assert marks[-2]["book"]["missing_sessions"] == {"A": 1}
     assert marks[-1]["book"]["positions"]["A"] == pytest.approx(
-        bought * a[pd.Timestamp("2026-11-04")] / a[pd.Timestamp("2026-11-02")])
+        bought * a[pd.Timestamp("2026-12-03")] / a[pd.Timestamp("2026-12-01")])
     assert marks[-1]["book"]["missing_sessions"] == {}
 
 
 def test_every_pending_signal_executes_on_its_own_session(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["B"]})
-    days = _sessions("2026-10-20", "2026-12-02")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-12-31", "targets": ["B"]})
+    days = _sessions("2026-11-18", "2027-01-05")
     _patch_market(monkeypatch, {"A": _flat(days, 10.0, 0.001), "B": _flat(days, 20.0)}, days)
-    result = runner.run_mark(pd.Timestamp("2026-12-02"), "p", live.read_ledger(ledger))
+    result = runner.run_mark(pd.Timestamp("2027-01-05"), "p", live.read_ledger(ledger))
     assert [(t["signal_date"], t["execution_date"], t["bought"], t["sold"]) for t in result["trades"]] == [
-        ("2026-10-30", "2026-11-02", ["A"], []), ("2026-11-30", "2026-12-01", ["B"], ["A"])]
+        ("2026-11-30", "2026-12-01", ["A"], []), ("2026-12-31", "2027-01-04", ["B"], ["A"])]
     assert set(live.read_ledger(ledger)[-1]["payload"]["book"]["positions"]) == {"B"}
 
 
 def test_valuation_past_an_unexecuted_signal_is_refused(ledger):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2026-10-30"})
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2026-11-30"})
     with pytest.raises(RuntimeError, match="never executed"):
-        live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2026-11-02"})
+        live.append_event(ledger, "p", "VALUATION_APPENDED", {"as_of": "2026-12-01"})
 
 
 def test_a_session_the_market_did_not_trade_is_skipped(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    days = _sessions("2026-10-20", "2026-11-05")
-    closed = pd.Timestamp("2026-11-03")  # as if closed without notice
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    days = _sessions("2026-11-18", "2026-12-04")
+    closed = pd.Timestamp("2026-12-02")  # as if closed without notice
     traded = [d for d in days if d != closed]
     _patch_market(monkeypatch, {"A": _flat(traded, 10.0, 0.01)}, traded)
-    result = runner.run_mark(pd.Timestamp("2026-11-05"), "p", live.read_ledger(ledger))
-    assert result["skipped_calendar_sessions"] == ["2026-11-03"]
-    assert result["sessions"] == ["2026-11-02", "2026-11-04", "2026-11-05"]
+    result = runner.run_mark(pd.Timestamp("2026-12-04"), "p", live.read_ledger(ledger))
+    assert result["skipped_calendar_sessions"] == ["2026-12-02"]
+    assert result["sessions"] == ["2026-12-01", "2026-12-03", "2026-12-04"]
     assert live.read_ledger(ledger)[-1]["payload"]["book"]["missing_sessions"] == {}
 
 
 def test_signal_after_a_closed_execution_day_trades_the_next_session(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    days = [d for d in _sessions("2026-10-20", "2026-11-04") if d != pd.Timestamp("2026-11-02")]
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    days = [d for d in _sessions("2026-11-18", "2026-12-03") if d != pd.Timestamp("2026-12-01")]
     _patch_market(monkeypatch, {"A": _flat(days)}, days)
-    result = runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
-    assert result["trades"][0]["execution_date"] == "2026-11-03"
+    result = runner.run_mark(pd.Timestamp("2026-12-03"), "p", live.read_ledger(ledger))
+    assert result["trades"][0]["execution_date"] == "2026-12-02"
 
 
 # ------------------------------------------------------------------ evaluation
 
 
 def test_falling_far_behind_does_not_end_the_observation(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    days = _sessions("2026-10-20", "2026-11-10")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    days = _sessions("2026-11-18", "2026-12-09")
     prices = _flat(days, 10.0)
-    prices.loc["2026-11-05":] = 6.0  # the account falls 40% while QQQ is flat
+    prices.loc["2026-12-04":] = 6.0  # the account falls 40% while QQQ is flat
     _patch_market(monkeypatch, {"A": prices}, days)
-    result = runner.run_mark(pd.Timestamp("2026-11-10"), "p", live.read_ledger(ledger))
-    assert result["terminal"] is None and result["sessions"][-1] == "2026-11-10"
+    result = runner.run_mark(pd.Timestamp("2026-12-09"), "p", live.read_ledger(ledger))
+    assert result["terminal"] is None and result["sessions"][-1] == "2026-12-09"
     assert result["points_behind_qqq"] > 39
-    assert runner.decide(_utc("2026-11-30T23:00:00"), live.read_ledger(ledger))["action"] == "RUN_SIGNAL"
+    assert runner.decide(_utc("2026-12-31T23:00:00"), live.read_ledger(ledger))["action"] == "RUN_SIGNAL"
 
 
 def test_the_terminal_record_ends_the_ledger(ledger):
@@ -324,37 +324,37 @@ def test_an_unscheduled_closure_on_the_end_date_ends_on_the_session_before(ledge
 
 
 def test_an_empty_response_for_a_holding_waits_instead_of_counting_a_halt(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
-    days = _sessions("2026-10-20", "2026-11-05")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "B"]})
+    days = _sessions("2026-11-18", "2026-12-04")
     a, b = _flat(days, 10.0), _flat(days, 20.0)
     _patch_market(monkeypatch, {"A": a, "B": b}, days)
-    runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
     _patch_market(monkeypatch, {"A": a}, days)  # B's history comes back empty
-    with pytest.raises(RuntimeError, match="no 2026-11-03 close yet for B"):
-        runner.run_mark(pd.Timestamp("2026-11-03"), "p", live.read_ledger(ledger))
+    with pytest.raises(RuntimeError, match="no 2026-12-02 close yet for B"):
+        runner.run_mark(pd.Timestamp("2026-12-02"), "p", live.read_ledger(ledger))
 
 
 def test_an_empty_response_for_a_target_on_its_execution_day_waits(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
-    days = _sessions("2026-10-20", "2026-11-05")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "B"]})
+    days = _sessions("2026-11-18", "2026-12-04")
     _patch_market(monkeypatch, {"A": _flat(days)}, days)
-    with pytest.raises(RuntimeError, match="no 2026-11-02 close yet for B"):
-        runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    with pytest.raises(RuntimeError, match="no 2026-12-01 close yet for B"):
+        runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
 
 
 def test_a_split_sized_move_waits_one_day_then_is_booked(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A"]})
-    days = _sessions("2026-10-20", "2026-11-05")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A"]})
+    days = _sessions("2026-11-18", "2026-12-04")
     a = _flat(days, 10.0)
     _patch_market(monkeypatch, {"A": a}, days)
-    runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
     moved = a.copy()
-    moved.loc["2026-11-03":] = 20.0  # a 2:1 reverse split the provider has not back-adjusted
+    moved.loc["2026-12-02":] = 20.0  # a 2:1 reverse split the provider has not back-adjusted
     _patch_market(monkeypatch, {"A": moved}, days)
     with pytest.raises(RuntimeError, match="split-like move"):
-        runner.run_mark(pd.Timestamp("2026-11-03"), "p", live.read_ledger(ledger))
-    result = runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
-    assert result["sessions"] == ["2026-11-03", "2026-11-04"]
+        runner.run_mark(pd.Timestamp("2026-12-02"), "p", live.read_ledger(ledger))
+    result = runner.run_mark(pd.Timestamp("2026-12-03"), "p", live.read_ledger(ledger))
+    assert result["sessions"] == ["2026-12-02", "2026-12-03"]
 
 
 def test_price_gate_waits_for_a_failed_holding_or_last_pool_name(monkeypatch):
@@ -398,27 +398,27 @@ def test_sec_requests_that_were_refused_are_asked_again(tmp_path, monkeypatch):
 
 
 def test_an_unpriced_target_waits_one_day_then_is_left_unbought(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "T"]})
-    days = _sessions("2026-10-20", "2026-11-05")
-    t = _flat(days, 20.0).loc[:"2026-10-30"]  # T stops trading after the signal day
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "T"]})
+    days = _sessions("2026-11-18", "2026-12-04")
+    t = _flat(days, 20.0).loc[:"2026-11-30"]  # T stops trading after the signal day
     _patch_market(monkeypatch, {"A": _flat(days), "T": t}, days)
     with pytest.raises(RuntimeError, match="close yet for T"):
-        runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
-    result = runner.run_mark(pd.Timestamp("2026-11-03"), "p", live.read_ledger(ledger))
-    assert result["trades"][0]["bought"] == ["A"] and result["sessions"] == ["2026-11-02", "2026-11-03"]
+        runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
+    result = runner.run_mark(pd.Timestamp("2026-12-02"), "p", live.read_ledger(ledger))
+    assert result["trades"][0]["bought"] == ["A"] and result["sessions"] == ["2026-12-01", "2026-12-02"]
 
 
 def test_a_split_sized_move_waits_even_in_a_run_over_two_sessions(ledger, monkeypatch):
-    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30", "targets": ["A", "B"]})
-    days = _sessions("2026-10-20", "2026-11-06")
+    live.append_event(ledger, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30", "targets": ["A", "B"]})
+    days = _sessions("2026-11-18", "2026-12-07")
     a, b = _flat(days, 10.0), _flat(days, 20.0)
     _patch_market(monkeypatch, {"A": a, "B": b}, days)
-    runner.run_mark(pd.Timestamp("2026-11-02"), "p", live.read_ledger(ledger))
+    runner.run_mark(pd.Timestamp("2026-12-01"), "p", live.read_ledger(ledger))
     moved = a.copy()
-    moved.loc["2026-11-04":] = 20.0
+    moved.loc["2026-12-03":] = 20.0
     _patch_market(monkeypatch, {"A": moved, "B": b}, days)
-    with pytest.raises(RuntimeError, match="split-like move on 2026-11-04 for A"):
-        runner.run_mark(pd.Timestamp("2026-11-04"), "p", live.read_ledger(ledger))
+    with pytest.raises(RuntimeError, match="split-like move on 2026-12-03 for A"):
+        runner.run_mark(pd.Timestamp("2026-12-03"), "p", live.read_ledger(ledger))
 
 
 def test_after_the_end_date_the_gate_looks_at_the_latest_session(ledger):

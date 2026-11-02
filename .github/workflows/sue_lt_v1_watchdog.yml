@@ -8,6 +8,11 @@ name: sue-lt-v1 watchdog
 # sessions behind, or a check that fails. Such a run also fails, which
 # GitHub reports to the repository owner. Hourly around the month end, once
 # a day otherwise. It never stages, marks or backfills.
+#
+# Before the freeze there is no live branch. From a week before the first
+# SIGNAL date (FIRST_SIGNAL_DATE on master) that is a failure too, said once
+# a day on the observation issue: the 2026-10-30 start was lost to a notice
+# that nobody saw.
 
 on:
   schedule:
@@ -28,6 +33,9 @@ jobs:
     timeout-minutes: 15
     steps:
     - id: probe
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
       run: |
         set +e
         git ls-remote --exit-code --heads \
@@ -38,7 +46,25 @@ jobs:
           echo "exists=true" >> "$GITHUB_OUTPUT"
         elif [ "$code" -eq 2 ]; then
           echo "exists=false" >> "$GITHUB_OUTPUT"
-          echo "::notice::live/sue-lt-v1 does not exist yet: sue-lt-v1 is not frozen."
+          first=$(gh api "repos/$GH_REPO/contents/src/research/sue_live.py?ref=master" \
+            -H "Accept: application/vnd.github.raw" \
+            | sed -n 's/^FIRST_SIGNAL_DATE = pd.Timestamp("\([0-9-]*\)")$/\1/p')
+          if [ -z "$first" ]; then
+            echo "::error::Could not read FIRST_SIGNAL_DATE from master."
+            exit 1
+          fi
+          if [ "$(date -u +%s)" -lt $(( $(date -u -d "$first" +%s) - 7 * 86400 )) ]; then
+            echo "::notice::live/sue-lt-v1 does not exist yet: sue-lt-v1 is not frozen (first signal $first)."
+            exit 0
+          fi
+          echo "::error::sue-lt-v1 is not frozen and its first SIGNAL window opens after the $first close: mark the protocol 生效 on master, then run the sue-lt-v1 freeze workflow."
+          marker="<!-- sue-lt-v1-not-frozen:$(date -u +%F) -->"
+          if ! gh api "repos/$GH_REPO/issues/$NOTIFY_ISSUE/comments?per_page=100" --paginate --jq '.[].body' \
+              | grep -qF "$marker"; then
+            gh issue comment "$NOTIFY_ISSUE" --body "**sue-lt-v1 还没有冻结**：第一期信号是 $first，那天收盘后窗口打开，之后就不能再冻结。请把 docs/sue_lt_v1_protocol.md 的状态改为“生效”，再运行 sue-lt-v1 freeze 工作流。$marker" \
+              || echo "::warning::The report could not be sent."
+          fi
+          exit 1
         else
           echo "::error::Could not list the branches (git exit $code)."
           exit 1

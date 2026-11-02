@@ -66,24 +66,24 @@ def test_unpriced_seller_is_kept_until_it_trades():
 def test_ledger_rules(tmp_path):
     path = tmp_path / "ledger.jsonl"
     with pytest.raises(RuntimeError):
-        live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30"})
+        live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30"})
     path.unlink(missing_ok=True)
     live.append_event(path, "p", "PROTOCOL_FROZEN", {})
     with pytest.raises(RuntimeError):
-        live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-09-30"})
-    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30"})
+        live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-10-30"})
+    live.append_event(path, "p", "SIGNAL_FROZEN", {"signal_date": "2026-11-30"})
     with pytest.raises(RuntimeError):
-        live.append_event(path, "p", "TRADES_EXECUTED", {"signal_date": "2026-10-30", "execution_date": "2026-10-30"})
-    live.append_event(path, "p", "TRADES_EXECUTED", {"signal_date": "2026-10-30", "execution_date": "2026-11-02"})
-    live.append_event(path, "p", "VALUATION_APPENDED", {"as_of": "2026-11-02"})
+        live.append_event(path, "p", "TRADES_EXECUTED", {"signal_date": "2026-11-30", "execution_date": "2026-11-30"})
+    live.append_event(path, "p", "TRADES_EXECUTED", {"signal_date": "2026-11-30", "execution_date": "2026-12-01"})
+    live.append_event(path, "p", "VALUATION_APPENDED", {"as_of": "2026-12-01"})
     with pytest.raises(RuntimeError):
-        live.append_event(path, "p", "VALUATION_APPENDED", {"as_of": "2026-11-02"})
+        live.append_event(path, "p", "VALUATION_APPENDED", {"as_of": "2026-12-01"})
     with pytest.raises(RuntimeError):
-        live.append_event(path, "other", "VALUATION_APPENDED", {"as_of": "2026-11-03"})
+        live.append_event(path, "other", "VALUATION_APPENDED", {"as_of": "2026-12-02"})
     events = live.read_ledger(path)
     assert [e["event_type"] for e in events] == ["PROTOCOL_FROZEN", "SIGNAL_FROZEN", "TRADES_EXECUTED", "VALUATION_APPENDED"]
     lines = path.read_text().splitlines()
-    lines[1] = lines[1].replace("2026-10-30", "2026-10-31")
+    lines[1] = lines[1].replace("2026-11-30", "2026-12-01")
     path.write_text("\n".join(lines) + "\n")
     with pytest.raises(RuntimeError):
         live.read_ledger(path)

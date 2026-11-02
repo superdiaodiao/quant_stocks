@@ -30,8 +30,10 @@ from scripts.research_earnings_surprise import (
 from scripts.research_sue_low_turnover import _buy_notional, order_cost
 
 MODEL_VERSION = "sue-lt-v1"
-FIRST_SIGNAL_DATE = pd.Timestamp("2026-10-30")
-# The last Nasdaq session of 2027-10 (12 months after the first execution):
+# Moved from 2026-10-30, whose window opened before the protocol was frozen.
+# The end did not move (protocol §4), so the observation is 11 months.
+FIRST_SIGNAL_DATE = pd.Timestamp("2026-11-30")
+# The last Nasdaq session of 2027-10 (11 months after the first execution):
 # the final valuation. No signal on or after it.
 END_DATE = pd.Timestamp("2027-10-29")
 START_CASH = 10_000.0
