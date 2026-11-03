@@ -1,0 +1,54 @@
+{
+ "s": "2026-10-30",
+ "week_end": "2026-10-30",
+ "base_names": 3199,
+ "eligible": 2399,
+ "with_prices": 2395,
+ "ranked": 1238,
+ "top300": 300,
+ "u300": 259,
+ "scored": 256,
+ "new_listings_in_u300": 1,
+ "u300_without_companyfacts": 0,
+ "mcap_missing": 5,
+ "rows_off_calendar": {},
+ "worst_2n": [
+  "AVAV",
+  "CRWV",
+  "ASTS",
+  "SNPS",
+  "KTOS",
+  "IONS",
+  "CELH",
+  "AXON",
+  "APLD",
+  "RGTI",
+  "AAOI",
+  "SMCI",
+  "FWONK",
+  "XEL",
+  "LNT",
+  "TEM",
+  "CSGP",
+  "QBTS",
+  "AEP",
+  "RKLB"
+ ],
+ "listing_snapshot": "nasdaqlisted_20261103T040048Z.txt",
+ "listing_timing": "after_signal",
+ "charts_no_data_in_window": [
+  "NARA"
+ ],
+ "chart_sources": {
+  "alpaca": 2398
+ },
+ "u300_chart_sources": {
+  "alpaca": 259
+ },
+ "computed_utc": "2026-11-03T04:08:28+00:00",
+ "base_sources": {
+  "frozen": 3065,
+  "new": 85,
+  "frozen_cik": 49
+ }
+}

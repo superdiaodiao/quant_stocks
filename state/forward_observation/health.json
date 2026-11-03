@@ -6,17 +6,17 @@
    "status": "ok"
   },
   {
-   "message": "all 20 series end at the last completed session 2026-10-30",
+   "message": "all 30 series end at the last completed session 2026-11-02",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "20 series clean from 2026-08-28 to 2026-10-30 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "30 series clean from 2026-08-28 to 2026-11-02 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "20 series vs alpaca: 400 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%); 1 large move(s) confirmed",
+   "message": "30 series vs alpaca, yahoo: 940 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%); 1 large move(s) confirmed",
    "name": "vendor_agreement",
    "status": "ok"
   },
@@ -26,17 +26,17 @@
    "status": "ok"
   },
   {
-   "message": "5 month row(s); only 2026-10 is provisional",
+   "message": "11 month row(s); only 2026-11 is provisional",
    "name": "log_status",
    "status": "ok"
   },
   {
-   "message": "no S-MISP signal due yet (the first signal is today's close: computed by the next session's run)",
+   "message": "1 signal file(s) valid (2026-10-30); B3 line through 2026-11-02",
    "name": "b3_signal",
    "status": "ok"
   },
   {
-   "message": "not needed before B3's first trade",
+   "message": "report only: no IBKR borrow snapshot here (recorded in the private data repo, not available on Actions); the report-only fee columns show 'no snapshot', the strategy uses the registered tiers",
    "name": "b3_borrow_snapshots",
    "status": "ok"
   },
@@ -49,34 +49,62 @@
    "status": "warn"
   },
   {
-   "message": "4 B4 series fresh for the session 2026-10-30 (BTC through 2026-10-30)",
+   "message": "4 B4 series fresh for the session 2026-11-02 (BTC through 2026-11-02)",
    "name": "b4_data_freshness",
    "status": "ok"
   },
   {
-   "message": "3 B4 series clean to 2026-10-30 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
+   "message": "3 B4 series clean to 2026-11-02 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
    "name": "b4_data_integrity",
    "status": "ok"
   },
   {
-   "message": "2 series vs alpaca: 40 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (26 days)",
+   "message": "2 series vs alpaca, yahoo: 84 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (29 days)",
    "name": "b4_vendor_agreement",
    "status": "ok"
   },
   {
-   "message": "B4 rules recomputed: LEV-B3 6 decision(s), state on, V3 1 month-end decision(s)",
+   "message": "B4 rules recomputed: LEV-B3 7 decision(s), state on, V3 2 month-end decision(s)",
    "name": "b4_rules",
    "status": "ok"
   },
   {
-   "message": "no mega-cap signal due yet (the first signal is today's close: computed by the next session's run)",
+   "message": "1 mega-cap signal file(s) present (2026-10-30)",
    "name": "b4_signal",
    "status": "ok"
   },
   {
-   "message": "recorded daily numbers and closed trades unchanged",
+   "items": [
+    "vendor revised: AAPL 2026-10-12, AAPL 2026-10-13, AAPL 2026-10-14, AAPL 2026-10-15, AAPL 2026-10-16, AAPL 2026-10-19, AAPL 2026-10-20, AAPL 2026-10-21, AAPL 2026-10-22, AAPL 2026-10-23, AAPL 2026-10-26, AAPL 2026-10-27 ...",
+    "B1.hbase 2026-10-13: +0.285600% -> +0.285601%",
+    "B1.hbase 2026-10-15: +0.213186% -> +0.213186%",
+    "B1.hbase 2026-10-16: -1.490037% -> -1.490065%",
+    "B1.hbase 2026-10-19: +0.699341% -> +0.699369%",
+    "B1.hbase 2026-10-20: +0.229351% -> +0.229291%",
+    "B1.hbase 2026-10-21: +0.278938% -> +0.278998%",
+    "B1.hbase 2026-10-22: -1.147991% -> -1.147991%",
+    "B1.hbase 2026-10-23: -0.335857% -> -0.335915%",
+    "B1.hbase 2026-10-26: +0.528931% -> +0.528989%",
+    "B1.hbase 2026-10-27: +0.562150% -> +0.562151%",
+    "B1.hbase 2026-10-28: +0.067186% -> +0.067186%",
+    "B1.hbase 2026-10-29: -0.627480% -> -0.627479%",
+    "B1.ret 2026-10-13: +0.285600% -> +0.285601%",
+    "B1.ret 2026-10-14: -0.842650% -> -0.842589%",
+    "B1.ret 2026-10-15: +0.178267% -> +0.178269%",
+    "B1.ret 2026-10-16: -1.563576% -> -1.563600%",
+    "B1.ret 2026-10-19: +0.697838% -> +0.697865%",
+    "B1.ret 2026-10-20: +0.216463% -> +0.216404%",
+    "B1.ret 2026-10-21: +0.341338% -> +0.341397%",
+    "B1.ret 2026-10-22: -1.356527% -> -1.356522%",
+    "B1.ret 2026-10-23: -0.280896% -> -0.280946%",
+    "B1.ret 2026-10-26: +0.599040% -> +0.599095%",
+    "B1.ret 2026-10-27: +0.662242% -> +0.662240%",
+    "B1.ret 2026-10-28: +0.118250% -> +0.118249%",
+    "... 53 more"
+   ],
+   "message": "77 recorded number(s) changed after a vendor revision",
    "name": "replay_drift",
-   "status": "ok"
+   "status": "warn"
   },
   {
    "message": "no session missed since the previous completed run",
@@ -84,23 +112,24 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-10-30",
+ "data_end": "2026-11-02",
  "host": "actions",
- "last_run_session": "2026-10-30",
+ "last_run_session": "2026-11-02",
  "next_session": [
-  "B1 GOOGL: open since 10-30 (holding day 1 of 20; sell limit resting)",
-  "B1 META: open since 10-23 (holding day 6 of 20; sell limit resting)",
-  "B1 INTC: open since 10-14 (holding day 13 of 20; sell limit resting)",
-  "B1 AMD: open since 10-19 (holding day 10 of 20; sell limit resting)",
-  "B2 RSI2 at the 10-30 close: 8.4 (entry level 2.3, exit level 60.7)",
-  "LEV-B3: SMA200 state on at the 10-30 close (QQQ +1.8% vs its SMA200; on above +2%, off below -2%)",
-  "V3: min(1.5, sigma_LR / sigma_20) at the 10-30 close 1.187 (decided at the month end)"
+  "B1 GOOGL: open since 10-30 (holding day 2 of 20; sell limit resting)",
+  "B1 META: open since 10-23 (holding day 7 of 20; sell limit resting)",
+  "B1 INTC: open since 10-14 (holding day 14 of 20; sell limit resting)",
+  "B1 AMD: open since 10-19 (holding day 11 of 20; sell limit resting)",
+  "B2 RSI2 at the 11-02 close: 5.4 (entry level 2.3, exit level 60.7)",
+  "LEV-B3: SMA200 state on at the 11-02 close (QQQ +0.4% vs its SMA200; on above +2%, off below -2%)",
+  "V3: min(1.5, sigma_LR / sigma_20) at the 11-02 close 1.202 (decided at the month end)",
+  "mega-cap: next signal at the month's last session (computed by the next session's run)"
  ],
  "schema": 2,
- "session": "2026-10-30",
+ "session": "2026-11-02",
  "sources": {
   "cross_check": "on",
-  "stored": "yahoo"
+  "stored": "tiingo"
  },
  "status": "warn"
 }
