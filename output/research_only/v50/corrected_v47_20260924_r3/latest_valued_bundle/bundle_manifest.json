@@ -1,13 +1,13 @@
 {
-  "as_of": "2026-11-04",
+  "as_of": "2026-11-05",
   "broker_action_authorized": false,
-  "created_at": "2026-11-05T06:39:54+00:00",
+  "created_at": "2026-11-06T02:24:26+00:00",
   "files": {
-    "index_close_provenance.json": "6e121e94ca46f61c787f89118f39d662a7669a68ac8a9ac81914c2d7d0921c6a",
-    "nasdaq_index.csv": "d3cacadbb6971b837694819b58eecd49c088ef5971bafdeaccb92193da3a983a",
+    "index_close_provenance.json": "53c47a66f61aecf36ef6dd09677450b73e518c1e7ecc443e79d7572f70c20e97",
+    "nasdaq_index.csv": "afc06f7e7d679cdd7cfea7dbe672e20f5f81691d4411c5b748145c6062f55b1d",
     "provider_adjustments.csv": "c3dc76b51f76c933680a506de8e02b57791fca69da35cdb27ee3545b641ae640",
-    "qqq.csv": "f96feaeca1848546a74281cc1ecd877369f09a1380713191c8629ec6b34ce5df",
-    "qqq.provenance.json": "671ebac0f87180676a07d3d1b6d87b6ddf2773ceea52f98e3ac1938efc9499be"
+    "qqq.csv": "4883beeff8d3e34e4a6340b1755130fe3d3aa8298728b25f9c21544a583f4d4f",
+    "qqq.provenance.json": "7c31708450561c72141cf8e48edfd29a77841065546c44ef58f8d93fc30598b6"
   },
   "formal_financial_files_modified": false,
   "formal_market_files_modified": false,
@@ -34,12 +34,12 @@
   "mark_procedure": "v50r3-exposure-aware-mark",
   "market_refresh": {
     "index_refresh": {
-      "expected_session": "2026-11-04",
-      "fallback_used": false,
+      "expected_session": "2026-11-05",
+      "fallback_used": true,
       "historical_latest_date": "2026-11-04",
-      "index_file_sha256": "51cc38abd8408b5274dd63975e9297b0307231bfe05786466eb02d7be100b6c3",
+      "index_file_sha256": "0f3c4ad4fd9f699f4aaddde03cf629ad0cc2e2789124439921535d3f23f618d2",
       "provenance_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/index_close_provenance.json",
-      "source": "nasdaq_historical",
+      "source": "nasdaq_official_closed_chart_info",
       "source_verified": true
     },
     "seed": {
@@ -64,7 +64,7 @@
       "counts": {
         "updated": 8
       },
-      "end": "2026-11-04",
+      "end": "2026-11-05",
       "failures": [],
       "provider_adjustments_path": "output/research_only/v50/corrected_v47_20260924_r3/staging_work/market/provider_adjustments.csv",
       "provider_adjustments_recorded": [],
@@ -104,13 +104,13 @@
       "TSLA",
       "WDAY"
     ],
-    "frozen_through": "2026-11-03",
+    "frozen_through": "2026-11-04",
     "revised_frozen_rows": 1,
     "revisions": {
       "NASDAQ": {
         "fresh_rows_appended": 1,
-        "frozen_rows_kept": 5746,
-        "frozen_through": "2026-11-03",
+        "frozen_rows_kept": 5747,
+        "frozen_through": "2026-11-04",
         "revised_frozen_rows": 1,
         "revised_sample": [
           {
@@ -126,43 +126,43 @@
   "price_files": {
     "CRWD": {
       "file": "prices/crwd.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "12dbeda06d404ad68b122379aced988d36ecad3a637d74bf5ac2b90b60defd09"
+      "latest_date": "2026-11-05",
+      "sha256": "532a478ed51bdd6bce7eadcdf2eb0491a61af724492939b9dfbb6a484eede4eb"
     },
     "ILMN": {
       "file": "prices/ilmn.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "c9b9a8ec58a3fbc90af097bb8cfede90733119709ec45e10a0bd9cdf50ace38d"
+      "latest_date": "2026-11-05",
+      "sha256": "87248d3c734fb90882c03a15d5978fa51f543f5456b54dc5449efe42cf16c587"
     },
     "OKTA": {
       "file": "prices/okta.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "6e42a6e4de17b747654f6593395a4d1a5bdcbc36443af28771ecb73cba319eb6"
+      "latest_date": "2026-11-05",
+      "sha256": "955ed130e1e60c2134e740a9336316d3a001b0da0b1c1d1f48b1af8efdb7b3a4"
     },
     "PLTR": {
       "file": "prices/pltr.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "a4b479ebd3798fbc02fe4060c0b459d3dc5fffac3a50c54b9b5c135c09d068df"
+      "latest_date": "2026-11-05",
+      "sha256": "c40f10ddd1f8c4072bb69896a20125d4a16a675db8f80f9be3378ff207ebd7a5"
     },
     "SHOP": {
       "file": "prices/shop.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "a4606877055eb83c67b00d9772bb746190712251e8dd4e2ca00fb6886cc098f7"
+      "latest_date": "2026-11-05",
+      "sha256": "e507fe17ccff320faabad7749ebd755cbde52299c8ddf09f65732c447092d313"
     },
     "SMCI": {
       "file": "prices/smci.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "d7487ab369cb803f6d8576066213e442847563723cbe13f90f8c00165fcd8971"
+      "latest_date": "2026-11-05",
+      "sha256": "676bddb813643182d1c841c4f9b461017150262e1f89daf250fc22c46391d23c"
     },
     "TSLA": {
       "file": "prices/tsla.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "56fcee71e058dcc497e9923068c328f731c8c377a8ed62d402ab00b477a0c29c"
+      "latest_date": "2026-11-05",
+      "sha256": "1512b60f1e47adf52b0feda4c5a06ea0cb9c2bed051dc1d14e31fc2eceaf649b"
     },
     "WDAY": {
       "file": "prices/wday.csv",
-      "latest_date": "2026-11-04",
-      "sha256": "9e2fcf3a326042cf6c41ca4a38daca12f08d66366444ff1df329a3110d2c0f12"
+      "latest_date": "2026-11-05",
+      "sha256": "9ee5cdad9a43acdd2c620d12b6e9c1b49073f5414ba9832eb0e3d3967c5b33cb"
     }
   },
   "purpose": "MARK",
@@ -186,7 +186,7 @@
       "nasdaq_universe": "b08b5ab9abc34dbbb30ba679fc664a28dda012b0b7e0ac0d5818912523a81cf1"
     },
     "formal_market_files_modified": false,
-    "qqq_cutoff": "2026-11-04",
+    "qqq_cutoff": "2026-11-05",
     "shared_companyfacts_cache_modified": false
   },
   "schema_version": 2
