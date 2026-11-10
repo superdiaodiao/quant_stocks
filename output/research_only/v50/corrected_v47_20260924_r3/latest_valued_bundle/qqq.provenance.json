@@ -3,7 +3,7 @@
   "ticker": "QQQ",
   "nasdaq_source": "Nasdaq public historical API",
   "dividend_source": "Nasdaq public dividend API",
-  "retrieved_at_utc": "2026-11-07T02:47:36.744669+00:00",
+  "retrieved_at_utc": "2026-11-10T04:24:19.958153+00:00",
   "dividend_payload_sha256": "e656807ac3fb14d7b0218addf935fd55535f78292990b8ec829af3bee477f60b",
   "dividend_rows": 58,
   "minimum_dividend_date": "2012-06-15",
