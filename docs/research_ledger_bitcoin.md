@@ -235,3 +235,8 @@ Bitstamp–Coinbase 94.8%、Bitstamp–Yahoo 91.7%、Coinbase–Yahoo 88.8%、Kr
 - 单独持有 BTC 或对 BTC 择时：形式上大幅跑赢 ONEQ，但回撤 −64% 至 −83%；**择时没有比一直持有更好**，不推荐作为"跑赢纳指"的主策略。
 - QQQ + 小比例 BTC：在已知历史上扣成本后对 ONEQ 显著（过 Bonferroni），对 QQQ 也领先，但对 QQQ 的显著性**不过** 13 次试验的 Bonferroni 门槛，
   且主要来自 2017、2020 两年；加趋势过滤的版本回撤不比 QQQ 深。是否采用属于风险偏好判断，本台账不据此冻结任何策略进前瞻观察。
+
+## 补注（2026-11-12，只补状态，上面的内容不改）
+
+- 上面结论里“本台账不据此冻结任何策略进前瞻观察”是 2026-10 写的当时状态。之后 owner 在 2026-10-24 决定把 **BT4b** 按本台账登记的规则
+  原样放进前瞻观察（`docs/forward_observation_checklist.md` B4 组；记录见 `docs/forward_observation_log.md` B4）。规则和本台账的判定都没有改。
