@@ -332,6 +332,14 @@ t = 2003–2026 月超额 t；门槛 3.02。
   - Running totals: 0 months recorded. Cumulative excess vs ONEQ is n/a. Abandon rule (−25 points): not triggered, no data.
   - Note for the first real update: the in-sample run in 3.6 ended its account on 2026-07-31 while QC prices stopped on 2026-07-09. Its July 2026 month is therefore partial; it is not part of the forward window.
 
+- **2026-11-12: months 2026-08 and 2026-09 still pending — QC data now ends 2026-08-14.**
+  - Data check: the same probe project `ForwardObs_DataProbe` (37583373), with only its dates changed to 2026-07-01 .. 2026-11-11, backtest `dc6714411bfa6e2c7f859a971cb8575a`. It placed no orders and computed no strategy returns.
+    - The last daily bar for SPY, QQQ and ONEQ is the 2026-08-14 session.
+    - The last universe selection with fundamentals was 2026-08-14, covering 4,908 names.
+  - The 2026-07-31 close (August selection) is now on QC, but August's return runs to the 2026-09-01 rebalance close, which is not. Per step 1 nothing is recorded and the frozen rule was not run; no other source was substituted.
+  - QC's US equity data lag about three months (2026-07-09 on 2026-10-09; 2026-08-14 on 2026-11-12). At that pace 2026-08 can be recorded around mid-December 2026.
+  - Running totals unchanged: 0 months recorded; abandon rule not triggered.
+
 | Month | Picks (raw top 10, flags a/b/c/d) | Strategy raw | Strategy filtered | ONEQ | Excess raw / filtered | Cum. excess since 2026-08 raw / filtered | Abandon (≤ −25 pts)? | Note |
 |---|---|---|---|---|---|---|---|---|
 | 2026-08 | pending | — | — | — | — | — | — | QC data ends 2026-07-09 (checked 2026-10-09) |
