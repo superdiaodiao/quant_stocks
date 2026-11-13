@@ -6,17 +6,17 @@
    "status": "ok"
   },
   {
-   "message": "all 30 series end at the last completed session 2026-11-11",
+   "message": "all 30 series end at the last completed session 2026-11-12",
    "name": "data_freshness",
    "status": "ok"
   },
   {
-   "message": "30 series clean from 2026-08-28 to 2026-11-11 (sessions, positive prices, day moves within the frozen bounds)",
+   "message": "30 series clean from 2026-08-28 to 2026-11-12 (sessions, positive prices, day moves within the frozen bounds)",
    "name": "data_integrity",
    "status": "ok"
   },
   {
-   "message": "30 series vs alpaca, yahoo: 1220 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%); 2 large move(s) confirmed",
+   "message": "30 series vs alpaca, yahoo: 1260 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%); 2 large move(s) confirmed",
    "name": "vendor_agreement",
    "status": "ok"
   },
@@ -31,7 +31,7 @@
    "status": "ok"
   },
   {
-   "message": "1 signal file(s) valid (2026-10-30); B3 line through 2026-11-11",
+   "message": "1 signal file(s) valid (2026-10-30); B3 line through 2026-11-12",
    "name": "b3_signal",
    "status": "ok"
   },
@@ -49,22 +49,22 @@
    "status": "warn"
   },
   {
-   "message": "17 B4 series fresh for the session 2026-11-11 (BTC through 2026-11-11)",
+   "message": "17 B4 series fresh for the session 2026-11-12 (BTC through 2026-11-12)",
    "name": "b4_data_freshness",
    "status": "ok"
   },
   {
-   "message": "16 B4 series clean to 2026-11-11 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
+   "message": "16 B4 series clean to 2026-11-12 (QLD / IBIT from 2026-08-28, held mega-caps from 2026-10-30)",
    "name": "b4_data_integrity",
    "status": "ok"
   },
   {
-   "message": "15 series vs alpaca, yahoo: 476 days agree (closes within 0.2%; day total returns within 1%); 2 large move(s) confirmed; BTC vs coinbase (38 days)",
+   "message": "15 series vs alpaca, yahoo: 493 days agree (closes within 0.2%; day total returns within 1%); 2 large move(s) confirmed; BTC vs coinbase (39 days)",
    "name": "b4_vendor_agreement",
    "status": "ok"
   },
   {
-   "message": "B4 rules recomputed: LEV-B3 14 decision(s), state off, V3 2 month-end decision(s), BT4b 1 rebalance(s), M1 1 rebalance(s), M2 1 rebalance(s), M3 1 rebalance(s), M6 1 rebalance(s)",
+   "message": "B4 rules recomputed: LEV-B3 15 decision(s), state off, V3 2 month-end decision(s), BT4b 1 rebalance(s), M1 1 rebalance(s), M2 1 rebalance(s), M3 1 rebalance(s), M6 1 rebalance(s)",
    "name": "b4_rules",
    "status": "ok"
   },
@@ -84,24 +84,21 @@
    "status": "ok"
   }
  ],
- "data_end": "2026-11-11",
+ "data_end": "2026-11-12",
  "host": "actions",
- "last_run_session": "2026-11-11",
+ "last_run_session": "2026-11-12",
  "next_session": [
-  "B1 NVDA: open since 11-06 (holding day 4 of 20; sell limit resting)",
-  "B1 GOOGL: open since 10-30 (holding day 9 of 20; sell limit resting)",
-  "B1 META: open since 10-23 (holding day 14 of 20; sell limit resting)",
-  "B1 CSCO: open since 11-06 (holding day 4 of 20; sell limit resting)",
-  "B1 INTC: open since 11-11 (holding day 1 of 20; sell limit resting)",
-  "B1 AMD: open since 10-19 (holding day 18 of 20; sell limit resting)",
-  "B2 RSI2 at the 11-11 close: 81.2 (entry level 2.3, exit level 60.6)",
-  "LEV-B3: SMA200 state off at the 11-11 close (QQQ +1.4% vs its SMA200; on above +2%, off below -2%)",
-  "V3: min(1.5, sigma_LR / sigma_20) at the 11-11 close 0.744 (decided at the month end)",
-  "BT4b: BTC weight 0.097 at the 11-11 close (rebalanced to 10% at the close after each month end)",
+  "B1 NVDA: open since 11-06 (holding day 5 of 20; sell limit resting)",
+  "B1 META: open since 10-23 (holding day 15 of 20; sell limit resting)",
+  "B1 INTC: open since 11-11 (holding day 2 of 20; sell limit resting)",
+  "B2 RSI2 at the 11-12 close: 70.2 (entry level 2.3, exit level 60.6)",
+  "LEV-B3: SMA200 state off at the 11-12 close (QQQ +1.1% vs its SMA200; on above +2%, off below -2%)",
+  "V3: min(1.5, sigma_LR / sigma_20) at the 11-12 close 0.744 (decided at the month end)",
+  "BT4b: BTC weight 0.096 at the 11-12 close (rebalanced to 10% at the close after each month end)",
   "mega-cap: next signal at the month's last session (computed by the next session's run)"
  ],
  "schema": 2,
- "session": "2026-11-11",
+ "session": "2026-11-12",
  "sources": {
   "cross_check": "on",
   "stored": "tiingo"
