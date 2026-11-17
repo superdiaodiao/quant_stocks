@@ -104,8 +104,13 @@ Nasdaq 股票的月度选股研究项目。现在运行的是 **v50r3**：每月
 | `Portable tests` | 每次 push/PR | 跑不依赖数据包的测试，复验 r1/r2/r3 协议 |
 | `sue-lt-v1 scheduler` | 每小时 :23、:53（UTC）+ 手动 | 读 `live/sue-lt-v1`，等 Nasdaq 发布数据后跑月末选股或每日估值，结果发到 issue #4 |
 | `sue-lt-v1 window waker` | 工作日 19:11/21:11/23:11 UTC | 月末窗口里等数据发布，一发布就启动 sue-lt-v1 scheduler |
-| `sue-lt-v1 watchdog` | 每天 13:41 UTC；每月 28 日到次月 5 日每小时 | 错过月份、估值落后超过 2 个交易日、协议或代码被改、期满后没写终止记录时，在 issue #4 报告一次；新出现的问题会让它变红 |
+| `sue-lt-v1 watchdog` | 每天 13:41 UTC；每月 28 日到次月 5 日每小时 | 错过月份、估值落后超过 2 个交易日、协议或代码被改、期满后没写终止记录、选股窗口内 Nasdaq 不回应 GitHub 的请求时，在 issue #4 报告一次；新出现的问题会让它变红 |
 | `sue-lt-v1 rehearsal` / `sue-lt-v1 freeze` | 手动（freeze 已于 2026-11-02 执行，会拒绝再跑） | 演练一次月末选股（不写账本）/ 一次性冻结 |
+
+**GitHub 取不到 Nasdaq 数据时的本机备用**：2026-11-10 起约 35 小时，Nasdaq 对 GitHub 的机器一律返回 HTTP 403，
+而选股窗口只有 11.5 小时，错过不补。`scripts/sue_lt_v1_local_fallback.sh` 从本机的 `live/sue-lt-v1` 副本运行
+同一份冻结代码并推送账本：`setup` 建副本和环境，`status` 只看不做，`run` 跑到期的选股，`rehearse --as-of` 演练。
+2026-11-17 在本机演练 2026-10-30 的选股，10 只股票与 GitHub 演练一致，用时 1 小时 45 分。
 
 旧的 CAN SLIM 日常流程（`workflow_run_script.yml`）已删除。v50r2 已被 r3
 接替，从未产生过信号。

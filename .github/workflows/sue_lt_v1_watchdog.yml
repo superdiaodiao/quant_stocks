@@ -5,7 +5,9 @@ name: sue-lt-v1 watchdog
 # live/sue-lt-v1, re-verifies the frozen protocol, code closure and data
 # release, and reports on the observation issue, once each: a month-end
 # SIGNAL window that closed without a signal, marks more than two completed
-# sessions behind, or a check that fails. Such a run also fails, which
+# sessions behind, Nasdaq answering none of this runner's requests while a
+# SIGNAL window is open (scripts/sue_lt_v1_local_fallback.sh then runs the
+# SIGNAL from the owner's machine), or a check that fails. Such a run also fails, which
 # GitHub reports to the repository owner. Hourly around the month end, once
 # a day otherwise. It never stages, marks or backfills.
 #

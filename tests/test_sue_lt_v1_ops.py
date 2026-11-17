@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 import pandas as pd
 
@@ -126,3 +127,61 @@ def test_the_end_is_overdue_only_after_a_day_of_scheduler_runs(tmp_path):
     events = live.read_ledger(path)
     assert not watchdog.terminal_overdue(events, _utc("2027-11-01T20:41:00"))
     assert watchdog.terminal_overdue(events, _utc("2027-11-02T21:00:00"))
+
+
+def test_watchdog_tells_a_refusal_from_a_session_not_published_yet():
+    session = pd.Timestamp("2026-11-30")
+
+    def refuse(symbol, *args, **kwargs):
+        raise RuntimeError(f"{symbol}: HTTP Error 403: Forbidden")
+
+    assert watchdog.nasdaq_refusal(session, refuse) == "RuntimeError: QQQ: HTTP Error 403: Forbidden"
+    asked = []
+
+    def one_answer(symbol, *args, **kwargs):
+        asked.append(symbol)
+        if symbol == "QQQ":
+            raise RuntimeError("QQQ: timed out")
+        return pd.DataFrame()  # answered, without the session's row
+
+    assert watchdog.nasdaq_refusal(session, one_answer) is None
+    assert asked == ["QQQ", "AAPL"]
+
+
+def test_watchdog_alarms_on_a_refusal_only_while_a_signal_window_is_open(tmp_path, monkeypatch):
+    refusal = "RuntimeError: QQQ: HTTP Error 403: Forbidden"
+    out = tmp_path / "decision.json"
+    monkeypatch.setattr(watchdog.live, "read_ledger", lambda path: [])
+    monkeypatch.setattr(watchdog, "nasdaq_refusal", lambda session: refusal)
+    monkeypatch.setattr(watchdog.runner, "check",
+                        lambda: ({"action": "RUN_SIGNAL", "as_of": "2026-11-30", "missed": []}, 0))
+    assert watchdog.main(str(out), _utc("2026-12-01T03:00:00")) == 1
+    decision = json.loads(out.read_text(encoding="utf-8"))
+    assert decision["nasdaq_refused"] == refusal
+    assert decision["signal_window_closes"] == "2026-12-01T09:00:00+00:00"
+
+    monkeypatch.setattr(watchdog.runner, "check",
+                        lambda: ({"action": "NOTHING_DUE", "as_of": None, "missed": []}, 0))
+    assert watchdog.main(str(out), _utc("2026-11-17T03:00:00")) == 0
+    assert "nasdaq_refused" not in json.loads(out.read_text(encoding="utf-8"))
+
+    def broken(session):
+        raise ValueError("the probe broke")
+
+    monkeypatch.setattr(watchdog, "nasdaq_refusal", broken)
+    monkeypatch.setattr(watchdog.runner, "check",
+                        lambda: ({"action": "RUN_SIGNAL", "as_of": "2026-11-30", "missed": []}, 0))
+    assert watchdog.main(str(out), _utc("2026-12-01T03:00:00")) == 0
+
+
+def test_a_refusal_is_reported_once_per_month_end_with_the_local_fallback():
+    decision = {"action": "RUN_SIGNAL", "as_of": "2026-11-30", "missed": [],
+                "nasdaq_refused": "RuntimeError: QQQ: HTTP Error 403: Forbidden",
+                "signal_window_closes": "2026-12-01T09:00:00+00:00"}
+    body, key = notify.refused_comment(decision)
+    assert key == "refused:2026-11-30"
+    assert "HTTP Error 403" in body
+    assert "北京时间 12-01 17:00" in body
+    assert "scripts/sue_lt_v1_local_fallback.sh run" in body
+    assert notify.refused_comment({"action": "RUN_SIGNAL", "as_of": "2026-11-30", "missed": []}) is None
+    assert notify.refused_comment(None) is None

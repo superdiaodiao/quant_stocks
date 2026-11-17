@@ -11,8 +11,9 @@ the pinned code. It reports:
   not back-adjusted yet);
 - the end of the observation (early stop or end date);
 - a failed run, a missed month, a SIGNAL held by names without a close,
-  marks that fall behind, a final valuation that is overdue, and a check
-  that fails, each once (a hidden key in the comment remembers what was sent).
+  marks that fall behind, a final valuation that is overdue, Nasdaq refusing
+  GitHub's runners while a SIGNAL window is open, and a check that fails,
+  each once (a hidden key in the comment remembers what was sent).
 
 A run whose session is not published yet stays quiet: a later run retries.
 Before a SIGNAL, ``--still-held`` says whether the names that held the
@@ -27,7 +28,7 @@ scheduler does not download everything again for nothing.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -230,6 +231,29 @@ def behind_message(latest: str | None, sessions: int) -> str:
             "可能是数据一直没发布、某只持仓一直卡住，或调度器没有运行。" + _link())
 
 
+def refused_message(as_of: str, error: str, closes: str | None) -> str:
+    deadline = "下一个交易日纽约时间 04:00"
+    if closes:
+        beijing = datetime.fromisoformat(closes).astimezone(timezone(timedelta(hours=8)))
+        deadline = f"北京时间 {beijing:%m-%d %H:%M}"
+    return (f"**{as_of} 月末选股：Nasdaq 不回应 GitHub 的请求**（`{error.replace('`', '')}`）。"
+            "调度、窗口唤醒和手动触发都在 GitHub 的机器上运行，现在都取不到数据。"
+            f"窗口在{deadline}关闭，错过的月份按规则不补。\n\n"
+            "在自己的电脑上运行备用脚本（选股约需 2 小时，必须在窗口关闭前跑完）：\n\n"
+            "```\nscripts/sue_lt_v1_local_fallback.sh status\nscripts/sue_lt_v1_local_fallback.sh run\n```\n\n"
+            "同一个月末只报告一次。Nasdaq 恢复后 GitHub 上的调度会自己继续；两边都跑完时，先推送的一方生效。"
+            + _link())
+
+
+def refused_comment(decision: dict | None) -> tuple[str, str] | None:
+    """The alarm for a SIGNAL window in which Nasdaq turns GitHub away, once per month end."""
+    error = (decision or {}).get("nasdaq_refused")
+    if not error:
+        return None
+    as_of = decision.get("as_of") or ""
+    return refused_message(as_of, error, decision.get("signal_window_closes")), f"refused:{as_of}"
+
+
 # ------------------------------------------------------------------ what to send
 
 
@@ -317,6 +341,9 @@ def main() -> None:
             comments.append((behind_message(latest, behind), f"behind:{latest}"))
         if (decision or {}).get("terminal_overdue"):
             comments.append((overdue_message(), "terminal-overdue"))
+        refused = refused_comment(decision)
+        if refused:
+            comments.append(refused)
     else:
         comments = compose(args.result, args.action, decision, _json(args.run), log, _events(), today)
     if not comments:

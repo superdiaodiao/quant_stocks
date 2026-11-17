@@ -8,9 +8,13 @@ a close ends each scheduler run quietly). It writes the decision for the
 notifier and exits 1 when something needs a look, so GitHub also reports
 the failed run: a check that fails, marks more than two sessions behind, a
 SIGNAL window that closed in the last three days without a signal, or no
-terminal record once two sessions after the end date have completed. A month
-missed longer ago stays reported on the issue but no longer fails the job,
-since a missed month is never caught up.
+terminal record once two sessions after the end date have completed, or
+Nasdaq answering none of this runner's requests while a SIGNAL window is
+open (the scheduler takes that for "not published yet" and waits quietly,
+and a window that closes is not caught up; scripts/sue_lt_v1_local_fallback.sh
+runs the SIGNAL from the owner's machine). A month missed longer ago stays
+reported on the issue but no longer fails the job, since a missed month is
+never caught up.
 
     PYTHONPATH=. python sue_lt_v1_watchdog.py decision.json
 """
@@ -29,6 +33,32 @@ from src.research import sue_live as live
 
 MAXIMUM_SESSIONS_BEHIND = 2
 RECENTLY_MISSED = timedelta(days=3)
+PROBES = (("QQQ", "etf"), ("AAPL", "stocks"), ("MSFT", "stocks"))
+PROBE_DAYS = 30
+
+
+def nasdaq_refusal(session: pd.Timestamp, fetch=None) -> str | None:
+    """How Nasdaq turns this machine away, when it answers none of the probes.
+
+    A session that is not published yet still gets an answer, without that
+    session's row; a refusal fails every request. From 2026-11-10T22:20Z
+    Nasdaq answered GitHub's runners HTTP 403 for about 35 hours, three times
+    the length of a SIGNAL window.
+    """
+    if fetch is None:
+        from src.io import nasdaq_update
+
+        fetch = nasdaq_update.fetch_history
+    errors = []
+    for symbol, asset_class in PROBES:
+        try:
+            fetch(symbol, (session - timedelta(days=PROBE_DAYS)).date(), session.date(),
+                  asset_class=asset_class, retries=1)
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+        else:
+            return None
+    return errors[0][:200]
 
 
 def sessions_behind(events: list[dict], now: datetime) -> tuple[int | None, str | None]:
@@ -69,6 +99,8 @@ def needs_a_look(decision: dict, code: int, now: datetime) -> bool:
         return True
     if decision.get("terminal_overdue"):
         return True
+    if decision.get("nasdaq_refused"):
+        return True
     return any(now - schedule.signal_window(pd.Timestamp(day))[1] < RECENTLY_MISSED
                for day in decision.get("missed") or [])
 
@@ -83,6 +115,16 @@ def main(path: str, now: datetime | None = None) -> int:
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("")
         return 1
+    if decision.get("action") == "RUN_SIGNAL":
+        as_of = pd.Timestamp(decision["as_of"])
+        try:
+            refused = nasdaq_refusal(as_of)
+        except Exception:  # the probe itself never fails the watchdog
+            traceback.print_exc()
+            refused = None
+        if refused:
+            decision["nasdaq_refused"] = refused
+            decision["signal_window_closes"] = schedule.signal_window(as_of)[1].isoformat(timespec="seconds")
     behind, latest = sessions_behind(events, now)
     decision.update({"sessions_behind": behind, "latest_valuation": latest,
                      "terminal_overdue": terminal_overdue(events, now)})
