@@ -16,7 +16,7 @@
    "status": "ok"
   },
   {
-   "message": "30 series vs alpaca, yahoo: 1454 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
+   "message": "30 series vs alpaca, yahoo: 1460 days agree (closes within 0.2%, B3 shorts 0.5%; day total returns within 1%)",
    "name": "vendor_agreement",
    "status": "ok"
   },
@@ -59,7 +59,7 @@
    "status": "ok"
   },
   {
-   "message": "15 series vs alpaca, yahoo: 573 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (46 days)",
+   "message": "15 series vs alpaca, yahoo: 578 days agree (closes within 0.2%; day total returns within 1%); BTC vs coinbase (46 days)",
    "name": "b4_vendor_agreement",
    "status": "ok"
   },
