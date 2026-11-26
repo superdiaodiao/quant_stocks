@@ -40,11 +40,11 @@ The B3 table (S-MISP short overlay) has its own columns and evaluation; they are
 
 ## Status
 
-- As-of date of the last run: 2026-11-24; data through: 2026-11-24.
-- B1 S3-Yb (U18 basket): 2 month(s) through 2026-11; cumulative excess vs H_match +0.11 pp; no verdict before month 24, verdict at month 36.
-- B2 SEL-A (QQQ, config 29876): 2 month(s) through 2026-11; cumulative excess vs H_match -0.27 pp; no verdict before month 24, verdict at month 36.
-- B2 SEL-P (QQQ, config 29916): 2 month(s) through 2026-11; cumulative excess vs H_match -0.27 pp; no verdict before month 24, verdict at month 36.
-- B3 S-MISP short overlay (N=10, k=20%, MN): 1 month(s) through 2026-11; cumulative excess vs ONEQ +3.28 pp; no verdict before month 24, verdict at month 36.
+- As-of date of the last run: 2026-11-25; data through: 2026-11-25.
+- B1 S3-Yb (U18 basket): 2 month(s) through 2026-11; cumulative excess vs H_match +0.10 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-A (QQQ, config 29876): 2 month(s) through 2026-11; cumulative excess vs H_match -0.25 pp; no verdict before month 24, verdict at month 36.
+- B2 SEL-P (QQQ, config 29916): 2 month(s) through 2026-11; cumulative excess vs H_match -0.25 pp; no verdict before month 24, verdict at month 36.
+- B3 S-MISP short overlay (N=10, k=20%, MN): 1 month(s) through 2026-11; cumulative excess vs ONEQ +2.84 pp; no verdict before month 24, verdict at month 36.
 
 ## B1 S3-Yb (U18 basket)
 
@@ -54,7 +54,7 @@ Rule: config `S3-Yb`, stock parameters (`scripts/research_selective_t.py`).
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-10 | 1 | INTC 10-14→open; AMD 10-19→open; META 10-23→open; GOOGL 10-30→open | -4.58% | -3.99% | -4.49% | 0.750 | -6.65% | -0.09 | -0.09 |  | 10-13..10-30 (14) | final |
-| 2026-11 | 2 | INTC 10-14→11-10 -41.67% time; AMD 10-19→11-12 +5.92% tgt; META 10-23→11-13 +0.28% tgt; GOOGL 10-30→11-12 +5.92% tgt; AVGO 11-06→11-10 +5.92% tgt; CSCO 11-06→11-12 +5.92% tgt; NVDA 11-06→open; INTC 11-11→open; AMD 11-23→open; QCOM 11-23→open; TSLA 11-23→11-23 +2.61% tgt | -2.43% | -2.49% | -2.63% | 0.759 | -6.54% | +0.21 | +0.11 |  | 11-02..11-24 (17) | provisional |
+| 2026-11 | 2 | INTC 10-14→11-10 -41.67% time; AMD 10-19→11-12 +5.92% tgt; META 10-23→11-13 +0.28% tgt; GOOGL 10-30→11-12 +5.92% tgt; AVGO 11-06→11-10 +5.92% tgt; CSCO 11-06→11-12 +5.92% tgt; NVDA 11-06→open; INTC 11-11→open; AMD 11-23→open; QCOM 11-23→11-25 +1.90% tgt; TSLA 11-23→11-23 +2.61% tgt | -2.68% | -2.69% | -2.87% | 0.759 | -7.16% | +0.19 | +0.10 |  | 11-02..11-25 (18) | provisional |
 <!-- table:B1:end -->
 
 ## B2 SEL-A (QQQ, config 29876)
@@ -65,7 +65,7 @@ Rule: config 29876 `RSI2 p2 B OPP H10 1/2 res25 ALL` (`scripts/research_t_grid.p
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-10 | 1 | 10-19→10-22 -0.89% tgt | -5.76% | -5.57% | -5.88% | 0.787 | -6.65% | +0.12 | +0.12 |  | 10-13..10-30 (14) | final |
-| 2026-11 | 2 | 11-23→11-24 -2.49% tgt | -6.08% | -5.55% | -5.68% | 0.760 | -6.54% | -0.40 | -0.27 |  | 11-02..11-24 (17) | provisional |
+| 2026-11 | 2 | 11-23→11-24 -2.49% tgt | -6.52% | -5.99% | -6.14% | 0.759 | -7.16% | -0.39 | -0.25 |  | 11-02..11-25 (18) | provisional |
 <!-- table:SEL-A:end -->
 
 ## B2 SEL-P (QQQ, config 29916)
@@ -76,7 +76,7 @@ Rule: config 29916 `RSI2 p2 B OPP H20 1 res25 ALL` (`scripts/research_t_grid.py`
 | month | n | T-trades | strategy | H_base | H_match | w | ONEQ | excess vs H_match (pp) | cum. excess vs H_match (pp) | t | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-10 | 1 | 10-19→10-22 -0.89% tgt | -5.76% | -5.57% | -5.88% | 0.787 | -6.65% | +0.12 | +0.12 |  | 10-13..10-30 (14) | final |
-| 2026-11 | 2 | 11-23→11-24 -2.49% tgt | -6.08% | -5.55% | -5.68% | 0.760 | -6.54% | -0.40 | -0.27 |  | 11-02..11-24 (17) | provisional |
+| 2026-11 | 2 | 11-23→11-24 -2.49% tgt | -6.52% | -5.99% | -6.14% | 0.759 | -7.16% | -0.39 | -0.25 |  | 11-02..11-25 (18) | provisional |
 <!-- table:SEL-P:end -->
 
 ## B3 S-MISP short overlay (N=10, k=20%, MN)
@@ -109,7 +109,7 @@ The registered tiered borrow fee is the rule; the IBKR fees are report only.
 <!-- table:B3:start -->
 | month | n | shorts (after the month's rebalance) | strategy | QQQ | ONEQ | excess vs ONEQ (pp) | short leg (holding period) | short leg − QQQ (pp) | IBKR fee mean / max (%/yr) | unborrowable / not in IBKR file | strategy at IBKR fees | cum. excess vs ONEQ (pp) | t | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | AAOI APLD ASTS AVAV CELH CRWV IONS KTOS RGTI SMCI | -2.32% | -6.31% | -5.60% | +3.28 | -22.94% (11-02→11-24) | -16.63 | no snapshot | none | -2.32% | +3.28 |  | provisional |
+| 2026-11 | 1 | AAOI APLD ASTS AVAV CELH CRWV IONS KTOS RGTI SMCI | -3.39% | -6.92% | -6.23% | +2.84 | -21.08% (11-02→11-25) | -14.16 | no snapshot | none | -3.39% | +2.84 |  | provisional |
 <!-- table:B3:end -->
 
 ## B4: seven candidates added 2026-10-24
@@ -144,14 +144,14 @@ edge. No early abandon rule. 36 months has low power for these high-tracking-err
 
 ### B4 status
 
-- As-of date of the B4 run: 2026-11-24.
-- B4 M1 mega-cap top 10, equal weight: 1 month(s) through 2026-11; cumulative excess vs ONEQ -0.79 pp; vs QQQ -0.08 pp; no verdict before month 24, verdict at month 36.
-- B4 M2 mega-cap top 5, equal weight: 1 month(s) through 2026-11; cumulative excess vs ONEQ +2.08 pp; vs QQQ +2.79 pp; no verdict before month 24, verdict at month 36.
-- B4 M3 mega-cap top 20, best 5 by 6-month momentum: 1 month(s) through 2026-11; cumulative excess vs ONEQ -3.83 pp; vs QQQ -3.12 pp; no verdict before month 24, verdict at month 36.
-- B4 M6 mega-cap top 10, cap-weighted: 1 month(s) through 2026-11; cumulative excess vs ONEQ +0.08 pp; vs QQQ +0.79 pp; no verdict before month 24, verdict at month 36.
-- B4 LEV-B3 QQQ SMA200 1.5x / 1.0x (sector_lev B3): 2 month(s) through 2026-11; cumulative excess vs ONEQ -5.16 pp; vs constant 1.37x +0.27 pp; no verdict before month 24, verdict at month 36.
-- B4 V3 QQQ volatility target (long-run vol / 20-day vol, cap 1.5x): 2 month(s) through 2026-11; cumulative excess vs ONEQ -4.66 pp; vs constant ē to date +0.21 pp; no verdict before month 24, verdict at month 36.
-- B4 BT4b 90% QQQ + 10% BTC, monthly: 1 month(s) through 2026-11; cumulative excess vs ONEQ -2.29 pp; vs QQQ -1.58 pp; no verdict before month 24, verdict at month 36.
+- As-of date of the B4 run: 2026-11-25.
+- B4 M1 mega-cap top 10, equal weight: 1 month(s) through 2026-11; cumulative excess vs ONEQ -1.09 pp; vs QQQ -0.39 pp; no verdict before month 24, verdict at month 36.
+- B4 M2 mega-cap top 5, equal weight: 1 month(s) through 2026-11; cumulative excess vs ONEQ +0.88 pp; vs QQQ +1.58 pp; no verdict before month 24, verdict at month 36.
+- B4 M3 mega-cap top 20, best 5 by 6-month momentum: 1 month(s) through 2026-11; cumulative excess vs ONEQ -4.00 pp; vs QQQ -3.30 pp; no verdict before month 24, verdict at month 36.
+- B4 M6 mega-cap top 10, cap-weighted: 1 month(s) through 2026-11; cumulative excess vs ONEQ -0.43 pp; vs QQQ +0.26 pp; no verdict before month 24, verdict at month 36.
+- B4 LEV-B3 QQQ SMA200 1.5x / 1.0x (sector_lev B3): 2 month(s) through 2026-11; cumulative excess vs ONEQ -5.12 pp; vs constant 1.37x +0.48 pp; no verdict before month 24, verdict at month 36.
+- B4 V3 QQQ volatility target (long-run vol / 20-day vol, cap 1.5x): 2 month(s) through 2026-11; cumulative excess vs ONEQ -4.72 pp; vs constant ē to date +0.21 pp; no verdict before month 24, verdict at month 36.
+- B4 BT4b 90% QQQ + 10% BTC, monthly: 1 month(s) through 2026-11; cumulative excess vs ONEQ -2.13 pp; vs QQQ -1.43 pp; no verdict before month 24, verdict at month 36.
 
 ### B4 M1 mega-cap top 10, equal weight
 
@@ -160,7 +160,7 @@ Top 10 Nasdaq common stocks by point-in-time market cap (one class per company),
 <!-- table:M1:start -->
 | month | n | holdings after the month's rebalance | strategy | ONEQ | QQQ | excess vs ONEQ (pp) | excess vs QQQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs QQQ (pp) | t vs QQQ | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN SPCX AVGO META TSLA MU | -6.39% | -5.60% | -6.31% | -0.79 | -0.08 | -0.79 |  | -0.08 |  | 11-03..11-24 (16) | provisional |
+| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN SPCX AVGO META TSLA MU | -7.31% | -6.23% | -6.92% | -1.09 | -0.39 | -1.09 |  | -0.39 |  | 11-03..11-25 (17) | provisional |
 <!-- table:M1:end -->
 
 ### B4 M2 mega-cap top 5, equal weight
@@ -170,7 +170,7 @@ Top 5 by point-in-time market cap, equal weight. Signal at each month's last ses
 <!-- table:M2:start -->
 | month | n | holdings after the month's rebalance | strategy | ONEQ | QQQ | excess vs ONEQ (pp) | excess vs QQQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs QQQ (pp) | t vs QQQ | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN | -3.52% | -5.60% | -6.31% | +2.08 | +2.79 | +2.08 |  | +2.79 |  | 11-03..11-24 (16) | provisional |
+| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN | -5.35% | -6.23% | -6.92% | +0.88 | +1.58 | +0.88 |  | +1.58 |  | 11-03..11-25 (17) | provisional |
 <!-- table:M2:end -->
 
 ### B4 M3 mega-cap top 20, best 5 by 6-month momentum
@@ -180,7 +180,7 @@ Among the top 20 by market cap, the 5 with the best 126-session total return, eq
 <!-- table:M3:start -->
 | month | n | holdings after the month's rebalance | strategy | ONEQ | QQQ | excess vs ONEQ (pp) | excess vs QQQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs QQQ (pp) | t vs QQQ | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | PANW MU AMD PLTR MSFT | -9.43% | -5.60% | -6.31% | -3.83 | -3.12 | -3.83 |  | -3.12 |  | 11-03..11-24 (16) | provisional |
+| 2026-11 | 1 | PANW MU AMD PLTR MSFT | -10.22% | -6.23% | -6.92% | -4.00 | -3.30 | -4.00 |  | -3.30 |  | 11-03..11-25 (17) | provisional |
 <!-- table:M3:end -->
 
 ### B4 M6 mega-cap top 10, cap-weighted
@@ -190,7 +190,7 @@ Top 10 by market cap, weighted by market cap (a sanity line: should track QQQ). 
 <!-- table:M6:start -->
 | month | n | holdings after the month's rebalance | strategy | ONEQ | QQQ | excess vs ONEQ (pp) | excess vs QQQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs QQQ (pp) | t vs QQQ | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN SPCX AVGO META TSLA MU | -5.52% | -5.60% | -6.31% | +0.08 | +0.79 | +0.08 |  | +0.79 |  | 11-03..11-24 (16) | provisional |
+| 2026-11 | 1 | AAPL NVDA MSFT GOOGL AMZN SPCX AVGO META TSLA MU | -6.66% | -6.23% | -6.92% | -0.43 | +0.26 | -0.43 |  | +0.26 |  | 11-03..11-25 (17) | provisional |
 <!-- table:M6:end -->
 
 ### B4 LEV-B3 QQQ SMA200 1.5x / 1.0x (sector_lev B3)
@@ -201,7 +201,7 @@ QQQ adjusted close vs its 200-session SMA with a 2% band: on (above 1.02 × SMA)
 | month | n | SMA200 state | exposure (mean held) | strategy | constant 1.37x | excess vs 1.37x (pp) | ONEQ | QQQ | excess vs ONEQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs 1.37x (pp) | t vs 1.37x | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-10 | 1 | on | 1.502 | -4.61% | -4.21% | -0.41 | -2.81% | -3.05% | -1.80 | -1.80 |  | -0.41 |  | 10-27..10-30 (4) | final |
-| 2026-11 | 2 | off (→off 11-05) | 1.146 | -10.19% | -10.86% | +0.67 | -6.54% | -7.59% | -3.65 | -5.16 |  | +0.27 |  | 11-02..11-24 (17) | provisional |
+| 2026-11 | 2 | off (→off 11-05) | 1.138 | -10.78% | -11.65% | +0.88 | -7.16% | -8.19% | -3.62 | -5.12 |  | +0.48 |  | 11-02..11-25 (18) | provisional |
 <!-- table:LEV-B3:end -->
 
 ### B4 V3 QQQ volatility target (long-run vol / 20-day vol, cap 1.5x)
@@ -212,7 +212,7 @@ e = min(1.5, σLR / σ20) at each month end (σLR: std of every QQQ daily return
 | month | n | target e in force → next | exposure (mean held) | strategy | constant ē | ē to date | excess vs constant ē (pp) | ONEQ | QQQ | excess vs ONEQ (pp) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs constant ē (pp) | t vs constant ē | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-10 | 1 | 1.500 → 1.187 | 1.502 | -4.61% | -4.62% | 1.502 | +0.01 | -2.81% | -3.05% | -1.80 | -1.80 |  | +0.01 |  | 10-27..10-30 (4) | final |
-| 2026-11 | 2 | 1.187 | 1.201 | -9.66% | -9.87% | 1.258 | +0.21 | -6.54% | -7.59% | -3.12 | -4.66 |  | +0.21 |  | 11-02..11-24 (17) | provisional |
+| 2026-11 | 2 | 1.187 | 1.199 | -10.36% | -10.58% | 1.254 | +0.22 | -7.16% | -8.19% | -3.20 | -4.72 |  | +0.21 |  | 11-02..11-25 (18) | provisional |
 <!-- table:V3:end -->
 
 ### B4 BT4b 90% QQQ + 10% BTC, monthly
@@ -222,5 +222,5 @@ e = min(1.5, σLR / σ20) at each month end (σLR: std of every QQQ daily return
 <!-- table:BT4b:start -->
 | month | n | BTC weight (mean held) | BTC | strategy | ONEQ | QQQ | excess vs ONEQ (pp) | excess vs QQQ (pp) | IBIT variant (report only) | cum. excess vs ONEQ (pp) | t vs ONEQ | cum. excess vs QQQ (pp) | t vs QQQ | sessions | status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2026-11 | 1 | 0.094 | -22.08% | -7.89% | -5.60% | -6.31% | -2.29 | -1.58 | -7.89% | -2.29 |  | -1.58 |  | 11-03..11-24 (16) | provisional |
+| 2026-11 | 1 | 0.094 | -21.25% | -8.36% | -6.23% | -6.92% | -2.13 | -1.43 | -8.37% | -2.13 |  | -1.43 |  | 11-03..11-25 (17) | provisional |
 <!-- table:BT4b:end -->
