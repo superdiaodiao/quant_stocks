@@ -59,9 +59,13 @@
    "status": "ok"
   },
   {
-   "message": "15 series vs alpaca, yahoo: 646 days agree (closes within 0.2%; day total returns within 1%); 3 large move(s) confirmed; BTC vs coinbase (52 days)",
+   "items": [
+    "BTC 2026-11-13: Bitstamp close differs from coinbase by 6.41%",
+    "BTC 2026-11-14: day return differs from coinbase by 6.03 points"
+   ],
+   "message": "15 series vs alpaca, yahoo: 646 days agree (closes within 0.2%; day total returns within 1%); 3 large move(s) confirmed; BTC vs coinbase (52 days); 2 BTC failure(s), 0 BTC warning(s)",
    "name": "b4_vendor_agreement",
-   "status": "ok"
+   "status": "fail"
   },
   {
    "message": "B4 rules recomputed: LEV-B3 24 decision(s), state off, V3 2 month-end decision(s), BT4b 1 rebalance(s), M1 1 rebalance(s), M2 1 rebalance(s), M3 1 rebalance(s), M6 1 rebalance(s)",
@@ -103,5 +107,5 @@
   "cross_check": "on",
   "stored": "tiingo"
  },
- "status": "warn"
+ "status": "fail"
 }
